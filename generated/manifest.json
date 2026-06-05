@@ -1,16 +1,16 @@
 {
-  "abPropsConfigs": 2100,
+  "abPropsConfigs": 2111,
   "appstateActions": 65,
   "diagnostics": {
     "iq": {
       "candidateModules": 206,
-      "degradedResponses": 32,
+      "degradedResponses": 20,
       "dropsByReason": {
         "iq builder substring present but no AST iq call": 15,
         "namespace/type unresolved (dropped by guard)": 52
       },
       "stanzas": 146,
-      "typedResponses": 114,
+      "typedResponses": 126,
       "unparseable": 67
     }
   },
@@ -18,38 +18,38 @@
     "abprops": {
       "file": "abprops/index.json",
       "schema": "schema/abprops.schema.json",
-      "sha256": "8300cb09b2ec61c6bf313dbb09e8dc9774f8e8f4b1a76dff4ad1ef6bd1d4663d"
+      "sha256": "bac18cd5a22e3013cd0cadc58bd663107b5af280f5960517a9246c1b137107d1"
     },
     "appstate": {
       "file": "appstate/index.json",
       "schema": "schema/appstate.schema.json",
-      "sha256": "c842e07a81073852834cb57c64da1e359d7561a2640ce43e00b3eba77799123d"
+      "sha256": "cd3844322c1fbbc7c047dd2510709c7be3a922dc3aad019be7443e81e6f56bf3"
     },
     "enums": {
       "file": "enums/index.json",
       "schema": "schema/enums.schema.json",
-      "sha256": "646c9e3180258a6f3cdce96fdc1d711ae73120bc010ae3bcdc7a2cd8cef3a308"
+      "sha256": "36330b687b8511615be99a19899342a25610479fb22ba5f064eb97b1599b158c"
     },
     "iq": {
       "file": "iq/index.json",
       "schema": "schema/iq.schema.json",
-      "sha256": "14a56ccc7a3cd67414ca2a45a6875ddbe762225206fda2acee3d6a20aee9d708"
+      "sha256": "ae5ffb5e537a38ce0aa1536580de00271152e4c61d05d13b0d6a57c32eb18458"
     },
     "mex": {
       "file": "mex/index.json",
       "schema": "schema/mex.schema.json",
-      "sha256": "0345352bbea05a1f088a39c77174447d91aa81ad86e92a509df04207b20e1562"
+      "sha256": "e7842a37ead33d47f083cb310c3d5c63f5b24c2b20649bb7e7be866f2c5276fc"
     },
     "proto": {
       "file": "proto/WAProto.proto",
-      "sha256": "faa5954430ac6a089a5edf9c90b753492dcfafe39e89ad1d71012db5cb59f2d3"
+      "sha256": "6c96ba9bbc49c24e7dcf7e9ab982c29421c7b7789a7026017bcd4cd6a49f62bd"
     }
   },
-  "enumDefs": 244,
+  "enumDefs": 245,
   "generatorVersion": "0.1.0",
   "iqModules": 33,
   "mexOperations": 127,
   "protoEntities": 246,
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1040878135"
+  "waVersion": "2.3000.1040944432"
 }

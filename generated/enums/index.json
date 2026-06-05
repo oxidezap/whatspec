@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1040878135",
+  "waVersion": "2.3000.1040944432",
   "enums": [
     {
       "name": "DGWAuth",
@@ -3826,6 +3826,10 @@
         {
           "name": "PinMessage",
           "value": "pin_message"
+        },
+        {
+          "name": "CallLogOrphan",
+          "value": "call_log_orphan"
         },
         {
           "name": "Comment",
@@ -8603,6 +8607,33 @@
         {
           "name": "CameraPermissionDenied",
           "value": 6
+        }
+      ]
+    },
+    {
+      "name": "VideoQuality",
+      "module": "WAWebVoipUpdateRxSubscription",
+      "valueKind": "int",
+      "variants": [
+        {
+          "name": "DEFAULT",
+          "value": 0
+        },
+        {
+          "name": "LOW",
+          "value": 1
+        },
+        {
+          "name": "MEDIUM",
+          "value": 2
+        },
+        {
+          "name": "HIGH",
+          "value": 3
+        },
+        {
+          "name": "HD",
+          "value": 4
         }
       ]
     },

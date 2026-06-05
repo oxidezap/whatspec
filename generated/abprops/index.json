@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1040878135",
+  "waVersion": "2.3000.1040944432",
   "configs": [
     {
       "module": "WAWebABPropsConfigs",
@@ -1755,6 +1755,13 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "broadcast_to_your_followers_enabled",
+      "code": 31580,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "bug_reporting_attach_pathfinder_pre_bug_creation",
       "code": 26311,
       "valueType": "bool",
@@ -1832,6 +1839,27 @@
       "code": 2912,
       "valueType": "int",
       "default": 0
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "call_info_optimizations_1on1",
+      "code": 31095,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "call_info_optimizations_ahgc_call_link",
+      "code": 31096,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "call_info_optimizations_lgc",
+      "code": 31094,
+      "valueType": "bool",
+      "default": false
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -7345,6 +7373,22 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "poll_tc_receiving_enabled",
+      "code": 31592,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "poll_tc_sending_enabled",
+      "code": 31593,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "premium_blue_enabled",
       "code": 5318,
       "valueType": "bool",
@@ -9789,6 +9833,13 @@
       "valueType": "bool",
       "default": false,
       "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "wa_qp_exposure_log_via_graphql_enabled",
+      "code": 31560,
+      "valueType": "bool",
+      "default": false
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -12880,6 +12931,13 @@
       "default": false
     },
     {
+      "module": "WAWebABPropsConfigs",
+      "name": "youtube_inline_playback_killswitch",
+      "code": 3522,
+      "valueType": "bool",
+      "default": false
+    },
+    {
       "module": "WAWebGroupABPropsConfigs",
       "name": "group_history_messages_time_limit_secs_group_level",
       "code": 26270,
@@ -13313,6 +13371,27 @@
       "module": "WAWebHybridABPropsConfigs",
       "name": "bug_reporting_using_graphql",
       "code": 24161,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebHybridABPropsConfigs",
+      "name": "call_info_optimizations_1on1",
+      "code": 31095,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebHybridABPropsConfigs",
+      "name": "call_info_optimizations_ahgc_call_link",
+      "code": 31096,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebHybridABPropsConfigs",
+      "name": "call_info_optimizations_lgc",
+      "code": 31094,
       "valueType": "bool",
       "default": false
     },

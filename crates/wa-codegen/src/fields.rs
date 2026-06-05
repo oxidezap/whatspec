@@ -120,11 +120,35 @@ fn repeats(f: &ParsedField) -> bool {
     f.repeats == Some(true)
 }
 
+/// Hoist `same_node` fields (smax payload mixins nested under a key but read off
+/// the PARENT node) so the codegen sees a flat attr/child list. The IR keeps them
+/// nested for fidelity; the reference codegen flattens for a simple struct shape.
+/// Recurses into real child fields' children (where nested same-node mixins live).
+pub(crate) fn flatten_same_node(fields: &[ParsedField]) -> Vec<ParsedField> {
+    let mut out = Vec::new();
+    for f in fields {
+        if f.same_node {
+            out.extend(flatten_same_node(f.children.as_deref().unwrap_or(&[])));
+        } else {
+            let mut f = f.clone();
+            if let Some(kids) = &f.children {
+                f.children = Some(flatten_same_node(kids));
+            }
+            out.push(f);
+        }
+    }
+    out
+}
+
 /// Walk the response field tree, collecting top-level struct fields and any
-/// `<Tag>Item` child structs for repeating children.
+/// `<Prefix><Tag>Item` child structs for repeating children. `prefix` (the owning
+/// spec's base name) keeps child struct names unique across a namespace — two specs
+/// can have a same-tagged child with incompatible shapes (e.g. `tos` `<notice>`).
 pub(crate) fn collect_response_fields(
     fields: &[ParsedField],
+    prefix: &str,
 ) -> (Vec<RustField>, Vec<RustChildStruct>) {
+    let fields = &flatten_same_node(fields);
     let mut top_fields: Vec<RustField> = Vec::new();
     let mut child_structs: Vec<RustChildStruct> = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
@@ -171,7 +195,7 @@ pub(crate) fn collect_response_fields(
                 kids.iter().filter(|c| is_child_field(c)).collect();
 
             if repeats(f) {
-                let struct_name = format!("{}Item", pascal_case(tag_or_name(f)));
+                let struct_name = format!("{prefix}{}Item", pascal_case(tag_or_name(f)));
                 let mut struct_fields: Vec<RustField> = Vec::new();
 
                 for cf in &attr_children {
@@ -187,7 +211,7 @@ pub(crate) fn collect_response_fields(
 
                 for nf in &nested_children {
                     if repeats(nf) && !children_of(nf).is_empty() {
-                        let nested_struct = format!("{}Item", pascal_case(tag_or_name(nf)));
+                        let nested_struct = format!("{prefix}{}Item", pascal_case(tag_or_name(nf)));
                         let mut nested_fields: Vec<RustField> = Vec::new();
                         for ncf in children_of(nf).iter().filter(|c| is_attr_field(c)) {
                             if ncf.method == "hasAttr" {
@@ -244,7 +268,7 @@ pub(crate) fn collect_response_fields(
                 }
                 let nested_owned: Vec<ParsedField> =
                     nested_children.iter().map(|c| (*c).clone()).collect();
-                let (nested_top, nested_structs) = collect_response_fields(&nested_owned);
+                let (nested_top, nested_structs) = collect_response_fields(&nested_owned, prefix);
                 for nf in nested_top {
                     add_field(&mut top_fields, nf);
                 }

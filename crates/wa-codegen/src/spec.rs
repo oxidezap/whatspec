@@ -102,11 +102,15 @@ pub(crate) fn generate_spec(op: &IqStanzaDef, ns_const: &str, spec_name: &str) -
     }
 
     // ── Response type ──
+    // Child item structs are prefixed with the spec's base name so two specs in one
+    // namespace can carry same-tagged children with incompatible shapes without a
+    // struct-name collision (e.g. `tos` `<notice>` differs across specs).
+    let child_prefix = spec_name.trim_end_matches("Spec");
     let mut response_type_name: String;
     if is_confirmation {
         response_type_name = "()".to_string();
     } else {
-        let (mut top_fields, _) = collect_response_fields(&op.response.fields);
+        let (mut top_fields, _) = collect_response_fields(&op.response.fields, child_prefix);
         let mut seen = HashSet::new();
         top_fields.retain(|f| seen.insert(f.name.clone()));
         if top_fields.is_empty() {
@@ -165,15 +169,20 @@ pub(crate) fn generate_spec(op: &IqStanzaDef, ns_const: &str, spec_name: &str) -
     // parse_response — validate the parser can produce all struct fields.
     let mut can_generate = !effectively_confirmation;
     if can_generate {
-        let (check_fields, check_child_structs) = collect_response_fields(&op.response.fields);
+        let (check_fields, check_child_structs) =
+            collect_response_fields(&op.response.fields, child_prefix);
         let names: Vec<&str> = check_fields.iter().map(|f| f.name.as_str()).collect();
         if names.iter().collect::<HashSet<_>>().len() != names.len() {
             can_generate = false;
         }
         if can_generate {
-            let parser_code =
-                emit_response_parser(&op.response.fields, &response_type_name, "        ")
-                    .join("\n");
+            let parser_code = emit_response_parser(
+                &op.response.fields,
+                &response_type_name,
+                "        ",
+                child_prefix,
+            )
+            .join("\n");
             for f in &check_fields {
                 if !parser_code.contains(&format!("{},", f.name))
                     && !parser_code.contains(&format!("{}:", f.name))
@@ -240,6 +249,7 @@ pub(crate) fn generate_spec(op: &IqStanzaDef, ns_const: &str, spec_name: &str) -
             &op.response.fields,
             &response_type_name,
             "        ",
+            child_prefix,
         ));
     }
     lines.push("    }".to_string());

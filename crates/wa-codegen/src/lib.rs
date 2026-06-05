@@ -115,13 +115,55 @@ fn namespace_body(namespace: &str, operations: &[&IqStanzaDef]) -> Vec<String> {
     ));
     lines.push(String::new());
 
-    // Shared child item structs (deduped across the namespace's specs).
-    let mut all_child_structs: Vec<RustChildStruct> = Vec::new();
+    // Resolve each spec's final (collision-free) name and code first. Disambiguate
+    // deterministically: the same module often emits several `("iq", …)` variants
+    // that derive the same base name. Identical specs (same name + same code) are
+    // emitted once; genuinely different specs sharing a name get a stable numeric
+    // suffix in scan order. The final name is also the prefix for that spec's child
+    // item structs, so the struct definitions (below) and the parser references
+    // (inside `code`) line up.
+    let mut used_names: HashSet<String> = HashSet::new();
+    let mut emitted_code: HashSet<String> = HashSet::new();
+    let mut resolved: Vec<(&IqStanzaDef, String, String)> = Vec::new();
     for op in operations {
+        let base = spec_base_name(op);
+        // First, generate with the base name to detect exact duplicates.
+        let base_code = generate_spec(op, &ns_const, &base);
+        if used_names.contains(&base) {
+            if emitted_code.contains(&base_code) {
+                // Identical spec already emitted — skip the duplicate entirely.
+                continue;
+            }
+            // Same name, different spec → find the next free numeric suffix.
+            let mut n = 2;
+            let unique = loop {
+                let candidate = format!("{}{n}Spec", base.trim_end_matches("Spec"));
+                if !used_names.contains(&candidate) {
+                    break candidate;
+                }
+                n += 1;
+            };
+            let code = generate_spec(op, &ns_const, &unique);
+            used_names.insert(unique.clone());
+            emitted_code.insert(code.clone());
+            resolved.push((op, unique, code));
+        } else {
+            used_names.insert(base.clone());
+            emitted_code.insert(base_code.clone());
+            resolved.push((op, base, base_code));
+        }
+    }
+
+    // Shared child item structs, named `<SpecBase><Tag>Item` so two specs in this
+    // namespace can carry same-tagged children with incompatible shapes. Names are
+    // unique per spec now, so the dedup only collapses byte-identical specs.
+    let mut all_child_structs: Vec<RustChildStruct> = Vec::new();
+    for (op, spec_name, _) in &resolved {
         if op.response.fields.is_empty() {
             continue;
         }
-        let (_, mut child_structs) = collect_response_fields(&op.response.fields);
+        let prefix = spec_name.trim_end_matches("Spec");
+        let (_, mut child_structs) = collect_response_fields(&op.response.fields, prefix);
         for cs in &mut child_structs {
             let mut seen = HashSet::new();
             cs.fields.retain(|f| seen.insert(f.name.clone()));
@@ -159,40 +201,8 @@ fn namespace_body(namespace: &str, operations: &[&IqStanzaDef]) -> Vec<String> {
             .to_string(),
     );
     lines.push(String::new());
-    // Disambiguate struct names within the namespace deterministically: the same
-    // module often emits several `("iq", …)` variants that derive the same base
-    // name. Identical specs (same name + same code) are emitted once; genuinely
-    // different specs sharing a name get a stable numeric suffix in scan order, so
-    // the output stays byte-stable across runs.
-    let mut used_names: HashSet<String> = HashSet::new();
-    let mut emitted_code: HashSet<String> = HashSet::new();
-    for op in operations {
-        let base = spec_base_name(op);
-        // First, generate with the base name to detect exact duplicates.
-        let base_code = generate_spec(op, &ns_const, &base);
-        if used_names.contains(&base) {
-            if emitted_code.contains(&base_code) {
-                // Identical spec already emitted — skip the duplicate entirely.
-                continue;
-            }
-            // Same name, different spec → find the next free numeric suffix.
-            let mut n = 2;
-            let unique = loop {
-                let candidate = format!("{}{n}Spec", base.trim_end_matches("Spec"));
-                if !used_names.contains(&candidate) {
-                    break candidate;
-                }
-                n += 1;
-            };
-            let code = generate_spec(op, &ns_const, &unique);
-            used_names.insert(unique);
-            emitted_code.insert(code.clone());
-            lines.push(code);
-        } else {
-            used_names.insert(base);
-            emitted_code.insert(base_code.clone());
-            lines.push(base_code);
-        }
+    for (_, _, code) in &resolved {
+        lines.push(code.clone());
         lines.push(String::new());
     }
 

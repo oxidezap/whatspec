@@ -32,19 +32,91 @@
 //! unchanged. This analyzer is entirely separate from the legacy one (`response.rs`)
 //! to avoid any regression to its 33 stanzas / tests.
 
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{CallExpression, Expression, Function, Statement};
 use oxc_span::GetSpan;
 use wa_ir::wap;
-use wa_ir::{AssertionKind, ParsedField, ParsedFieldType, ParsedResponse, ResponseAssertion};
+use wa_ir::{
+    AssertionKind, ParsedField, ParsedFieldType, ParsedResponse, ResponseAssertion, UnionVariant,
+};
 
 use wa_oxc::{arg_expr, as_call, as_identifier, as_string_lit, callee_method};
 
 /// A module's local parser functions, keyed by name → re-parsable source. Child
 /// accessors reference these by identifier (`optionalChildWithTag(n, "x", parseX)`).
 type LocalFns = HashMap<String, String>;
+
+/// What a cross-module `o("WASmaxIn<M>").parse<Fn>(…)` call resolves to.
+#[derive(Clone)]
+pub(crate) enum Resolved {
+    /// A flat field list — a payload mixin or a plain parser on the same node.
+    Fields(Vec<ParsedField>),
+    /// A discriminated union — a `…MixinGroup`/`…Errors` disjunction (a cascade of
+    /// `o(mod).parseV(…) → {name:"V", value}` ending in `errorMixinDisjunction`).
+    Union(Vec<UnionVariant>),
+}
+
+/// Lazily resolves cross-module smax parsers (`o("WASmaxIn<M>").parse<Fn>`) against
+/// every `WASmaxIn*` module slice, memoizing by `module::fn` and breaking import
+/// cycles. Subsumes the old eager mixin index: a payload mixin is just a parser
+/// that resolves to [`Resolved::Fields`]; a `…MixinGroup` resolves to
+/// [`Resolved::Union`].
+pub(crate) struct Resolver<'a> {
+    /// All `WASmaxIn*` module name → slice (first occurrence wins; shard dedup).
+    slices: &'a HashMap<&'a str, &'a str>,
+    cache: RefCell<HashMap<String, Option<Resolved>>>,
+    in_progress: RefCell<HashSet<String>>,
+}
+
+impl<'a> Resolver<'a> {
+    pub(crate) fn new(slices: &'a HashMap<&'a str, &'a str>) -> Self {
+        Resolver {
+            slices,
+            cache: RefCell::new(HashMap::new()),
+            in_progress: RefCell::new(HashSet::new()),
+        }
+    }
+
+    /// Resolve `o(module).func(…)` to its fields or union, or `None` if the module
+    /// is absent, the fn isn't found, or a cycle is hit.
+    pub(crate) fn resolve(&self, module: &str, func: &str) -> Option<Resolved> {
+        let key = format!("{module}::{func}");
+        if let Some(hit) = self.cache.borrow().get(&key) {
+            return hit.clone();
+        }
+        if !self.in_progress.borrow_mut().insert(key.clone()) {
+            return None; // import cycle — bail, the outer frame will fill it in
+        }
+        let result = self.resolve_uncached(module, func);
+        self.in_progress.borrow_mut().remove(&key);
+        self.cache.borrow_mut().insert(key, result.clone());
+        result
+    }
+
+    fn resolve_uncached(&self, module: &str, func: &str) -> Option<Resolved> {
+        let slice = *self.slices.get(module)?;
+        // Map the export name to its local fn (or use it directly if it names one).
+        let locals = collect_local_fn_sources(slice);
+        let local = collect_exports(slice)
+            .into_iter()
+            .find(|(e, _)| e == func)
+            .map(|(_, l)| l)
+            .filter(|l| locals.contains_key(l))
+            .or_else(|| locals.contains_key(func).then(|| func.to_string()))?;
+        let src = locals.get(&local)?;
+        if src.contains("errorMixinDisjunction") {
+            Some(Resolved::Union(analyze_disjunction(src, self)))
+        } else {
+            let mut visited = HashSet::new();
+            visited.insert(local.clone());
+            let (_assertions, fields) = analyze_fn_source(src, &locals, self, &mut visited)?;
+            Some(Resolved::Fields(fields))
+        }
+    }
+}
 
 /// One railway binding: `var V = <call>;` → what `V` resolves to.
 #[derive(Clone)]
@@ -57,10 +129,27 @@ enum Binding {
         byte_length: Option<u32>,
         /// The wire attr/content name (the accessor's literal arg), when present.
         wire_name: Option<String>,
+        /// Wrapper tags to descend before reading, when the accessor's node arg is a
+        /// `flattenedChildWithTag` descent (`attrString(n.value, "id")` reads off the
+        /// `<report>` child `n`, not the parent node).
+        source_path: Option<Vec<String>>,
     },
-    /// A nested payload mixin call (`parse<Name>Mixin(...)`) → its module-less
-    /// mixin key, resolved later from the response index.
-    Mixin(String),
+    /// A cross-module parser call (`o(mod).parse<Fn>(node)`) that resolved to a
+    /// flat field list: a same-node payload mixin or a plain sub-parser.
+    Fields(Vec<ParsedField>),
+    /// A cross-module disjunction call (`o(mod).parse<Fn>MixinGroup(node)`) that
+    /// resolved to a discriminated union of variants. `source_path` records any
+    /// `flattenedChildWithTag` wrappers descended to reach the parsed node.
+    Union {
+        variants: Vec<UnionVariant>,
+        source_path: Vec<String>,
+    },
+    /// A bare child-node descend (`flattenedChildWithTag(node, "tag")` with no
+    /// parser): not a field itself, but names the child node a later parser reads
+    /// off (`o(mod).parseMixin(r.value)` → a `<tag>` child, not a same-node mixin).
+    /// `path` is the full wrapper chain from the function's node param (nested
+    /// descends accumulate: `…(t.value,"id")` after `…(e,"key")` → `["key","id"]`).
+    ChildNode { path: Vec<String> },
     /// A child accessor (`optionalChildWithTag`/`mapChildrenWithTag`/…) whose
     /// inner parser was resolved + analyzed: the child's wire tag, its field tree,
     /// and whether it repeats (`mapChildrenWithTag` → a list).
@@ -71,6 +160,8 @@ enum Binding {
         /// The accessor was `optionalChild`/`optionalChildWithTag` (the child may
         /// be absent), so the field is optional regardless of the tail form.
         optional: bool,
+        /// Wrapper tags descended (via `flattenedChildWithTag`) before `<tag>`.
+        source_path: Vec<String>,
     },
     /// An assertion / literal / node-reshape — no field.
     None,
@@ -78,10 +169,10 @@ enum Binding {
 
 /// Analyze every exported `parse…` function in a smax module slice into
 /// `(export_name, ParsedResponse)` pairs. Local child parsers are resolved within
-/// the module; cross-module payload mixins come from `mixins`.
+/// the module; cross-module parsers/mixins/unions come from `resolver`.
 pub(crate) fn analyze_module_exports(
     module_slice: &str,
-    mixins: &HashMap<String, ParsedResponse>,
+    resolver: &Resolver,
 ) -> Vec<(String, ParsedResponse)> {
     let locals = collect_local_fn_sources(module_slice);
     let mut out = Vec::new();
@@ -94,7 +185,8 @@ pub(crate) fn analyze_module_exports(
         };
         let mut visited = HashSet::new();
         visited.insert(local.clone());
-        if let Some((assertions, fields)) = analyze_fn_source(src, &locals, mixins, &mut visited) {
+        if let Some((assertions, fields)) = analyze_fn_source(src, &locals, resolver, &mut visited)
+        {
             out.push((
                 export.clone(),
                 ParsedResponse {
@@ -113,7 +205,7 @@ pub(crate) fn analyze_module_exports(
 fn analyze_fn_source(
     fn_source: &str,
     locals: &LocalFns,
-    mixins: &HashMap<String, ParsedResponse>,
+    resolver: &Resolver,
     visited: &mut HashSet<String>,
 ) -> Option<(Vec<ResponseAssertion>, Vec<ParsedField>)> {
     let alloc = Allocator::default();
@@ -122,13 +214,13 @@ fn analyze_fn_source(
         Statement::FunctionDeclaration(f) => Some(&**f),
         _ => None,
     })?;
-    analyze_function(func, locals, mixins, visited)
+    analyze_function(func, locals, resolver, visited)
 }
 
 fn analyze_function(
     func: &Function,
     locals: &LocalFns,
-    mixins: &HashMap<String, ParsedResponse>,
+    resolver: &Resolver,
     visited: &mut HashSet<String>,
 ) -> Option<(Vec<ResponseAssertion>, Vec<ParsedField>)> {
     let body = func.body.as_ref()?;
@@ -144,7 +236,14 @@ fn analyze_function(
                         continue;
                     };
                     if let Some(init) = d.init.as_ref() {
-                        let b = classify_call(init, &mut assertions, locals, mixins, visited);
+                        let b = classify_call(
+                            init,
+                            &mut assertions,
+                            locals,
+                            resolver,
+                            visited,
+                            &bindings,
+                        );
                         bindings.insert(name.to_string(), b);
                     }
                 }
@@ -158,7 +257,7 @@ fn analyze_function(
 
     // The tail names the output fields. Resolve each against the bindings.
     let tail = tail?;
-    let fields = resolve_tail(tail, &bindings, mixins)?;
+    let fields = resolve_tail(tail, &bindings)?;
     Some((assertions, fields))
 }
 
@@ -168,16 +267,38 @@ fn classify_call(
     init: &Expression,
     assertions: &mut Vec<ResponseAssertion>,
     locals: &LocalFns,
-    mixins: &HashMap<String, ParsedResponse>,
+    resolver: &Resolver,
     visited: &mut HashSet<String>,
+    bindings: &HashMap<String, Binding>,
 ) -> Binding {
     let Some(call) = as_call(init) else {
         return Binding::None;
     };
     let Some(method) = smax_helper_name(call) else {
-        // Could be `parse<Name>Mixin(...)` — a payload mixin.
-        if let Some(name) = mixin_parse_name(call) {
-            return Binding::Mixin(name);
+        // Not a parse-helper: could be a cross-module parser `o(mod).parse<Fn>(…)`
+        // — a payload mixin, a same-node sub-parser, or a `…MixinGroup` disjunction.
+        if let Some((module, func)) = cross_module_parse_call(call) {
+            // Does it parse a child node? `parseMixin(r.value)` where r descended via
+            // `flattenedChildWithTag(e, "tag")` → the mixin reads off `<tag>` (and any
+            // wrappers above it), so model it as a tagged child, not a same-node mixin.
+            let node_path = node_descend_path(&call.arguments, bindings);
+            return match resolver.resolve(&module, &func) {
+                Some(Resolved::Fields(fields)) => match split_path(&node_path) {
+                    Some((tag, source_path)) => Binding::ChildGroup {
+                        tag,
+                        fields,
+                        repeats: false,
+                        optional: false,
+                        source_path,
+                    },
+                    None => Binding::Fields(fields),
+                },
+                Some(Resolved::Union(variants)) => Binding::Union {
+                    variants,
+                    source_path: node_path,
+                },
+                None => Binding::None,
+            };
         }
         return Binding::None;
     };
@@ -191,6 +312,9 @@ fn classify_call(
         .iter()
         .find_map(|a| arg_expr(a).and_then(as_string_lit))
         .map(str::to_string);
+    // If the accessor reads off a `flattenedChildWithTag` descent (its node arg is
+    // `n.value` where `n` is a ChildNode), record the wrapper tag(s) to descend.
+    let source_path = opt_vec(node_descend_path(args, bindings));
     match method {
         "assertTag" => {
             if let Some(tag) = args.get(1).and_then(arg_expr).and_then(as_string_lit) {
@@ -216,7 +340,7 @@ fn classify_call(
         // constant. When the bound var is named in `makeResult` (e.g.
         // `{type: s.value}`) it is a real output field whose type comes from the
         // wrapped accessor; when it's only an assertion (unreferenced) it emits
-        // nothing. `literalContent`/`contentLiteralBytes` carry no makeResult value.
+        // nothing. `literalContent` pins a constant string (no makeResult value).
         "literal" => {
             let inner = args
                 .first()
@@ -229,11 +353,22 @@ fn classify_call(
                     required: true,
                     byte_length: bl,
                     wire_name,
+                    source_path,
                 },
                 None => Binding::None,
             }
         }
-        "literalContent" | "contentLiteralBytes" => Binding::None,
+        "literalContent" => Binding::None,
+        // `contentLiteralBytes(node, [..])` pins the node's content to a fixed byte
+        // sequence and returns it — a real bytes field when named in `makeResult`.
+        "contentLiteralBytes" => Binding::Field {
+            method: wap::CONTENT_BYTES.to_string(),
+            field_type: ParsedFieldType::Bytes,
+            required: true,
+            byte_length: None,
+            wire_name: None,
+            source_path,
+        },
         // Optional literal → a present-or-absent marker; treat as optional string.
         "optionalLiteral" => Binding::Field {
             method: wap::MAYBE_ATTR_STRING.to_string(),
@@ -241,6 +376,7 @@ fn classify_call(
             required: false,
             byte_length: None,
             wire_name,
+            source_path,
         },
         // `optional(ACCESSOR, node, …)` → the wrapped accessor decides the type;
         // required = false.
@@ -256,6 +392,7 @@ fn classify_call(
                     required: false,
                     byte_length: bl,
                     wire_name,
+                    source_path,
                 },
                 None => Binding::None,
             }
@@ -269,7 +406,7 @@ fn classify_call(
         | "optionalChild"
         | "optionalChildWithTag"
         | "flattenedChildWithTag"
-        | "mapChildrenWithTag" => classify_child(method, args, locals, mixins, visited),
+        | "mapChildrenWithTag" => classify_child(method, args, locals, resolver, visited, bindings),
         other => match normalize_accessor(other) {
             Some((m, ft, bl)) => Binding::Field {
                 method: m,
@@ -277,52 +414,124 @@ fn classify_call(
                 required: true,
                 byte_length: bl,
                 wire_name,
+                source_path,
             },
             None => Binding::None,
         },
     }
 }
 
+/// The wrapper tags descended to reach an accessor's node argument: the full
+/// [`Binding::ChildNode`] path when the node is `n.value` (a `flattenedChildWithTag`
+/// descent), or empty when the node is the parent param (no descent). The node is
+/// the first argument that is an identifier or an `X.value` member (accessor refs
+/// like `o("..").attrInt` are neither, so they are skipped).
+fn node_descend_path(
+    args: &oxc_allocator::Vec<oxc_ast::ast::Argument>,
+    bindings: &HashMap<String, Binding>,
+) -> Vec<String> {
+    for a in args {
+        let Some(e) = arg_expr(a) else { continue };
+        if let Some((var, prop)) = value_member(e) {
+            if prop != "value" {
+                continue;
+            }
+            return match bindings.get(var) {
+                Some(Binding::ChildNode { path }) => path.clone(),
+                _ => Vec::new(),
+            };
+        }
+        if as_identifier(e).is_some() {
+            return Vec::new(); // node is a plain parent param — no descent
+        }
+    }
+    Vec::new()
+}
+
 /// Resolve a child accessor's inner parser fn and analyze it into a [`Binding::ChildGroup`].
+/// The inner parser is either a local fn (`optionalChildWithTag(n, "x", parseX)`) or
+/// a cross-module reference (`mapChildrenWithTag(n, "x", 0, N, o("Mod").parseX)`).
 fn classify_child(
     method: &str,
     args: &oxc_allocator::Vec<oxc_ast::ast::Argument>,
     locals: &LocalFns,
-    mixins: &HashMap<String, ParsedResponse>,
+    resolver: &Resolver,
     visited: &mut HashSet<String>,
+    bindings: &HashMap<String, Binding>,
 ) -> Binding {
     // The wire tag is the first string-literal arg.
-    let tag = args
+    let Some(tag_idx) = args
         .iter()
-        .find_map(|a| arg_expr(a).and_then(as_string_lit))
-        .map(str::to_string);
-    // The inner parser is the last identifier arg that names a known local fn.
-    let inner_fn = args
+        .position(|a| arg_expr(a).and_then(as_string_lit).is_some())
+    else {
+        // No tag string → not a tagged child accessor.
+        return Binding::None;
+    };
+    let tag = arg_expr(&args[tag_idx])
+        .and_then(as_string_lit)
+        .unwrap()
+        .to_string();
+    // Wrapper tags descended to reach this accessor's node arg (e.g. the child is
+    // mapped off a `flattenedChildWithTag` wrapper: `iq -> list -> user`).
+    let source_path = node_descend_path(args, bindings);
+    // Inner parser: a local identifier (preferred), else a cross-module ref. It is
+    // an arg AFTER the tag — the node arg comes BEFORE it and can be an identifier
+    // that collides with a local fn name (minified `function e(e,t)` shadows fn `e`
+    // with its node param `e`); restricting to post-tag args avoids that mis-pick.
+    let inner_local = args
         .iter()
+        .skip(tag_idx + 1)
         .rev()
         .find_map(|a| arg_expr(a).and_then(as_identifier))
         .filter(|id| locals.contains_key(*id))
         .map(str::to_string);
-    let (Some(tag), Some(fn_name)) = (tag, inner_fn) else {
-        // 2-arg `flattenedChildWithTag(node, "x")` (a node descend) and any child
-        // without a resolvable parser contribute no field on their own.
+    let fields = if let Some(fn_name) = inner_local {
+        if !visited.insert(fn_name.clone()) {
+            return Binding::None; // recursion guard
+        }
+        let result = locals
+            .get(&fn_name)
+            .and_then(|src| analyze_fn_source(src, locals, resolver, visited));
+        visited.remove(&fn_name);
+        match result {
+            Some((_assertions, fields)) if !fields.is_empty() => fields,
+            _ => return Binding::None,
+        }
+    } else if let Some((module, func)) = args
+        .iter()
+        .skip(tag_idx + 1)
+        .rev()
+        .find_map(|a| arg_expr(a).and_then(cross_module_parse_ref))
+    {
+        match resolver.resolve(&module, &func) {
+            Some(Resolved::Fields(fields)) if !fields.is_empty() => fields,
+            // A child whose content is itself a disjunction: carry the union as a
+            // single nested field named for the child tag.
+            Some(Resolved::Union(variants)) if !variants.is_empty() => vec![ParsedField {
+                name: tag.clone(),
+                field_type: ParsedFieldType::Union,
+                union_variants: Some(variants),
+                required: true,
+                ..Default::default()
+            }],
+            _ => return Binding::None,
+        }
+    } else if method == "flattenedChildWithTag" {
+        // A bare `flattenedChildWithTag(node, "tag")` descend (no parser): record the
+        // accumulated child path so a later `parseMixin(r.value)` / accessor reading
+        // `r.value` can attribute its fields to `<…wrappers…>/<tag>`.
+        let mut path = source_path;
+        path.push(tag);
+        return Binding::ChildNode { path };
+    } else {
         return Binding::None;
     };
-    if !visited.insert(fn_name.clone()) {
-        return Binding::None; // recursion guard
-    }
-    let result = locals
-        .get(&fn_name)
-        .and_then(|src| analyze_fn_source(src, locals, mixins, visited));
-    visited.remove(&fn_name);
-    match result {
-        Some((_assertions, fields)) if !fields.is_empty() => Binding::ChildGroup {
-            tag,
-            fields,
-            repeats: method == "mapChildrenWithTag",
-            optional: matches!(method, "optionalChild" | "optionalChildWithTag"),
-        },
-        _ => Binding::None,
+    Binding::ChildGroup {
+        tag,
+        fields,
+        repeats: method == "mapChildrenWithTag",
+        optional: matches!(method, "optionalChild" | "optionalChildWithTag"),
+        source_path,
     }
 }
 
@@ -381,14 +590,90 @@ fn require_owner_of_call<'a>(call: &'a CallExpression<'a>) -> Option<&'a str> {
     as_string_lit(arg_expr(inner.arguments.first()?)?)
 }
 
-/// `o("WASmaxIn…Mixin").parse<Name>Mixin(...)` → the `parse<Name>Mixin` fn name.
-fn mixin_parse_name<'a>(call: &'a CallExpression<'a>) -> Option<String> {
+/// `o("WASmaxIn<M>").parse<Fn>(...)` (a call) → `(module, func)` for any
+/// `WASmaxIn*` module — a cross-module payload mixin, sub-parser, or `…MixinGroup`.
+fn cross_module_parse_call(call: &CallExpression) -> Option<(String, String)> {
     let owner = require_owner_of_call(call)?;
-    if !(owner.starts_with("WASmaxIn") && owner.ends_with("Mixin")) {
+    if !owner.starts_with("WASmaxIn") {
         return None;
     }
     let method = callee_method(call)?;
-    (method.starts_with("parse") && method.ends_with("Mixin")).then(|| method.to_string())
+    method
+        .starts_with("parse")
+        .then(|| (owner.to_string(), method.to_string()))
+}
+
+/// `o("WASmaxIn<M>").parse<Fn>` (a member *reference*, not a call) →
+/// `(module, func)` — an inner parser passed by reference to a child accessor.
+fn cross_module_parse_ref(e: &Expression) -> Option<(String, String)> {
+    let (obj, prop) = wa_oxc::as_member(e)?;
+    let inner = as_call(obj)?;
+    let owner = as_string_lit(arg_expr(inner.arguments.first()?)?)?;
+    if !owner.starts_with("WASmaxIn") || !prop.starts_with("parse") {
+        return None;
+    }
+    Some((owner.to_string(), prop.to_string()))
+}
+
+/// Analyze a disjunction fn (a `…MixinGroup`/`…Errors`/`parseConfigs` cascade ending
+/// in `errorMixinDisjunction`) into ordered union variants. Each cascade arm
+/// `var V=o(mod).parseW(node); if(V.success) return {name:"W", value:V.value}` becomes
+/// a [`UnionVariant`] whose fields are `parseW`'s resolved fields.
+fn analyze_disjunction(fn_src: &str, resolver: &Resolver) -> Vec<UnionVariant> {
+    scan_cascade_variants(fn_src)
+        .into_iter()
+        .map(|(name, module, func)| {
+            let fields = match resolver.resolve(&module, &func) {
+                Some(Resolved::Fields(f)) => f,
+                // A variant that is itself a disjunction (union-of-unions): keep it
+                // as a single nested union field rather than flattening.
+                Some(Resolved::Union(v)) if !v.is_empty() => vec![ParsedField {
+                    name: "value".to_string(),
+                    field_type: ParsedFieldType::Union,
+                    union_variants: Some(v),
+                    required: true,
+                    ..Default::default()
+                }],
+                _ => Vec::new(),
+            };
+            UnionVariant { name, fields }
+        })
+        .collect()
+}
+
+/// Scan a first-success cascade — an RPC generator or a disjunction fn — for its
+/// ordered `(name, module, func)` arms. Each arm is a `{name:"<NAME>"…}` return
+/// preceded by its `o("WASmaxIn<M>").<func>(` parser call. The minified cascade is
+/// regular enough to scan textually (shared by the RPC pass and union analysis).
+pub(crate) fn scan_cascade_variants(slice: &str) -> Vec<(String, String, String)> {
+    let mut out = Vec::new();
+    let mut from = 0;
+    while let Some(rel) = slice[from..].find("{name:\"") {
+        let name_start = from + rel + "{name:\"".len();
+        let Some(q) = slice[name_start..].find('"') else {
+            break;
+        };
+        let name = slice[name_start..name_start + q].to_string();
+        if let Some((module, func)) = nearest_parse_call_before(slice, from + rel) {
+            out.push((name, module, func));
+        }
+        from = name_start + q;
+    }
+    out
+}
+
+/// The `(module, func)` of the nearest `o("WASmaxIn<M>").<func>(` call ending before
+/// `pos` (the parser whose result the following `{name:…}` arm wraps).
+fn nearest_parse_call_before(slice: &str, pos: usize) -> Option<(String, String)> {
+    let at = slice[..pos].rfind("o(\"WASmaxIn")?;
+    let name_start = at + "o(\"".len();
+    let end = slice[name_start..].find('"')?;
+    let module = slice[name_start..name_start + end].to_string();
+    let after = name_start + end + "\")".len();
+    let rest = slice.get(after..)?;
+    let dot = rest.strip_prefix('.')?;
+    let paren = dot.find('(')?;
+    Some((module, dot[..paren].to_string()))
 }
 
 /// An accessor passed by reference as the first arg of `optional`/`literal`:
@@ -400,11 +685,11 @@ fn inner_accessor_name<'a>(e: &'a Expression<'a>) -> Option<&'a str> {
 }
 
 /// Resolve the tail `makeResult({...})` / `makeResult(babelHelpers.extends(...))`
-/// into the final field list, using the railway bindings + payload mixins.
+/// into the final field list, using the railway bindings (which already carry any
+/// cross-module fields/unions resolved at classification time).
 fn resolve_tail(
     tail: &Expression,
     bindings: &HashMap<String, Binding>,
-    mixins: &HashMap<String, ParsedResponse>,
 ) -> Option<Vec<ParsedField>> {
     // Unwrap `X.success ? makeResult(...) : X` → the consequent.
     let expr = match tail {
@@ -417,8 +702,30 @@ fn resolve_tail(
             && let Some(name) = as_identifier(last)
         {
             return match bindings.get(name) {
-                Some(Binding::Mixin(m)) => mixins.get(m).map(|p| p.fields.clone()),
+                Some(Binding::Fields(fields)) => Some(fields.clone()),
+                // Delegated child group (`return n.success, n`): lift its fields with
+                // the wrapper path so a passthrough mixin's descent isn't lost.
+                Some(Binding::ChildGroup {
+                    tag,
+                    fields,
+                    repeats: false,
+                    source_path,
+                    ..
+                }) => Some(lift_child_fields(tag, source_path, fields)),
                 Some(Binding::ChildGroup { fields, .. }) => Some(fields.clone()),
+                // The whole response delegates to a disjunction: carry it as a
+                // single unnamed union field (`value` is the conventional payload key).
+                Some(Binding::Union {
+                    variants,
+                    source_path,
+                }) => Some(vec![ParsedField {
+                    name: "value".to_string(),
+                    field_type: ParsedFieldType::Union,
+                    union_variants: Some(variants.clone()),
+                    required: true,
+                    source_path: opt_vec(source_path.clone()),
+                    ..Default::default()
+                }]),
                 _ => None,
             };
         }
@@ -430,7 +737,7 @@ fn resolve_tail(
         return None;
     }
     let arg = arg_expr(call.arguments.first()?)?;
-    resolve_result_arg(arg, bindings, mixins)
+    resolve_result_arg(arg, bindings)
 }
 
 /// Resolve the argument of `makeResult(...)` — an object literal or
@@ -438,31 +745,38 @@ fn resolve_tail(
 fn resolve_result_arg(
     arg: &Expression,
     bindings: &HashMap<String, Binding>,
-    mixins: &HashMap<String, ParsedResponse>,
 ) -> Option<Vec<ParsedField>> {
     let mut fields = Vec::new();
     match arg {
         Expression::ObjectExpression(_) => {
-            collect_object_fields(arg, bindings, mixins, &mut fields);
+            collect_object_fields(arg, bindings, &mut fields);
         }
         Expression::CallExpression(c) if callee_method(c) == Some("extends") => {
             // babelHelpers.extends(objLiteral, M1.value, M2.value, …)
             for a in &c.arguments {
                 let Some(e) = arg_expr(a) else { continue };
                 if matches!(e, Expression::ObjectExpression(_)) {
-                    collect_object_fields(e, bindings, mixins, &mut fields);
+                    collect_object_fields(e, bindings, &mut fields);
                 } else if let Some((var, _)) = value_member(e) {
                     // `Mi.value`/`Ci.value` spread → inline the mixin's or child's
-                    // fields at this level (flattened).
-                    let spread = match bindings.get(var) {
-                        Some(Binding::Mixin(m)) => mixins.get(m).map(|p| p.fields.as_slice()),
-                        Some(Binding::ChildGroup { fields, .. }) => Some(fields.as_slice()),
+                    // fields at this level (flattened). A delegated child group lifts
+                    // its fields with the wrapper path (passthrough descent preserved).
+                    let spread: Option<Vec<ParsedField>> = match bindings.get(var) {
+                        Some(Binding::Fields(f)) => Some(f.clone()),
+                        Some(Binding::ChildGroup {
+                            tag,
+                            fields,
+                            repeats: false,
+                            source_path,
+                            ..
+                        }) => Some(lift_child_fields(tag, source_path, fields)),
+                        Some(Binding::ChildGroup { fields, .. }) => Some(fields.clone()),
                         _ => None,
                     };
                     if let Some(src) = spread {
                         for f in src {
                             if !fields.iter().any(|x: &ParsedField| x.name == f.name) {
-                                fields.push(f.clone());
+                                fields.push(f);
                             }
                         }
                     }
@@ -478,7 +792,6 @@ fn resolve_result_arg(
 fn collect_object_fields(
     obj: &Expression,
     bindings: &HashMap<String, Binding>,
-    mixins: &HashMap<String, ParsedResponse>,
     out: &mut Vec<ParsedField>,
 ) {
     let Some(o) = wa_oxc::as_object(obj) else {
@@ -491,6 +804,19 @@ fn collect_object_fields(
         let Some(key) = wa_oxc::property_key_name(&p.key) else {
             continue;
         };
+        // A boolean presence flag: `{hasX: V.success}` or `{hasX: V.value != null}`
+        // — the key records whether a sub-node/attr was present, not its value. The
+        // wire name (when known) is the underlying accessor's attr.
+        if let Some(flag_var) = bool_flag_var(&p.value) {
+            out.push(ParsedField {
+                name: key.to_string(),
+                field_type: ParsedFieldType::Bool,
+                wire_name: bindings.get(flag_var).and_then(binding_wire_name),
+                required: true,
+                ..Default::default()
+            });
+            continue;
+        }
         // value is `V.value` or `V.success ? V.value : null`.
         let (var, optional) = match &p.value {
             Expression::ConditionalExpression(c) => match value_member(&c.consequent) {
@@ -509,6 +835,7 @@ fn collect_object_fields(
                 required,
                 byte_length,
                 wire_name,
+                source_path,
             }) => {
                 out.push(ParsedField {
                     method: method.clone(),
@@ -517,6 +844,7 @@ fn collect_object_fields(
                     field_type: *field_type,
                     required: *required && !optional,
                     byte_length: *byte_length,
+                    source_path: source_path.clone(),
                     ..Default::default()
                 });
             }
@@ -525,6 +853,7 @@ fn collect_object_fields(
                 fields,
                 repeats,
                 optional: child_optional,
+                source_path,
             }) => {
                 // A nested child node (`{ key: childResult.value }`): the field name
                 // is the result key, the wire tag is the child's tag, and the
@@ -537,25 +866,40 @@ fn collect_object_fields(
                     tag: Some(tag.clone()),
                     children: Some(fields.clone()),
                     repeats: Some(*repeats),
+                    source_path: opt_vec(source_path.clone()),
                     ..Default::default()
                 });
             }
-            Some(Binding::Mixin(m)) => {
-                // A same-node payload mixin referenced as `{ key: M.value }`: its
-                // fields parse the PARENT node's attrs, so flatten them in (an
-                // `M.success ? M.value : null` ref makes them all optional).
-                if let Some(p) = mixins.get(m) {
-                    for f in &p.fields {
-                        if out.iter().any(|x: &ParsedField| x.name == f.name) {
-                            continue;
-                        }
-                        let mut f = f.clone();
-                        if optional {
-                            f.required = false;
-                        }
-                        out.push(f);
-                    }
-                }
+            Some(Binding::Fields(fields)) => {
+                // A payload mixin / sub-parser referenced as `{ key: M.value }`: the
+                // JS object shape nests M's fields under `key`, so model it as a
+                // nested field. `same_node` marks that the children read off the
+                // PARENT node (no `<key>` wire element) — the mixin parsed the same
+                // node. Nesting (vs flattening) preserves the runtime shape and keeps
+                // same-named leaves under distinct keys from colliding (e.g. PreKeys
+                // `keyId`/`keyValue` both expose `elementValue`).
+                out.push(ParsedField {
+                    name: key.to_string(),
+                    children: Some(fields.clone()),
+                    same_node: true,
+                    required: !optional,
+                    ..Default::default()
+                });
+            }
+            Some(Binding::Union {
+                variants,
+                source_path,
+            }) => {
+                // A disjunction (`…MixinGroup`) referenced as `{ key: G.value }`: a
+                // discriminated-union field whose alternatives are the variants.
+                out.push(ParsedField {
+                    name: key.to_string(),
+                    field_type: ParsedFieldType::Union,
+                    union_variants: Some(variants.clone()),
+                    required: !optional,
+                    source_path: opt_vec(source_path.clone()),
+                    ..Default::default()
+                });
             }
             _ => {}
         }
@@ -567,6 +911,93 @@ fn value_member<'a>(e: &'a Expression<'a>) -> Option<(&'a str, &'a str)> {
     let (obj, prop) = wa_oxc::as_member(e)?;
     let var = as_identifier(obj)?;
     Some((var, prop))
+}
+
+/// A makeResult value that is a boolean *presence* flag → the underlying var:
+/// `V.success` (a railway success bit) or `V.value != null` / `V.value !== null`
+/// (the `optionalLiteral`/`optional` "was it present" idiom). Distinct from a
+/// plain `V.value` (the value itself) and from the `V.success ? V.value : null`
+/// optional-value ternary.
+fn bool_flag_var<'a>(e: &'a Expression<'a>) -> Option<&'a str> {
+    // `V.success`
+    if let Some((var, prop)) = value_member(e) {
+        return (prop == "success").then_some(var);
+    }
+    // `V.value != null` (null on either side).
+    if let Expression::BinaryExpression(b) = e {
+        use oxc_ast::ast::BinaryOperator::{Inequality, StrictInequality};
+        if !matches!(b.operator, Inequality | StrictInequality) {
+            return None;
+        }
+        let member = if is_nullish(&b.right) {
+            &b.left
+        } else if is_nullish(&b.left) {
+            &b.right
+        } else {
+            return None;
+        };
+        if let Some((var, prop)) = value_member(member) {
+            return (prop == "value").then_some(var);
+        }
+    }
+    None
+}
+
+/// `null` / `undefined` / `void 0`.
+fn is_nullish(e: &Expression) -> bool {
+    match e {
+        Expression::NullLiteral(_) => true,
+        Expression::Identifier(id) => id.name == "undefined",
+        Expression::UnaryExpression(u) => {
+            matches!(u.operator, oxc_ast::ast::UnaryOperator::Void)
+        }
+        _ => false,
+    }
+}
+
+/// The wire attr/content name a binding reads, when it is a single accessor field.
+fn binding_wire_name(b: &Binding) -> Option<String> {
+    match b {
+        Binding::Field { wire_name, .. } => wire_name.clone(),
+        _ => None,
+    }
+}
+
+/// `Vec` → `Option<Vec>` (empty ⇒ `None`), for `source_path` fields.
+fn opt_vec(v: Vec<String>) -> Option<Vec<String>> {
+    (!v.is_empty()).then_some(v)
+}
+
+/// Lift a child group's fields up one level (it is delegated/spread, not nested):
+/// each field gains the group's wrapper path (`source_path + [tag]`) as a prefix to
+/// its own `source_path`, so a `flattenedChildWithTag` descent inside a passthrough
+/// mixin (`…(e,"identity"); return parseKeyDataMixin(t.value)`) is preserved.
+fn lift_child_fields(
+    tag: &str,
+    source_path: &[String],
+    fields: &[ParsedField],
+) -> Vec<ParsedField> {
+    let mut prefix = source_path.to_vec();
+    prefix.push(tag.to_string());
+    fields
+        .iter()
+        .map(|f| {
+            let mut f = f.clone();
+            let mut sp = prefix.clone();
+            if let Some(existing) = &f.source_path {
+                sp.extend(existing.iter().cloned());
+            }
+            f.source_path = Some(sp);
+            f
+        })
+        .collect()
+}
+
+/// Split a child wire path into `(innermost tag, wrappers above it)`, or `None`
+/// when the path is empty (the node is the parent itself — a same-node mixin).
+fn split_path(path: &[String]) -> Option<(String, Vec<String>)> {
+    path.split_last()
+        .map(|(tag, rest)| (tag.clone(), rest.to_vec()))
 }
 
 // ─── module-level helpers (local fns + exports) ───────────────────────────────
@@ -671,19 +1102,31 @@ where
 }
 
 #[cfg(test)]
+impl Resolver<'_> {
+    /// Seed the resolver cache with a pre-resolved cross-module parser (tests only).
+    fn seed(&self, module: &str, func: &str, resolved: Resolved) {
+        self.cache
+            .borrow_mut()
+            .insert(format!("{module}::{func}"), Some(resolved));
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
-    fn no_mixins() -> HashMap<String, ParsedResponse> {
-        HashMap::new()
+    /// Analyze a single self-contained parse fn (no cross-module references).
+    fn analyze_one(body: &str) -> Option<(Vec<ResponseAssertion>, Vec<ParsedField>)> {
+        let slices = HashMap::new();
+        let resolver = Resolver::new(&slices);
+        analyze_fn_source(body, &LocalFns::new(), &resolver, &mut HashSet::new())
     }
 
-    /// Analyze a single self-contained parse fn (no local child parsers).
-    fn analyze_one(
-        body: &str,
-        mixins: &HashMap<String, ParsedResponse>,
-    ) -> Option<(Vec<ResponseAssertion>, Vec<ParsedField>)> {
-        analyze_fn_source(body, &LocalFns::new(), mixins, &mut HashSet::new())
+    /// Analyze a module slice with no cross-module references (local parsers only).
+    fn analyze_mod_local(module: &str) -> Vec<(String, ParsedResponse)> {
+        let slices = HashMap::new();
+        let resolver = Resolver::new(&slices);
+        analyze_module_exports(module, &resolver)
     }
 
     #[test]
@@ -696,7 +1139,7 @@ mod tests {
             var s = o("WASmaxParseUtils").literal(o("WASmaxParseUtils").attrString, node, "type", "result"); if(!s.success) return s;
             return r.success ? o("WAResultOrError").makeResult({ id: r.value, count: c.value }) : r;
         }"#;
-        let (asserts, fields) = analyze_one(body, &no_mixins()).expect("analyzed");
+        let (asserts, fields) = analyze_one(body).expect("analyzed");
         assert!(asserts.iter().any(|a| a.kind == AssertionKind::Tag));
         assert_eq!(fields.len(), 2);
         let id = fields.iter().find(|f| f.name == "id").unwrap();
@@ -713,7 +1156,7 @@ mod tests {
             var s = o("WASmaxParseUtils").optional(o("WASmaxParseUtils").attrIntRange, node, "size", 0, 19999);
             return o("WAResultOrError").makeResult({ size: s.value });
         }"#;
-        let (_a, fields) = analyze_one(body, &no_mixins()).expect("analyzed");
+        let (_a, fields) = analyze_one(body).expect("analyzed");
         let size = fields.iter().find(|f| f.name == "size").unwrap();
         assert!(!size.required, "optional → not required");
         assert_eq!(size.field_type, ParsedFieldType::Integer);
@@ -729,78 +1172,63 @@ mod tests {
             var s = o("WASmaxParseUtils").attrString(node, "name");
             return r.success ? o("WAResultOrError").makeResult({ id: r.value, name: s.success ? s.value : null }) : r;
         }"#;
-        let (_a, fields) = analyze_one(body, &no_mixins()).expect("analyzed");
+        let (_a, fields) = analyze_one(body).expect("analyzed");
         let id = fields.iter().find(|f| f.name == "id").unwrap();
         let name = fields.iter().find(|f| f.name == "name").unwrap();
         assert!(id.required, "plain V.value → required");
         assert!(!name.required, "V.success ? V.value : null → optional");
     }
 
+    /// A one-field same-node mixin, pre-resolved for the seeded-resolver tests.
+    fn one_field_mixin(name: &str) -> Resolved {
+        Resolved::Fields(vec![ParsedField {
+            method: wap::ATTR_STRING.into(),
+            name: name.into(),
+            field_type: ParsedFieldType::String,
+            required: true,
+            ..Default::default()
+        }])
+    }
+
     #[test]
     fn delegates_to_single_mixin_via_comma() {
         // `return X.success, X` where X is a payload mixin → use the mixin's fields.
-        let mut mixins = no_mixins();
-        mixins.insert(
-            "parseIQResultResponseMixin".to_string(),
-            ParsedResponse {
-                parser_name: "m".into(),
-                assertions: vec![],
-                fields: vec![ParsedField {
-                    method: wap::ATTR_STRING.into(),
-                    name: "from".into(),
-                    field_type: ParsedFieldType::String,
-                    required: true,
-                    byte_length: None,
-                    enum_keys: None,
-                    tag: None,
-                    children: None,
-                    repeats: None,
-                    content_type: None,
-                    ..Default::default()
-                }],
-                ..Default::default()
-            },
+        let slices = HashMap::new();
+        let resolver = Resolver::new(&slices);
+        resolver.seed(
+            "WASmaxInMdIQResultResponseMixin",
+            "parseIQResultResponseMixin",
+            one_field_mixin("from"),
         );
         let body = r#"function e(node, ref){
             var n = o("WASmaxParseUtils").assertTag(node, "iq"); if(!n.success) return n;
             var r = o("WASmaxInMdIQResultResponseMixin").parseIQResultResponseMixin(node, ref);
             return r.success, r;
         }"#;
-        let (_a, fields) = analyze_one(body, &mixins).expect("analyzed");
+        let (_a, fields) =
+            analyze_fn_source(body, &LocalFns::new(), &resolver, &mut HashSet::new())
+                .expect("analyzed");
         assert_eq!(fields.len(), 1);
         assert_eq!(fields[0].name, "from");
     }
 
     #[test]
     fn extends_spread_inlines_mixin_fields() {
-        let mut mixins = no_mixins();
-        mixins.insert(
-            "parseIQResultResponseMixin".to_string(),
-            ParsedResponse {
-                parser_name: "m".into(),
-                assertions: vec![],
-                fields: vec![ParsedField {
-                    method: wap::ATTR_STRING.into(),
-                    name: "type".into(),
-                    field_type: ParsedFieldType::String,
-                    required: true,
-                    byte_length: None,
-                    enum_keys: None,
-                    tag: None,
-                    children: None,
-                    repeats: None,
-                    content_type: None,
-                    ..Default::default()
-                }],
-                ..Default::default()
-            },
+        let slices = HashMap::new();
+        let resolver = Resolver::new(&slices);
+        resolver.seed(
+            "WASmaxInMdIQResultResponseMixin",
+            "parseIQResultResponseMixin",
+            one_field_mixin("type"),
         );
         let body = r#"function e(node, ref){
             var r = o("WASmaxParseUtils").attrString(node, "iso"); if(!r.success) return r;
             var i = o("WASmaxInMdIQResultResponseMixin").parseIQResultResponseMixin(node, ref);
             return i.success ? o("WAResultOrError").makeResult(babelHelpers.extends({ countryCodeIso: r.value }, i.value)) : i;
         }"#;
-        let (_a, fields) = analyze_one(body, &mixins).expect("analyzed");
+        let (_a, fields) =
+            analyze_fn_source(body, &LocalFns::new(), &resolver, &mut HashSet::new())
+                .expect("analyzed");
         let names: Vec<&str> = fields.iter().map(|f| f.name.as_str()).collect();
         assert!(names.contains(&"countryCodeIso"));
         assert!(names.contains(&"type"), "mixin fields spread in");
@@ -809,7 +1237,7 @@ mod tests {
     #[test]
     fn unrecognized_tail_yields_none() {
         let body = r#"function e(node){ return somethingElse(node); }"#;
-        assert!(analyze_one(body, &no_mixins()).is_none());
+        assert!(analyze_one(body).is_none());
     }
 
     #[test]
@@ -830,7 +1258,7 @@ mod tests {
             }
             l.parseGetGroupInfoResponseSuccessGroup = e, l.parseGetGroupInfoResponseSuccess = s;
         }), 1);"#;
-        let exports = analyze_module_exports(module, &no_mixins());
+        let exports = analyze_mod_local(module);
         let (_n, pr) = exports
             .iter()
             .find(|(n, _)| n == "parseGetGroupInfoResponseSuccess")
@@ -860,7 +1288,7 @@ mod tests {
             var u = o("WASmaxParseUtils").attrString(node, "id"); if(!u.success) return u;
             return o("WAResultOrError").makeResult({ type: s.value, id: u.value });
         }"#;
-        let (_a, fields) = analyze_one(body, &no_mixins()).expect("analyzed");
+        let (_a, fields) = analyze_one(body).expect("analyzed");
         let ty = fields
             .iter()
             .find(|f| f.name == "type")
@@ -888,7 +1316,7 @@ mod tests {
             }
             l.parseGetParticipatingGroupsResponseSuccessGroupsGroup = e, l.parseGetParticipatingGroupsResponseSuccess = s;
         }), 1);"#;
-        let exports = analyze_module_exports(module, &no_mixins());
+        let exports = analyze_mod_local(module);
         let (_n, pr) = exports
             .iter()
             .find(|(n, _)| n == "parseGetParticipatingGroupsResponseSuccess")
@@ -915,12 +1343,344 @@ mod tests {
             }
             l.helper = e, l.parseFooBarResponseSuccess = e;
         }), 1);"#;
-        let exports = analyze_module_exports(module, &no_mixins());
+        let exports = analyze_mod_local(module);
         assert!(
             exports
                 .iter()
                 .any(|(n, _)| n == "parseFooBarResponseSuccess"),
             "comma-sequence export resolved"
         );
+    }
+
+    #[test]
+    fn scan_cascade_extracts_name_module_func() {
+        // A first-success cascade → ordered (name, module, func) triples.
+        let s = r#"var t=o("WASmaxInFooAMixin").parseAMixin(e);if(t.success)return o("X").makeResult({name:"A",value:t.value});var n=o("WASmaxInFooBMixin").parseBMixin(e);return n.success?o("X").makeResult({name:"B",value:n.value}):o("U").errorMixinDisjunction(e,["A","B"],[t,n]);"#;
+        assert_eq!(
+            scan_cascade_variants(s),
+            vec![
+                ("A".into(), "WASmaxInFooAMixin".into(), "parseAMixin".into()),
+                ("B".into(), "WASmaxInFooBMixin".into(), "parseBMixin".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn mixin_group_resolves_to_nested_union_field() {
+        // A `…MixinGroup` disjunction over two mixins, consumed as `{bar: G.value}`,
+        // becomes a `Union` field whose variants carry each mixin's fields.
+        let group = r#"__d("WASmaxInFooBarMixinGroup",["WASmaxParseUtils","WAResultOrError","WASmaxInFooAMixin","WASmaxInFooBMixin"],(function(t,n,r,o,a,i,l){
+            function e(e){
+                var t=o("WASmaxInFooAMixin").parseAMixin(e);if(t.success)return o("WAResultOrError").makeResult({name:"A",value:t.value});
+                var n=o("WASmaxInFooBMixin").parseBMixin(e);return n.success?o("WAResultOrError").makeResult({name:"B",value:n.value}):o("WASmaxParseUtils").errorMixinDisjunction(e,["A","B"],[t,n]);
+            }
+            l.parseBarMixinGroup=e;
+        }),1);"#;
+        let amod = r#"__d("WASmaxInFooAMixin",["WASmaxParseUtils","WAResultOrError"],(function(t,n,r,o,a,i,l){
+            function e(e){var s=o("WASmaxParseUtils").attrString(e,"a");if(!s.success)return s;return o("WAResultOrError").makeResult({a:s.value});}
+            l.parseAMixin=e;
+        }),1);"#;
+        let bmod = r#"__d("WASmaxInFooBMixin",["WASmaxParseUtils","WAResultOrError"],(function(t,n,r,o,a,i,l){
+            function e(e){var s=o("WASmaxParseUtils").attrInt(e,"b");if(!s.success)return s;return o("WAResultOrError").makeResult({b:s.value});}
+            l.parseBMixin=e;
+        }),1);"#;
+        let resp = r#"function e(node){
+            var g=o("WASmaxInFooBarMixinGroup").parseBarMixinGroup(node);
+            return g.success?o("WAResultOrError").makeResult({bar:g.value}):g;
+        }"#;
+        let slices = HashMap::from([
+            ("WASmaxInFooBarMixinGroup", group),
+            ("WASmaxInFooAMixin", amod),
+            ("WASmaxInFooBMixin", bmod),
+        ]);
+        let resolver = Resolver::new(&slices);
+        let (_a, fields) =
+            analyze_fn_source(resp, &LocalFns::new(), &resolver, &mut HashSet::new())
+                .expect("analyzed");
+        assert_eq!(fields.len(), 1);
+        let bar = &fields[0];
+        assert_eq!(bar.name, "bar");
+        assert_eq!(bar.field_type, ParsedFieldType::Union);
+        let vars = bar.union_variants.as_ref().expect("union variants");
+        assert_eq!(
+            vars.iter().map(|v| v.name.as_str()).collect::<Vec<_>>(),
+            vec!["A", "B"]
+        );
+        assert!(vars[0].fields.iter().any(|f| f.name == "a"));
+        assert!(vars[1].fields.iter().any(|f| f.name == "b"));
+    }
+
+    #[test]
+    fn cross_module_same_node_parser_nests_under_key() {
+        // A cross-module sub-parser on the same node (`{configs: o(mod).parseConfigs(e)}`)
+        // that resolves to a flat field list nests under the key with `same_node`
+        // (matches the JS object shape; the children read off the parent node).
+        let cfg = r#"__d("WASmaxInFooConfigs",["WASmaxParseUtils","WAResultOrError"],(function(t,n,r,o,a,i,l){
+            function e(e){var s=o("WASmaxParseUtils").attrString(e,"k");if(!s.success)return s;return o("WAResultOrError").makeResult({k:s.value});}
+            l.parseConfigs=e;
+        }),1);"#;
+        let resp = r#"function e(node){var n=o("WASmaxInFooConfigs").parseConfigs(node);return n.success?o("WAResultOrError").makeResult({configs:n.value}):n;}"#;
+        let slices = HashMap::from([("WASmaxInFooConfigs", cfg)]);
+        let resolver = Resolver::new(&slices);
+        let (_a, fields) =
+            analyze_fn_source(resp, &LocalFns::new(), &resolver, &mut HashSet::new())
+                .expect("analyzed");
+        assert_eq!(fields.len(), 1);
+        let configs = &fields[0];
+        assert_eq!(configs.name, "configs");
+        assert!(
+            configs.same_node,
+            "same-node mixin nests with same_node=true"
+        );
+        assert!(
+            configs
+                .children
+                .as_ref()
+                .is_some_and(|k| k.iter().any(|f| f.name == "k")),
+            "mixin fields nested under the key"
+        );
+    }
+
+    #[test]
+    fn nested_keyed_mixins_keep_same_named_leaves_distinct() {
+        // Two sub-mixins both expose a field named `elementValue`; nesting under
+        // distinct keys must keep both (the flatten-dedup bug dropped one).
+        let idm = r#"__d("WASmaxInFooIdMixin",["WASmaxParseUtils","WAResultOrError"],(function(t,n,r,o,a,i,l){
+            function e(e){var s=o("WASmaxParseUtils").contentBytesRange(e,3,3);return s.success?o("WAResultOrError").makeResult({elementValue:s.value}):s;}
+            l.parseIdMixin=e;
+        }),1);"#;
+        let datam = r#"__d("WASmaxInFooDataMixin",["WASmaxParseUtils","WAResultOrError"],(function(t,n,r,o,a,i,l){
+            function e(e){var s=o("WASmaxParseUtils").contentBytesRange(e,32,32);return s.success?o("WAResultOrError").makeResult({elementValue:s.value}):s;}
+            l.parseDataMixin=e;
+        }),1);"#;
+        let resp = r#"function e(node){
+            var a=o("WASmaxInFooIdMixin").parseIdMixin(node);
+            var b=o("WASmaxInFooDataMixin").parseDataMixin(node);
+            return b.success?o("WAResultOrError").makeResult({keyId:a.value,keyValue:b.value}):b;
+        }"#;
+        let slices = HashMap::from([("WASmaxInFooIdMixin", idm), ("WASmaxInFooDataMixin", datam)]);
+        let resolver = Resolver::new(&slices);
+        let (_a, fields) =
+            analyze_fn_source(resp, &LocalFns::new(), &resolver, &mut HashSet::new())
+                .expect("analyzed");
+        let key_id = fields.iter().find(|f| f.name == "keyId").expect("keyId");
+        let key_value = fields
+            .iter()
+            .find(|f| f.name == "keyValue")
+            .expect("keyValue");
+        assert!(
+            key_id
+                .children
+                .as_ref()
+                .is_some_and(|k| k.iter().any(|f| f.name == "elementValue"))
+        );
+        assert!(
+            key_value
+                .children
+                .as_ref()
+                .is_some_and(|k| k.iter().any(|f| f.name == "elementValue")),
+            "second same-named leaf survives under its own key"
+        );
+    }
+
+    #[test]
+    fn mixin_on_flattened_child_becomes_tagged_child() {
+        // `r=flattenedChildWithTag(e,"opts"); a=o(mod).parseMixin(r.value); {key:a.value}`
+        // → a `<opts>`-tagged child field, NOT a same-node mixin. The exported fn is
+        // minified `function e(e,t)` so its node param `e` shadows the local fn `e`
+        // — the bare-descend node arg must not be mistaken for the inner parser.
+        let mixin = r#"__d("WASmaxInFooOptsMixin",["WASmaxParseUtils","WAResultOrError"],(function(t,n,r,o,a,i,l){
+            function e(e){var s=o("WASmaxParseUtils").contentBytesRange(e,1,4096);return s.success?o("WAResultOrError").makeResult({elementValue:s.value}):s;}
+            l.parseOptsMixin=e;
+        }),1);"#;
+        let resp_mod = r#"__d("WASmaxInFooGetOptsResponseSuccess",["WASmaxParseUtils","WASmaxInFooOptsMixin","WAResultOrError"],(function(t,n,r,o,a,i,l){
+            function e(e,t){
+                var n=o("WASmaxParseUtils").assertTag(e,"iq");if(!n.success)return n;
+                var r=o("WASmaxParseUtils").flattenedChildWithTag(e,"opts");if(!r.success)return r;
+                var a=o("WASmaxInFooOptsMixin").parseOptsMixin(r.value);if(!a.success)return a;
+                return o("WAResultOrError").makeResult(babelHelpers.extends({optsMixin:a.value},{}));
+            }
+            l.parseGetOptsResponseSuccess=e;
+        }),1);"#;
+        let slices = HashMap::from([
+            ("WASmaxInFooOptsMixin", mixin),
+            ("WASmaxInFooGetOptsResponseSuccess", resp_mod),
+        ]);
+        let resolver = Resolver::new(&slices);
+        let exports = analyze_module_exports(resp_mod, &resolver);
+        let (_n, pr) = exports
+            .iter()
+            .find(|(n, _)| n == "parseGetOptsResponseSuccess")
+            .expect("exported parser");
+        assert_eq!(pr.fields.len(), 1);
+        let opts = &pr.fields[0];
+        assert_eq!(opts.name, "optsMixin");
+        assert_eq!(
+            opts.tag.as_deref(),
+            Some("opts"),
+            "mixin on flattenedChildWithTag node is a tagged child, not same_node"
+        );
+        assert!(!opts.same_node);
+        assert!(
+            opts.children
+                .as_ref()
+                .is_some_and(|k| k.iter().any(|f| f.name == "elementValue"))
+        );
+    }
+
+    #[test]
+    fn passthrough_mixin_lifts_wrapper_onto_delegated_fields() {
+        // A mixin that descends `flattenedChildWithTag(e,"identity")` then RETURNS a
+        // sub-mixin's result directly (`return n.success, n`, no own makeResult key)
+        // must still attribute the sub-mixin's fields to `<identity>`.
+        let data = r#"__d("WASmaxInFooKeyDataMixin",["WASmaxParseUtils","WAResultOrError"],(function(t,n,r,o,a,i,l){
+            function e(e){var s=o("WASmaxParseUtils").contentBytesRange(e,32,32);return s.success?o("WAResultOrError").makeResult({elementValue:s.value}):s;}
+            l.parseKeyDataMixin=e;
+        }),1);"#;
+        let identity = r#"__d("WASmaxInFooIdentityKeyMixin",["WASmaxParseUtils","WASmaxInFooKeyDataMixin","WAResultOrError"],(function(t,n,r,o,a,i,l){
+            function e(e){var t=o("WASmaxParseUtils").flattenedChildWithTag(e,"identity");if(!t.success)return t;var n=o("WASmaxInFooKeyDataMixin").parseKeyDataMixin(t.value);return n.success,n;}
+            l.parseIdentityKeyMixin=e;
+        }),1);"#;
+        let slices = HashMap::from([
+            ("WASmaxInFooKeyDataMixin", data),
+            ("WASmaxInFooIdentityKeyMixin", identity),
+        ]);
+        let resolver = Resolver::new(&slices);
+        let Resolved::Fields(fields) = resolver
+            .resolve("WASmaxInFooIdentityKeyMixin", "parseIdentityKeyMixin")
+            .expect("resolved")
+        else {
+            panic!("expected Fields");
+        };
+        let ev = fields
+            .iter()
+            .find(|f| f.name == "elementValue")
+            .expect("elementValue");
+        assert_eq!(
+            ev.source_path.as_deref(),
+            Some(["identity".to_string()].as_slice()),
+            "passthrough mixin lifts the <identity> wrapper onto the delegated field"
+        );
+    }
+
+    #[test]
+    fn repeated_child_under_wrapper_records_source_path() {
+        // `a=flattenedChildWithTag(t,"list"); mapChildrenWithTag(a.value,"user",0,N,e)`
+        // → a repeated `<user>` child with source_path ["list"] (the wrapper above it).
+        let module = r#"__d("WASmaxInFooGetUsersResponseSuccess",["WASmaxParseUtils","WAResultOrError"],(function(t,n,r,o,a,i,l){
+            function e(e){var s=o("WASmaxParseUtils").attrString(e,"jid");if(!s.success)return s;return o("WAResultOrError").makeResult({jid:s.value});}
+            function s(t,n){
+                var r=o("WASmaxParseUtils").assertTag(t,"iq");if(!r.success)return r;
+                var a=o("WASmaxParseUtils").flattenedChildWithTag(t,"list");if(!a.success)return a;
+                var d=o("WASmaxParseUtils").mapChildrenWithTag(a.value,"user",0,1e5,e);
+                return d.success?o("WAResultOrError").makeResult({listUser:d.value}):d;
+            }
+            l.parseGetUsersResponseSuccessUser=e, l.parseGetUsersResponseSuccess=s;
+        }),1);"#;
+        let slices = HashMap::new();
+        let resolver = Resolver::new(&slices);
+        let exports = analyze_module_exports(module, &resolver);
+        let (_n, pr) = exports
+            .iter()
+            .find(|(n, _)| n == "parseGetUsersResponseSuccess")
+            .expect("exported parser");
+        let lu = pr
+            .fields
+            .iter()
+            .find(|f| f.name == "listUser")
+            .expect("listUser");
+        assert_eq!(lu.tag.as_deref(), Some("user"));
+        assert_eq!(lu.repeats, Some(true));
+        assert_eq!(
+            lu.source_path.as_deref(),
+            Some(["list".to_string()].as_slice()),
+            "the <list> wrapper above the repeated <user> child is captured"
+        );
+    }
+
+    #[test]
+    fn nested_flattened_child_chain_accumulates_path() {
+        // `t=flattenedChildWithTag(e,"key"); n=flattenedChildWithTag(t.value,"id");
+        //  a=attrString(n.value,"x")` → x has source_path ["key","id"].
+        let body = r#"function e(e){
+            var t=o("WASmaxParseUtils").flattenedChildWithTag(e,"key");if(!t.success)return t;
+            var n=o("WASmaxParseUtils").flattenedChildWithTag(t.value,"id");if(!n.success)return n;
+            var a=o("WASmaxParseUtils").attrString(n.value,"x");
+            return a.success?o("WAResultOrError").makeResult({x:a.value}):a;
+        }"#;
+        let (_a, fields) = analyze_one(body).expect("analyzed");
+        let x = fields.iter().find(|f| f.name == "x").expect("x");
+        assert_eq!(
+            x.source_path.as_deref(),
+            Some(["key".to_string(), "id".to_string()].as_slice())
+        );
+    }
+
+    #[test]
+    fn attr_off_flattened_child_records_source_path() {
+        // A mixin that descends `flattenedChildWithTag(e,"report")` then reads
+        // `attrString(n.value,"id")` → the field records source_path=["report"] so
+        // it is read off `<report>`, not the parent node.
+        let mixin = r#"__d("WASmaxInFooReportIdMixin",["WASmaxParseUtils","WAResultOrError"],(function(t,n,r,o,a,i,l){
+            function e(e){
+                var t=o("WASmaxParseUtils").assertTag(e,"iq");if(!t.success)return t;
+                var n=o("WASmaxParseUtils").flattenedChildWithTag(e,"report");if(!n.success)return n;
+                var r=o("WASmaxParseUtils").attrString(n.value,"id");
+                return r.success?o("WAResultOrError").makeResult({reportId:r.value}):r;
+            }
+            l.parseReportIdMixin=e;
+        }),1);"#;
+        let slices = HashMap::from([("WASmaxInFooReportIdMixin", mixin)]);
+        let resolver = Resolver::new(&slices);
+        let Resolved::Fields(fields) = resolver
+            .resolve("WASmaxInFooReportIdMixin", "parseReportIdMixin")
+            .expect("resolved")
+        else {
+            panic!("expected Fields");
+        };
+        let report_id = fields
+            .iter()
+            .find(|f| f.name == "reportId")
+            .expect("reportId");
+        assert_eq!(report_id.wire_name.as_deref(), Some("id"));
+        assert_eq!(
+            report_id.source_path.as_deref(),
+            Some(["report".to_string()].as_slice())
+        );
+    }
+
+    #[test]
+    fn boolean_presence_flags_become_bool_fields() {
+        // `{hasA: c.success}` and `{hasB: p.value != null}` → Bool fields, the latter
+        // carrying the underlying optional accessor's wire name.
+        let body = r#"function e(node){
+            var c = o("WASmaxParseUtils").attrString(node, "id"); if(!c.success) return c;
+            var p = o("WASmaxParseUtils").optionalLiteral(o("WASmaxParseUtils").attrString, node, "c_dhash", "x");
+            return o("WAResultOrError").makeResult({ id: c.value, hasA: c.success, hasB: p.value != null });
+        }"#;
+        let (_a, fields) = analyze_one(body).expect("analyzed");
+        let has_a = fields.iter().find(|f| f.name == "hasA").expect("hasA");
+        assert_eq!(has_a.field_type, ParsedFieldType::Bool);
+        let has_b = fields.iter().find(|f| f.name == "hasB").expect("hasB");
+        assert_eq!(has_b.field_type, ParsedFieldType::Bool);
+        assert_eq!(has_b.wire_name.as_deref(), Some("c_dhash"));
+    }
+
+    #[test]
+    fn import_cycle_does_not_loop() {
+        // Two modules whose parsers reference each other cross-module: the resolver
+        // must terminate (cycle guard) rather than recurse forever.
+        let a = r#"__d("WASmaxInCycA",["WASmaxParseUtils","WAResultOrError","WASmaxInCycB"],(function(t,n,r,o,a,i,l){
+            function e(e){var s=o("WASmaxInCycB").parseB(e);return s.success?o("WAResultOrError").makeResult({b:s.value}):s;}
+            l.parseA=e;
+        }),1);"#;
+        let b = r#"__d("WASmaxInCycB",["WASmaxParseUtils","WAResultOrError","WASmaxInCycA"],(function(t,n,r,o,a,i,l){
+            function e(e){var s=o("WASmaxInCycA").parseA(e);return s.success?o("WAResultOrError").makeResult({a:s.value}):s;}
+            l.parseB=e;
+        }),1);"#;
+        let slices = HashMap::from([("WASmaxInCycA", a), ("WASmaxInCycB", b)]);
+        let resolver = Resolver::new(&slices);
+        // Just needs to terminate; the cycle collapses to no resolvable fields.
+        let _ = resolver.resolve("WASmaxInCycA", "parseA");
     }
 }

@@ -6,7 +6,8 @@ use wa_ir::wap;
 use wa_ir::{ParsedField, ParsedFieldType, WapAttrKind, WapChildNode};
 
 use crate::fields::{
-    child_content_type, collect_response_fields, is_attr_field, is_child_field, is_jid_kind,
+    child_content_type, collect_response_fields, flatten_same_node, is_attr_field, is_child_field,
+    is_jid_kind,
 };
 use crate::naming::{pascal_case, rust_ident, rust_lit, rust_lit_inner, snake_case};
 
@@ -91,11 +92,16 @@ pub(crate) fn emit_response_parser(
     fields: &[ParsedField],
     response_type_name: &str,
     indent: &str,
+    prefix: &str,
 ) -> Vec<String> {
     // lines[0] is reserved for the deferred `use` import, lines[1] is a blank.
     let mut lines: Vec<String> = vec![String::new(), String::new()];
 
-    let (struct_fields, _) = collect_response_fields(fields);
+    // Same-node mixin fields are nested in the IR but read off the parent node;
+    // flatten them so the parser emits a flat attr/child read sequence.
+    let fields = &flatten_same_node(fields);
+
+    let (struct_fields, _) = collect_response_fields(fields, prefix);
     let struct_field_names: std::collections::HashSet<String> =
         struct_fields.iter().map(|f| f.name.clone()).collect();
 
@@ -213,7 +219,7 @@ pub(crate) fn emit_response_parser(
                     continue;
                 }
                 let n_tag = tag_or_name(nf);
-                let n_struct = format!("{}Item", pascal_case(n_tag));
+                let n_struct = format!("{prefix}{}Item", pascal_case(n_tag));
                 let n_vec = format!("{}_items", snake_case(n_tag));
 
                 lines.push(format!("{indent}let mut {n_vec} = Vec::new();"));
@@ -238,7 +244,7 @@ pub(crate) fn emit_response_parser(
                 );
             }
         } else if repeats(child) {
-            let struct_name = format!("{}Item", pascal_case(child_tag));
+            let struct_name = format!("{prefix}{}Item", pascal_case(child_tag));
             let vec_var = format!("{}_items", snake_case(child_tag));
 
             lines.push(format!("{indent}let mut {vec_var} = Vec::new();"));
