@@ -1066,9 +1066,9 @@ mod tests {
         assert!(out.contains("optional Inner inner = 3;")); // nested ref, qualified to Inner
         assert!(out.contains("optional LitEnum lit = 4;"));
         assert!(out.contains("map<string, uint32> mp = 5;")); // maps get no `optional`
-        assert!(out.contains("repeated uint32 ids = 7 [packed=true];"));
+        assert!(out.contains("repeated uint32 ids = 7 [packed = true];"));
         // `packed` listed BEFORE `repeated` must still keep `repeated`.
-        assert!(out.contains("repeated uint32 ids2 = 8 [packed=true];"));
+        assert!(out.contains("repeated uint32 ids2 = 8 [packed = true];"));
         assert!(out.contains("oneof body {\n    string lbl = 6;\n  }")); // no `optional` in oneof
         // Inner is emitted nested, not at top level.
         assert!(out.contains("  message Inner {\n    optional string x = 1;\n  }"));

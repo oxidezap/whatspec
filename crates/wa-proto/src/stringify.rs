@@ -1,7 +1,9 @@
 //! Render a [`ProtoFile`] to `.proto` text: 2-space indent,
-//! `flags type name = id [packed=true];`, top-level entities sorted by name, a
+//! `flags type name = id [packed = true];`, top-level entities sorted by name, a
 //! blank line after each message (none after an enum), and the
-//! `syntax`/`package`/version header.
+//! `syntax`/`package`/version header. Output is `buf format`-canonical (empty
+//! blank lines, no blank before a closing brace, empty messages collapsed to
+//! `{}`), so running `buf` over it is a no-op.
 
 use wa_ir::{ProtoEntity, ProtoEnum, ProtoField, ProtoFile, ProtoMember, ProtoMessage};
 
@@ -45,6 +47,10 @@ fn enum_lines(e: &ProtoEnum) -> Vec<String> {
 }
 
 fn message_lines(m: &ProtoMessage) -> Vec<String> {
+    // An empty message collapses onto a single line, matching `buf format`.
+    if m.members.is_empty() && m.nested.is_empty() {
+        return vec![format!("message {} {{}}", m.name), String::new()];
+    }
     let mut out = vec![format!("message {} {{", m.name)];
     for member in &m.members {
         out.extend(indent(member_lines(member)));
@@ -52,8 +58,13 @@ fn message_lines(m: &ProtoMessage) -> Vec<String> {
     for nested in &m.nested {
         out.extend(indent(entity_lines(nested)));
     }
+    // A nested message carries its own trailing blank (the separator between
+    // siblings); drop it here so there is no blank line before the closing brace.
+    while out.last().is_some_and(String::is_empty) {
+        out.pop();
+    }
     out.push("}".to_string());
-    out.push(String::new()); // trailing blank line after a message
+    out.push(String::new()); // blank line separating this message from the next
 
     out
 }
@@ -75,14 +86,23 @@ fn member_lines(member: &ProtoMember) -> Vec<String> {
 fn field_line(f: &ProtoField) -> String {
     let flags = f.flags.join(" ");
     let sep = if f.flags.is_empty() { "" } else { " " };
-    let packed = if f.packed { " [packed=true]" } else { "" };
+    let packed = if f.packed { " [packed = true]" } else { "" };
     format!("{flags}{sep}{} {} = {}{packed};", f.type_name, f.name, f.id)
 }
 
-/// Prefix every line with one indent level (blank lines included, matching the
-/// reference's `addPrefix`).
+/// Prefix every non-empty line with one indent level. Blank lines stay empty
+/// (no trailing whitespace), matching `buf format`.
 fn indent(lines: Vec<String>) -> Vec<String> {
-    lines.into_iter().map(|l| format!("{INDENT}{l}")).collect()
+    lines
+        .into_iter()
+        .map(|l| {
+            if l.is_empty() {
+                l
+            } else {
+                format!("{INDENT}{l}")
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -166,7 +186,7 @@ message ADVKeyIndexList {\n\
 \x20 optional uint32 rawId = 1;\n\
 \x20 optional uint64 timestamp = 2;\n\
 \x20 optional uint32 currentIndex = 3;\n\
-\x20 repeated uint32 validIndexes = 4 [packed=true];\n\
+\x20 repeated uint32 validIndexes = 4 [packed = true];\n\
 \x20 optional ADVEncryptionType accountType = 5;\n\
 }\n";
 
@@ -216,5 +236,37 @@ message ADVKeyIndexList {\n\
         assert!(out.contains("  optional Outer.Inner inner = 4;\n"));
         // Nested message is indented one level inside Outer.
         assert!(out.contains("  message Inner {\n    optional uint32 x = 1;\n  }\n"));
+    }
+
+    #[test]
+    fn buf_canonical_blank_lines_and_empty_messages() {
+        let file = ProtoFile {
+            wa_version: "2.3000.1".to_string(),
+            entities: vec![ProtoEntity::Message(ProtoMessage {
+                name: "Outer".to_string(),
+                members: vec![field("id", "uint32", 1, &["optional"], false)],
+                nested: vec![
+                    ProtoEntity::Message(ProtoMessage {
+                        name: "Empty".to_string(),
+                        members: vec![],
+                        nested: vec![],
+                    }),
+                    ProtoEntity::Message(ProtoMessage {
+                        name: "Inner".to_string(),
+                        members: vec![field("x", "uint32", 1, &["optional"], false)],
+                        nested: vec![],
+                    }),
+                ],
+            })],
+        };
+        let out = stringify(&file);
+        // Empty message collapses onto one line.
+        assert!(out.contains("  message Empty {}\n"));
+        // No indented "blank" line (trailing whitespace) anywhere.
+        assert!(!out.contains("\n  \n"));
+        // No blank line immediately before a closing brace.
+        assert!(!out.contains("\n\n}"));
+        // Sibling nested messages are still separated by a (truly empty) blank line.
+        assert!(out.contains("  message Empty {}\n\n  message Inner {"));
     }
 }

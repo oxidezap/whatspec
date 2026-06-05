@@ -42,7 +42,7 @@
     },
     "proto": {
       "file": "proto/WAProto.proto",
-      "sha256": "9b4b9e8e494eb8bd01aa357b50e0366b48e2c0d46f7d8b16cc81a38de97dd1a2"
+      "sha256": "faa5954430ac6a089a5edf9c90b753492dcfafe39e89ad1d71012db5cb59f2d3"
     }
   },
   "enumDefs": 244,
