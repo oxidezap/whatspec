@@ -148,7 +148,7 @@ pub(crate) fn collect_response_fields(
     fields: &[ParsedField],
     prefix: &str,
 ) -> (Vec<RustField>, Vec<RustChildStruct>) {
-    let fields = &flatten_same_node(fields);
+    let flattened = &flatten_same_node(fields);
     let mut top_fields: Vec<RustField> = Vec::new();
     let mut child_structs: Vec<RustChildStruct> = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
@@ -159,7 +159,7 @@ pub(crate) fn collect_response_fields(
         }
     };
 
-    for f in fields {
+    for f in flattened {
         if is_child_field(f) {
             let kids = children_of(f);
             // `child("x").contentString()` → a single `x: String` field (named by

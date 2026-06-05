@@ -111,11 +111,32 @@ pub(crate) fn emit_response_parser(
         .collect();
     let child_fields: Vec<&ParsedField> = fields.iter().filter(|f| is_child_field(f)).collect();
 
+    // A field may carry a `source_path` of wrapper tags to descend before the
+    // read (smax `flattenedChildWithTag`): e.g. `protocol` lives on <props>, not
+    // the <iq> root. Descend each required wrapper once (memoized) so the attr is
+    // read off the right node. Optional-only wrappers (no required field through
+    // them) are left reading off the root for now.
+    let mut wrapper_vars: HashMap<Vec<String>, String> = HashMap::new();
+    for f in top_attrs
+        .iter()
+        .filter(|f| f.required && struct_field_names.contains(&rust_ident(&f.name)))
+    {
+        if let Some(path) = f.source_path.as_deref().filter(|p| !p.is_empty()) {
+            ensure_wrapper_var(path, &mut wrapper_vars, &mut lines, indent);
+        }
+    }
     for f in &top_attrs {
         if !struct_field_names.contains(&rust_ident(&f.name)) {
             continue;
         }
-        lines.extend(emit_field_parse(f, "response", indent));
+        let node_var = match f.source_path.as_deref() {
+            Some(path) if !path.is_empty() => wrapper_vars
+                .get(path)
+                .map(String::as_str)
+                .unwrap_or("response"),
+            _ => "response",
+        };
+        lines.extend(emit_field_parse(f, node_var, indent));
     }
 
     let mut init_fields: Vec<String> = Vec::new();
@@ -281,6 +302,46 @@ pub(crate) fn emit_response_parser(
     lines
 }
 
+/// Emit the wrapper descent for a `source_path` (memoized per prefix) and return
+/// the node var the field should be read from. Each segment is read as required:
+/// the fields driving the descent carry required attrs, so a missing wrapper is a
+/// parse error, mirroring how a direct required `child` is read.
+fn ensure_wrapper_var(
+    path: &[String],
+    vars: &mut HashMap<Vec<String>, String>,
+    lines: &mut Vec<String>,
+    indent: &str,
+) -> String {
+    let mut parent = "response".to_string();
+    let mut prefix: Vec<String> = Vec::new();
+    for seg in path {
+        prefix.push(seg.clone());
+        if let Some(var) = vars.get(&prefix) {
+            parent = var.clone();
+            continue;
+        }
+        let var = format!(
+            "{}_wrap",
+            prefix
+                .iter()
+                .map(|s| snake_case(s))
+                .collect::<Vec<_>>()
+                .join("_")
+        );
+        lines.push(format!(
+            "{indent}let {var} = {parent}.get_optional_child({})",
+            rust_lit(seg)
+        ));
+        lines.push(format!(
+            "{indent}    .ok_or_else(|| anyhow::anyhow!(\"missing <{}>\"))?;",
+            rust_lit_inner(seg)
+        ));
+        vars.insert(prefix.clone(), var.clone());
+        parent = var;
+    }
+    parent
+}
+
 /// Dedup attribute children by name, dropping `hasAttr`.
 fn dedup_attrs(kids: &[ParsedField]) -> Vec<&ParsedField> {
     let mut seen = std::collections::HashSet::new();
@@ -401,6 +462,58 @@ mod tests {
             children: vec![],
             repeats: false,
         }
+    }
+
+    #[test]
+    fn source_path_attr_is_read_off_descended_wrapper() {
+        // `protocol` carries sourcePath=["props"]: it lives on <props>, not the
+        // <iq> root. The parser must descend the wrapper, and optional siblings
+        // sharing the wrapper must read off it too, while a plain root attr stays
+        // on `response`.
+        let fields: Vec<ParsedField> = serde_json::from_value(serde_json::json!([
+            {"method":"attrString","name":"propsProtocol","wireName":"protocol","type":"string","required":true,"sourcePath":["props"]},
+            {"method":"maybeAttrString","name":"propsHash","wireName":"hash","type":"string","required":false,"sourcePath":["props"]},
+            {"method":"attrString","name":"type","wireName":"type","type":"string","required":true}
+        ]))
+        .unwrap();
+        let code = emit_response_parser(&fields, "Resp", "    ", "Foo").join("\n");
+        assert!(
+            code.contains("let props_wrap = response.get_optional_child(\"props\")"),
+            "no <props> wrapper descent:\n{code}"
+        );
+        assert!(
+            code.contains("let props_protocol = props_wrap.get_attr(\"protocol\")"),
+            "required attr not read off the wrapper:\n{code}"
+        );
+        assert!(
+            code.contains("let props_hash = props_wrap.get_attr(\"hash\")"),
+            "optional sibling not read off the wrapper:\n{code}"
+        );
+        assert!(
+            code.contains("response.get_attr(\"type\")"),
+            "root attr should still read off response:\n{code}"
+        );
+    }
+
+    #[test]
+    fn nested_source_path_descends_each_segment() {
+        let fields: Vec<ParsedField> = serde_json::from_value(serde_json::json!([
+            {"method":"attrString","name":"nonceValue","wireName":"value","type":"string","required":true,"sourcePath":["detail","nonce"]}
+        ]))
+        .unwrap();
+        let code = emit_response_parser(&fields, "Resp", "    ", "Foo").join("\n");
+        assert!(
+            code.contains("let detail_wrap = response.get_optional_child(\"detail\")"),
+            "{code}"
+        );
+        assert!(
+            code.contains("let detail_nonce_wrap = detail_wrap.get_optional_child(\"nonce\")"),
+            "{code}"
+        );
+        assert!(
+            code.contains("let nonce_value = detail_nonce_wrap.get_attr(\"value\")"),
+            "{code}"
+        );
     }
 
     #[test]

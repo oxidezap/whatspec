@@ -171,7 +171,9 @@ fn namespace_body(namespace: &str, operations: &[&IqStanzaDef]) -> Vec<String> {
         for cs in child_structs {
             match all_child_structs.iter_mut().find(|e| e.name == cs.name) {
                 None => all_child_structs.push(cs),
-                // Keep the superset when the same struct shows up with more fields.
+                // Names are unique per spec now, so a collision means byte-identical
+                // structs. As a defensive tie-break, keep whichever carries more
+                // fields (a field-count heuristic, not a true superset check).
                 Some(existing) if cs.fields.len() > existing.fields.len() => *existing = cs,
                 _ => {}
             }
