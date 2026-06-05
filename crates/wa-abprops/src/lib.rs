@@ -1,10 +1,16 @@
-//! Native tooling: extract WhatsApp Web's A/B-props (feature-flag) registry from
-//! the `WAWebABPropsConfigs` bundle module.
+//! Native tooling: extract WhatsApp Web's A/B-props (feature-flag) registries
+//! from every `*ABPropsConfigs` bundle module.
 //!
-//! The module holds one big object literal `name: [code, "type", default, alt]`
-//! (~1.7k entries). We locate that object (the one with by far the most
-//! tuple-shaped entries) and read each flag's code/type/default(s).
+//! WA Web ships several registry modules — `WAWebABPropsConfigs` (the ~1.7k web
+//! flags), `WAWebHybridABPropsConfigs` (native/Windows), `WAWebGroupABPropsConfigs`
+//! (group-level) — each a big object literal `name: [code, "type", default, alt]`.
+//! We read every module whose name ends in `ABPropsConfigs`, locate its registry
+//! object (the one with by far the most tuple-shaped entries), and tag each flag
+//! with its source module. A flag may appear in more than one module (identical
+//! code/default); both are kept so the output mirrors WA Web's own organization.
 #![cfg(not(target_arch = "wasm32"))]
+
+use std::collections::HashSet;
 
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{Expression, ObjectExpression, UnaryOperator};
@@ -13,13 +19,16 @@ use wa_ir::{AbPropConfig, AbPropType, AbPropsIr, Scalar};
 use wa_oxc::{as_string_lit, parse_cjs};
 use wa_transform::ModuleDefinition;
 
-/// The module that defines the registry.
-const MODULE: &str = "WAWebABPropsConfigs";
-/// A registry object must have at least this many tuple-shaped entries — well
-/// below the real ~1.7k, but far above any incidental object literal.
-const MIN_ENTRIES: usize = 100;
+/// Modules whose name ends in this suffix hold an A/B-props registry. Matching by
+/// suffix (rather than an exact name) auto-captures new registries WA may add.
+const MODULE_SUFFIX: &str = "ABPropsConfigs";
+/// A registry object must have at least this many tuple-shaped entries. The
+/// module-name filter already restricts us to real registries, so this only needs
+/// to clear incidental object literals; the smallest real registry (group-level)
+/// still has well over a dozen.
+const MIN_ENTRIES: usize = 5;
 
-/// Convenience: split a whole bundle into modules, then extract the registry.
+/// Convenience: split a whole bundle into modules, then extract the registries.
 /// Mirrors `extract_mex` / `extract_appstate` for a uniform per-domain surface;
 /// the pipeline uses [`extract_abprops_from_modules`] to share one split.
 pub fn extract_abprops(source: &str, wa_version: &str) -> AbPropsIr {
@@ -27,44 +36,54 @@ pub fn extract_abprops(source: &str, wa_version: &str) -> AbPropsIr {
     extract_abprops_from_modules(source, &defs, wa_version)
 }
 
-/// Extract the A/B-props registry from an already-split module index.
+/// Extract every A/B-props registry from an already-split module index.
 pub fn extract_abprops_from_modules(
     source: &str,
     module_defs: &[ModuleDefinition],
     wa_version: &str,
 ) -> AbPropsIr {
-    let mut configs = module_defs
-        .iter()
-        .find(|m| m.name == MODULE)
-        .map(|m| extract_from_slice(&source[m.start..m.end]))
-        .unwrap_or_default();
-    // Deterministic order independent of source layout.
-    configs.sort_by(|a, b| a.name.cmp(&b.name));
-    configs.dedup_by(|a, b| a.name == b.name);
+    // The same registry module can recur across concatenated bundle shards; take
+    // the first occurrence of each module name (first declaration wins).
+    let mut seen: HashSet<&str> = HashSet::new();
+    let mut configs: Vec<AbPropConfig> = Vec::new();
+    for def in module_defs {
+        if !def.name.ends_with(MODULE_SUFFIX) || !seen.insert(def.name.as_str()) {
+            continue;
+        }
+        configs.extend(extract_from_slice(&source[def.start..def.end], &def.name));
+    }
+    // Deterministic order independent of source layout; one entry per
+    // (module, name) — a single module never legitimately repeats a key.
+    configs.sort_by(|a, b| (&a.module, &a.name).cmp(&(&b.module, &b.name)));
+    configs.dedup_by(|a, b| a.module == b.module && a.name == b.name);
     AbPropsIr {
         wa_version: wa_version.to_string(),
         configs,
     }
 }
 
-fn extract_from_slice(slice: &str) -> Vec<AbPropConfig> {
+fn extract_from_slice(slice: &str, module: &str) -> Vec<AbPropConfig> {
     let alloc = Allocator::default();
     let ret = parse_cjs(&alloc, slice);
-    let mut finder = RegistryFinder { best: Vec::new() };
+    let mut finder = RegistryFinder {
+        module,
+        best: Vec::new(),
+    };
     finder.visit_program(&ret.program);
     finder.best
 }
 
 /// Walks every object literal and keeps the one that parses into the most
 /// flag entries — the registry dwarfs any other object in the module.
-struct RegistryFinder {
+struct RegistryFinder<'m> {
+    module: &'m str,
     best: Vec<AbPropConfig>,
 }
 
-impl<'a> Visit<'a> for RegistryFinder {
+impl<'a> Visit<'a> for RegistryFinder<'_> {
     fn visit_object_expression(&mut self, obj: &ObjectExpression<'a>) {
         if obj.properties.len() > self.best.len() {
-            let parsed = parse_registry(obj);
+            let parsed = parse_registry(obj, self.module);
             if parsed.len() > self.best.len() {
                 self.best = parsed;
             }
@@ -75,13 +94,13 @@ impl<'a> Visit<'a> for RegistryFinder {
 
 /// Parse an object as `{ name: [code, "type", default, alt], … }`; returns the
 /// entries it could read (empty for a non-registry object).
-fn parse_registry(obj: &ObjectExpression) -> Vec<AbPropConfig> {
+fn parse_registry(obj: &ObjectExpression, module: &str) -> Vec<AbPropConfig> {
     let mut out = Vec::new();
     for (name, value) in wa_oxc::obj_props(obj) {
         let Expression::ArrayExpression(arr) = value else {
             continue;
         };
-        if let Some(cfg) = parse_entry(name, arr) {
+        if let Some(cfg) = parse_entry(module, name, arr) {
             out.push(cfg);
         }
     }
@@ -92,7 +111,11 @@ fn parse_registry(obj: &ObjectExpression) -> Vec<AbPropConfig> {
     }
 }
 
-fn parse_entry(name: &str, arr: &oxc_ast::ast::ArrayExpression) -> Option<AbPropConfig> {
+fn parse_entry(
+    module: &str,
+    name: &str,
+    arr: &oxc_ast::ast::ArrayExpression,
+) -> Option<AbPropConfig> {
     let el = |i: usize| arr.elements.get(i).and_then(|e| e.as_expression());
     let code = as_u32(el(0)?)?;
     let value_type = match as_string_lit(el(1)?)? {
@@ -107,6 +130,7 @@ fn parse_entry(name: &str, arr: &oxc_ast::ast::ArrayExpression) -> Option<AbProp
         .and_then(|e| scalar_for(e, value_type))
         .filter(|alt| *alt != default);
     Some(AbPropConfig {
+        module: module.to_string(),
         name: name.to_string(),
         code,
         value_type,
@@ -179,6 +203,7 @@ mod tests {
         let ir = extract_abprops_from_modules(&module, &defs, "1.0");
         let by = |n: &str| ir.configs.iter().find(|c| c.name == n).unwrap();
         assert!(ir.configs.len() >= 124);
+        assert_eq!(by("a_int").module, "WAWebABPropsConfigs");
         assert_eq!(by("a_int").code, 5);
         assert_eq!(by("a_int").value_type, AbPropType::Int);
         assert_eq!(by("a_int").default, Scalar::Int(7));
@@ -195,5 +220,53 @@ mod tests {
     fn missing_module_yields_empty() {
         let ir = extract_abprops_from_modules("var x=1;", &[], "1.0");
         assert!(ir.configs.is_empty());
+    }
+
+    #[test]
+    fn extracts_every_registry_module_tagged_by_module() {
+        // A web registry (clears MIN_ENTRIES) plus a tiny group registry: both
+        // must be captured, each flag tagged with its module, and a name shared
+        // across modules kept once per module.
+        let mut web = String::new();
+        for k in 0..10 {
+            web.push_str(&format!("flag_{k}:[{k},\"bool\",!1],"));
+        }
+        web.push_str("shared:[99,\"bool\",!1],");
+        // Both registries must clear MIN_ENTRIES.
+        let mut group = String::from("shared:[99,\"bool\",!1],grp_only:[42,\"int\",3],");
+        for k in 0..6 {
+            group.push_str(&format!("g_{k}:[{},\"bool\",!1],", 200 + k));
+        }
+        let module = format!(
+            "__d(\"WAWebABPropsConfigs\",[],function(g,r,d,o,e,i,l){{l.c={{{web}}}}},1);\
+             __d(\"WAWebGroupABPropsConfigs\",[],function(g,r,d,o,e,i,l){{l.c={{{group}}}}},2);"
+        );
+        let defs = wa_transform::extract_module_definitions(&module);
+        let ir = extract_abprops_from_modules(&module, &defs, "1.0");
+
+        let group_flags: Vec<_> = ir
+            .configs
+            .iter()
+            .filter(|c| c.module == "WAWebGroupABPropsConfigs")
+            .collect();
+        assert!(
+            group_flags
+                .iter()
+                .any(|c| c.name == "grp_only" && c.code == 42),
+            "group-level registry captured"
+        );
+        // `shared` exists under BOTH modules (mirrors WA Web's duplication).
+        let shared: Vec<_> = ir.configs.iter().filter(|c| c.name == "shared").collect();
+        assert_eq!(shared.len(), 2);
+        let mods: Vec<&str> = shared.iter().map(|c| c.module.as_str()).collect();
+        assert!(
+            mods.contains(&"WAWebABPropsConfigs") && mods.contains(&"WAWebGroupABPropsConfigs")
+        );
+        // Sorted by (module, name).
+        assert!(
+            ir.configs
+                .windows(2)
+                .all(|w| (&w[0].module, &w[0].name) <= (&w[1].module, &w[1].name))
+        );
     }
 }

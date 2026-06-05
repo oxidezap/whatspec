@@ -49,6 +49,10 @@
           "description": "The flag's default value (typed per `value_type`).",
           "$ref": "#/$defs/Scalar"
         },
+        "module": {
+          "description": "The WA Web registry module this flag is declared in (e.g.\n`WAWebABPropsConfigs`, `WAWebHybridABPropsConfigs`,\n`WAWebGroupABPropsConfigs`). WhatsApp ships several registries and a flag\nmay appear in more than one (identical code/default), so the module is part\nof a flag's identity — consumers key by `(module, name)`.",
+          "type": "string"
+        },
         "name": {
           "description": "Flag key, e.g. `privacy_token_sending_on_all_1_on_1_messages`.",
           "type": "string"
@@ -58,6 +62,7 @@
         }
       },
       "required": [
+        "module",
         "name",
         "code",
         "valueType",

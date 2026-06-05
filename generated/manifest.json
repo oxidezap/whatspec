@@ -1,5 +1,5 @@
 {
-  "abPropsConfigs": 1775,
+  "abPropsConfigs": 2100,
   "appstateActions": 65,
   "diagnostics": {
     "iq": {
@@ -18,7 +18,7 @@
     "abprops": {
       "file": "abprops/index.json",
       "schema": "schema/abprops.schema.json",
-      "sha256": "49a647f5e404682223ffeafc71b42bfd0391f99c804f4eb81bfb3cad9350e16d"
+      "sha256": "8300cb09b2ec61c6bf313dbb09e8dc9774f8e8f4b1a76dff4ad1ef6bd1d4663d"
     },
     "appstate": {
       "file": "appstate/index.json",

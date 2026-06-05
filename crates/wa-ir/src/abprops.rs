@@ -26,6 +26,12 @@ pub enum AbPropType {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct AbPropConfig {
+    /// The WA Web registry module this flag is declared in (e.g.
+    /// `WAWebABPropsConfigs`, `WAWebHybridABPropsConfigs`,
+    /// `WAWebGroupABPropsConfigs`). WhatsApp ships several registries and a flag
+    /// may appear in more than one (identical code/default), so the module is part
+    /// of a flag's identity — consumers key by `(module, name)`.
+    pub module: String,
     /// Flag key, e.g. `privacy_token_sending_on_all_1_on_1_messages`.
     pub name: String,
     /// Numeric config id sent in the `<props>` IQ.
@@ -40,7 +46,8 @@ pub struct AbPropConfig {
     pub alt_default: Option<Scalar>,
 }
 
-/// The A/B-props IR document: version stamp + every flag, sorted by `name`.
+/// The A/B-props IR document: version stamp + every flag from every registry
+/// module, sorted by `(module, name)`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
