@@ -42,14 +42,14 @@
     },
     "proto": {
       "file": "proto/WAProto.proto",
-      "sha256": "2750149def541a0c03c27fcf7ae14853f7e24dff171d4a168d534c880c6fb720"
+      "sha256": "6dd5b03cff8aed65f914b2b5eb57138cd9987882b57ff65ea36f8d4b37d61ae2"
     }
   },
   "enumDefs": 244,
   "generatorVersion": "0.1.0",
   "iqModules": 33,
   "mexOperations": 127,
-  "protoEntities": 253,
+  "protoEntities": 246,
   "schemaVersion": "1.0.0",
   "waVersion": "2.3000.1040878135"
 }

@@ -3,7 +3,7 @@
 //! references and `$`-nesting into a [`ProtoFile`].
 
 use std::borrow::Cow;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
@@ -269,7 +269,275 @@ pub fn extract_proto_from_modules(
 
     ProtoFile {
         wa_version: wa_version.to_string(),
-        entities,
+        entities: make_protoc_valid(entities),
+    }
+}
+
+// ─── protoc-validity post-processing ──────────────────────────────────────────
+
+/// Reconcile the resolved tree with `protoc`'s C++ enum scoping.
+///
+/// WhatsApp's runtime is protobuf.js, which scopes enum values *per enum*, so the
+/// bundle happily declares two top-level enums sharing a value name (e.g.
+/// `ADVEncryptionType` and `HostedState` both with `E2EE`/`HOSTED`). `protoc`
+/// instead treats enum values as siblings of the enum's *container*, so two such
+/// top-level enums collide at package scope. The bundle also re-exports common
+/// types from several modules (a legacy `WAFingerprint.pb` + a
+/// `WAWebProtobufsFingerprintV3.pb` variant, …), surfacing the same type twice.
+/// Neither survives `protoc`. This pass:
+///   1. drops duplicate top-level entities (keeps one), and
+///   2. relocates a colliding top-level enum *into* the message that references
+///      it, scoping its values out of the package namespace.
+fn make_protoc_valid(entities: Vec<ProtoEntity>) -> Vec<ProtoEntity> {
+    relocate_colliding_enums(dedup_top_level(entities))
+}
+
+/// Keep one entity per top-level name. Duplicates are byte-identical in practice
+/// (the same spec exported by two modules); sorting by `(name, debug)` makes the
+/// survivor deterministic even if two same-named entities ever diverged, since the
+/// source `modules` map iterates in a nondeterministic order.
+fn dedup_top_level(mut entities: Vec<ProtoEntity>) -> Vec<ProtoEntity> {
+    entities.sort_by(|a, b| {
+        a.name()
+            .cmp(b.name())
+            .then_with(|| format!("{a:?}").cmp(&format!("{b:?}")))
+    });
+    let mut out: Vec<ProtoEntity> = Vec::with_capacity(entities.len());
+    for e in entities {
+        if out.last().map(ProtoEntity::name) != Some(e.name()) {
+            out.push(e);
+        }
+    }
+    out
+}
+
+/// Move any top-level enum whose value names clash with another top-level enum's
+/// under the message that references it. In each clash component the most-
+/// referenced enum stays at package scope (it is the hardest to re-home cleanly);
+/// the rest are nested into a referencing message, which scopes their values away.
+fn relocate_colliding_enums(mut entities: Vec<ProtoEntity>) -> Vec<ProtoEntity> {
+    // value name -> top-level enums declaring it.
+    let mut owners: HashMap<String, BTreeSet<String>> = HashMap::new();
+    for e in &entities {
+        if let ProtoEntity::Enum(en) = e {
+            for v in &en.values {
+                owners
+                    .entry(v.name.clone())
+                    .or_default()
+                    .insert(en.name.clone());
+            }
+        }
+    }
+    // Adjacency among enums that share at least one value name.
+    let mut adj: HashMap<String, BTreeSet<String>> = HashMap::new();
+    for set in owners.values().filter(|s| s.len() > 1) {
+        for a in set {
+            for b in set.iter().filter(|b| *b != a) {
+                adj.entry(a.clone()).or_default().insert(b.clone());
+            }
+        }
+    }
+    if adj.is_empty() {
+        return entities;
+    }
+
+    let refs = referencers(&entities);
+    let ref_count = |name: &str| refs.get(name).map(BTreeSet::len).unwrap_or(0);
+
+    // Walk clash components; pick a keeper, schedule the rest for relocation.
+    let mut visited: BTreeSet<String> = BTreeSet::new();
+    let mut decisions: Vec<(String, String)> = Vec::new(); // (enum, host message)
+    let mut prefix_only: Vec<String> = Vec::new(); // colliding but no referencer
+    for start in adj.keys().cloned().collect::<BTreeSet<String>>() {
+        if visited.contains(&start) {
+            continue;
+        }
+        let mut comp: BTreeSet<String> = BTreeSet::new();
+        let mut stack = vec![start];
+        while let Some(n) = stack.pop() {
+            if !visited.insert(n.clone()) {
+                continue;
+            }
+            comp.insert(n.clone());
+            for m in adj.get(&n).into_iter().flatten() {
+                if !visited.contains(m) {
+                    stack.push(m.clone());
+                }
+            }
+        }
+        // Keeper: most referencers; tie broken by smallest name (deterministic).
+        let keeper = comp
+            .iter()
+            .max_by(|a, b| ref_count(a).cmp(&ref_count(b)).then_with(|| b.cmp(a)))
+            .cloned()
+            .expect("component is non-empty");
+        for en in comp.iter().filter(|e| **e != keeper) {
+            match refs.get(en).and_then(|hosts| hosts.iter().next()) {
+                Some(host) => decisions.push((en.clone(), host.clone())),
+                None => prefix_only.push(en.clone()),
+            }
+        }
+    }
+
+    let relocated: BTreeSet<String> = decisions.iter().map(|(e, _)| e.clone()).collect();
+
+    // Pull the relocated enums out of the top level.
+    let mut taken: HashMap<String, ProtoEntity> = HashMap::new();
+    entities.retain(|e| {
+        if matches!(e, ProtoEntity::Enum(_)) && relocated.contains(e.name()) {
+            taken.insert(e.name().to_string(), e.clone());
+            false
+        } else {
+            true
+        }
+    });
+
+    // Defensive fallback for an unreferenced colliding enum (cannot be nested):
+    // prefix its values so they no longer clash at package scope. Does not occur
+    // in current bundles, but keeps the output protoc-valid unconditionally.
+    for e in &mut entities {
+        if let ProtoEntity::Enum(en) = e
+            && prefix_only.contains(&en.name)
+        {
+            let prefix = en.name.clone();
+            for v in &mut en.values {
+                v.name = format!("{prefix}_{}", v.name);
+            }
+        }
+    }
+
+    // An enum referenced by *several* top-level messages can still be relocated,
+    // but references from outside its new home must then be fully qualified.
+    let qualified: HashMap<String, String> = decisions
+        .iter()
+        .filter(|(en, _)| ref_count(en) > 1)
+        .map(|(en, host)| (en.clone(), format!("{host}.{en}")))
+        .collect();
+    if !qualified.is_empty() {
+        for e in &mut entities {
+            if let ProtoEntity::Message(m) = e {
+                rewrite_refs(m, &qualified);
+            }
+        }
+    }
+
+    // Nest each relocated enum under its host (host-grouped, sorted by name).
+    let mut by_host: BTreeMap<String, Vec<ProtoEntity>> = BTreeMap::new();
+    for (en, host) in &decisions {
+        if let Some(ent) = taken.remove(en) {
+            by_host.entry(host.clone()).or_default().push(ent);
+        }
+    }
+    for e in &mut entities {
+        if let ProtoEntity::Message(m) = e
+            && let Some(mut adds) = by_host.remove(&m.name)
+        {
+            adds.sort_by(|a, b| a.name().cmp(b.name()));
+            m.nested.extend(adds);
+        }
+    }
+    // A host should always be found above; re-home any leftover at top level
+    // rather than silently dropping it.
+    for adds in by_host.into_values() {
+        entities.extend(adds);
+    }
+
+    entities
+}
+
+/// Map each top-level message to the type names referenced anywhere in its
+/// subtree (fields, `oneof` fields, and nested messages).
+fn referencers(entities: &[ProtoEntity]) -> HashMap<String, BTreeSet<String>> {
+    let mut map: HashMap<String, BTreeSet<String>> = HashMap::new();
+    for e in entities {
+        if let ProtoEntity::Message(m) = e {
+            let mut refs = BTreeSet::new();
+            collect_refs(m, &mut refs);
+            for r in refs {
+                map.entry(r).or_default().insert(m.name.clone());
+            }
+        }
+    }
+    map
+}
+
+fn collect_refs(m: &ProtoMessage, out: &mut BTreeSet<String>) {
+    for mem in &m.members {
+        match mem {
+            ProtoMember::Field(f) => {
+                for b in type_ref_bases(&f.type_name) {
+                    out.insert(b.to_string());
+                }
+            }
+            ProtoMember::OneOf(o) => {
+                for f in &o.fields {
+                    for b in type_ref_bases(&f.type_name) {
+                        out.insert(b.to_string());
+                    }
+                }
+            }
+        }
+    }
+    for n in &m.nested {
+        if let ProtoEntity::Message(nm) = n {
+            collect_refs(nm, out);
+        }
+    }
+}
+
+/// Base (unqualified) type name(s) of a printed field type: the trailing segment
+/// of a dotted path, or both sides of a `map<K, V>`.
+fn type_ref_bases(type_name: &str) -> Vec<&str> {
+    /// Trailing segment of a dotted path (`A.B.C` → `C`), trimmed.
+    fn base(t: &str) -> &str {
+        let t = t.trim();
+        t.rsplit('.').next().unwrap_or(t)
+    }
+    match type_name
+        .strip_prefix("map<")
+        .and_then(|s| s.strip_suffix('>'))
+    {
+        Some(inner) => inner.split(',').map(base).collect(),
+        None => vec![base(type_name)],
+    }
+}
+
+/// Rewrite field types referencing a relocated enum to their qualified form.
+fn rewrite_refs(m: &mut ProtoMessage, map: &HashMap<String, String>) {
+    for mem in &mut m.members {
+        match mem {
+            ProtoMember::Field(f) => rewrite_type(&mut f.type_name, map),
+            ProtoMember::OneOf(o) => {
+                for f in &mut o.fields {
+                    rewrite_type(&mut f.type_name, map);
+                }
+            }
+        }
+    }
+    for n in &mut m.nested {
+        if let ProtoEntity::Message(nm) = n {
+            rewrite_refs(nm, map);
+        }
+    }
+}
+
+fn rewrite_type(type_name: &mut String, map: &HashMap<String, String>) {
+    if let Some(repl) = map.get(type_name.as_str()) {
+        *type_name = repl.clone();
+        return;
+    }
+    if let Some(inner) = type_name
+        .strip_prefix("map<")
+        .and_then(|s| s.strip_suffix('>'))
+    {
+        let parts: Vec<String> = inner
+            .split(',')
+            .map(|p| {
+                let t = p.trim();
+                map.get(t).cloned().unwrap_or_else(|| t.to_string())
+            })
+            .collect();
+        *type_name = format!("map<{}>", parts.join(", "));
     }
 }
 
@@ -832,6 +1100,45 @@ mod tests {
     fn empty_or_non_proto_source() {
         let out = stringify(&extract_proto("var x = 1;", "2.3000.1"));
         assert!(!out.contains("message "));
+    }
+
+    // Same type exported by two differently-named modules (a legacy + a `…V3`
+    // variant in real bundles). protoc rejects the redefinition; we keep one.
+    const DUP: &str = r#"__d("ModA.pb",["WAProtoConst"],(function(t,n,r,o,a,i,l){
+        var e,u={}; u.name="Thing"; u.internalSpec={x:[1,(e=r("WAProtoConst")).TYPES.STRING]}; l.ThingSpec=u;
+    }),1);
+    __d("ModB.pb",["WAProtoConst"],(function(t,n,r,o,a,i,l){
+        var e,u={}; u.name="Thing"; u.internalSpec={x:[1,(e=r("WAProtoConst")).TYPES.STRING]}; l.ThingSpec=u;
+    }),2);"#;
+
+    #[test]
+    fn dedups_duplicate_top_level_type() {
+        let out = stringify(&extract_proto(DUP, "2.3000.1"));
+        assert_eq!(out.matches("message Thing {").count(), 1);
+    }
+
+    // Two top-level enums share a value name (`SHARED`). protobuf.js allows it;
+    // protoc does not (C++ enum scoping). EnumA has two referencers and stays at
+    // package scope; EnumB has one and is nested into it, scoping `SHARED` away.
+    const COLLIDE: &str = r#"__d("ModC.pb",["$InternalEnum","WAProtoConst"],(function(t,n,r,o,a,i,l){
+        var e, ea=n("$InternalEnum")({SHARED:0,X:1}), eb=n("$InternalEnum")({SHARED:0,Y:1}), m1={}, m2={}, m3={};
+        m1.name="One";   m1.internalSpec={a:[1,(e=r("WAProtoConst")).TYPES.ENUM,ea]};
+        m2.name="Two";   m2.internalSpec={a:[1,e.TYPES.ENUM,ea]};
+        m3.name="Three"; m3.internalSpec={b:[1,e.TYPES.ENUM,eb]};
+        l.EnumA=ea,l.EnumB=eb,l.OneSpec=m1,l.TwoSpec=m2,l.ThreeSpec=m3;
+    }),1);"#;
+
+    #[test]
+    fn relocates_colliding_enum_into_referencer() {
+        let out = stringify(&extract_proto(COLLIDE, "2.3000.1"));
+        // EnumA (2 referencers) stays at the top level.
+        assert!(out.contains("\nenum EnumA {"));
+        // EnumB is nested into its sole referencer Three, not left at top level.
+        assert!(!out.contains("\nenum EnumB {"));
+        assert!(out.contains("    enum EnumB {"));
+        assert!(out.contains("        SHARED = 0;")); // value scoped inside Three
+        // The field reference stays bare and resolves to the nested enum.
+        assert!(out.contains("    optional EnumB b = 1;"));
     }
 
     #[test]

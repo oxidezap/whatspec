@@ -18,8 +18,12 @@ pub fn stringify(file: &ProtoFile) -> String {
         .collect::<Vec<_>>()
         .join("\n");
 
+    // proto2, not proto3: WhatsApp's schemas use `required` fields, explicit
+    // `optional`/`repeated` labels, and enums whose first value is not zero — all
+    // of which protoc rejects under proto3. The `whatsapp` package matches the
+    // upstream reference, so consumers (e.g. whatsapp-rust) drop the file in as-is.
     format!(
-        "syntax = \"proto3\";\npackage waproto;\n\n/// WhatsApp Version: {}\n\n{}",
+        "syntax = \"proto2\";\npackage whatsapp;\n\n/// WhatsApp Version: {}\n\n{}",
         file.wa_version, body
     )
 }
@@ -144,7 +148,7 @@ mod tests {
             ],
         };
 
-        let expected = "syntax = \"proto3\";\npackage waproto;\n\n/// WhatsApp Version: 2.3000.1040225260\n\n\
+        let expected = "syntax = \"proto2\";\npackage whatsapp;\n\n/// WhatsApp Version: 2.3000.1040225260\n\n\
 message ADVDeviceIdentity {\n\
 \x20   optional uint32 rawId = 1;\n\
 \x20   optional uint64 timestamp = 2;\n\

@@ -1,5 +1,5 @@
-syntax = "proto3";
-package waproto;
+syntax = "proto2";
+package whatsapp;
 
 /// WhatsApp Version: 2.3000.1040878135
 
@@ -1018,10 +1018,6 @@ enum COMMAND_COMMAND_TYPE {
     AI = 3;
     AI_IMAGINE = 4;
 }
-enum CONSUMER_APPLICATION_EXTENDED_TEXT_MESSAGE_PREVIEW_TYPE {
-    NONE = 0;
-    VIDEO = 1;
-}
 enum CONSUMER_APPLICATION_METADATA_SPECIAL_TEXT_SIZE {
     SMALL = 1;
     MEDIUM = 2;
@@ -1408,12 +1404,6 @@ message CombinedFingerprint {
     optional FingerprintData remoteFingerprint = 3;
 }
 
-message CombinedFingerprint {
-    optional uint32 version = 1;
-    optional FingerprintData localFingerprint = 2;
-    optional FingerprintData remoteFingerprint = 3;
-}
-
 message Command {
     optional COMMAND_COMMAND_TYPE commandType = 1;
     optional uint32 offset = 2;
@@ -1646,6 +1636,10 @@ message ConsumerApplication {
         }
     }
     
+    enum CONSUMER_APPLICATION_EXTENDED_TEXT_MESSAGE_PREVIEW_TYPE {
+        NONE = 0;
+        VIDEO = 1;
+    }
 }
 
 message ContextInfo {
@@ -2235,15 +2229,10 @@ message FingerprintData {
     optional bytes usernameIdentifier = 4;
     optional HostedState hostedState = 5;
     optional bytes hashedPublicKey = 6;
-}
-
-message FingerprintData {
-    optional bytes publicKey = 1;
-    optional bytes pnIdentifier = 2;
-    optional bytes lidIdentifier = 3;
-    optional bytes usernameIdentifier = 4;
-    optional HostedState hostedState = 5;
-    optional bytes hashedPublicKey = 6;
+    enum HostedState {
+        E2EE = 0;
+        HOSTED = 1;
+    }
 }
 
 message ForwardedAIBotMessageInfo {
@@ -2428,14 +2417,6 @@ message HistorySyncMsg {
     optional uint64 msgOrderId = 2;
 }
 
-enum HostedState {
-    E2EE = 0;
-    HOSTED = 1;
-}
-enum HostedState {
-    E2EE = 0;
-    HOSTED = 1;
-}
 message HydratedTemplateButton {
     optional uint32 index = 4;
     oneof hydratedButton {
@@ -4596,13 +4577,6 @@ message MessageKey {
     optional string participant = 4;
 }
 
-message MessageKey {
-    optional string remoteJid = 1;
-    optional bool fromMe = 2;
-    optional string id = 3;
-    optional string participant = 4;
-}
-
 message MessageSecretMessage {
     optional sfixed32 version = 1;
     optional bytes encIv = 2;
@@ -6200,10 +6174,6 @@ message SyncdSnapshotRecovery {
 
 message SyncdValue {
     optional bytes blob = 1;
-}
-
-message SyncdVersion {
-    optional uint64 version = 1;
 }
 
 message SyncdVersion {
