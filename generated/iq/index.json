@@ -7,7 +7,7 @@
       "namespace": "abt",
       "iqType": "get",
       "target": "s.whatsapp.net",
-      "parserName": "unknown",
+      "parserName": "parseGetExperimentConfigResponseSuccess",
       "exportedFunction": "makeGetExperimentConfigRequest",
       "allExports": [
         "makeGetExperimentConfigRequest"
@@ -43,9 +43,73 @@
         ]
       },
       "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
+        "parserName": "parseGetExperimentConfigResponseSuccess",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "iq"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "propsProtocol",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "maybeAttrString",
+            "name": "propsAbKey",
+            "type": "string",
+            "required": false
+          },
+          {
+            "method": "maybeAttrString",
+            "name": "propsHash",
+            "type": "string",
+            "required": false
+          },
+          {
+            "method": "maybeAttrInt",
+            "name": "propsRefresh",
+            "type": "integer",
+            "required": false
+          },
+          {
+            "method": "maybeAttrInt",
+            "name": "propsRefreshId",
+            "type": "integer",
+            "required": false
+          },
+          {
+            "method": "maybeAttrEnum",
+            "name": "propsDeltaUpdate",
+            "type": "enum",
+            "required": false
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "child",
+            "name": "erid",
+            "type": "string",
+            "required": false,
+            "tag": "erid",
+            "children": [
+              {
+                "method": "contentBytes",
+                "name": "elementValue",
+                "type": "bytes",
+                "required": true
+              }
+            ],
+            "repeats": false
+          }
+        ]
       }
     },
     {
@@ -53,7 +117,7 @@
       "namespace": "abt",
       "iqType": "get",
       "target": "s.whatsapp.net",
-      "parserName": "unknown",
+      "parserName": "parseGetGroupExperimentConfigResponseSuccess",
       "exportedFunction": "makeGetGroupExperimentConfigRequest",
       "allExports": [
         "makeGetGroupExperimentConfigRequest"
@@ -83,9 +147,45 @@
         ]
       },
       "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
+        "parserName": "parseGetGroupExperimentConfigResponseSuccess",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "iq"
+          }
+        ],
+        "fields": [
+          {
+            "method": "maybeAttrString",
+            "name": "propsAbKey",
+            "type": "string",
+            "required": false
+          },
+          {
+            "method": "maybeAttrString",
+            "name": "propsHash",
+            "type": "string",
+            "required": false
+          },
+          {
+            "method": "maybeAttrInt",
+            "name": "propsRefresh",
+            "type": "integer",
+            "required": false
+          },
+          {
+            "method": "maybeAttrInt",
+            "name": "propsRefreshId",
+            "type": "integer",
+            "required": false
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          }
+        ]
       }
     },
     {
@@ -564,7 +664,7 @@
       "namespace": "encrypt",
       "iqType": "get",
       "target": "s.whatsapp.net",
-      "parserName": "unknown",
+      "parserName": "parseFetchKeyBundlesResponseSuccess",
       "exportedFunction": "makeFetchKeyBundlesRequestKeyUser",
       "allExports": [
         "makeFetchKeyBundlesRequestKeyUser",
@@ -584,9 +684,36 @@
         ]
       },
       "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
+        "parserName": "parseFetchKeyBundlesResponseSuccess",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "iq"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "child",
+            "name": "responsePaddingMixin",
+            "type": "string",
+            "required": false,
+            "tag": "responsePaddingMixin",
+            "children": [
+              {
+                "method": "contentBytes",
+                "name": "paddingElementValue",
+                "type": "bytes",
+                "required": true
+              }
+            ]
+          }
+        ]
       }
     },
     {
@@ -594,7 +721,7 @@
       "namespace": "encrypt",
       "iqType": "get",
       "target": "s.whatsapp.net",
-      "parserName": "unknown",
+      "parserName": "parseFetchMissingPreKeysResponseSuccess",
       "exportedFunction": "makeFetchMissingPreKeysRequestKeyFetchUserDevice",
       "allExports": [
         "makeFetchMissingPreKeysRequestKeyFetchUserDevice",
@@ -615,9 +742,36 @@
         ]
       },
       "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
+        "parserName": "parseFetchMissingPreKeysResponseSuccess",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "iq"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "child",
+            "name": "responsePaddingMixin",
+            "type": "string",
+            "required": false,
+            "tag": "responsePaddingMixin",
+            "children": [
+              {
+                "method": "contentBytes",
+                "name": "paddingElementValue",
+                "type": "bytes",
+                "required": true
+              }
+            ]
+          }
+        ]
       }
     },
     {
@@ -796,7 +950,7 @@
       "namespace": "fb:thrift_iq",
       "iqType": "get",
       "target": "s.whatsapp.net",
-      "parserName": "unknown",
+      "parserName": "parseGetAccessTokenAndSessionCookiesResponseSuccess",
       "exportedFunction": "makeGetAccessTokenAndSessionCookiesRequest",
       "allExports": [
         "makeGetAccessTokenAndSessionCookiesRequest"
@@ -822,9 +976,61 @@
         ]
       },
       "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
+        "parserName": "parseGetAccessTokenAndSessionCookiesResponseSuccess",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "iq"
+          }
+        ],
+        "fields": [
+          {
+            "method": "contentString",
+            "name": "accessTokenElementValue",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "contentString",
+            "name": "sessionCookiesElementValue",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "attrString",
+            "name": "businessPersonId",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "attrJidWithType",
+            "name": "to",
+            "type": "jid",
+            "required": false
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "child",
+            "name": "tokenType",
+            "type": "string",
+            "required": false,
+            "tag": "token_type",
+            "children": [
+              {
+                "method": "attrEnum",
+                "name": "elementValue",
+                "type": "enum",
+                "required": true
+              }
+            ],
+            "repeats": false
+          }
+        ]
       }
     },
     {
@@ -832,7 +1038,7 @@
       "namespace": "fb:thrift_iq",
       "iqType": "get",
       "target": "s.whatsapp.net",
-      "parserName": "unknown",
+      "parserName": "parseGetAccountNonceResponseSuccess",
       "exportedFunction": "makeGetAccountNonceRequestIdentifier",
       "allExports": [
         "makeGetAccountNonceRequestIdentifier",
@@ -845,9 +1051,49 @@
         "children": []
       },
       "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
+        "parserName": "parseGetAccountNonceResponseSuccess",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "iq"
+          }
+        ],
+        "fields": [
+          {
+            "method": "contentString",
+            "name": "detailNonceElementValue",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "attrJidWithType",
+            "name": "to",
+            "type": "jid",
+            "required": false
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "child",
+            "name": "detailRequest",
+            "type": "string",
+            "required": false,
+            "tag": "request",
+            "children": [
+              {
+                "method": "contentString",
+                "name": "idElementValue",
+                "type": "string",
+                "required": true
+              }
+            ],
+            "repeats": false
+          }
+        ]
       }
     },
     {
@@ -855,7 +1101,7 @@
       "namespace": "fb:thrift_iq",
       "iqType": "get",
       "target": "s.whatsapp.net",
-      "parserName": "unknown",
+      "parserName": "parseGetLinkedAccountsResponseSuccess",
       "exportedFunction": "makeGetLinkedAccountsRequest",
       "allExports": [
         "makeGetLinkedAccountsRequest"
@@ -874,9 +1120,278 @@
         ]
       },
       "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
+        "parserName": "parseGetLinkedAccountsResponseSuccess",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "iq"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrJidWithType",
+            "name": "to",
+            "type": "jid",
+            "required": false
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "child",
+            "name": "linkedAccountsFbPage",
+            "type": "string",
+            "required": false,
+            "tag": "fb_page",
+            "children": [
+              {
+                "method": "attrEnum",
+                "name": "whatsappAsPageButtonState",
+                "type": "enum",
+                "required": true
+              },
+              {
+                "method": "attrString",
+                "name": "id",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "contentString",
+                "name": "displayNameElementValue",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "attrEnum",
+                "name": "adStatusHasCreatedAd",
+                "type": "enum",
+                "required": true
+              },
+              {
+                "method": "attrEnum",
+                "name": "adStatusHasActiveCtwaAd",
+                "type": "enum",
+                "required": true
+              },
+              {
+                "method": "child",
+                "name": "profileSync",
+                "type": "string",
+                "required": false,
+                "tag": "profile_sync",
+                "children": [
+                  {
+                    "method": "attrEnum",
+                    "name": "state",
+                    "type": "enum",
+                    "required": true
+                  }
+                ],
+                "repeats": false
+              },
+              {
+                "method": "child",
+                "name": "hasProfilePictureMixin",
+                "type": "string",
+                "required": false,
+                "tag": "hasProfilePictureMixin",
+                "children": [
+                  {
+                    "method": "contentString",
+                    "name": "profilePictureUrlElementValue",
+                    "type": "string",
+                    "required": true
+                  },
+                  {
+                    "method": "child",
+                    "name": "profilePictureBytes",
+                    "type": "string",
+                    "required": false,
+                    "tag": "bytes",
+                    "children": [
+                      {
+                        "method": "contentBytes",
+                        "name": "elementValue",
+                        "type": "bytes",
+                        "required": true
+                      }
+                    ],
+                    "repeats": false
+                  }
+                ]
+              },
+              {
+                "method": "child",
+                "name": "hasShowOnProfileMixin",
+                "type": "string",
+                "required": false,
+                "tag": "hasShowOnProfileMixin",
+                "children": [
+                  {
+                    "method": "attrEnum",
+                    "name": "showOnProfileElementValue",
+                    "type": "enum",
+                    "required": true
+                  }
+                ]
+              }
+            ],
+            "repeats": false
+          },
+          {
+            "method": "child",
+            "name": "linkedAccountsFbBiz",
+            "type": "string",
+            "required": false,
+            "tag": "fb_biz",
+            "children": [
+              {
+                "method": "attrString",
+                "name": "id",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "contentString",
+                "name": "displayNameElementValue",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "child",
+                "name": "catalog",
+                "type": "string",
+                "required": false,
+                "tag": "catalog",
+                "children": [
+                  {
+                    "method": "attrEnum",
+                    "name": "state",
+                    "type": "enum",
+                    "required": true
+                  },
+                  {
+                    "method": "attrString",
+                    "name": "id",
+                    "type": "string",
+                    "required": true
+                  }
+                ],
+                "repeats": false
+              }
+            ],
+            "repeats": false
+          },
+          {
+            "method": "child",
+            "name": "linkedAccountsIgProfessional",
+            "type": "string",
+            "required": false,
+            "tag": "ig_professional",
+            "children": [
+              {
+                "method": "contentString",
+                "name": "igHandleElementValue",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "child",
+                "name": "hasProfilePictureMixin",
+                "type": "string",
+                "required": false,
+                "tag": "hasProfilePictureMixin",
+                "children": [
+                  {
+                    "method": "contentString",
+                    "name": "profilePictureUrlElementValue",
+                    "type": "string",
+                    "required": true
+                  },
+                  {
+                    "method": "child",
+                    "name": "profilePictureBytes",
+                    "type": "string",
+                    "required": false,
+                    "tag": "bytes",
+                    "children": [
+                      {
+                        "method": "contentBytes",
+                        "name": "elementValue",
+                        "type": "bytes",
+                        "required": true
+                      }
+                    ],
+                    "repeats": false
+                  }
+                ]
+              },
+              {
+                "method": "child",
+                "name": "hasDisplayNameMixin",
+                "type": "string",
+                "required": false,
+                "tag": "hasDisplayNameMixin",
+                "children": [
+                  {
+                    "method": "contentString",
+                    "name": "displayNameElementValue",
+                    "type": "string",
+                    "required": true
+                  }
+                ]
+              },
+              {
+                "method": "child",
+                "name": "hasShowOnProfileMixin",
+                "type": "string",
+                "required": false,
+                "tag": "hasShowOnProfileMixin",
+                "children": [
+                  {
+                    "method": "attrEnum",
+                    "name": "showOnProfileElementValue",
+                    "type": "enum",
+                    "required": true
+                  }
+                ]
+              }
+            ],
+            "repeats": false
+          },
+          {
+            "method": "child",
+            "name": "linkedAccountsWhatsappAdIdentity",
+            "type": "string",
+            "required": false,
+            "tag": "whatsapp_ad_identity",
+            "children": [
+              {
+                "method": "attrString",
+                "name": "id",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "attrEnum",
+                "name": "adStatusHasCreatedAd",
+                "type": "enum",
+                "required": true
+              },
+              {
+                "method": "attrEnum",
+                "name": "adStatusHasActiveCtwaAd",
+                "type": "enum",
+                "required": true
+              }
+            ],
+            "repeats": false
+          }
+        ]
       }
     },
     {
@@ -905,10 +1420,22 @@
         ],
         "fields": [
           {
+            "method": "attrString",
+            "name": "resultStatus",
+            "type": "string",
+            "required": true
+          },
+          {
             "method": "attrJidWithType",
             "name": "to",
             "type": "jid",
             "required": false
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
           }
         ]
       }
@@ -958,6 +1485,12 @@
             "name": "to",
             "type": "jid",
             "required": false
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
           }
         ]
       }
@@ -1331,6 +1864,12 @@
         ],
         "fields": [
           {
+            "method": "attrString",
+            "name": "responseStatus",
+            "type": "string",
+            "required": true
+          },
+          {
             "method": "contentString",
             "name": "responseMessageElementValue",
             "type": "string",
@@ -1353,6 +1892,12 @@
             "name": "to",
             "type": "jid",
             "required": false
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
           }
         ]
       }
@@ -1399,6 +1944,12 @@
             "name": "to",
             "type": "jid",
             "required": false
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
           }
         ]
       }
@@ -1449,10 +2000,22 @@
         ],
         "fields": [
           {
+            "method": "attrString",
+            "name": "resultStatus",
+            "type": "string",
+            "required": true
+          },
+          {
             "method": "attrJidWithType",
             "name": "to",
             "type": "jid",
             "required": false
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
           }
         ]
       }
@@ -1462,7 +2025,7 @@
       "namespace": "fb:thrift_iq",
       "iqType": "set",
       "target": "s.whatsapp.net",
-      "parserName": "unknown",
+      "parserName": "parseUploadAdMediaResponseSuccess",
       "exportedFunction": "makeUploadAdMediaRequestMedia",
       "allExports": [
         "makeUploadAdMediaRequestMedia",
@@ -1476,9 +2039,71 @@
         "children": []
       },
       "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
+        "parserName": "parseUploadAdMediaResponseSuccess",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "iq"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrJidWithType",
+            "name": "to",
+            "type": "jid",
+            "required": false
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "child",
+            "name": "media",
+            "type": "string",
+            "required": false,
+            "tag": "media",
+            "children": [
+              {
+                "method": "attrString",
+                "name": "id",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "attrEnum",
+                "name": "type",
+                "type": "enum",
+                "required": true
+              }
+            ],
+            "repeats": false
+          },
+          {
+            "method": "child",
+            "name": "mediaList",
+            "type": "string",
+            "required": true,
+            "tag": "media_list",
+            "children": [
+              {
+                "method": "attrString",
+                "name": "id",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "attrEnum",
+                "name": "type",
+                "type": "enum",
+                "required": true
+              }
+            ],
+            "repeats": true
+          }
+        ]
       }
     },
     {
@@ -1616,6 +2241,12 @@
                 "required": true
               }
             ]
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
           }
         ]
       }
@@ -1657,6 +2288,12 @@
             "name": "refElementValue",
             "type": "bytes",
             "required": true
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
           }
         ]
       }
@@ -1666,7 +2303,7 @@
       "namespace": "md",
       "iqType": "set",
       "target": "s.whatsapp.net",
-      "parserName": "unknown",
+      "parserName": "parseSetCompanionNonceResponseSuccess",
       "exportedFunction": "makeSetCompanionNonceRequest",
       "allExports": [
         "makeSetCompanionNonceRequest"
@@ -1685,9 +2322,21 @@
         ]
       },
       "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
+        "parserName": "parseSetCompanionNonceResponseSuccess",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "iq"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          }
+        ]
       }
     },
     {
@@ -1695,7 +2344,7 @@
       "namespace": "md",
       "iqType": "set",
       "target": "s.whatsapp.net",
-      "parserName": "unknown",
+      "parserName": "parseSetEncryptedPairingRequestResponseSuccess",
       "exportedFunction": "makeSetEncryptedPairingRequestRequest",
       "allExports": [
         "makeSetEncryptedPairingRequestRequest"
@@ -1714,9 +2363,21 @@
         ]
       },
       "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
+        "parserName": "parseSetEncryptedPairingRequestResponseSuccess",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "iq"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          }
+        ]
       }
     },
     {
@@ -1794,7 +2455,7 @@
       "namespace": "newsletter",
       "iqType": "get",
       "target": "s.whatsapp.net",
-      "parserName": "unknown",
+      "parserName": "parseGetNewsletterMessageUpdatesResponseSuccess",
       "exportedFunction": "makeGetNewsletterMessageUpdatesRequest",
       "allExports": [
         "makeGetNewsletterMessageUpdatesRequest"
@@ -1806,9 +2467,258 @@
         "children": []
       },
       "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
+        "parserName": "parseGetNewsletterMessageUpdatesResponseSuccess",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "iq"
+          }
+        ],
+        "fields": [
+          {
+            "method": "child",
+            "name": "messageUpdatesMessagesNewsletterMessageResponsePayloadMixin",
+            "type": "string",
+            "required": true,
+            "tag": "messageUpdatesMessagesNewsletterMessageResponsePayloadMixin",
+            "children": [
+              {
+                "method": "attrJidWithType",
+                "name": "jid",
+                "type": "jid",
+                "required": false
+              },
+              {
+                "method": "maybeAttrInt",
+                "name": "t",
+                "type": "integer",
+                "required": false
+              },
+              {
+                "method": "child",
+                "name": "message",
+                "type": "string",
+                "required": true,
+                "tag": "message",
+                "children": [
+                  {
+                    "method": "maybeAttrString",
+                    "name": "id",
+                    "type": "string",
+                    "required": false
+                  },
+                  {
+                    "method": "attrInt",
+                    "name": "serverId",
+                    "type": "integer",
+                    "required": true
+                  },
+                  {
+                    "method": "maybeAttrInt",
+                    "name": "t",
+                    "type": "integer",
+                    "required": false
+                  },
+                  {
+                    "method": "maybeAttrString",
+                    "name": "isSender",
+                    "type": "string",
+                    "required": false
+                  },
+                  {
+                    "method": "child",
+                    "name": "newsletterMessageOriginalTimestampMixin",
+                    "type": "string",
+                    "required": false,
+                    "tag": "newsletterMessageOriginalTimestampMixin",
+                    "children": [
+                      {
+                        "method": "attrInt",
+                        "name": "metaOriginalMsgT",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "method": "child",
+                    "name": "newsletterMessageLastEditTimestampMixin",
+                    "type": "string",
+                    "required": false,
+                    "tag": "newsletterMessageLastEditTimestampMixin",
+                    "children": [
+                      {
+                        "method": "attrInt",
+                        "name": "metaMsgEditT",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "method": "child",
+                    "name": "adminProfileMetaMixin",
+                    "type": "string",
+                    "required": false,
+                    "tag": "adminProfileMetaMixin",
+                    "children": [
+                      {
+                        "method": "maybeAttrString",
+                        "name": "id",
+                        "type": "string",
+                        "required": false
+                      },
+                      {
+                        "method": "contentString",
+                        "name": "nameElementValue",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrString",
+                        "name": "pictureId",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrString",
+                        "name": "pictureDirectPath",
+                        "type": "string",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "method": "child",
+                    "name": "newsletterReactionsMixin",
+                    "type": "string",
+                    "required": false,
+                    "tag": "newsletterReactionsMixin",
+                    "children": [
+                      {
+                        "method": "child",
+                        "name": "reactionsReaction",
+                        "type": "string",
+                        "required": true,
+                        "tag": "reaction",
+                        "children": [
+                          {
+                            "method": "attrString",
+                            "name": "code",
+                            "type": "string",
+                            "required": true
+                          },
+                          {
+                            "method": "attrInt",
+                            "name": "count",
+                            "type": "integer",
+                            "required": true
+                          }
+                        ],
+                        "repeats": true
+                      }
+                    ]
+                  },
+                  {
+                    "method": "child",
+                    "name": "newsletterPollVotesMixin",
+                    "type": "string",
+                    "required": false,
+                    "tag": "newsletterPollVotesMixin",
+                    "children": [
+                      {
+                        "method": "child",
+                        "name": "votesVote",
+                        "type": "string",
+                        "required": true,
+                        "tag": "vote",
+                        "children": [
+                          {
+                            "method": "attrInt",
+                            "name": "count",
+                            "type": "integer",
+                            "required": true
+                          },
+                          {
+                            "method": "contentBytes",
+                            "name": "elementValue",
+                            "type": "bytes",
+                            "required": true
+                          }
+                        ],
+                        "repeats": true
+                      }
+                    ]
+                  },
+                  {
+                    "method": "child",
+                    "name": "newsletterResponsesCountMixin",
+                    "type": "string",
+                    "required": false,
+                    "tag": "newsletterResponsesCountMixin",
+                    "children": [
+                      {
+                        "method": "attrInt",
+                        "name": "responsesCountCount",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "method": "child",
+                    "name": "receiverContentTypeMediaRCATMixin",
+                    "type": "string",
+                    "required": false,
+                    "tag": "receiverContentTypeMediaRCATMixin",
+                    "children": [
+                      {
+                        "method": "attrString",
+                        "name": "plaintextMediatype",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "contentBytes",
+                        "name": "rcatElementValue",
+                        "type": "bytes",
+                        "required": true
+                      },
+                      {
+                        "method": "attrString",
+                        "name": "type",
+                        "type": "string",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "method": "child",
+                    "name": "newsletterForwardsCountMixin",
+                    "type": "string",
+                    "required": false,
+                    "tag": "newsletterForwardsCountMixin",
+                    "children": [
+                      {
+                        "method": "attrInt",
+                        "name": "forwardsCountCount",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  }
+                ],
+                "repeats": true
+              }
+            ]
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          }
+        ]
       }
     },
     {
@@ -1841,6 +2751,249 @@
             "name": "from",
             "type": "jid",
             "required": true
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "child",
+            "name": "messagesNewsletterMessageResponsePayloadMixin",
+            "type": "string",
+            "required": true,
+            "tag": "messagesNewsletterMessageResponsePayloadMixin",
+            "children": [
+              {
+                "method": "attrJidWithType",
+                "name": "jid",
+                "type": "jid",
+                "required": false
+              },
+              {
+                "method": "maybeAttrInt",
+                "name": "t",
+                "type": "integer",
+                "required": false
+              },
+              {
+                "method": "child",
+                "name": "message",
+                "type": "string",
+                "required": true,
+                "tag": "message",
+                "children": [
+                  {
+                    "method": "maybeAttrString",
+                    "name": "id",
+                    "type": "string",
+                    "required": false
+                  },
+                  {
+                    "method": "attrInt",
+                    "name": "serverId",
+                    "type": "integer",
+                    "required": true
+                  },
+                  {
+                    "method": "maybeAttrInt",
+                    "name": "t",
+                    "type": "integer",
+                    "required": false
+                  },
+                  {
+                    "method": "maybeAttrString",
+                    "name": "isSender",
+                    "type": "string",
+                    "required": false
+                  },
+                  {
+                    "method": "child",
+                    "name": "newsletterMessageOriginalTimestampMixin",
+                    "type": "string",
+                    "required": false,
+                    "tag": "newsletterMessageOriginalTimestampMixin",
+                    "children": [
+                      {
+                        "method": "attrInt",
+                        "name": "metaOriginalMsgT",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "method": "child",
+                    "name": "newsletterMessageLastEditTimestampMixin",
+                    "type": "string",
+                    "required": false,
+                    "tag": "newsletterMessageLastEditTimestampMixin",
+                    "children": [
+                      {
+                        "method": "attrInt",
+                        "name": "metaMsgEditT",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "method": "child",
+                    "name": "adminProfileMetaMixin",
+                    "type": "string",
+                    "required": false,
+                    "tag": "adminProfileMetaMixin",
+                    "children": [
+                      {
+                        "method": "maybeAttrString",
+                        "name": "id",
+                        "type": "string",
+                        "required": false
+                      },
+                      {
+                        "method": "contentString",
+                        "name": "nameElementValue",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrString",
+                        "name": "pictureId",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrString",
+                        "name": "pictureDirectPath",
+                        "type": "string",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "method": "child",
+                    "name": "newsletterReactionsMixin",
+                    "type": "string",
+                    "required": false,
+                    "tag": "newsletterReactionsMixin",
+                    "children": [
+                      {
+                        "method": "child",
+                        "name": "reactionsReaction",
+                        "type": "string",
+                        "required": true,
+                        "tag": "reaction",
+                        "children": [
+                          {
+                            "method": "attrString",
+                            "name": "code",
+                            "type": "string",
+                            "required": true
+                          },
+                          {
+                            "method": "attrInt",
+                            "name": "count",
+                            "type": "integer",
+                            "required": true
+                          }
+                        ],
+                        "repeats": true
+                      }
+                    ]
+                  },
+                  {
+                    "method": "child",
+                    "name": "newsletterPollVotesMixin",
+                    "type": "string",
+                    "required": false,
+                    "tag": "newsletterPollVotesMixin",
+                    "children": [
+                      {
+                        "method": "child",
+                        "name": "votesVote",
+                        "type": "string",
+                        "required": true,
+                        "tag": "vote",
+                        "children": [
+                          {
+                            "method": "attrInt",
+                            "name": "count",
+                            "type": "integer",
+                            "required": true
+                          },
+                          {
+                            "method": "contentBytes",
+                            "name": "elementValue",
+                            "type": "bytes",
+                            "required": true
+                          }
+                        ],
+                        "repeats": true
+                      }
+                    ]
+                  },
+                  {
+                    "method": "child",
+                    "name": "newsletterResponsesCountMixin",
+                    "type": "string",
+                    "required": false,
+                    "tag": "newsletterResponsesCountMixin",
+                    "children": [
+                      {
+                        "method": "attrInt",
+                        "name": "responsesCountCount",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "method": "child",
+                    "name": "receiverContentTypeMediaRCATMixin",
+                    "type": "string",
+                    "required": false,
+                    "tag": "receiverContentTypeMediaRCATMixin",
+                    "children": [
+                      {
+                        "method": "attrString",
+                        "name": "plaintextMediatype",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "contentBytes",
+                        "name": "rcatElementValue",
+                        "type": "bytes",
+                        "required": true
+                      },
+                      {
+                        "method": "attrString",
+                        "name": "type",
+                        "type": "string",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "method": "child",
+                    "name": "newsletterForwardsCountMixin",
+                    "type": "string",
+                    "required": false,
+                    "tag": "newsletterForwardsCountMixin",
+                    "children": [
+                      {
+                        "method": "attrInt",
+                        "name": "forwardsCountCount",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  }
+                ],
+                "repeats": true
+              }
+            ]
           }
         ]
       }
@@ -1850,7 +3003,7 @@
       "namespace": "newsletter",
       "iqType": "get",
       "target": "s.whatsapp.net",
-      "parserName": "unknown",
+      "parserName": "parseGetNewsletterResponsesResponseSuccess",
       "exportedFunction": "makeGetNewsletterResponsesRequest",
       "allExports": [
         "makeGetNewsletterResponsesRequest"
@@ -1862,9 +3015,115 @@
         "children": []
       },
       "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
+        "parserName": "parseGetNewsletterResponsesResponseSuccess",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "iq"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrJidWithType",
+            "name": "from",
+            "type": "jid",
+            "required": true
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "attrInt",
+            "name": "questionResponsesServerId",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "method": "child",
+            "name": "questionResponsesQuestionResponse",
+            "type": "string",
+            "required": true,
+            "tag": "question_response",
+            "children": [
+              {
+                "method": "attrString",
+                "name": "messageId",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "attrInt",
+                "name": "messageT",
+                "type": "integer",
+                "required": true
+              },
+              {
+                "method": "maybeAttrString",
+                "name": "messageIsSender",
+                "type": "string",
+                "required": false
+              },
+              {
+                "method": "child",
+                "name": "messageNewsletterQuestionResponseMixin",
+                "type": "string",
+                "required": true,
+                "tag": "messageNewsletterQuestionResponseMixin",
+                "children": [
+                  {
+                    "method": "child",
+                    "name": "plaintextPayloadMixin",
+                    "type": "string",
+                    "required": true,
+                    "tag": "plaintextPayloadMixin",
+                    "children": [
+                      {
+                        "method": "contentBytes",
+                        "name": "elementValue",
+                        "type": "bytes",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "method": "attrString",
+                    "name": "type",
+                    "type": "string",
+                    "required": true
+                  },
+                  {
+                    "method": "attrString",
+                    "name": "metaQuestiontype",
+                    "type": "string",
+                    "required": true
+                  },
+                  {
+                    "method": "attrString",
+                    "name": "metaResponseServerId",
+                    "type": "string",
+                    "required": true
+                  }
+                ]
+              },
+              {
+                "method": "maybeAttrString",
+                "name": "senderNotifyName",
+                "type": "string",
+                "required": false
+              },
+              {
+                "method": "attrString",
+                "name": "senderPictureDirectPath",
+                "type": "string",
+                "required": true
+              }
+            ],
+            "repeats": true
+          }
+        ]
       }
     },
     {
@@ -1872,7 +3131,7 @@
       "namespace": "newsletter",
       "iqType": "get",
       "target": "s.whatsapp.net",
-      "parserName": "unknown",
+      "parserName": "parseGetNewsletterStatusUpdatesResponseSuccess",
       "exportedFunction": "makeGetNewsletterStatusUpdatesRequest",
       "allExports": [
         "makeGetNewsletterStatusUpdatesRequest"
@@ -1884,9 +3143,158 @@
         "children": []
       },
       "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
+        "parserName": "parseGetNewsletterStatusUpdatesResponseSuccess",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "iq"
+          }
+        ],
+        "fields": [
+          {
+            "method": "child",
+            "name": "statusUpdatesStatusesNewsletterStatusResponsePayloadMixin",
+            "type": "string",
+            "required": true,
+            "tag": "statusUpdatesStatusesNewsletterStatusResponsePayloadMixin",
+            "children": [
+              {
+                "method": "attrJidWithType",
+                "name": "jid",
+                "type": "jid",
+                "required": false
+              },
+              {
+                "method": "maybeAttrInt",
+                "name": "t",
+                "type": "integer",
+                "required": false
+              },
+              {
+                "method": "child",
+                "name": "status",
+                "type": "string",
+                "required": true,
+                "tag": "status",
+                "children": [
+                  {
+                    "method": "maybeAttrString",
+                    "name": "id",
+                    "type": "string",
+                    "required": false
+                  },
+                  {
+                    "method": "attrInt",
+                    "name": "serverId",
+                    "type": "integer",
+                    "required": true
+                  },
+                  {
+                    "method": "maybeAttrInt",
+                    "name": "t",
+                    "type": "integer",
+                    "required": false
+                  },
+                  {
+                    "method": "maybeAttrString",
+                    "name": "isSender",
+                    "type": "string",
+                    "required": false
+                  },
+                  {
+                    "method": "child",
+                    "name": "statusOriginalTimestampMixin",
+                    "type": "string",
+                    "required": false,
+                    "tag": "statusOriginalTimestampMixin",
+                    "children": [
+                      {
+                        "method": "attrInt",
+                        "name": "metaOriginalMsgT",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "method": "child",
+                    "name": "statusLastEditTimestampMixin",
+                    "type": "string",
+                    "required": false,
+                    "tag": "statusLastEditTimestampMixin",
+                    "children": [
+                      {
+                        "method": "attrInt",
+                        "name": "metaMsgEditT",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "method": "child",
+                    "name": "statusNewsletterReactionsMixin",
+                    "type": "string",
+                    "required": false,
+                    "tag": "statusNewsletterReactionsMixin",
+                    "children": [
+                      {
+                        "method": "child",
+                        "name": "reactionsReaction",
+                        "type": "string",
+                        "required": true,
+                        "tag": "reaction",
+                        "children": [
+                          {
+                            "method": "attrString",
+                            "name": "code",
+                            "type": "string",
+                            "required": true
+                          },
+                          {
+                            "method": "attrInt",
+                            "name": "count",
+                            "type": "integer",
+                            "required": true
+                          }
+                        ],
+                        "repeats": true
+                      }
+                    ]
+                  },
+                  {
+                    "method": "child",
+                    "name": "statusNewsletterViewsCountsMixin",
+                    "type": "string",
+                    "required": false,
+                    "tag": "statusNewsletterViewsCountsMixin",
+                    "children": [
+                      {
+                        "method": "attrString",
+                        "name": "viewsCountType",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "viewsCountCount",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  }
+                ],
+                "repeats": true
+              }
+            ]
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          }
+        ]
       }
     },
     {
@@ -1919,6 +3327,149 @@
             "name": "from",
             "type": "jid",
             "required": true
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "child",
+            "name": "statusesNewsletterStatusResponsePayloadMixin",
+            "type": "string",
+            "required": true,
+            "tag": "statusesNewsletterStatusResponsePayloadMixin",
+            "children": [
+              {
+                "method": "attrJidWithType",
+                "name": "jid",
+                "type": "jid",
+                "required": false
+              },
+              {
+                "method": "maybeAttrInt",
+                "name": "t",
+                "type": "integer",
+                "required": false
+              },
+              {
+                "method": "child",
+                "name": "status",
+                "type": "string",
+                "required": true,
+                "tag": "status",
+                "children": [
+                  {
+                    "method": "maybeAttrString",
+                    "name": "id",
+                    "type": "string",
+                    "required": false
+                  },
+                  {
+                    "method": "attrInt",
+                    "name": "serverId",
+                    "type": "integer",
+                    "required": true
+                  },
+                  {
+                    "method": "maybeAttrInt",
+                    "name": "t",
+                    "type": "integer",
+                    "required": false
+                  },
+                  {
+                    "method": "maybeAttrString",
+                    "name": "isSender",
+                    "type": "string",
+                    "required": false
+                  },
+                  {
+                    "method": "child",
+                    "name": "statusOriginalTimestampMixin",
+                    "type": "string",
+                    "required": false,
+                    "tag": "statusOriginalTimestampMixin",
+                    "children": [
+                      {
+                        "method": "attrInt",
+                        "name": "metaOriginalMsgT",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "method": "child",
+                    "name": "statusLastEditTimestampMixin",
+                    "type": "string",
+                    "required": false,
+                    "tag": "statusLastEditTimestampMixin",
+                    "children": [
+                      {
+                        "method": "attrInt",
+                        "name": "metaMsgEditT",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "method": "child",
+                    "name": "statusNewsletterReactionsMixin",
+                    "type": "string",
+                    "required": false,
+                    "tag": "statusNewsletterReactionsMixin",
+                    "children": [
+                      {
+                        "method": "child",
+                        "name": "reactionsReaction",
+                        "type": "string",
+                        "required": true,
+                        "tag": "reaction",
+                        "children": [
+                          {
+                            "method": "attrString",
+                            "name": "code",
+                            "type": "string",
+                            "required": true
+                          },
+                          {
+                            "method": "attrInt",
+                            "name": "count",
+                            "type": "integer",
+                            "required": true
+                          }
+                        ],
+                        "repeats": true
+                      }
+                    ]
+                  },
+                  {
+                    "method": "child",
+                    "name": "statusNewsletterViewsCountsMixin",
+                    "type": "string",
+                    "required": false,
+                    "tag": "statusNewsletterViewsCountsMixin",
+                    "children": [
+                      {
+                        "method": "attrString",
+                        "name": "viewsCountType",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "viewsCountCount",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  }
+                ],
+                "repeats": true
+              }
+            ]
           }
         ]
       }
@@ -1928,7 +3479,7 @@
       "namespace": "newsletter",
       "iqType": "get",
       "target": "s.whatsapp.net",
-      "parserName": "unknown",
+      "parserName": "parseMyAddOnsResponseSuccess",
       "exportedFunction": "makeMyAddOnsRequest",
       "allExports": [
         "makeMyAddOnsRequest"
@@ -1958,9 +3509,105 @@
         ]
       },
       "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
+        "parserName": "parseMyAddOnsResponseSuccess",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "iq"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "child",
+            "name": "myAddonsMessages",
+            "type": "string",
+            "required": true,
+            "tag": "messages",
+            "children": [
+              {
+                "method": "attrJidWithType",
+                "name": "jid",
+                "type": "jid",
+                "required": true
+              },
+              {
+                "method": "child",
+                "name": "message",
+                "type": "string",
+                "required": true,
+                "tag": "message",
+                "children": [
+                  {
+                    "method": "attrInt",
+                    "name": "serverId",
+                    "type": "integer",
+                    "required": true
+                  },
+                  {
+                    "method": "child",
+                    "name": "newsletterMyReactionMixin",
+                    "type": "string",
+                    "required": false,
+                    "tag": "newsletterMyReactionMixin",
+                    "children": [
+                      {
+                        "method": "attrString",
+                        "name": "reactionCode",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "reactionT",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "method": "child",
+                    "name": "newsletterMyPollVoteMixin",
+                    "type": "string",
+                    "required": false,
+                    "tag": "newsletterMyPollVoteMixin",
+                    "children": [
+                      {
+                        "method": "attrInt",
+                        "name": "votesT",
+                        "type": "integer",
+                        "required": true
+                      },
+                      {
+                        "method": "child",
+                        "name": "votesVote",
+                        "type": "string",
+                        "required": true,
+                        "tag": "vote",
+                        "children": [
+                          {
+                            "method": "contentBytes",
+                            "name": "elementValue",
+                            "type": "bytes",
+                            "required": true
+                          }
+                        ],
+                        "repeats": true
+                      }
+                    ]
+                  }
+                ],
+                "repeats": true
+              }
+            ],
+            "repeats": true
+          }
+        ]
       }
     },
     {
@@ -2101,6 +3748,12 @@
             "method": "attrInt",
             "name": "liveUpdatesDuration",
             "type": "integer",
+            "required": true
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
             "required": true
           }
         ]
@@ -2254,6 +3907,12 @@
         ],
         "fields": [
           {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          },
+          {
             "method": "attrJidWithType",
             "name": "from",
             "type": "jid",
@@ -2295,6 +3954,12 @@
         ],
         "fields": [
           {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          },
+          {
             "method": "attrJidWithType",
             "name": "from",
             "type": "jid",
@@ -2308,7 +3973,7 @@
       "namespace": "privacy",
       "iqType": "get",
       "target": "s.whatsapp.net",
-      "parserName": "unknown",
+      "parserName": "parseGetContactBlacklistResponseSuccess",
       "exportedFunction": "makeGetContactBlacklistRequest",
       "allExports": [
         "makeGetContactBlacklistRequest"
@@ -2320,9 +3985,59 @@
         "children": []
       },
       "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
+        "parserName": "parseGetContactBlacklistResponseSuccess",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "iq"
+          }
+        ],
+        "fields": [
+          {
+            "method": "maybeAttrString",
+            "name": "privacyAddressingMode",
+            "type": "string",
+            "required": false
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "child",
+            "name": "privacyList",
+            "type": "string",
+            "required": false,
+            "tag": "list",
+            "children": [
+              {
+                "method": "attrString",
+                "name": "dhash",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "child",
+                "name": "user",
+                "type": "string",
+                "required": true,
+                "tag": "user",
+                "children": [
+                  {
+                    "method": "attrJidWithType",
+                    "name": "jid",
+                    "type": "jid",
+                    "required": true
+                  }
+                ],
+                "repeats": true
+              }
+            ],
+            "repeats": false
+          }
+        ]
       }
     },
     {
@@ -3049,6 +4764,12 @@
         ],
         "fields": [
           {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          },
+          {
             "method": "child",
             "name": "reportIdMixin",
             "type": "string",
@@ -3094,6 +4815,12 @@
           }
         ],
         "fields": [
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          },
           {
             "method": "child",
             "name": "reportIdMixin",
@@ -3152,6 +4879,12 @@
         ],
         "fields": [
           {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          },
+          {
             "method": "child",
             "name": "reportIdMixin",
             "type": "string",
@@ -3194,6 +4927,12 @@
           }
         ],
         "fields": [
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          },
           {
             "method": "child",
             "name": "reportIdMixin",
@@ -3262,6 +5001,12 @@
             "name": "from",
             "type": "jid",
             "required": false
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
           },
           {
             "method": "child",
@@ -3478,7 +5223,7 @@
       "namespace": "tos",
       "iqType": "set",
       "target": "s.whatsapp.net",
-      "parserName": "unknown",
+      "parserName": "parseSetResponseSuccess",
       "exportedFunction": "makeSetRequest",
       "allExports": [
         "makeSetRequest"
@@ -3497,9 +5242,49 @@
         ]
       },
       "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
+        "parserName": "parseSetResponseSuccess",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "iq"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "child",
+            "name": "notice",
+            "type": "string",
+            "required": false,
+            "tag": "notice",
+            "children": [
+              {
+                "method": "attrInt",
+                "name": "t",
+                "type": "integer",
+                "required": true
+              },
+              {
+                "method": "attrInt",
+                "name": "id",
+                "type": "integer",
+                "required": true
+              },
+              {
+                "method": "attrInt",
+                "name": "stage",
+                "type": "integer",
+                "required": true
+              }
+            ],
+            "repeats": false
+          }
+        ]
       }
     },
     {
@@ -3507,7 +5292,7 @@
       "namespace": "tos",
       "iqType": "set",
       "target": "s.whatsapp.net",
-      "parserName": "unknown",
+      "parserName": "parseSetResultResponseSuccess",
       "exportedFunction": "makeSetResultRequest",
       "allExports": [
         "makeSetResultRequest"
@@ -3537,9 +5322,43 @@
         ]
       },
       "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
+        "parserName": "parseSetResultResponseSuccess",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "iq"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "child",
+            "name": "trackable",
+            "type": "string",
+            "required": false,
+            "tag": "trackable",
+            "children": [
+              {
+                "method": "attrInt",
+                "name": "id",
+                "type": "integer",
+                "required": true
+              },
+              {
+                "method": "attrInt",
+                "name": "result",
+                "type": "integer",
+                "required": true
+              }
+            ],
+            "repeats": false
+          }
+        ]
       }
     },
     {
@@ -3784,6 +5603,12 @@
             "name": "acceptPaySandbox",
             "type": "string",
             "required": false
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
           }
         ]
       }
@@ -3927,7 +5752,7 @@
       "namespace": "urn:xmpp:whatsapp:push",
       "iqType": "set",
       "target": "s.whatsapp.net",
-      "parserName": "unknown",
+      "parserName": "parseSetResponseSuccess",
       "exportedFunction": "makeSetRequest",
       "allExports": [
         "makeSetRequest"
@@ -3939,9 +5764,21 @@
         "children": []
       },
       "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
+        "parserName": "parseSetResponseSuccess",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "iq"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          }
+        ]
       }
     },
     {
@@ -4334,7 +6171,7 @@
       "namespace": "w:biz",
       "iqType": "get",
       "target": "s.whatsapp.net",
-      "parserName": "unknown",
+      "parserName": "parseGetBusinessEligibilityResponseSuccess",
       "exportedFunction": "makeGetBusinessEligibilityRequest",
       "allExports": [
         "makeGetBusinessEligibilityRequest"
@@ -4369,9 +6206,93 @@
         ]
       },
       "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
+        "parserName": "parseGetBusinessEligibilityResponseSuccess",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "iq"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrJidWithType",
+            "name": "to",
+            "type": "jid",
+            "required": false
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "child",
+            "name": "metaVerified",
+            "type": "string",
+            "required": false,
+            "tag": "meta_verified",
+            "children": [
+              {
+                "method": "attrEnum",
+                "name": "status",
+                "type": "enum",
+                "required": true
+              },
+              {
+                "method": "maybeAttrEnum",
+                "name": "shouldShowPrivacyInterstitialToNewUsers",
+                "type": "enum",
+                "required": false
+              },
+              {
+                "method": "maybeAttrString",
+                "name": "additionalParams",
+                "type": "string",
+                "required": false
+              }
+            ],
+            "repeats": false
+          },
+          {
+            "method": "child",
+            "name": "marketingMessages",
+            "type": "string",
+            "required": false,
+            "tag": "marketing_messages",
+            "children": [
+              {
+                "method": "attrEnum",
+                "name": "status",
+                "type": "enum",
+                "required": true
+              },
+              {
+                "method": "maybeAttrInt",
+                "name": "expiration",
+                "type": "integer",
+                "required": false
+              }
+            ],
+            "repeats": false
+          },
+          {
+            "method": "child",
+            "name": "genai",
+            "type": "string",
+            "required": false,
+            "tag": "genai",
+            "children": [
+              {
+                "method": "attrEnum",
+                "name": "status",
+                "type": "enum",
+                "required": true
+              }
+            ],
+            "repeats": false
+          }
+        ]
       }
     },
     {
@@ -4420,6 +6341,12 @@
                 "required": true
               }
             ]
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
           }
         ]
       }
@@ -4429,7 +6356,7 @@
       "namespace": "w:biz",
       "iqType": "get",
       "target": "s.whatsapp.net",
-      "parserName": "unknown",
+      "parserName": "parseGetSMBMeteredMessagingCheckoutResponseSuccess",
       "exportedFunction": "makeGetSMBMeteredMessagingCheckoutRequestParticipantsTo",
       "allExports": [
         "makeGetSMBMeteredMessagingCheckoutRequestParticipantsTo",
@@ -4454,9 +6381,199 @@
         ]
       },
       "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
+        "parserName": "parseGetSMBMeteredMessagingCheckoutResponseSuccess",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "iq"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrInt",
+            "name": "costBeforeTax",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "method": "attrInt",
+            "name": "costTax",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "method": "attrInt",
+            "name": "costOffset",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "method": "attrString",
+            "name": "costCurrency",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "maybeAttrInt",
+            "name": "costBase",
+            "type": "integer",
+            "required": false
+          },
+          {
+            "method": "maybeAttrString",
+            "name": "costBaseFormatted",
+            "type": "string",
+            "required": false
+          },
+          {
+            "method": "maybeAttrInt",
+            "name": "costDiscountPercent",
+            "type": "integer",
+            "required": false
+          },
+          {
+            "method": "maybeAttrInt",
+            "name": "costBeforeDiscount",
+            "type": "integer",
+            "required": false
+          },
+          {
+            "method": "maybeAttrString",
+            "name": "costBeforeDiscountFormatted",
+            "type": "string",
+            "required": false
+          },
+          {
+            "method": "attrEnum",
+            "name": "integrityIsEligible",
+            "type": "enum",
+            "required": true
+          },
+          {
+            "method": "attrInt",
+            "name": "accountBalanceBilling",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "method": "attrInt",
+            "name": "accountBalanceAvailable",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "method": "attrInt",
+            "name": "accountBalanceOffset",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "method": "attrJidWithType",
+            "name": "to",
+            "type": "jid",
+            "required": false
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "child",
+            "name": "costDiscounts",
+            "type": "string",
+            "required": false,
+            "tag": "discounts",
+            "children": [
+              {
+                "method": "child",
+                "name": "discount",
+                "type": "string",
+                "required": true,
+                "tag": "discount",
+                "children": [
+                  {
+                    "method": "attrEnum",
+                    "name": "type",
+                    "type": "enum",
+                    "required": true
+                  },
+                  {
+                    "method": "maybeAttrInt",
+                    "name": "percentage",
+                    "type": "integer",
+                    "required": false
+                  },
+                  {
+                    "method": "attrInt",
+                    "name": "amount",
+                    "type": "integer",
+                    "required": true
+                  },
+                  {
+                    "method": "attrString",
+                    "name": "amountFormatted",
+                    "type": "string",
+                    "required": true
+                  }
+                ],
+                "repeats": true
+              }
+            ],
+            "repeats": false
+          },
+          {
+            "method": "child",
+            "name": "quota",
+            "type": "string",
+            "required": false,
+            "tag": "quota",
+            "children": [
+              {
+                "method": "attrInt",
+                "name": "remaining",
+                "type": "integer",
+                "required": true
+              },
+              {
+                "method": "attrInt",
+                "name": "totalMonthly",
+                "type": "integer",
+                "required": true
+              },
+              {
+                "method": "maybeAttrInt",
+                "name": "singleCredits",
+                "type": "integer",
+                "required": false
+              },
+              {
+                "method": "maybeAttrInt",
+                "name": "totalAvailableCredits",
+                "type": "integer",
+                "required": false
+              }
+            ],
+            "repeats": false
+          },
+          {
+            "method": "child",
+            "name": "offerStatus",
+            "type": "string",
+            "required": false,
+            "tag": "offer_status",
+            "children": [
+              {
+                "method": "attrEnum",
+                "name": "value",
+                "type": "enum",
+                "required": true
+              }
+            ],
+            "repeats": false
+          }
+        ]
       }
     },
     {
@@ -4498,6 +6615,12 @@
                 "required": true
               }
             ]
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
           }
         ]
       }
@@ -4976,7 +7099,7 @@
       "namespace": "w:biz:msg_feedback",
       "iqType": "set",
       "target": "s.whatsapp.net",
-      "parserName": "unknown",
+      "parserName": "parseUpdatePreferenceResponseSuccess",
       "exportedFunction": "makeUpdatePreferenceRequest",
       "allExports": [
         "makeUpdatePreferenceRequest"
@@ -5011,9 +7134,21 @@
         ]
       },
       "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
+        "parserName": "parseUpdatePreferenceResponseSuccess",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "iq"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          }
+        ]
       }
     },
     {
@@ -5021,7 +7156,7 @@
       "namespace": "w:comms",
       "iqType": "set",
       "target": "s.whatsapp.net",
-      "parserName": "unknown",
+      "parserName": "parseEventResponseSuccess",
       "exportedFunction": "makeEventRequest",
       "allExports": [
         "makeEventRequest"
@@ -5061,9 +7196,21 @@
         ]
       },
       "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
+        "parserName": "parseEventResponseSuccess",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "iq"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          }
+        ]
       }
     },
     {
@@ -5109,6 +7256,12 @@
             "method": "attrEnum",
             "name": "blockingStatus",
             "type": "enum",
+            "required": true
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
             "required": true
           }
         ]
@@ -5157,6 +7310,12 @@
             "name": "blockingStatus",
             "type": "enum",
             "required": true
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
           }
         ]
       }
@@ -5166,7 +7325,7 @@
       "namespace": "w:g2",
       "iqType": "get",
       "target": "s.whatsapp.net",
-      "parserName": "unknown",
+      "parserName": "parseBatchGetGroupInfoResponseSuccess",
       "exportedFunction": "makeBatchGetGroupInfoRequestQueryGroup",
       "allExports": [
         "makeBatchGetGroupInfoRequestQueryGroup",
@@ -5192,9 +7351,52 @@
         ]
       },
       "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
+        "parserName": "parseBatchGetGroupInfoResponseSuccess",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "iq"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "child",
+            "name": "groupsGroup",
+            "type": "string",
+            "required": true,
+            "tag": "group",
+            "children": [
+              {
+                "method": "child",
+                "name": "dedupAttrsMixin",
+                "type": "string",
+                "required": false,
+                "tag": "dedupAttrsMixin",
+                "children": [
+                  {
+                    "method": "attrString",
+                    "name": "key",
+                    "type": "string",
+                    "required": true
+                  },
+                  {
+                    "method": "maybeAttrEnum",
+                    "name": "createCtx",
+                    "type": "enum",
+                    "required": false
+                  }
+                ]
+              }
+            ],
+            "repeats": true
+          }
+        ]
       }
     },
     {
@@ -5202,7 +7404,7 @@
       "namespace": "w:g2",
       "iqType": "get",
       "target": "s.whatsapp.net",
-      "parserName": "unknown",
+      "parserName": "parseGetGroupInfoResponseSuccess",
       "exportedFunction": "makeGetGroupInfoRequestQueryAddRequest",
       "allExports": [
         "makeGetGroupInfoRequestQueryAddRequest",
@@ -5215,9 +7417,517 @@
         "children": []
       },
       "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
+        "parserName": "parseGetGroupInfoResponseSuccess",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "iq"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "child",
+            "name": "group",
+            "type": "string",
+            "required": false,
+            "tag": "group",
+            "children": [
+              {
+                "method": "maybeAttrInt",
+                "name": "size",
+                "type": "integer",
+                "required": false
+              },
+              {
+                "method": "maybeAttrString",
+                "name": "ack",
+                "type": "string",
+                "required": false
+              },
+              {
+                "method": "attrString",
+                "name": "id",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "attrJidWithType",
+                "name": "creator",
+                "type": "jid",
+                "required": false
+              },
+              {
+                "method": "attrInt",
+                "name": "creation",
+                "type": "integer",
+                "required": true
+              },
+              {
+                "method": "maybeAttrString",
+                "name": "pVId",
+                "type": "string",
+                "required": false
+              },
+              {
+                "method": "maybeAttrString",
+                "name": "aVId",
+                "type": "string",
+                "required": false
+              },
+              {
+                "method": "maybeAttrInt",
+                "name": "sT",
+                "type": "integer",
+                "required": false
+              },
+              {
+                "method": "attrJidWithType",
+                "name": "sO",
+                "type": "jid",
+                "required": false
+              },
+              {
+                "method": "maybeAttrString",
+                "name": "openThreadId",
+                "type": "string",
+                "required": false
+              },
+              {
+                "method": "child",
+                "name": "groupAddressingModeMixin",
+                "type": "string",
+                "required": false,
+                "tag": "groupAddressingModeMixin",
+                "children": [
+                  {
+                    "method": "attrEnum",
+                    "name": "addressingMode",
+                    "type": "enum",
+                    "required": true
+                  }
+                ]
+              },
+              {
+                "method": "child",
+                "name": "subjectOwnerIdentityMixin",
+                "type": "string",
+                "required": false,
+                "tag": "subjectOwnerIdentityMixin",
+                "children": [
+                  {
+                    "method": "child",
+                    "name": "subjectOwnerPhoneNumberMixin",
+                    "type": "string",
+                    "required": false,
+                    "tag": "subjectOwnerPhoneNumberMixin",
+                    "children": [
+                      {
+                        "method": "attrJidWithType",
+                        "name": "sOPn",
+                        "type": "jid",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "method": "child",
+                    "name": "subjectOwnerUsernameMixin",
+                    "type": "string",
+                    "required": false,
+                    "tag": "subjectOwnerUsernameMixin",
+                    "children": [
+                      {
+                        "method": "attrString",
+                        "name": "sOUsername",
+                        "type": "string",
+                        "required": true
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "method": "child",
+                "name": "groupCreatorIdentityMixin",
+                "type": "string",
+                "required": false,
+                "tag": "groupCreatorIdentityMixin",
+                "children": [
+                  {
+                    "method": "child",
+                    "name": "groupCreatorPhoneNumberMixin",
+                    "type": "string",
+                    "required": false,
+                    "tag": "groupCreatorPhoneNumberMixin",
+                    "children": [
+                      {
+                        "method": "attrJidWithType",
+                        "name": "creatorPn",
+                        "type": "jid",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "method": "child",
+                    "name": "groupCreatorUsernameMixin",
+                    "type": "string",
+                    "required": false,
+                    "tag": "groupCreatorUsernameMixin",
+                    "children": [
+                      {
+                        "method": "attrString",
+                        "name": "creatorUsername",
+                        "type": "string",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "method": "child",
+                    "name": "groupCreatorCountryCodeMixin",
+                    "type": "string",
+                    "required": false,
+                    "tag": "groupCreatorCountryCodeMixin",
+                    "children": [
+                      {
+                        "method": "attrString",
+                        "name": "creatorCountryCode",
+                        "type": "string",
+                        "required": true
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "method": "child",
+                "name": "description",
+                "type": "string",
+                "required": false,
+                "tag": "description",
+                "children": [
+                  {
+                    "method": "child",
+                    "name": "groupInfoDescriptionMixin",
+                    "type": "string",
+                    "required": false,
+                    "tag": "groupInfoDescriptionMixin",
+                    "children": [
+                      {
+                        "method": "attrString",
+                        "name": "id",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrJidWithType",
+                        "name": "participant",
+                        "type": "jid",
+                        "required": false
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "t",
+                        "type": "integer",
+                        "required": true
+                      },
+                      {
+                        "method": "contentString",
+                        "name": "bodyElementValue",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "child",
+                        "name": "participantIdentityMixin",
+                        "type": "string",
+                        "required": false,
+                        "tag": "participantIdentityMixin",
+                        "children": [
+                          {
+                            "method": "child",
+                            "name": "participantPNMixin",
+                            "type": "string",
+                            "required": false,
+                            "tag": "participantPNMixin",
+                            "children": [
+                              {
+                                "method": "attrJidWithType",
+                                "name": "participantPn",
+                                "type": "jid",
+                                "required": true
+                              }
+                            ]
+                          },
+                          {
+                            "method": "child",
+                            "name": "participantUsernameMixin",
+                            "type": "string",
+                            "required": false,
+                            "tag": "participantUsernameMixin",
+                            "children": [
+                              {
+                                "method": "attrString",
+                                "name": "participantUsername",
+                                "type": "string",
+                                "required": true
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ],
+                "repeats": false
+              },
+              {
+                "method": "child",
+                "name": "parent",
+                "type": "string",
+                "required": false,
+                "tag": "parent",
+                "children": [
+                  {
+                    "method": "child",
+                    "name": "parentGroupDefaultMembershipApprovalModeMixin",
+                    "type": "string",
+                    "required": false,
+                    "tag": "parentGroupDefaultMembershipApprovalModeMixin",
+                    "children": [
+                      {
+                        "method": "attrString",
+                        "name": "defaultMembershipApprovalMode",
+                        "type": "string",
+                        "required": true
+                      }
+                    ]
+                  }
+                ],
+                "repeats": false
+              },
+              {
+                "method": "child",
+                "name": "ephemeral",
+                "type": "string",
+                "required": false,
+                "tag": "ephemeral",
+                "children": [
+                  {
+                    "method": "attrInt",
+                    "name": "expiration",
+                    "type": "integer",
+                    "required": true
+                  },
+                  {
+                    "method": "maybeAttrInt",
+                    "name": "trigger",
+                    "type": "integer",
+                    "required": false
+                  }
+                ],
+                "repeats": false
+              },
+              {
+                "method": "child",
+                "name": "suspended",
+                "type": "string",
+                "required": false,
+                "tag": "suspended",
+                "children": [
+                  {
+                    "method": "maybeAttrString",
+                    "name": "canAutoFile",
+                    "type": "string",
+                    "required": false
+                  }
+                ],
+                "repeats": false
+              },
+              {
+                "method": "child",
+                "name": "appealStatus",
+                "type": "string",
+                "required": false,
+                "tag": "appeal_status",
+                "children": [
+                  {
+                    "method": "attrEnum",
+                    "name": "type",
+                    "type": "enum",
+                    "required": true
+                  }
+                ],
+                "repeats": false
+              },
+              {
+                "method": "child",
+                "name": "appealUpdateTime",
+                "type": "string",
+                "required": false,
+                "tag": "appeal_update_time",
+                "children": [
+                  {
+                    "method": "attrInt",
+                    "name": "value",
+                    "type": "integer",
+                    "required": true
+                  }
+                ],
+                "repeats": false
+              },
+              {
+                "method": "child",
+                "name": "growthLocked",
+                "type": "string",
+                "required": false,
+                "tag": "growth_locked",
+                "children": [
+                  {
+                    "method": "attrString",
+                    "name": "type",
+                    "type": "string",
+                    "required": true
+                  },
+                  {
+                    "method": "attrInt",
+                    "name": "expiration",
+                    "type": "integer",
+                    "required": true
+                  }
+                ],
+                "repeats": false
+              },
+              {
+                "method": "child",
+                "name": "membershipApprovalMode",
+                "type": "string",
+                "required": false,
+                "tag": "membership_approval_mode",
+                "children": [
+                  {
+                    "method": "child",
+                    "name": "membershipApprovalGroupJoinModeEnabledMixin",
+                    "type": "string",
+                    "required": false,
+                    "tag": "membershipApprovalGroupJoinModeEnabledMixin",
+                    "children": [
+                      {
+                        "method": "attrString",
+                        "name": "state",
+                        "type": "string",
+                        "required": true
+                      }
+                    ]
+                  }
+                ],
+                "repeats": false
+              },
+              {
+                "method": "child",
+                "name": "linkedParent",
+                "type": "string",
+                "required": false,
+                "tag": "linked_parent",
+                "children": [
+                  {
+                    "method": "attrJidWithType",
+                    "name": "jid",
+                    "type": "jid",
+                    "required": true
+                  }
+                ],
+                "repeats": false
+              },
+              {
+                "method": "child",
+                "name": "evolutionVersion",
+                "type": "string",
+                "required": false,
+                "tag": "evolution_version",
+                "children": [
+                  {
+                    "method": "attrInt",
+                    "name": "value",
+                    "type": "integer",
+                    "required": true
+                  }
+                ],
+                "repeats": false
+              },
+              {
+                "method": "child",
+                "name": "limitSharingEnabled",
+                "type": "string",
+                "required": false,
+                "tag": "limit_sharing_enabled",
+                "children": [
+                  {
+                    "method": "maybeAttrInt",
+                    "name": "trigger",
+                    "type": "integer",
+                    "required": false
+                  }
+                ],
+                "repeats": false
+              },
+              {
+                "method": "child",
+                "name": "participant",
+                "type": "string",
+                "required": true,
+                "tag": "participant",
+                "children": [
+                  {
+                    "method": "child",
+                    "name": "participantNotAddressableMixin",
+                    "type": "string",
+                    "required": false,
+                    "tag": "participantNotAddressableMixin",
+                    "children": [
+                      {
+                        "method": "attrString",
+                        "name": "addressable",
+                        "type": "string",
+                        "required": true
+                      }
+                    ]
+                  }
+                ],
+                "repeats": true
+              },
+              {
+                "method": "child",
+                "name": "dedupAttrsMixin",
+                "type": "string",
+                "required": false,
+                "tag": "dedupAttrsMixin",
+                "children": [
+                  {
+                    "method": "attrString",
+                    "name": "key",
+                    "type": "string",
+                    "required": true
+                  },
+                  {
+                    "method": "maybeAttrEnum",
+                    "name": "createCtx",
+                    "type": "enum",
+                    "required": false
+                  }
+                ]
+              }
+            ],
+            "repeats": false
+          }
+        ]
       }
     },
     {
@@ -5259,10 +7969,351 @@
         ],
         "fields": [
           {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          },
+          {
             "method": "attrInt",
             "name": "groupSize",
             "type": "integer",
             "required": true
+          },
+          {
+            "method": "child",
+            "name": "groupInviteLinkGroupInfoMixin",
+            "type": "string",
+            "required": true,
+            "tag": "groupInviteLinkGroupInfoMixin",
+            "children": [
+              {
+                "method": "attrInt",
+                "name": "size",
+                "type": "integer",
+                "required": true
+              },
+              {
+                "method": "child",
+                "name": "descriptionGroupInfoDescriptionMixin",
+                "type": "string",
+                "required": false,
+                "tag": "descriptionGroupInfoDescriptionMixin",
+                "children": [
+                  {
+                    "method": "attrString",
+                    "name": "id",
+                    "type": "string",
+                    "required": true
+                  },
+                  {
+                    "method": "attrJidWithType",
+                    "name": "participant",
+                    "type": "jid",
+                    "required": false
+                  },
+                  {
+                    "method": "attrInt",
+                    "name": "t",
+                    "type": "integer",
+                    "required": true
+                  },
+                  {
+                    "method": "contentString",
+                    "name": "bodyElementValue",
+                    "type": "string",
+                    "required": true
+                  },
+                  {
+                    "method": "child",
+                    "name": "participantIdentityMixin",
+                    "type": "string",
+                    "required": false,
+                    "tag": "participantIdentityMixin",
+                    "children": [
+                      {
+                        "method": "child",
+                        "name": "participantPNMixin",
+                        "type": "string",
+                        "required": false,
+                        "tag": "participantPNMixin",
+                        "children": [
+                          {
+                            "method": "attrJidWithType",
+                            "name": "participantPn",
+                            "type": "jid",
+                            "required": true
+                          }
+                        ]
+                      },
+                      {
+                        "method": "child",
+                        "name": "participantUsernameMixin",
+                        "type": "string",
+                        "required": false,
+                        "tag": "participantUsernameMixin",
+                        "children": [
+                          {
+                            "method": "attrString",
+                            "name": "participantUsername",
+                            "type": "string",
+                            "required": true
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "method": "attrString",
+                "name": "id",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "attrJidWithType",
+                "name": "creator",
+                "type": "jid",
+                "required": false
+              },
+              {
+                "method": "attrInt",
+                "name": "creation",
+                "type": "integer",
+                "required": true
+              },
+              {
+                "method": "maybeAttrString",
+                "name": "pVId",
+                "type": "string",
+                "required": false
+              },
+              {
+                "method": "maybeAttrString",
+                "name": "aVId",
+                "type": "string",
+                "required": false
+              },
+              {
+                "method": "maybeAttrInt",
+                "name": "sT",
+                "type": "integer",
+                "required": false
+              },
+              {
+                "method": "attrJidWithType",
+                "name": "sO",
+                "type": "jid",
+                "required": false
+              },
+              {
+                "method": "maybeAttrString",
+                "name": "openThreadId",
+                "type": "string",
+                "required": false
+              },
+              {
+                "method": "child",
+                "name": "groupAddressingModeMixin",
+                "type": "string",
+                "required": false,
+                "tag": "groupAddressingModeMixin",
+                "children": [
+                  {
+                    "method": "attrEnum",
+                    "name": "addressingMode",
+                    "type": "enum",
+                    "required": true
+                  }
+                ]
+              },
+              {
+                "method": "child",
+                "name": "subjectOwnerIdentityMixin",
+                "type": "string",
+                "required": false,
+                "tag": "subjectOwnerIdentityMixin",
+                "children": [
+                  {
+                    "method": "child",
+                    "name": "subjectOwnerPhoneNumberMixin",
+                    "type": "string",
+                    "required": false,
+                    "tag": "subjectOwnerPhoneNumberMixin",
+                    "children": [
+                      {
+                        "method": "attrJidWithType",
+                        "name": "sOPn",
+                        "type": "jid",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "method": "child",
+                    "name": "subjectOwnerUsernameMixin",
+                    "type": "string",
+                    "required": false,
+                    "tag": "subjectOwnerUsernameMixin",
+                    "children": [
+                      {
+                        "method": "attrString",
+                        "name": "sOUsername",
+                        "type": "string",
+                        "required": true
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "method": "child",
+                "name": "groupCreatorIdentityMixin",
+                "type": "string",
+                "required": false,
+                "tag": "groupCreatorIdentityMixin",
+                "children": [
+                  {
+                    "method": "child",
+                    "name": "groupCreatorPhoneNumberMixin",
+                    "type": "string",
+                    "required": false,
+                    "tag": "groupCreatorPhoneNumberMixin",
+                    "children": [
+                      {
+                        "method": "attrJidWithType",
+                        "name": "creatorPn",
+                        "type": "jid",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "method": "child",
+                    "name": "groupCreatorUsernameMixin",
+                    "type": "string",
+                    "required": false,
+                    "tag": "groupCreatorUsernameMixin",
+                    "children": [
+                      {
+                        "method": "attrString",
+                        "name": "creatorUsername",
+                        "type": "string",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "method": "child",
+                    "name": "groupCreatorCountryCodeMixin",
+                    "type": "string",
+                    "required": false,
+                    "tag": "groupCreatorCountryCodeMixin",
+                    "children": [
+                      {
+                        "method": "attrString",
+                        "name": "creatorCountryCode",
+                        "type": "string",
+                        "required": true
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "method": "child",
+                "name": "parent",
+                "type": "string",
+                "required": false,
+                "tag": "parent",
+                "children": [
+                  {
+                    "method": "attrInt",
+                    "name": "numSubGroups",
+                    "type": "integer",
+                    "required": true
+                  }
+                ],
+                "repeats": false
+              },
+              {
+                "method": "child",
+                "name": "linkedParent",
+                "type": "string",
+                "required": false,
+                "tag": "linked_parent",
+                "children": [
+                  {
+                    "method": "attrJidWithType",
+                    "name": "jid",
+                    "type": "jid",
+                    "required": true
+                  },
+                  {
+                    "method": "attrString",
+                    "name": "subject",
+                    "type": "string",
+                    "required": true
+                  }
+                ],
+                "repeats": false
+              },
+              {
+                "method": "child",
+                "name": "membershipApprovalMode",
+                "type": "string",
+                "required": false,
+                "tag": "membership_approval_mode",
+                "children": [
+                  {
+                    "method": "attrString",
+                    "name": "state",
+                    "type": "string",
+                    "required": true
+                  }
+                ],
+                "repeats": false
+              },
+              {
+                "method": "child",
+                "name": "membershipApprovalRequest",
+                "type": "string",
+                "required": false,
+                "tag": "membership_approval_request",
+                "children": [
+                  {
+                    "method": "maybeAttrString",
+                    "name": "error",
+                    "type": "string",
+                    "required": false
+                  }
+                ],
+                "repeats": false
+              },
+              {
+                "method": "child",
+                "name": "ephemeral",
+                "type": "string",
+                "required": false,
+                "tag": "ephemeral",
+                "children": [
+                  {
+                    "method": "attrInt",
+                    "name": "expiration",
+                    "type": "integer",
+                    "required": true
+                  },
+                  {
+                    "method": "maybeAttrInt",
+                    "name": "trigger",
+                    "type": "integer",
+                    "required": false
+                  }
+                ],
+                "repeats": false
+              }
+            ]
           }
         ]
       }
@@ -5294,6 +8345,387 @@
         "fields": [
           {
             "method": "child",
+            "name": "linkedGroupLinkedGroupInfoMixin",
+            "type": "string",
+            "required": true,
+            "tag": "linkedGroupLinkedGroupInfoMixin",
+            "children": [
+              {
+                "method": "attrJidWithType",
+                "name": "jid",
+                "type": "jid",
+                "required": true
+              },
+              {
+                "method": "attrInt",
+                "name": "groupSize",
+                "type": "integer",
+                "required": true
+              },
+              {
+                "method": "child",
+                "name": "groupDescriptionGroupInfoDescriptionMixin",
+                "type": "string",
+                "required": false,
+                "tag": "groupDescriptionGroupInfoDescriptionMixin",
+                "children": [
+                  {
+                    "method": "attrString",
+                    "name": "id",
+                    "type": "string",
+                    "required": true
+                  },
+                  {
+                    "method": "attrJidWithType",
+                    "name": "participant",
+                    "type": "jid",
+                    "required": false
+                  },
+                  {
+                    "method": "attrInt",
+                    "name": "t",
+                    "type": "integer",
+                    "required": true
+                  },
+                  {
+                    "method": "contentString",
+                    "name": "bodyElementValue",
+                    "type": "string",
+                    "required": true
+                  },
+                  {
+                    "method": "child",
+                    "name": "participantIdentityMixin",
+                    "type": "string",
+                    "required": false,
+                    "tag": "participantIdentityMixin",
+                    "children": [
+                      {
+                        "method": "child",
+                        "name": "participantPNMixin",
+                        "type": "string",
+                        "required": false,
+                        "tag": "participantPNMixin",
+                        "children": [
+                          {
+                            "method": "attrJidWithType",
+                            "name": "participantPn",
+                            "type": "jid",
+                            "required": true
+                          }
+                        ]
+                      },
+                      {
+                        "method": "child",
+                        "name": "participantUsernameMixin",
+                        "type": "string",
+                        "required": false,
+                        "tag": "participantUsernameMixin",
+                        "children": [
+                          {
+                            "method": "attrString",
+                            "name": "participantUsername",
+                            "type": "string",
+                            "required": true
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "method": "child",
+                "name": "groupGroupInfoAttributesMixin",
+                "type": "string",
+                "required": true,
+                "tag": "groupGroupInfoAttributesMixin",
+                "children": [
+                  {
+                    "method": "attrString",
+                    "name": "id",
+                    "type": "string",
+                    "required": true
+                  },
+                  {
+                    "method": "attrJidWithType",
+                    "name": "creator",
+                    "type": "jid",
+                    "required": false
+                  },
+                  {
+                    "method": "attrInt",
+                    "name": "creation",
+                    "type": "integer",
+                    "required": true
+                  },
+                  {
+                    "method": "maybeAttrString",
+                    "name": "pVId",
+                    "type": "string",
+                    "required": false
+                  },
+                  {
+                    "method": "maybeAttrString",
+                    "name": "aVId",
+                    "type": "string",
+                    "required": false
+                  },
+                  {
+                    "method": "maybeAttrInt",
+                    "name": "sT",
+                    "type": "integer",
+                    "required": false
+                  },
+                  {
+                    "method": "attrJidWithType",
+                    "name": "sO",
+                    "type": "jid",
+                    "required": false
+                  },
+                  {
+                    "method": "maybeAttrString",
+                    "name": "openThreadId",
+                    "type": "string",
+                    "required": false
+                  },
+                  {
+                    "method": "maybeAttrInt",
+                    "name": "size",
+                    "type": "integer",
+                    "required": false
+                  },
+                  {
+                    "method": "child",
+                    "name": "groupAddressingModeMixin",
+                    "type": "string",
+                    "required": false,
+                    "tag": "groupAddressingModeMixin",
+                    "children": [
+                      {
+                        "method": "attrEnum",
+                        "name": "addressingMode",
+                        "type": "enum",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "method": "child",
+                    "name": "subjectOwnerIdentityMixin",
+                    "type": "string",
+                    "required": false,
+                    "tag": "subjectOwnerIdentityMixin",
+                    "children": [
+                      {
+                        "method": "child",
+                        "name": "subjectOwnerPhoneNumberMixin",
+                        "type": "string",
+                        "required": false,
+                        "tag": "subjectOwnerPhoneNumberMixin",
+                        "children": [
+                          {
+                            "method": "attrJidWithType",
+                            "name": "sOPn",
+                            "type": "jid",
+                            "required": true
+                          }
+                        ]
+                      },
+                      {
+                        "method": "child",
+                        "name": "subjectOwnerUsernameMixin",
+                        "type": "string",
+                        "required": false,
+                        "tag": "subjectOwnerUsernameMixin",
+                        "children": [
+                          {
+                            "method": "attrString",
+                            "name": "sOUsername",
+                            "type": "string",
+                            "required": true
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "method": "child",
+                    "name": "groupCreatorIdentityMixin",
+                    "type": "string",
+                    "required": false,
+                    "tag": "groupCreatorIdentityMixin",
+                    "children": [
+                      {
+                        "method": "child",
+                        "name": "groupCreatorPhoneNumberMixin",
+                        "type": "string",
+                        "required": false,
+                        "tag": "groupCreatorPhoneNumberMixin",
+                        "children": [
+                          {
+                            "method": "attrJidWithType",
+                            "name": "creatorPn",
+                            "type": "jid",
+                            "required": true
+                          }
+                        ]
+                      },
+                      {
+                        "method": "child",
+                        "name": "groupCreatorUsernameMixin",
+                        "type": "string",
+                        "required": false,
+                        "tag": "groupCreatorUsernameMixin",
+                        "children": [
+                          {
+                            "method": "attrString",
+                            "name": "creatorUsername",
+                            "type": "string",
+                            "required": true
+                          }
+                        ]
+                      },
+                      {
+                        "method": "child",
+                        "name": "groupCreatorCountryCodeMixin",
+                        "type": "string",
+                        "required": false,
+                        "tag": "groupCreatorCountryCodeMixin",
+                        "children": [
+                          {
+                            "method": "attrString",
+                            "name": "creatorCountryCode",
+                            "type": "string",
+                            "required": true
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "method": "child",
+                "name": "groupGroupAddressingModeMixin",
+                "type": "string",
+                "required": false,
+                "tag": "groupGroupAddressingModeMixin",
+                "children": [
+                  {
+                    "method": "attrEnum",
+                    "name": "addressingMode",
+                    "type": "enum",
+                    "required": true
+                  }
+                ]
+              },
+              {
+                "method": "child",
+                "name": "groupMembershipApprovalMode",
+                "type": "string",
+                "required": false,
+                "tag": "membership_approval_mode",
+                "children": [
+                  {
+                    "method": "attrString",
+                    "name": "state",
+                    "type": "string",
+                    "required": true
+                  }
+                ],
+                "repeats": false
+              },
+              {
+                "method": "child",
+                "name": "groupMembershipApprovalRequest",
+                "type": "string",
+                "required": false,
+                "tag": "membership_approval_request",
+                "children": [
+                  {
+                    "method": "maybeAttrString",
+                    "name": "error",
+                    "type": "string",
+                    "required": false
+                  }
+                ],
+                "repeats": false
+              },
+              {
+                "method": "child",
+                "name": "groupSuspended",
+                "type": "string",
+                "required": false,
+                "tag": "suspended",
+                "children": [
+                  {
+                    "method": "maybeAttrString",
+                    "name": "canAutoFile",
+                    "type": "string",
+                    "required": false
+                  }
+                ],
+                "repeats": false
+              },
+              {
+                "method": "child",
+                "name": "groupAppealStatus",
+                "type": "string",
+                "required": false,
+                "tag": "appeal_status",
+                "children": [
+                  {
+                    "method": "attrEnum",
+                    "name": "type",
+                    "type": "enum",
+                    "required": true
+                  }
+                ],
+                "repeats": false
+              },
+              {
+                "method": "child",
+                "name": "groupAppealUpdateTime",
+                "type": "string",
+                "required": false,
+                "tag": "appeal_update_time",
+                "children": [
+                  {
+                    "method": "attrInt",
+                    "name": "value",
+                    "type": "integer",
+                    "required": true
+                  }
+                ],
+                "repeats": false
+              },
+              {
+                "method": "child",
+                "name": "groupLimitSharingEnabled",
+                "type": "string",
+                "required": false,
+                "tag": "limit_sharing_enabled",
+                "children": [
+                  {
+                    "method": "maybeAttrInt",
+                    "name": "trigger",
+                    "type": "integer",
+                    "required": false
+                  }
+                ],
+                "repeats": false
+              }
+            ]
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "child",
             "name": "groupAddressingModeMixin",
             "type": "string",
             "required": false,
@@ -5315,7 +8747,7 @@
       "namespace": "w:g2",
       "iqType": "get",
       "target": "s.whatsapp.net",
-      "parserName": "unknown",
+      "parserName": "parseGetLinkedGroupsParticipantsResponseSuccess",
       "exportedFunction": "makeGetLinkedGroupsParticipantsRequest",
       "allExports": [
         "makeGetLinkedGroupsParticipantsRequest"
@@ -5334,9 +8766,67 @@
         ]
       },
       "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
+        "parserName": "parseGetLinkedGroupsParticipantsResponseSuccess",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "iq"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "child",
+            "name": "groupAddressingModeMixin",
+            "type": "string",
+            "required": false,
+            "tag": "groupAddressingModeMixin",
+            "children": [
+              {
+                "method": "attrEnum",
+                "name": "addressingMode",
+                "type": "enum",
+                "required": true
+              }
+            ]
+          },
+          {
+            "method": "child",
+            "name": "linkedGroupsParticipantsParticipant",
+            "type": "string",
+            "required": true,
+            "tag": "participant",
+            "children": [
+              {
+                "method": "attrJidWithType",
+                "name": "jid",
+                "type": "jid",
+                "required": true
+              },
+              {
+                "method": "child",
+                "name": "phoneNumberMixin",
+                "type": "string",
+                "required": false,
+                "tag": "phoneNumberMixin",
+                "children": [
+                  {
+                    "method": "attrJidWithType",
+                    "name": "phoneNumber",
+                    "type": "jid",
+                    "required": true
+                  }
+                ]
+              }
+            ],
+            "repeats": true
+          }
+        ]
       }
     },
     {
@@ -5344,7 +8834,7 @@
       "namespace": "w:g2",
       "iqType": "get",
       "target": "s.whatsapp.net",
-      "parserName": "unknown",
+      "parserName": "parseGetMembershipApprovalRequestsResponseSuccess",
       "exportedFunction": "makeGetMembershipApprovalRequestsRequest",
       "allExports": [
         "makeGetMembershipApprovalRequestsRequest"
@@ -5356,9 +8846,103 @@
         "children": []
       },
       "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
+        "parserName": "parseGetMembershipApprovalRequestsResponseSuccess",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "iq"
+          }
+        ],
+        "fields": [
+          {
+            "method": "child",
+            "name": "membershipApprovalRequestsGetMembershipApprovalRequestsRequestorFetchMixin",
+            "type": "string",
+            "required": false,
+            "tag": "membershipApprovalRequestsGetMembershipApprovalRequestsRequestorFetchMixin",
+            "children": [
+              {
+                "method": "attrString",
+                "name": "requestorFetch",
+                "type": "string",
+                "required": true
+              }
+            ]
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "child",
+            "name": "groupAddressingModeMixin",
+            "type": "string",
+            "required": false,
+            "tag": "groupAddressingModeMixin",
+            "children": [
+              {
+                "method": "attrEnum",
+                "name": "addressingMode",
+                "type": "enum",
+                "required": true
+              }
+            ]
+          },
+          {
+            "method": "child",
+            "name": "membershipApprovalRequestsMembershipApprovalRequest",
+            "type": "string",
+            "required": true,
+            "tag": "membership_approval_request",
+            "children": [
+              {
+                "method": "attrJidWithType",
+                "name": "jid",
+                "type": "jid",
+                "required": true
+              },
+              {
+                "method": "attrJidWithType",
+                "name": "requestor",
+                "type": "jid",
+                "required": false
+              },
+              {
+                "method": "attrJidWithType",
+                "name": "requestorPn",
+                "type": "jid",
+                "required": false
+              },
+              {
+                "method": "maybeAttrString",
+                "name": "requestorUsername",
+                "type": "string",
+                "required": false
+              },
+              {
+                "method": "attrJidWithType",
+                "name": "parentGroupJid",
+                "type": "jid",
+                "required": false
+              },
+              {
+                "method": "attrInt",
+                "name": "requestTime",
+                "type": "integer",
+                "required": true
+              },
+              {
+                "method": "attrEnum",
+                "name": "requestMethod",
+                "type": "enum",
+                "required": true
+              }
+            ],
+            "repeats": true
+          }
+        ]
       }
     },
     {
@@ -5366,7 +8950,7 @@
       "namespace": "w:g2",
       "iqType": "get",
       "target": "s.whatsapp.net",
-      "parserName": "unknown",
+      "parserName": "parseGetParticipatingGroupsResponseSuccess",
       "exportedFunction": "makeGetParticipatingGroupsRequestParticipatingParticipants",
       "allExports": [
         "makeGetParticipatingGroupsRequestParticipatingParticipants",
@@ -5394,9 +8978,52 @@
         ]
       },
       "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
+        "parserName": "parseGetParticipatingGroupsResponseSuccess",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "iq"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "child",
+            "name": "groupsGroup",
+            "type": "string",
+            "required": true,
+            "tag": "group",
+            "children": [
+              {
+                "method": "child",
+                "name": "dedupAttrsMixin",
+                "type": "string",
+                "required": false,
+                "tag": "dedupAttrsMixin",
+                "children": [
+                  {
+                    "method": "attrString",
+                    "name": "key",
+                    "type": "string",
+                    "required": true
+                  },
+                  {
+                    "method": "maybeAttrEnum",
+                    "name": "createCtx",
+                    "type": "enum",
+                    "required": false
+                  }
+                ]
+              }
+            ],
+            "repeats": true
+          }
+        ]
       }
     },
     {
@@ -5404,7 +9031,7 @@
       "namespace": "w:g2",
       "iqType": "get",
       "target": "s.whatsapp.net",
-      "parserName": "unknown",
+      "parserName": "parseGetReportedMessagesResponseSuccess",
       "exportedFunction": "makeGetReportedMessagesRequest",
       "allExports": [
         "makeGetReportedMessagesRequest"
@@ -5423,9 +9050,74 @@
         ]
       },
       "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
+        "parserName": "parseGetReportedMessagesResponseSuccess",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "iq"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "child",
+            "name": "groupAddressingModeMixin",
+            "type": "string",
+            "required": false,
+            "tag": "groupAddressingModeMixin",
+            "children": [
+              {
+                "method": "attrEnum",
+                "name": "addressingMode",
+                "type": "enum",
+                "required": true
+              }
+            ]
+          },
+          {
+            "method": "child",
+            "name": "reportsReport",
+            "type": "string",
+            "required": true,
+            "tag": "report",
+            "children": [
+              {
+                "method": "attrString",
+                "name": "messageId",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "child",
+                "name": "reporter",
+                "type": "string",
+                "required": true,
+                "tag": "reporter",
+                "children": [
+                  {
+                    "method": "attrJidWithType",
+                    "name": "jid",
+                    "type": "jid",
+                    "required": true
+                  },
+                  {
+                    "method": "attrInt",
+                    "name": "timestamp",
+                    "type": "integer",
+                    "required": true
+                  }
+                ],
+                "repeats": true
+              }
+            ],
+            "repeats": true
+          }
+        ]
       }
     },
     {
@@ -5655,7 +9347,7 @@
       "namespace": "w:g2",
       "iqType": "set",
       "target": "s.whatsapp.net",
-      "parserName": "unknown",
+      "parserName": "parseAcceptGroupAddResponseSuccess",
       "exportedFunction": "makeAcceptGroupAddRequest",
       "allExports": [
         "makeAcceptGroupAddRequest"
@@ -5690,9 +9382,21 @@
         ]
       },
       "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
+        "parserName": "parseAcceptGroupAddResponseSuccess",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "iq"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          }
+        ]
       }
     },
     {
@@ -5700,7 +9404,7 @@
       "namespace": "w:g2",
       "iqType": "set",
       "target": "s.whatsapp.net",
-      "parserName": "unknown",
+      "parserName": "parseAcknowledgeGroupResponseSuccess",
       "exportedFunction": "makeAcknowledgeGroupRequest",
       "allExports": [
         "makeAcknowledgeGroupRequest"
@@ -5719,9 +9423,21 @@
         ]
       },
       "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
+        "parserName": "parseAcknowledgeGroupResponseSuccess",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "iq"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          }
+        ]
       }
     },
     {
@@ -5729,7 +9445,7 @@
       "namespace": "w:g2",
       "iqType": "set",
       "target": "s.whatsapp.net",
-      "parserName": "unknown",
+      "parserName": "parseAddParticipantsResponseSuccess",
       "exportedFunction": "makeAddParticipantsRequestAddParticipant",
       "allExports": [
         "makeAddParticipantsRequestAddParticipant",
@@ -5749,9 +9465,36 @@
         ]
       },
       "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
+        "parserName": "parseAddParticipantsResponseSuccess",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "iq"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "child",
+            "name": "groupAddressingModeMixin",
+            "type": "string",
+            "required": false,
+            "tag": "groupAddressingModeMixin",
+            "children": [
+              {
+                "method": "attrEnum",
+                "name": "addressingMode",
+                "type": "enum",
+                "required": true
+              }
+            ]
+          }
+        ]
       }
     },
     {
@@ -5759,7 +9502,7 @@
       "namespace": "w:g2",
       "iqType": "set",
       "target": "s.whatsapp.net",
-      "parserName": "unknown",
+      "parserName": "parseCancelGroupMembershipRequestsResponseSuccess",
       "exportedFunction": "makeCancelGroupMembershipRequestsRequestCancelMembershipRequestsParticipant",
       "allExports": [
         "makeCancelGroupMembershipRequestsRequestCancelMembershipRequestsParticipant",
@@ -5779,9 +9522,67 @@
         ]
       },
       "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
+        "parserName": "parseCancelGroupMembershipRequestsResponseSuccess",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "iq"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "child",
+            "name": "groupAddressingModeMixin",
+            "type": "string",
+            "required": false,
+            "tag": "groupAddressingModeMixin",
+            "children": [
+              {
+                "method": "attrEnum",
+                "name": "addressingMode",
+                "type": "enum",
+                "required": true
+              }
+            ]
+          },
+          {
+            "method": "child",
+            "name": "cancelMembershipRequestsParticipant",
+            "type": "string",
+            "required": true,
+            "tag": "participant",
+            "children": [
+              {
+                "method": "attrJidWithType",
+                "name": "jid",
+                "type": "jid",
+                "required": true
+              },
+              {
+                "method": "child",
+                "name": "phoneNumberMixin",
+                "type": "string",
+                "required": false,
+                "tag": "phoneNumberMixin",
+                "children": [
+                  {
+                    "method": "attrJidWithType",
+                    "name": "phoneNumber",
+                    "type": "jid",
+                    "required": true
+                  }
+                ]
+              }
+            ],
+            "repeats": true
+          }
+        ]
       }
     },
     {
@@ -5789,7 +9590,7 @@
       "namespace": "w:g2",
       "iqType": "set",
       "target": "s.whatsapp.net",
-      "parserName": "unknown",
+      "parserName": "parseCreateResponseSuccess",
       "exportedFunction": "makeCreateRequestCreateParticipant",
       "allExports": [
         "makeCreateRequestCreateParticipant",
@@ -5817,9 +9618,287 @@
         "children": []
       },
       "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
+        "parserName": "parseCreateResponseSuccess",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "iq"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrJidWithType",
+            "name": "from",
+            "type": "jid",
+            "required": true
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "attrString",
+            "name": "groupId",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "attrJidWithType",
+            "name": "groupCreator",
+            "type": "jid",
+            "required": true
+          },
+          {
+            "method": "attrInt",
+            "name": "groupCreation",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "method": "maybeAttrInt",
+            "name": "groupST",
+            "type": "integer",
+            "required": false
+          },
+          {
+            "method": "attrJidWithType",
+            "name": "groupSO",
+            "type": "jid",
+            "required": false
+          },
+          {
+            "method": "child",
+            "name": "groupDedupAttrsMixin",
+            "type": "string",
+            "required": false,
+            "tag": "groupDedupAttrsMixin",
+            "children": [
+              {
+                "method": "attrString",
+                "name": "key",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "maybeAttrEnum",
+                "name": "createCtx",
+                "type": "enum",
+                "required": false
+              }
+            ]
+          },
+          {
+            "method": "child",
+            "name": "groupGroupAddressingModeMixin",
+            "type": "string",
+            "required": false,
+            "tag": "groupGroupAddressingModeMixin",
+            "children": [
+              {
+                "method": "attrEnum",
+                "name": "addressingMode",
+                "type": "enum",
+                "required": true
+              }
+            ]
+          },
+          {
+            "method": "child",
+            "name": "groupSubjectOwnerIdentityMixin",
+            "type": "string",
+            "required": false,
+            "tag": "groupSubjectOwnerIdentityMixin",
+            "children": [
+              {
+                "method": "child",
+                "name": "subjectOwnerPhoneNumberMixin",
+                "type": "string",
+                "required": false,
+                "tag": "subjectOwnerPhoneNumberMixin",
+                "children": [
+                  {
+                    "method": "attrJidWithType",
+                    "name": "sOPn",
+                    "type": "jid",
+                    "required": true
+                  }
+                ]
+              },
+              {
+                "method": "child",
+                "name": "subjectOwnerUsernameMixin",
+                "type": "string",
+                "required": false,
+                "tag": "subjectOwnerUsernameMixin",
+                "children": [
+                  {
+                    "method": "attrString",
+                    "name": "sOUsername",
+                    "type": "string",
+                    "required": true
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "method": "child",
+            "name": "groupGroupCreatorIdentityMixin",
+            "type": "string",
+            "required": false,
+            "tag": "groupGroupCreatorIdentityMixin",
+            "children": [
+              {
+                "method": "child",
+                "name": "groupCreatorPhoneNumberMixin",
+                "type": "string",
+                "required": false,
+                "tag": "groupCreatorPhoneNumberMixin",
+                "children": [
+                  {
+                    "method": "attrJidWithType",
+                    "name": "creatorPn",
+                    "type": "jid",
+                    "required": true
+                  }
+                ]
+              },
+              {
+                "method": "child",
+                "name": "groupCreatorUsernameMixin",
+                "type": "string",
+                "required": false,
+                "tag": "groupCreatorUsernameMixin",
+                "children": [
+                  {
+                    "method": "attrString",
+                    "name": "creatorUsername",
+                    "type": "string",
+                    "required": true
+                  }
+                ]
+              },
+              {
+                "method": "child",
+                "name": "groupCreatorCountryCodeMixin",
+                "type": "string",
+                "required": false,
+                "tag": "groupCreatorCountryCodeMixin",
+                "children": [
+                  {
+                    "method": "attrString",
+                    "name": "creatorCountryCode",
+                    "type": "string",
+                    "required": true
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "method": "child",
+            "name": "groupDescription",
+            "type": "string",
+            "required": false,
+            "tag": "description",
+            "children": [
+              {
+                "method": "attrString",
+                "name": "id",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "maybeAttrEnum",
+                "name": "error",
+                "type": "enum",
+                "required": false
+              }
+            ],
+            "repeats": false
+          },
+          {
+            "method": "child",
+            "name": "groupParent",
+            "type": "string",
+            "required": false,
+            "tag": "parent",
+            "children": [
+              {
+                "method": "child",
+                "name": "parentGroupDefaultMembershipApprovalModeMixin",
+                "type": "string",
+                "required": false,
+                "tag": "parentGroupDefaultMembershipApprovalModeMixin",
+                "children": [
+                  {
+                    "method": "attrString",
+                    "name": "defaultMembershipApprovalMode",
+                    "type": "string",
+                    "required": true
+                  }
+                ]
+              }
+            ],
+            "repeats": false
+          },
+          {
+            "method": "child",
+            "name": "groupEphemeral",
+            "type": "string",
+            "required": false,
+            "tag": "ephemeral",
+            "children": [
+              {
+                "method": "attrInt",
+                "name": "expiration",
+                "type": "integer",
+                "required": true
+              },
+              {
+                "method": "maybeAttrInt",
+                "name": "trigger",
+                "type": "integer",
+                "required": false
+              }
+            ],
+            "repeats": false
+          },
+          {
+            "method": "child",
+            "name": "groupMembershipApprovalMode",
+            "type": "string",
+            "required": false,
+            "tag": "membership_approval_mode",
+            "children": [
+              {
+                "method": "attrString",
+                "name": "state",
+                "type": "string",
+                "required": true
+              }
+            ],
+            "repeats": false
+          },
+          {
+            "method": "child",
+            "name": "groupLinkedParent",
+            "type": "string",
+            "required": false,
+            "tag": "linked_parent",
+            "children": [
+              {
+                "method": "attrJidWithType",
+                "name": "jid",
+                "type": "jid",
+                "required": true
+              }
+            ],
+            "repeats": false
+          }
+        ]
       }
     },
     {
@@ -5849,7 +9928,7 @@
       "namespace": "w:g2",
       "iqType": "set",
       "target": "s.whatsapp.net",
-      "parserName": "unknown",
+      "parserName": "parseDeleteParentGroupResponseSuccess",
       "exportedFunction": "makeDeleteParentGroupRequest",
       "allExports": [
         "makeDeleteParentGroupRequest"
@@ -5868,9 +9947,21 @@
         ]
       },
       "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
+        "parserName": "parseDeleteParentGroupResponseSuccess",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "iq"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          }
+        ]
       }
     },
     {
@@ -5878,7 +9969,7 @@
       "namespace": "w:g2",
       "iqType": "set",
       "target": "s.whatsapp.net",
-      "parserName": "unknown",
+      "parserName": "parseJoinLinkedGroupResponseSuccess",
       "exportedFunction": "makeJoinLinkedGroupRequest",
       "allExports": [
         "makeJoinLinkedGroupRequest"
@@ -5908,9 +9999,21 @@
         ]
       },
       "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
+        "parserName": "parseJoinLinkedGroupResponseSuccess",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "iq"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          }
+        ]
       }
     },
     {
@@ -5918,7 +10021,7 @@
       "namespace": "w:g2",
       "iqType": "set",
       "target": "s.whatsapp.net",
-      "parserName": "unknown",
+      "parserName": "parseLinkSubGroupsResponseSuccess",
       "exportedFunction": "makeLinkSubGroupsRequestLinksLinkGroupHiddenGroup",
       "allExports": [
         "makeLinkSubGroupsRequestLinksLinkGroupHiddenGroup",
@@ -5953,9 +10056,80 @@
         ]
       },
       "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
+        "parserName": "parseLinkSubGroupsResponseSuccess",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "iq"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "linksLinkLinkType",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "child",
+            "name": "groupAddressingModeMixin",
+            "type": "string",
+            "required": false,
+            "tag": "groupAddressingModeMixin",
+            "children": [
+              {
+                "method": "attrEnum",
+                "name": "addressingMode",
+                "type": "enum",
+                "required": true
+              }
+            ]
+          },
+          {
+            "method": "child",
+            "name": "linksLinkGroup",
+            "type": "string",
+            "required": true,
+            "tag": "group",
+            "children": [
+              {
+                "method": "attrJidWithType",
+                "name": "jid",
+                "type": "jid",
+                "required": true
+              },
+              {
+                "method": "child",
+                "name": "participant",
+                "type": "string",
+                "required": true,
+                "tag": "participant",
+                "children": [
+                  {
+                    "method": "attrJidWithType",
+                    "name": "jid",
+                    "type": "jid",
+                    "required": true
+                  },
+                  {
+                    "method": "attrString",
+                    "name": "error",
+                    "type": "string",
+                    "required": true
+                  }
+                ],
+                "repeats": true
+              }
+            ],
+            "repeats": true
+          }
+        ]
       }
     },
     {
@@ -5963,7 +10137,7 @@
       "namespace": "w:g2",
       "iqType": "set",
       "target": "s.whatsapp.net",
-      "parserName": "unknown",
+      "parserName": "parseMembershipRequestsActionResponseSuccess",
       "exportedFunction": "makeMembershipRequestsActionRequestMembershipRequestsActionApproveParticipant",
       "allExports": [
         "makeMembershipRequestsActionRequestMembershipRequestsActionApproveParticipant",
@@ -5986,9 +10160,36 @@
         ]
       },
       "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
+        "parserName": "parseMembershipRequestsActionResponseSuccess",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "iq"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "child",
+            "name": "groupAddressingModeMixin",
+            "type": "string",
+            "required": false,
+            "tag": "groupAddressingModeMixin",
+            "children": [
+              {
+                "method": "attrEnum",
+                "name": "addressingMode",
+                "type": "enum",
+                "required": true
+              }
+            ]
+          }
+        ]
       }
     },
     {
@@ -6055,7 +10256,7 @@
       "namespace": "w:g2",
       "iqType": "set",
       "target": "s.whatsapp.net",
-      "parserName": "unknown",
+      "parserName": "parseRemoveParticipantsResponseSuccess",
       "exportedFunction": "makeRemoveParticipantsRequestRemoveParticipant",
       "allExports": [
         "makeRemoveParticipantsRequestRemoveParticipant",
@@ -6081,9 +10282,82 @@
         ]
       },
       "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
+        "parserName": "parseRemoveParticipantsResponseSuccess",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "iq"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "maybeAttrString",
+            "name": "removeLinkedGroups",
+            "type": "string",
+            "required": false
+          },
+          {
+            "method": "child",
+            "name": "groupAddressingModeMixin",
+            "type": "string",
+            "required": false,
+            "tag": "groupAddressingModeMixin",
+            "children": [
+              {
+                "method": "attrEnum",
+                "name": "addressingMode",
+                "type": "enum",
+                "required": true
+              }
+            ]
+          },
+          {
+            "method": "child",
+            "name": "removeParticipant",
+            "type": "string",
+            "required": true,
+            "tag": "participant",
+            "children": [
+              {
+                "method": "child",
+                "name": "phoneNumberMixin",
+                "type": "string",
+                "required": false,
+                "tag": "phoneNumberMixin",
+                "children": [
+                  {
+                    "method": "attrJidWithType",
+                    "name": "phoneNumber",
+                    "type": "jid",
+                    "required": true
+                  }
+                ]
+              },
+              {
+                "method": "child",
+                "name": "usernameAttMixin",
+                "type": "string",
+                "required": false,
+                "tag": "usernameAttMixin",
+                "children": [
+                  {
+                    "method": "attrString",
+                    "name": "username",
+                    "type": "string",
+                    "required": true
+                  }
+                ]
+              }
+            ],
+            "repeats": true
+          }
+        ]
       }
     },
     {
@@ -6091,7 +10365,7 @@
       "namespace": "w:g2",
       "iqType": "set",
       "target": "s.whatsapp.net",
-      "parserName": "unknown",
+      "parserName": "parseReportMessagesResponseSuccess",
       "exportedFunction": "makeReportMessagesRequest",
       "allExports": [
         "makeReportMessagesRequest"
@@ -6123,9 +10397,21 @@
         ]
       },
       "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
+        "parserName": "parseReportMessagesResponseSuccess",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "iq"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          }
+        ]
       }
     },
     {
@@ -6133,7 +10419,7 @@
       "namespace": "w:g2",
       "iqType": "set",
       "target": "s.whatsapp.net",
-      "parserName": "unknown",
+      "parserName": "parseRevokeRequestCodeResponseSuccess",
       "exportedFunction": "makeRevokeRequestCodeRequestRevokeParticipant",
       "allExports": [
         "makeRevokeRequestCodeRequestRevokeParticipant",
@@ -6153,9 +10439,88 @@
         ]
       },
       "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
+        "parserName": "parseRevokeRequestCodeResponseSuccess",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "iq"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "child",
+            "name": "groupAddressingModeMixin",
+            "type": "string",
+            "required": false,
+            "tag": "groupAddressingModeMixin",
+            "children": [
+              {
+                "method": "attrEnum",
+                "name": "addressingMode",
+                "type": "enum",
+                "required": true
+              }
+            ]
+          },
+          {
+            "method": "child",
+            "name": "revokeParticipant",
+            "type": "string",
+            "required": true,
+            "tag": "participant",
+            "children": [
+              {
+                "method": "attrJidWithType",
+                "name": "jid",
+                "type": "jid",
+                "required": true
+              },
+              {
+                "method": "maybeAttrString",
+                "name": "error",
+                "type": "string",
+                "required": false
+              },
+              {
+                "method": "child",
+                "name": "phoneNumberMixin",
+                "type": "string",
+                "required": false,
+                "tag": "phoneNumberMixin",
+                "children": [
+                  {
+                    "method": "attrJidWithType",
+                    "name": "phoneNumber",
+                    "type": "jid",
+                    "required": true
+                  }
+                ]
+              },
+              {
+                "method": "child",
+                "name": "usernameAttMixin",
+                "type": "string",
+                "required": false,
+                "tag": "usernameAttMixin",
+                "children": [
+                  {
+                    "method": "attrString",
+                    "name": "username",
+                    "type": "string",
+                    "required": true
+                  }
+                ]
+              }
+            ],
+            "repeats": true
+          }
+        ]
       }
     },
     {
@@ -6212,6 +10577,12 @@
             "name": "t",
             "type": "integer",
             "required": false
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
           }
         ]
       }
@@ -6221,7 +10592,7 @@
       "namespace": "w:g2",
       "iqType": "set",
       "target": "s.whatsapp.net",
-      "parserName": "unknown",
+      "parserName": "parseSetPropertyResponseSuccess",
       "exportedFunction": "makeSetPropertyRequestLocked",
       "allExports": [
         "makeSetPropertyRequestLocked",
@@ -6248,9 +10619,43 @@
         "children": []
       },
       "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
+        "parserName": "parseSetPropertyResponseSuccess",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "iq"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "child",
+            "name": "ephemeral",
+            "type": "string",
+            "required": false,
+            "tag": "ephemeral",
+            "children": [
+              {
+                "method": "attrInt",
+                "name": "expiration",
+                "type": "integer",
+                "required": true
+              },
+              {
+                "method": "maybeAttrInt",
+                "name": "trigger",
+                "type": "integer",
+                "required": false
+              }
+            ],
+            "repeats": false
+          }
+        ]
       }
     },
     {
@@ -6258,7 +10663,7 @@
       "namespace": "w:g2",
       "iqType": "set",
       "target": "s.whatsapp.net",
-      "parserName": "unknown",
+      "parserName": "parseSetSubjectResponseSuccess",
       "exportedFunction": "makeSetSubjectRequest",
       "allExports": [
         "makeSetSubjectRequest"
@@ -6270,9 +10675,21 @@
         "children": []
       },
       "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
+        "parserName": "parseSetSubjectResponseSuccess",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "iq"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          }
+        ]
       }
     },
     {
@@ -6280,7 +10697,7 @@
       "namespace": "w:g2",
       "iqType": "set",
       "target": "s.whatsapp.net",
-      "parserName": "unknown",
+      "parserName": "parseSubGroupSuggestionsActionResponseSuccess",
       "exportedFunction": "makeSubGroupSuggestionsActionRequestSubGroupSuggestionsActionApproveSubGroupSuggestion",
       "allExports": [
         "makeSubGroupSuggestionsActionRequestSubGroupSuggestionsActionApproveSubGroupSuggestion",
@@ -6305,9 +10722,186 @@
         ]
       },
       "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
+        "parserName": "parseSubGroupSuggestionsActionResponseSuccess",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "iq"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "child",
+            "name": "groupAddressingModeMixin",
+            "type": "string",
+            "required": false,
+            "tag": "groupAddressingModeMixin",
+            "children": [
+              {
+                "method": "attrEnum",
+                "name": "addressingMode",
+                "type": "enum",
+                "required": true
+              }
+            ]
+          },
+          {
+            "method": "child",
+            "name": "subGroupSuggestionsActionApprove",
+            "type": "string",
+            "required": false,
+            "tag": "approve",
+            "children": [
+              {
+                "method": "child",
+                "name": "subGroupSuggestion",
+                "type": "string",
+                "required": true,
+                "tag": "sub_group_suggestion",
+                "children": [
+                  {
+                    "method": "attrJidWithType",
+                    "name": "creator",
+                    "type": "jid",
+                    "required": true
+                  },
+                  {
+                    "method": "attrJidWithType",
+                    "name": "jid",
+                    "type": "jid",
+                    "required": true
+                  },
+                  {
+                    "method": "child",
+                    "name": "groupCreatorPhoneNumberMixin",
+                    "type": "string",
+                    "required": false,
+                    "tag": "groupCreatorPhoneNumberMixin",
+                    "children": [
+                      {
+                        "method": "attrJidWithType",
+                        "name": "creatorPn",
+                        "type": "jid",
+                        "required": true
+                      }
+                    ]
+                  }
+                ],
+                "repeats": true
+              }
+            ],
+            "repeats": false
+          },
+          {
+            "method": "child",
+            "name": "subGroupSuggestionsActionReject",
+            "type": "string",
+            "required": false,
+            "tag": "reject",
+            "children": [
+              {
+                "method": "child",
+                "name": "subGroupSuggestion",
+                "type": "string",
+                "required": true,
+                "tag": "sub_group_suggestion",
+                "children": [
+                  {
+                    "method": "attrJidWithType",
+                    "name": "creator",
+                    "type": "jid",
+                    "required": true
+                  },
+                  {
+                    "method": "attrJidWithType",
+                    "name": "jid",
+                    "type": "jid",
+                    "required": true
+                  },
+                  {
+                    "method": "child",
+                    "name": "groupCreatorPhoneNumberMixin",
+                    "type": "string",
+                    "required": false,
+                    "tag": "groupCreatorPhoneNumberMixin",
+                    "children": [
+                      {
+                        "method": "attrJidWithType",
+                        "name": "creatorPn",
+                        "type": "jid",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "method": "child",
+                    "name": "subGroupSuggestionsActionSubGroupSuggestionNotFoundMixin",
+                    "type": "string",
+                    "required": false,
+                    "tag": "subGroupSuggestionsActionSubGroupSuggestionNotFoundMixin",
+                    "children": [
+                      {
+                        "method": "attrString",
+                        "name": "error",
+                        "type": "string",
+                        "required": true
+                      }
+                    ]
+                  }
+                ],
+                "repeats": true
+              }
+            ],
+            "repeats": false
+          },
+          {
+            "method": "child",
+            "name": "subGroupSuggestionsActionCancel",
+            "type": "string",
+            "required": false,
+            "tag": "cancel",
+            "children": [
+              {
+                "method": "child",
+                "name": "subGroupSuggestion",
+                "type": "string",
+                "required": true,
+                "tag": "sub_group_suggestion",
+                "children": [
+                  {
+                    "method": "attrJidWithType",
+                    "name": "jid",
+                    "type": "jid",
+                    "required": true
+                  },
+                  {
+                    "method": "child",
+                    "name": "subGroupSuggestionsActionSubGroupSuggestionNotFoundMixin",
+                    "type": "string",
+                    "required": false,
+                    "tag": "subGroupSuggestionsActionSubGroupSuggestionNotFoundMixin",
+                    "children": [
+                      {
+                        "method": "attrString",
+                        "name": "error",
+                        "type": "string",
+                        "required": true
+                      }
+                    ]
+                  }
+                ],
+                "repeats": true
+              }
+            ],
+            "repeats": false
+          }
+        ]
       }
     },
     {
@@ -6315,7 +10909,7 @@
       "namespace": "w:g2",
       "iqType": "set",
       "target": "s.whatsapp.net",
-      "parserName": "unknown",
+      "parserName": "parseUnlinkGroupsResponseSuccess",
       "exportedFunction": "makeUnlinkGroupsRequestUnlinkGroup",
       "allExports": [
         "makeUnlinkGroupsRequestUnlinkGroup",
@@ -6342,9 +10936,49 @@
         ]
       },
       "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
+        "parserName": "parseUnlinkGroupsResponseSuccess",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "iq"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "unlinkUnlinkType",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "child",
+            "name": "unlinkGroup",
+            "type": "string",
+            "required": true,
+            "tag": "group",
+            "children": [
+              {
+                "method": "attrJidWithType",
+                "name": "jid",
+                "type": "jid",
+                "required": true
+              },
+              {
+                "method": "maybeAttrString",
+                "name": "removeOrphanedMembers",
+                "type": "string",
+                "required": false
+              }
+            ],
+            "repeats": true
+          }
+        ]
       }
     },
     {
@@ -6690,8 +11324,45 @@
                 "name": "p2mEligible",
                 "type": "enum",
                 "required": false
+              },
+              {
+                "method": "child",
+                "name": "customPaymentMethodMetaDataInfoMixin",
+                "type": "string",
+                "required": false,
+                "tag": "customPaymentMethodMetaDataInfoMixin",
+                "children": [
+                  {
+                    "method": "child",
+                    "name": "metadata",
+                    "type": "string",
+                    "required": true,
+                    "tag": "metadata",
+                    "children": [
+                      {
+                        "method": "attrString",
+                        "name": "key",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrString",
+                        "name": "value",
+                        "type": "string",
+                        "required": true
+                      }
+                    ],
+                    "repeats": true
+                  }
+                ]
               }
             ]
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
           }
         ]
       }
@@ -6914,7 +11585,7 @@
       "namespace": "w:stats",
       "iqType": "set",
       "target": "s.whatsapp.net",
-      "parserName": "unknown",
+      "parserName": "parseSendBufferResponseSuccess",
       "exportedFunction": "makeSendBufferRequest",
       "allExports": [
         "makeSendBufferRequest"
@@ -6939,9 +11610,21 @@
         ]
       },
       "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
+        "parserName": "parseSendBufferResponseSuccess",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "iq"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          }
+        ]
       }
     },
     {
@@ -7002,7 +11685,7 @@
       "namespace": "waffle",
       "iqType": "get",
       "target": "s.whatsapp.net",
-      "parserName": "unknown",
+      "parserName": "parseForceDeleteStateResponseSuccess",
       "exportedFunction": "makeForceDeleteStateRequestOnlyIfSuspended",
       "allExports": [
         "makeForceDeleteStateRequestOnlyIfSuspended",
@@ -7022,9 +11705,21 @@
         ]
       },
       "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
+        "parserName": "parseForceDeleteStateResponseSuccess",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "iq"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          }
+        ]
       }
     },
     {
@@ -7064,6 +11759,12 @@
             "name": "nprElementValue",
             "type": "enum",
             "required": true
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
           }
         ]
       }
@@ -7073,7 +11774,7 @@
       "namespace": "waffle",
       "iqType": "get",
       "target": "s.whatsapp.net",
-      "parserName": "unknown",
+      "parserName": "parseGetCertificateResponseSuccess",
       "exportedFunction": "makeGetCertificateRequestPayloadEncCertificates",
       "allExports": [
         "makeGetCertificateRequestPayloadEncCertificates",
@@ -7100,9 +11801,108 @@
         ]
       },
       "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
+        "parserName": "parseGetCertificateResponseSuccess",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "iq"
+          }
+        ],
+        "fields": [
+          {
+            "method": "child",
+            "name": "replyGetCertificateResponseMixin",
+            "type": "string",
+            "required": true,
+            "tag": "replyGetCertificateResponseMixin",
+            "children": [
+              {
+                "method": "attrInt",
+                "name": "timestamp",
+                "type": "integer",
+                "required": true
+              },
+              {
+                "method": "child",
+                "name": "encryptionPem",
+                "type": "string",
+                "required": false,
+                "tag": "encryption_pem",
+                "children": [
+                  {
+                    "method": "attrInt",
+                    "name": "ttl",
+                    "type": "integer",
+                    "required": true
+                  },
+                  {
+                    "method": "contentBytes",
+                    "name": "elementValue",
+                    "type": "bytes",
+                    "required": true
+                  }
+                ],
+                "repeats": false
+              },
+              {
+                "method": "child",
+                "name": "signaturePem",
+                "type": "string",
+                "required": false,
+                "tag": "signature_pem",
+                "children": [
+                  {
+                    "method": "attrInt",
+                    "name": "ttl",
+                    "type": "integer",
+                    "required": true
+                  },
+                  {
+                    "method": "contentBytes",
+                    "name": "elementValue",
+                    "type": "bytes",
+                    "required": true
+                  }
+                ],
+                "repeats": false
+              },
+              {
+                "method": "child",
+                "name": "passwordPem",
+                "type": "string",
+                "required": false,
+                "tag": "password_pem",
+                "children": [
+                  {
+                    "method": "attrInt",
+                    "name": "ttl",
+                    "type": "integer",
+                    "required": true
+                  },
+                  {
+                    "method": "attrInt",
+                    "name": "keyId",
+                    "type": "integer",
+                    "required": true
+                  },
+                  {
+                    "method": "contentBytes",
+                    "name": "elementValue",
+                    "type": "bytes",
+                    "required": true
+                  }
+                ],
+                "repeats": false
+              }
+            ]
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          }
+        ]
       }
     },
     {
@@ -7110,7 +11910,7 @@
       "namespace": "waffle",
       "iqType": "get",
       "target": "s.whatsapp.net",
-      "parserName": "unknown",
+      "parserName": "parseStateExistsResponseSuccess",
       "exportedFunction": "makeStateExistsRequest",
       "allExports": [
         "makeStateExistsRequest"
@@ -7129,9 +11929,43 @@
         ]
       },
       "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
+        "parserName": "parseStateExistsResponseSuccess",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "iq"
+          }
+        ],
+        "fields": [
+          {
+            "method": "contentInt",
+            "name": "wfStateElementValue",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "child",
+            "name": "suspendedState",
+            "type": "string",
+            "required": false,
+            "tag": "suspended_state",
+            "children": [
+              {
+                "method": "maybeAttrEnum",
+                "name": "npr",
+                "type": "enum",
+                "required": false
+              }
+            ],
+            "repeats": false
+          }
+        ]
       }
     }
   ],

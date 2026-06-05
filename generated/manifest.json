@@ -4,13 +4,13 @@
   "diagnostics": {
     "iq": {
       "candidateModules": 206,
-      "degradedResponses": 80,
+      "degradedResponses": 32,
       "dropsByReason": {
         "iq builder substring present but no AST iq call": 15,
         "namespace/type unresolved (dropped by guard)": 52
       },
       "stanzas": 146,
-      "typedResponses": 66,
+      "typedResponses": 114,
       "unparseable": 67
     }
   },
@@ -33,7 +33,7 @@
     "iq": {
       "file": "iq/index.json",
       "schema": "schema/iq.schema.json",
-      "sha256": "e61abc43ced1dfe2e15be273ca0ef7d06525afdd7608caacd5f3c15c47fe392b"
+      "sha256": "5fbcdace0752768e503e77d865995e0c543fdfd43683994938e4fe44ea3251ac"
     },
     "mex": {
       "file": "mex/index.json",
