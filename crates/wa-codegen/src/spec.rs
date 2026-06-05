@@ -30,7 +30,10 @@ static LET_BINDING: LazyLock<Regex> =
 /// disambiguating collisions within a namespace (see [`generate_spec`]).
 pub(crate) fn spec_base_name(op: &IqStanzaDef) -> String {
     let base = match &op.exported_function {
-        Some(e) if e != "default" => e.clone(),
+        // Skip `default` and the minifier's `$N` locals (e.g. usync's `$3`,
+        // upload-prekeys' `$4`) — neither is a usable name; fall back to the
+        // module name (`WAWebUsync` → `Usync`).
+        Some(e) if e != "default" && !e.starts_with('$') => e.clone(),
         _ => op
             .module_name
             .strip_prefix("WAWeb")
@@ -130,9 +133,9 @@ pub(crate) fn generate_spec(op: &IqStanzaDef, ns_const: &str, spec_name: &str) -
     // build_iq
     lines.push("    fn build_iq(&self) -> InfoQuery<'static> {".to_string());
     let target = if matches!(op.target, IqTarget::Group) {
-        "Jid::new(\"\", \"g.us\")"
+        "Jid::new(\"\", Server::Group)"
     } else {
-        "Jid::new(\"\", SERVER_JID)"
+        "Jid::new(\"\", Server::Pn)"
     };
     if !op.request.children.is_empty() {
         let mut top_var_names: Vec<String> = Vec::new();
@@ -225,13 +228,13 @@ pub(crate) fn generate_spec(op: &IqStanzaDef, ns_const: &str, spec_name: &str) -
     };
     if effectively_confirmation || response_type_name == "()" {
         lines.push(format!(
-            "    fn parse_response(&self, {resp_param}: &Node) -> Result<Self::Response, anyhow::Error> {{"
+            "    fn parse_response(&self, {resp_param}: &wacore_binary::NodeRef<'_>) -> Result<Self::Response, anyhow::Error> {{"
         ));
         lines.push("        Ok(())".to_string());
     } else {
         lines.push("    #[allow(clippy::needless_update, unused_variables)]".to_string());
         lines.push(format!(
-            "    fn parse_response(&self, {resp_param}: &Node) -> Result<Self::Response, anyhow::Error> {{"
+            "    fn parse_response(&self, {resp_param}: &wacore_binary::NodeRef<'_>) -> Result<Self::Response, anyhow::Error> {{"
         ));
         lines.extend(emit_response_parser(
             &op.response.fields,
@@ -317,6 +320,53 @@ fn struct_init_bodies<'a>(code: &'a str, name: &str) -> Vec<&'a str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use wa_ir::{IqRequestDef, ParsedResponse};
+
+    fn stanza(module: &str, exported: Option<&str>) -> IqStanzaDef {
+        IqStanzaDef {
+            module_name: module.into(),
+            namespace: "w:test".into(),
+            iq_type: IqType::Get,
+            target: IqTarget::Server,
+            parser_name: "p".into(),
+            exported_function: exported.map(str::to_string),
+            all_exports: vec![],
+            request: IqRequestDef {
+                namespace: "w:test".into(),
+                iq_type: IqType::Get,
+                target: IqTarget::Server,
+                children: vec![],
+            },
+            response: ParsedResponse {
+                parser_name: "unknown".into(),
+                assertions: vec![],
+                fields: vec![],
+            },
+        }
+    }
+
+    #[test]
+    fn spec_base_name_falls_back_to_module_for_minified_exports() {
+        // A real exported name is used as-is.
+        assert_eq!(
+            spec_base_name(&stanza("WAWebGetThing", Some("queryThing"))),
+            "QueryThingSpec"
+        );
+        // Minifier `$N` locals (usync `$3`, upload-prekeys `$4`) and `default`
+        // fall back to the module name (sans the `WAWeb` prefix).
+        assert_eq!(
+            spec_base_name(&stanza("WAWebUsync", Some("$3"))),
+            "UsyncSpec"
+        );
+        assert_eq!(
+            spec_base_name(&stanza("WAWebUploadPrekeysForRegTask", Some("$4"))),
+            "UploadPrekeysForRegTaskSpec"
+        );
+        assert_eq!(
+            spec_base_name(&stanza("WAWebFoo", Some("default"))),
+            "FooSpec"
+        );
+    }
 
     #[test]
     fn struct_init_bodies_extracts_each_block() {

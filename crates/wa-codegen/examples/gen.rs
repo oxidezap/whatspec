@@ -1,4 +1,4 @@
-//! Scan a bundle for IQ stanzas and generate Rust `IqSpec` modules.
+//! Scan a bundle for IQ stanzas and generate the Rust `IqSpec` file.
 //! Run: cargo run -p wa-codegen --example gen -- <bundle.js> <outdir>
 //!      cargo run -p wa-codegen --example gen -- <bundle.js> --ir   (dump IqIr JSON)
 
@@ -24,10 +24,7 @@ fn main() -> anyhow::Result<()> {
     }
 
     std::fs::create_dir_all(&target)?;
-    let modules = wa_codegen::generate_rust_modules(&ir);
-    for m in &modules {
-        std::fs::write(format!("{target}/{}", m.filename), &m.code)?;
-    }
-    eprintln!("wrote {} modules to {target}", modules.len());
+    std::fs::write(format!("{target}/iq.rs"), wa_codegen::generate_iq(&ir))?;
+    eprintln!("wrote iq.rs to {target}");
     Ok(())
 }

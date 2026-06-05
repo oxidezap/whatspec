@@ -952,29 +952,17 @@ fn push_iq(
         content: serde_json::to_string_pretty(&wa_ir::IrEnvelope::new(&ir))? + "\n",
     });
 
-    let modules = wa_codegen::generate_rust_modules(&ir);
-
-    for m in &modules {
-        artifacts.push(Artifact {
-            rel_path: Path::new("iq").join(&m.filename),
-            content: m.code.clone(),
-        });
-    }
-    let mut names: Vec<&str> = modules.iter().map(|m| m.module_name.as_str()).collect();
-    names.sort_unstable();
-    let mod_rs = format!(
-        "//! Auto-generated IQ spec modules (WhatsApp {wa_version}). DO NOT EDIT.\n\n{}\n",
-        names
-            .iter()
-            .map(|n| format!("pub mod {n};"))
-            .collect::<Vec<_>>()
-            .join("\n")
-    );
+    // Single reference Rust file (one `pub mod` per namespace), like every other
+    // domain. The `.rs` is a gitignored reference consumer; the committed contract
+    // is `iq/index.json` above.
     artifacts.push(Artifact {
-        rel_path: PathBuf::from("iq/mod.rs"),
-        content: mod_rs,
+        rel_path: PathBuf::from("iq/iq.rs"),
+        content: wa_codegen::generate_iq(&ir),
     });
-    Ok((modules.len(), diag))
+    // Count distinct namespaces (the `pub mod`s) for the manifest/floor guard.
+    let namespaces: std::collections::BTreeSet<&str> =
+        ir.stanzas.iter().map(|s| s.namespace.as_str()).collect();
+    Ok((namespaces.len(), diag))
 }
 
 fn push_proto(

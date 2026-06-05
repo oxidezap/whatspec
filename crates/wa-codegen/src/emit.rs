@@ -37,12 +37,12 @@ pub(crate) fn emit_field_parse(f: &ParsedField, node_var: &str, indent: &str) ->
 
     if method == wap::CONTENT_BYTES {
         return vec![format!(
-            "{indent}let {name} = match &{node_var}.content {{ Some(NodeContent::Bytes(b)) => b.clone(), _ => vec![] }};"
+            "{indent}let {name} = {node_var}.content_bytes().map(|b| b.to_vec()).unwrap_or_default();"
         )];
     }
     if method == wap::CONTENT_STRING {
         return vec![format!(
-            "{indent}let {name} = match &{node_var}.content {{ Some(NodeContent::String(s)) => s.clone(), _ => String::new() }};"
+            "{indent}let {name} = {node_var}.content_str().unwrap_or_default().to_string();"
         )];
     }
     if !wap::is_attr_method(method) {
@@ -52,25 +52,27 @@ pub(crate) fn emit_field_parse(f: &ParsedField, node_var: &str, indent: &str) ->
     let optional = wap::is_optional_method(method);
     match wap::method_field_type(method) {
         ParsedFieldType::Integer if optional => vec![format!(
-            "{indent}let {name} = optional_attr({node_var}, {flit}).and_then(|s| s.parse().ok());"
+            "{indent}let {name} = {node_var}.get_attr({flit}).and_then(|v| v.as_str().parse().ok());"
         )],
         ParsedFieldType::Integer => vec![
-            format!("{indent}let {name}: u64 = optional_attr({node_var}, {flit})"),
+            format!("{indent}let {name}: u64 = {node_var}.get_attr({flit})"),
             format!("{indent}    .ok_or_else(|| anyhow::anyhow!(\"missing {fmsg}\"))?"),
+            format!("{indent}    .as_str()"),
             format!("{indent}    .parse()?;"),
         ],
         ParsedFieldType::DeviceJid
         | ParsedFieldType::GroupJid
         | ParsedFieldType::JidTyped
         | ParsedFieldType::Jid => vec![format!(
-            "{indent}let {name} = crate::iq::node::required_jid({node_var}, {flit})?;"
+            "{indent}let {name} = {node_var}.get_attr({flit}).and_then(|v| v.to_jid()).ok_or_else(|| anyhow::anyhow!(\"missing {fmsg}\"))?;"
         )],
         _ if optional => vec![format!(
-            "{indent}let {name} = optional_attr({node_var}, {flit}).map(|s| s.to_string());"
+            "{indent}let {name} = {node_var}.get_attr({flit}).map(|v| v.as_str().to_string());"
         )],
         _ => vec![
-            format!("{indent}let {name} = optional_attr({node_var}, {flit})"),
+            format!("{indent}let {name} = {node_var}.get_attr({flit})"),
             format!("{indent}    .ok_or_else(|| anyhow::anyhow!(\"missing {fmsg}\"))?"),
+            format!("{indent}    .as_str()"),
             format!("{indent}    .to_string();"),
         ],
     }
@@ -133,18 +135,26 @@ pub(crate) fn emit_response_parser(
                     "{indent}let {field_name} = response.get_optional_child({child_lit})"
                 ));
                 if bytes {
-                    lines.push(format!("{indent}    .and_then(|n| match &n.content {{ Some(NodeContent::Bytes(b)) => Some(b.clone()), _ => None }});"));
+                    lines.push(format!(
+                        "{indent}    .and_then(|n| n.content_bytes().map(|b| b.to_vec()));"
+                    ));
                 } else {
-                    lines.push(format!("{indent}    .and_then(|n| match &n.content {{ Some(NodeContent::String(s)) => Some(s.clone()), _ => None }});"));
+                    lines.push(format!(
+                        "{indent}    .and_then(|n| n.content_str().map(|s| s.to_string()));"
+                    ));
                 }
             } else {
                 lines.push(format!(
-                    "{indent}let {field_name}_node = required_child(response, {child_lit})?;"
+                    "{indent}let {field_name}_node = response.get_optional_child({child_lit})"
+                ));
+                lines.push(format!(
+                    "{indent}    .ok_or_else(|| anyhow::anyhow!(\"missing <{}>\"))?;",
+                    rust_lit_inner(child_tag)
                 ));
                 if bytes {
-                    lines.push(format!("{indent}let {field_name} = match &{field_name}_node.content {{ Some(NodeContent::Bytes(b)) => b.clone(), _ => vec![] }};"));
+                    lines.push(format!("{indent}let {field_name} = {field_name}_node.content_bytes().map(|b| b.to_vec()).unwrap_or_default();"));
                 } else {
-                    lines.push(format!("{indent}let {field_name} = match &{field_name}_node.content {{ Some(NodeContent::String(s)) => s.clone(), _ => String::new() }};"));
+                    lines.push(format!("{indent}let {field_name} = {field_name}_node.content_str().unwrap_or_default().to_string();"));
                 }
             }
             add_init(format!("{indent}    {field_name},"), field_name);
@@ -162,7 +172,11 @@ pub(crate) fn emit_response_parser(
 
         if child.method == "child" {
             lines.push(format!(
-                "{indent}let {child_var} = required_child(response, {child_lit})?;"
+                "{indent}let {child_var} = response.get_optional_child({child_lit})"
+            ));
+            lines.push(format!(
+                "{indent}    .ok_or_else(|| anyhow::anyhow!(\"missing <{}>\"))?;",
+                rust_lit_inner(child_tag)
             ));
             let child_attrs: Vec<&ParsedField> = kids
                 .iter()
@@ -183,6 +197,13 @@ pub(crate) fn emit_response_parser(
                 if !repeats(nf) || children_of(nf).is_empty() {
                     continue;
                 }
+                let n_attrs = dedup_attrs(children_of(nf));
+                // No parseable attrs on the item → `collect_response_fields` emits
+                // no `<Tag>Item` struct/field for it, so skip here too (keeps the
+                // parser's references in sync with the structs that get defined).
+                if n_attrs.is_empty() {
+                    continue;
+                }
                 let n_tag = tag_or_name(nf);
                 let n_struct = format!("{}Item", pascal_case(n_tag));
                 let n_vec = format!("{}_items", snake_case(n_tag));
@@ -193,7 +214,6 @@ pub(crate) fn emit_response_parser(
                     rust_lit(n_tag)
                 ));
 
-                let n_attrs = dedup_attrs(children_of(nf));
                 for ncf in &n_attrs {
                     lines.extend(emit_field_parse(ncf, "child", &format!("{indent}    ")));
                 }
@@ -241,21 +261,9 @@ pub(crate) fn emit_response_parser(
     lines.push(format!("{indent}    ..Default::default()"));
     lines.push(format!("{indent}}})"));
 
-    // Resolve the deferred import from what was actually emitted.
-    let code = lines.join("\n");
-    let mut imports: Vec<&str> = Vec::new();
-    if code.contains("required_child(") {
-        imports.push("required_child");
-    }
-    if code.contains("optional_attr(") {
-        imports.push("optional_attr");
-    }
-    lines[0] = if imports.is_empty() {
-        String::new()
-    } else {
-        format!("{indent}use crate::iq::node::{{{}}};", imports.join(", "))
-    };
-
+    // Parsing now goes through `NodeRef`'s own methods (`get_attr`, `content_str`,
+    // `get_optional_child`, …) and fully-qualified `anyhow!`, so no `use` is
+    // needed; the reserved lines[0]/lines[1] stay blank.
     lines
 }
 
