@@ -125,10 +125,11 @@ pub struct ResponseAssertion {
 }
 
 /// Scalar type a parsed response field decodes to.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum ParsedFieldType {
+    #[default]
     String,
     Integer,
     Enum,
@@ -137,6 +138,12 @@ pub enum ParsedFieldType {
     DeviceJid,
     GroupJid,
     JidTyped,
+    /// A presence boolean (`{hasX: child.success}` in smax) — true iff a sub-node
+    /// or attr is present. The presence target is carried in `tag`.
+    Bool,
+    /// A discriminated union (`{name, value}` smax disjunction) — the alternatives
+    /// are carried in [`ParsedField::union_variants`].
+    Union,
 }
 
 /// How a child/leaf node's content is accessed in the response parser.
@@ -149,17 +156,33 @@ pub enum ContentType {
     Nodes,
 }
 
+/// One alternative of a discriminated union (`{name, value}` smax disjunction).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct UnionVariant {
+    /// The discriminator tag (the disjunction `name`, e.g. `GroupInfo`).
+    pub name: String,
+    /// The variant's payload fields (empty for a marker/unit variant).
+    pub fields: Vec<ParsedField>,
+}
+
 /// One field extracted from a response stanza by a parser.
 ///
 /// `method` is the parser accessor used (e.g. `attrString`, `maybeChild`,
 /// `forEachChildWithTag`) and is left open-ended (free-form string) to track the
 /// real WA accessor surface; the codegen switches on it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct ParsedField {
     pub method: String,
+    /// The output (struct field) name — the camelCase `makeResult` key in smax.
     pub name: String,
+    /// The wire attribute/content name (snake_case), when it differs from `name`.
+    /// Codegen reads the attribute by this name; falls back to `name` when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wire_name: Option<String>,
     #[serde(rename = "type")]
     pub field_type: ParsedFieldType,
     pub required: bool,
@@ -175,16 +198,61 @@ pub struct ParsedField {
     pub repeats: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content_type: Option<ContentType>,
+    /// Alternatives for a [`ParsedFieldType::Union`] field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub union_variants: Option<Vec<UnionVariant>>,
+    /// The field's attrs/content are read off the PARENT node, not a child named
+    /// `tag` (a smax payload mixin spread inline) — codegen must not descend.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub same_node: bool,
+    /// Wrapper tags to descend (in order) before reading this field — e.g. a
+    /// `flattenedChildWithTag("groups")` ancestor for a repeated `<group>`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_path: Option<Vec<String>>,
+}
+
+/// How a response-root union variant classifies (drives codegen `Ok`/`Err` arms).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum ResponseVariantKind {
+    #[default]
+    Success,
+    Error,
+    /// A structured non-happy outcome that still parses (Nack, Conflict, …).
+    Alternative,
+}
+
+/// One alternative of a response-root discriminated union (an `WASmaxIn<X>Response<V>`
+/// variant aggregated by the `WASmax<X>RPC` orchestrator).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct ResponseVariant {
+    /// The RPC discriminator tag (parser export minus `parse`, e.g.
+    /// `GetResponseSuccessPictureURL`).
+    pub tag: String,
+    pub module_name: String,
+    pub kind: ResponseVariantKind,
+    pub assertions: Vec<ResponseAssertion>,
+    pub fields: Vec<ParsedField>,
 }
 
 /// The parsed response half of an IQ operation.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// When `variants` is non-empty the response is a discriminated union (the RPC
+/// tries each in order, first success wins); `fields` then mirrors the primary
+/// success variant for back-compatible single-shape consumers. When `variants` is
+/// empty, `fields` is the single response shape.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct ParsedResponse {
     pub parser_name: String,
     pub assertions: Vec<ResponseAssertion>,
     pub fields: Vec<ParsedField>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub variants: Vec<ResponseVariant>,
 }
 
 // ─── IQ operation ────────────────────────────────────────────────────────────────
@@ -349,6 +417,7 @@ mod tests {
             children: None,
             repeats: Some(true),
             content_type: Some(ContentType::Bytes),
+            ..Default::default()
         };
         let json = serde_json::to_value(&f).unwrap();
         assert_eq!(json["type"], "jid_typed");
@@ -379,8 +448,7 @@ mod tests {
             },
             response: ParsedResponse {
                 parser_name: "p".into(),
-                assertions: vec![],
-                fields: vec![],
+                ..Default::default()
             },
         };
         let json = serde_json::to_value(&def).unwrap();

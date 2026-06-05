@@ -222,12 +222,7 @@ mod tests {
             name: name.into(),
             field_type: ty,
             required: true,
-            byte_length: None,
-            enum_keys: None,
-            tag: None,
-            children: None,
-            repeats: None,
-            content_type: None,
+            ..Default::default()
         }
     }
 
@@ -266,6 +261,7 @@ mod tests {
                     parser_name: "p".into(),
                     assertions: vec![],
                     fields: vec![content_child("headline"), content_child("body")],
+                    ..Default::default()
                 },
             }],
             unparseable: vec![],
@@ -313,6 +309,7 @@ mod tests {
                     parser_name: "p".into(),
                     assertions: vec![],
                     fields: vec![parsed("attrString", "status", ParsedFieldType::String)],
+                    ..Default::default()
                 },
             }],
             unparseable: vec![],
@@ -366,6 +363,7 @@ mod tests {
                     parser_name: "p".into(),
                     assertions: vec![],
                     fields: vec![parsed("maybeAttrEnum", "mode", ParsedFieldType::String)],
+                    ..Default::default()
                 },
             }],
             unparseable: vec![],
@@ -404,6 +402,7 @@ mod tests {
                     parser_name: "p".into(),
                     assertions: vec![],
                     fields: vec![],
+                    ..Default::default()
                 },
             }],
             unparseable: vec![],

@@ -55,12 +55,7 @@ fn mk_field(method: &str, name: &str, ftype: ParsedFieldType, required: bool) ->
         name: name.to_string(),
         field_type: ftype,
         required,
-        byte_length: None,
-        enum_keys: None,
-        tag: None,
-        children: None,
-        repeats: None,
-        content_type: None,
+        ..Default::default()
     }
 }
 

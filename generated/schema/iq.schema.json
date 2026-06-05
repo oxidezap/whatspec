@@ -185,6 +185,7 @@
           "type": "string"
         },
         "name": {
+          "description": "The output (struct field) name — the camelCase `makeResult` key in smax.",
           "type": "string"
         },
         "repeats": {
@@ -196,6 +197,20 @@
         "required": {
           "type": "boolean"
         },
+        "sameNode": {
+          "description": "The field's attrs/content are read off the PARENT node, not a child named\n`tag` (a smax payload mixin spread inline) — codegen must not descend.",
+          "type": "boolean"
+        },
+        "sourcePath": {
+          "description": "Wrapper tags to descend (in order) before reading this field — e.g. a\n`flattenedChildWithTag(\"groups\")` ancestor for a repeated `<group>`.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
         "tag": {
           "type": [
             "string",
@@ -204,6 +219,23 @@
         },
         "type": {
           "$ref": "#/$defs/ParsedFieldType"
+        },
+        "unionVariants": {
+          "description": "Alternatives for a [`ParsedFieldType::Union`] field.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/UnionVariant"
+          }
+        },
+        "wireName": {
+          "description": "The wire attribute/content name (snake_case), when it differs from `name`.\nCodegen reads the attribute by this name; falls back to `name` when absent.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
@@ -215,20 +247,34 @@
     },
     "ParsedFieldType": {
       "description": "Scalar type a parsed response field decodes to.",
-      "type": "string",
-      "enum": [
-        "string",
-        "integer",
-        "enum",
-        "bytes",
-        "jid",
-        "device_jid",
-        "group_jid",
-        "jid_typed"
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "string",
+            "integer",
+            "enum",
+            "bytes",
+            "jid",
+            "device_jid",
+            "group_jid",
+            "jid_typed"
+          ]
+        },
+        {
+          "description": "A presence boolean (`{hasX: child.success}` in smax) — true iff a sub-node\nor attr is present. The presence target is carried in `tag`.",
+          "type": "string",
+          "const": "bool"
+        },
+        {
+          "description": "A discriminated union (`{name, value}` smax disjunction) — the alternatives\nare carried in [`ParsedField::union_variants`].",
+          "type": "string",
+          "const": "union"
+        }
       ]
     },
     "ParsedResponse": {
-      "description": "The parsed response half of an IQ operation.",
+      "description": "The parsed response half of an IQ operation.\n\nWhen `variants` is non-empty the response is a discriminated union (the RPC\ntries each in order, first success wins); `fields` then mirrors the primary\nsuccess variant for back-compatible single-shape consumers. When `variants` is\nempty, `fields` is the single response shape.",
       "type": "object",
       "properties": {
         "assertions": {
@@ -245,6 +291,12 @@
         },
         "parserName": {
           "type": "string"
+        },
+        "variants": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ResponseVariant"
+          }
         }
       },
       "required": [
@@ -275,6 +327,79 @@
       },
       "required": [
         "kind"
+      ]
+    },
+    "ResponseVariant": {
+      "description": "One alternative of a response-root discriminated union (an `WASmaxIn<X>Response<V>`\nvariant aggregated by the `WASmax<X>RPC` orchestrator).",
+      "type": "object",
+      "properties": {
+        "assertions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ResponseAssertion"
+          }
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ParsedField"
+          }
+        },
+        "kind": {
+          "$ref": "#/$defs/ResponseVariantKind"
+        },
+        "moduleName": {
+          "type": "string"
+        },
+        "tag": {
+          "description": "The RPC discriminator tag (parser export minus `parse`, e.g.\n`GetResponseSuccessPictureURL`).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tag",
+        "moduleName",
+        "kind",
+        "assertions",
+        "fields"
+      ]
+    },
+    "ResponseVariantKind": {
+      "description": "How a response-root union variant classifies (drives codegen `Ok`/`Err` arms).",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "success",
+            "error"
+          ]
+        },
+        {
+          "description": "A structured non-happy outcome that still parses (Nack, Conflict, …).",
+          "type": "string",
+          "const": "alternative"
+        }
+      ]
+    },
+    "UnionVariant": {
+      "description": "One alternative of a discriminated union (`{name, value}` smax disjunction).",
+      "type": "object",
+      "properties": {
+        "fields": {
+          "description": "The variant's payload fields (empty for a marker/unit variant).",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ParsedField"
+          }
+        },
+        "name": {
+          "description": "The discriminator tag (the disjunction `name`, e.g. `GroupInfo`).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "fields"
       ]
     },
     "Unparseable": {

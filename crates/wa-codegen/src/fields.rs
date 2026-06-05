@@ -31,6 +31,10 @@ fn tag_or_name(f: &ParsedField) -> &str {
 /// The Rust type for a response field, derived from the method's canonical
 /// [`wap::method_field_type`] + optionality — one mapping, no per-consumer drift.
 pub(crate) fn rust_field_type(field: &ParsedField) -> &'static str {
+    // Presence flags carry their type on the field, not the accessor method.
+    if field.field_type == ParsedFieldType::Bool {
+        return "bool";
+    }
     let base = match wap::method_field_type(&field.method) {
         ParsedFieldType::Integer => "u64",
         ParsedFieldType::Bytes => "Vec<u8>",
@@ -38,8 +42,8 @@ pub(crate) fn rust_field_type(field: &ParsedField) -> &'static str {
         | ParsedFieldType::GroupJid
         | ParsedFieldType::JidTyped
         | ParsedFieldType::Jid => "Jid",
-        // String / Enum (and any future scalar) materialize as String.
-        ParsedFieldType::String | ParsedFieldType::Enum => "String",
+        // String / Enum / (Bool/Union handled elsewhere) materialize as String.
+        _ => "String",
     };
     if wap::is_optional_method(&field.method) {
         match base {
@@ -78,7 +82,11 @@ pub(crate) fn is_child_field(f: &ParsedField) -> bool {
 /// accessor (via [`wap::is_attr_method`]), a `contentBytes` leaf, or a `hasAttr`
 /// presence marker (the latter filtered out by callers before emission).
 pub(crate) fn is_attr_field(f: &ParsedField) -> bool {
-    wap::is_attr_method(&f.method) || f.method == wap::CONTENT_BYTES || f.method == wap::HAS_ATTR
+    wap::is_attr_method(&f.method)
+        || f.method == wap::CONTENT_BYTES
+        || f.method == wap::CONTENT_STRING
+        || f.method == wap::CONTENT_INT
+        || f.method == wap::HAS_ATTR
 }
 
 /// If `f` is a `child`/`maybeChild` whose body is just a content accessor

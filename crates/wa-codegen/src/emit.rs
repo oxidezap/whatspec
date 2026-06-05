@@ -31,8 +31,11 @@ fn repeats(f: &ParsedField) -> bool {
 /// `contentInt`) are materialized elsewhere and emit nothing here.
 pub(crate) fn emit_field_parse(f: &ParsedField, node_var: &str, indent: &str) -> Vec<String> {
     let name = rust_ident(&f.name);
-    let flit = rust_lit(&f.name);
-    let fmsg = rust_lit_inner(&f.name);
+    // The attribute is read by its WIRE name (snake_case), not the camelCase
+    // struct field name; smax responses name the field by the makeResult key.
+    let wire = f.wire_name.as_deref().unwrap_or(&f.name);
+    let flit = rust_lit(wire);
+    let fmsg = rust_lit_inner(wire);
     let method = f.method.as_str();
 
     if method == wap::CONTENT_BYTES {
@@ -43,6 +46,11 @@ pub(crate) fn emit_field_parse(f: &ParsedField, node_var: &str, indent: &str) ->
     if method == wap::CONTENT_STRING {
         return vec![format!(
             "{indent}let {name} = {node_var}.content_str().unwrap_or_default().to_string();"
+        )];
+    }
+    if method == wap::CONTENT_INT {
+        return vec![format!(
+            "{indent}let {name} = {node_var}.content_str().and_then(|s| s.parse().ok()).unwrap_or_default();"
         )];
     }
     if !wap::is_attr_method(method) {

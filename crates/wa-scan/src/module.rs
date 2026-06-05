@@ -229,8 +229,7 @@ pub fn scan_module_outcome(
 fn unknown_parser() -> ParsedResponse {
     ParsedResponse {
         parser_name: "unknown".to_string(),
-        assertions: Vec::new(),
-        fields: Vec::new(),
+        ..Default::default()
     }
 }
 
@@ -470,6 +469,7 @@ impl ModuleScanner<'_> {
             parser_name: name.to_string(),
             assertions: result.assertions,
             fields: result.fields,
+            ..Default::default()
         });
     }
 }

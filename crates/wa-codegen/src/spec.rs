@@ -339,8 +339,7 @@ mod tests {
             },
             response: ParsedResponse {
                 parser_name: "unknown".into(),
-                assertions: vec![],
-                fields: vec![],
+                ..Default::default()
             },
         }
     }

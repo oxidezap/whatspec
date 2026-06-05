@@ -55,6 +55,8 @@ enum Binding {
         field_type: ParsedFieldType,
         required: bool,
         byte_length: Option<u32>,
+        /// The wire attr/content name (the accessor's literal arg), when present.
+        wire_name: Option<String>,
     },
     /// A nested payload mixin call (`parse<Name>Mixin(...)`) → its module-less
     /// mixin key, resolved later from the response index.
@@ -99,6 +101,7 @@ pub(crate) fn analyze_module_exports(
                     parser_name: export,
                     assertions,
                     fields,
+                    ..Default::default()
                 },
             ));
         }
@@ -179,6 +182,15 @@ fn classify_call(
         return Binding::None;
     };
     let args = &call.arguments;
+    // The wire attr/content name is the first string-literal arg of the accessor
+    // (`attrString(node,"server_id")` → "server_id"; `optional(ACC,node,"size",…)`
+    // / `literal(ACC,node,"type",…)` → the attr at the first string). Content
+    // accessors take no string → None. This is the field's snake_case wire name,
+    // distinct from the camelCase makeResult key the field is named by.
+    let wire_name = args
+        .iter()
+        .find_map(|a| arg_expr(a).and_then(as_string_lit))
+        .map(str::to_string);
     match method {
         "assertTag" => {
             if let Some(tag) = args.get(1).and_then(arg_expr).and_then(as_string_lit) {
@@ -216,6 +228,7 @@ fn classify_call(
                     field_type: ft,
                     required: true,
                     byte_length: bl,
+                    wire_name,
                 },
                 None => Binding::None,
             }
@@ -227,6 +240,7 @@ fn classify_call(
             field_type: ParsedFieldType::String,
             required: false,
             byte_length: None,
+            wire_name,
         },
         // `optional(ACCESSOR, node, …)` → the wrapped accessor decides the type;
         // required = false.
@@ -241,6 +255,7 @@ fn classify_call(
                     field_type: ft,
                     required: false,
                     byte_length: bl,
+                    wire_name,
                 },
                 None => Binding::None,
             }
@@ -261,6 +276,7 @@ fn classify_call(
                 field_type: ft,
                 required: true,
                 byte_length: bl,
+                wire_name,
             },
             None => Binding::None,
         },
@@ -325,9 +341,11 @@ fn normalize_accessor(m: &str) -> Option<(String, ParsedFieldType, Option<u32>)>
         "contentBytes" => s(wap::CONTENT_BYTES, ParsedFieldType::Bytes),
         "contentBytesRange" => s(wap::CONTENT_BYTES, ParsedFieldType::Bytes),
         // Every smax JID accessor maps to the single typed-JID method the codegen
-        // materializes (granularity is a future iteration).
+        // materializes (granularity is a future iteration). `attrJidEnum` pins the
+        // JID's server kind via an enum arg but still yields a JID; `attrLidUserJid`
+        // is the LID-or-user accessor.
         "attrJid" | "attrDomainJid" | "attrUserJid" | "attrDeviceJid" | "attrGroupJid"
-        | "attrNewsletterJid" | "attrLidJid" | "literalJid" => {
+        | "attrNewsletterJid" | "attrLidJid" | "attrLidUserJid" | "attrJidEnum" | "literalJid" => {
             s(wap::ATTR_JID_WITH_TYPE, ParsedFieldType::Jid)
         }
         _ => None,
@@ -490,18 +508,16 @@ fn collect_object_fields(
                 field_type,
                 required,
                 byte_length,
+                wire_name,
             }) => {
                 out.push(ParsedField {
                     method: method.clone(),
                     name: key.to_string(),
+                    wire_name: wire_name.clone(),
                     field_type: *field_type,
                     required: *required && !optional,
                     byte_length: *byte_length,
-                    enum_keys: None,
-                    tag: None,
-                    children: None,
-                    repeats: None,
-                    content_type: None,
+                    ..Default::default()
                 });
             }
             Some(Binding::ChildGroup {
@@ -517,35 +533,28 @@ fn collect_object_fields(
                 out.push(ParsedField {
                     method: wap::CHILD.to_string(),
                     name: key.to_string(),
-                    field_type: ParsedFieldType::String,
                     required: !optional && !child_optional,
-                    byte_length: None,
-                    enum_keys: None,
                     tag: Some(tag.clone()),
                     children: Some(fields.clone()),
                     repeats: Some(*repeats),
-                    content_type: None,
+                    ..Default::default()
                 });
             }
             Some(Binding::Mixin(m)) => {
-                // A named nested mixin field: inline as a child group.
+                // A same-node payload mixin referenced as `{ key: M.value }`: its
+                // fields parse the PARENT node's attrs, so flatten them in (an
+                // `M.success ? M.value : null` ref makes them all optional).
                 if let Some(p) = mixins.get(m) {
-                    let mut f = ParsedField {
-                        method: wap::CHILD.to_string(),
-                        name: key.to_string(),
-                        field_type: ParsedFieldType::String,
-                        required: !optional,
-                        byte_length: None,
-                        enum_keys: None,
-                        tag: Some(key.to_string()),
-                        children: Some(p.fields.clone()),
-                        repeats: None,
-                        content_type: None,
-                    };
-                    if f.children.as_ref().is_some_and(|c| c.is_empty()) {
-                        f.children = None;
+                    for f in &p.fields {
+                        if out.iter().any(|x: &ParsedField| x.name == f.name) {
+                            continue;
+                        }
+                        let mut f = f.clone();
+                        if optional {
+                            f.required = false;
+                        }
+                        out.push(f);
                     }
-                    out.push(f);
                 }
             }
             _ => {}
@@ -747,7 +756,9 @@ mod tests {
                     children: None,
                     repeats: None,
                     content_type: None,
+                    ..Default::default()
                 }],
+                ..Default::default()
             },
         );
         let body = r#"function e(node, ref){
@@ -779,7 +790,9 @@ mod tests {
                     children: None,
                     repeats: None,
                     content_type: None,
+                    ..Default::default()
                 }],
+                ..Default::default()
             },
         );
         let body = r#"function e(node, ref){
