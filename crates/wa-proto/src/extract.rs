@@ -1059,8 +1059,8 @@ mod tests {
     fn extracts_full_feature_set() {
         let out = stringify(&extract_proto(MODULE, "2.3000.1"));
 
-        assert!(out.contains("enum TestEnum {\n    A = 0;\n    B = 1;\n}"));
-        assert!(out.contains("enum LitEnum {\n    X = 0;\n    Y = 1;\n}")); // var-literal enum
+        assert!(out.contains("enum TestEnum {\n  A = 0;\n  B = 1;\n}"));
+        assert!(out.contains("enum LitEnum {\n  X = 0;\n  Y = 1;\n}")); // var-literal enum
         assert!(out.contains("message Outer {"));
         assert!(out.contains("optional TestEnum kind = 2;"));
         assert!(out.contains("optional Inner inner = 3;")); // nested ref, qualified to Inner
@@ -1069,9 +1069,9 @@ mod tests {
         assert!(out.contains("repeated uint32 ids = 7 [packed=true];"));
         // `packed` listed BEFORE `repeated` must still keep `repeated`.
         assert!(out.contains("repeated uint32 ids2 = 8 [packed=true];"));
-        assert!(out.contains("oneof body {\n        string lbl = 6;\n    }")); // no `optional` in oneof
+        assert!(out.contains("oneof body {\n    string lbl = 6;\n  }")); // no `optional` in oneof
         // Inner is emitted nested, not at top level.
-        assert!(out.contains("    message Inner {\n        optional string x = 1;\n    }"));
+        assert!(out.contains("  message Inner {\n    optional string x = 1;\n  }"));
         assert!(!out.contains("\nmessage Inner {"));
     }
 
@@ -1092,8 +1092,8 @@ mod tests {
     #[test]
     fn resolves_cross_module_message_ref() {
         let out = stringify(&extract_proto(CROSS, "2.3000.1"));
-        assert!(out.contains("message Holder {\n    optional Payload ref = 1;\n}"));
-        assert!(out.contains("message Payload {\n    optional bytes data = 1;\n}"));
+        assert!(out.contains("message Holder {\n  optional Payload ref = 1;\n}"));
+        assert!(out.contains("message Payload {\n  optional bytes data = 1;\n}"));
     }
 
     #[test]
@@ -1135,10 +1135,10 @@ mod tests {
         assert!(out.contains("\nenum EnumA {"));
         // EnumB is nested into its sole referencer Three, not left at top level.
         assert!(!out.contains("\nenum EnumB {"));
-        assert!(out.contains("    enum EnumB {"));
-        assert!(out.contains("        SHARED = 0;")); // value scoped inside Three
+        assert!(out.contains("  enum EnumB {"));
+        assert!(out.contains("    SHARED = 0;")); // value scoped inside Three
         // The field reference stays bare and resolves to the nested enum.
-        assert!(out.contains("    optional EnumB b = 1;"));
+        assert!(out.contains("  optional EnumB b = 1;"));
     }
 
     #[test]

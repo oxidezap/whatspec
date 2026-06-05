@@ -1,11 +1,11 @@
-//! Render a [`ProtoFile`] to `.proto` text: 4-space indent,
+//! Render a [`ProtoFile`] to `.proto` text: 2-space indent,
 //! `flags type name = id [packed=true];`, top-level entities sorted by name, a
 //! blank line after each message (none after an enum), and the
 //! `syntax`/`package`/version header.
 
 use wa_ir::{ProtoEntity, ProtoEnum, ProtoField, ProtoFile, ProtoMember, ProtoMessage};
 
-const INDENT: &str = "    ";
+const INDENT: &str = "  ";
 
 /// Render a full `.proto` file.
 pub fn stringify(file: &ProtoFile) -> String {
@@ -150,24 +150,24 @@ mod tests {
 
         let expected = "syntax = \"proto2\";\npackage whatsapp;\n\n/// WhatsApp Version: 2.3000.1040225260\n\n\
 message ADVDeviceIdentity {\n\
-\x20   optional uint32 rawId = 1;\n\
-\x20   optional uint64 timestamp = 2;\n\
-\x20   optional uint32 keyIndex = 3;\n\
-\x20   optional ADVEncryptionType accountType = 4;\n\
-\x20   optional ADVEncryptionType deviceType = 5;\n\
+\x20 optional uint32 rawId = 1;\n\
+\x20 optional uint64 timestamp = 2;\n\
+\x20 optional uint32 keyIndex = 3;\n\
+\x20 optional ADVEncryptionType accountType = 4;\n\
+\x20 optional ADVEncryptionType deviceType = 5;\n\
 }\n\
 \n\
 enum ADVEncryptionType {\n\
-\x20   E2EE = 0;\n\
-\x20   HOSTED = 1;\n\
-\x20   NON_E2EE = 2;\n\
+\x20 E2EE = 0;\n\
+\x20 HOSTED = 1;\n\
+\x20 NON_E2EE = 2;\n\
 }\n\
 message ADVKeyIndexList {\n\
-\x20   optional uint32 rawId = 1;\n\
-\x20   optional uint64 timestamp = 2;\n\
-\x20   optional uint32 currentIndex = 3;\n\
-\x20   repeated uint32 validIndexes = 4 [packed=true];\n\
-\x20   optional ADVEncryptionType accountType = 5;\n\
+\x20 optional uint32 rawId = 1;\n\
+\x20 optional uint64 timestamp = 2;\n\
+\x20 optional uint32 currentIndex = 3;\n\
+\x20 repeated uint32 validIndexes = 4 [packed=true];\n\
+\x20 optional ADVEncryptionType accountType = 5;\n\
 }\n";
 
         assert_eq!(stringify(&file), expected);
@@ -211,12 +211,10 @@ message ADVKeyIndexList {\n\
         };
 
         let out = stringify(&file);
-        assert!(out.contains(
-            "    oneof body {\n        string text = 1;\n        int32 num = 2;\n    }\n"
-        ));
-        assert!(out.contains("    map<string, string> labels = 3;\n"));
-        assert!(out.contains("    optional Outer.Inner inner = 4;\n"));
+        assert!(out.contains("  oneof body {\n    string text = 1;\n    int32 num = 2;\n  }\n"));
+        assert!(out.contains("  map<string, string> labels = 3;\n"));
+        assert!(out.contains("  optional Outer.Inner inner = 4;\n"));
         // Nested message is indented one level inside Outer.
-        assert!(out.contains("    message Inner {\n        optional uint32 x = 1;\n    }\n"));
+        assert!(out.contains("  message Inner {\n    optional uint32 x = 1;\n  }\n"));
     }
 }
