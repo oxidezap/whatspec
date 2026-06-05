@@ -1,0 +1,651 @@
+//! Full per-module scan: find `wap("iq", {...}, ...children)` request builders
+//! and the `new WADeprecatedWapParser("name", fn)` response parser, then assemble
+//! [`IqStanzaDef`]s. Port of `scanModuleSourceAST`.
+
+use oxc_allocator::Allocator;
+use oxc_ast::ast::{AssignmentExpression, CallExpression, Expression, NewExpression};
+use oxc_ast_visit::{Visit, walk};
+use oxc_span::GetSpan;
+use wa_ir::{
+    IqRequestDef, IqStanzaDef, IqTarget, IqType, ParsedResponse, WapAttrDef, WapAttrKind,
+    WapChildNode,
+};
+
+use crate::alias::{AliasMap, build_alias_map};
+use crate::attrs::{extract_attrs_from_obj, parse_wap_call};
+use crate::mixin_index::MixinIndex;
+use crate::request::{VarScope, build_var_scope, resolve_child_node};
+use crate::response::analyze_parser_ast;
+use crate::response_index::ResponseIndex;
+use wa_oxc::{arg_expr, as_call, callee_method, callee_object};
+
+const PARSER_CLASS: &str = "WADeprecatedWapParser";
+
+/// Scan a single module's `__d(...)` source for IQ stanza definitions.
+///
+/// `mixins`/`responses` are the cross-module indexes; pass their `default()`
+/// (empty) for a purely local scan — with empty indexes this behaves exactly as
+/// before (the smax xmlns/type and response branches resolve nothing).
+pub fn scan_module_source(
+    source: &str,
+    mixins: &MixinIndex,
+    responses: &ResponseIndex,
+) -> Vec<IqStanzaDef> {
+    scan_module_outcome(source, mixins, responses).unwrap_or_default()
+}
+
+/// Why an IQ-candidate module (matched by [`crate::is_iq_module`]) yielded no
+/// stanza. Drives the `unparseable` diagnostics so a silently-dropped module is
+/// recorded with a reason instead of vanishing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DropReason {
+    /// oxc could not parse the module slice (`ParserReturn::panicked`).
+    ParseError,
+    /// The slice is not a `__d("Name", …)` module (no module name in the AST).
+    NotAModule,
+    /// The `("iq", …)` builder substring was present but the AST walk found no
+    /// actual `wap`/`smax` iq builder call (e.g. it was inside a string literal).
+    NoIqCall,
+    /// IQ builder call(s) found, but every one was dropped by the namespace/type
+    /// guard — xmlns or get/set type stayed unresolved even after mixin merge.
+    Unresolved,
+}
+
+impl DropReason {
+    /// Stable, human-readable reason recorded in [`wa_ir::Unparseable::reason`].
+    pub fn as_str(self) -> &'static str {
+        match self {
+            DropReason::ParseError => "parse error (oxc panicked)",
+            DropReason::NotAModule => "not a __d() module",
+            DropReason::NoIqCall => "iq builder substring present but no AST iq call",
+            DropReason::Unresolved => "namespace/type unresolved (dropped by guard)",
+        }
+    }
+}
+
+/// Scan a single module's `__d(...)` source for IQ stanza definitions, returning
+/// either the stanzas it produced or the [`DropReason`] explaining why an
+/// IQ-candidate module produced none. See [`scan_module_source`] for the
+/// reason-discarding variant.
+pub fn scan_module_outcome(
+    source: &str,
+    mixins: &MixinIndex,
+    responses: &ResponseIndex,
+) -> Result<Vec<IqStanzaDef>, DropReason> {
+    let alloc = Allocator::default();
+    let ret = wa_oxc::parse_cjs(&alloc, source);
+    // A catastrophic parse failure leaves an empty program; surface it instead of
+    // silently treating the module as "no iq found".
+    if ret.panicked {
+        return Err(DropReason::ParseError);
+    }
+
+    // Module name from the AST (`__d("Name", ...)`), not a brittle `__d("` substring.
+    let Some(module_name) = ret.program.body.iter().find_map(wa_oxc::define_module_name) else {
+        return Err(DropReason::NotAModule);
+    };
+
+    // Pass 1: variable/function scope (offset-based, lifetime-free) + smax aliases.
+    let scope = build_var_scope(&ret.program);
+    let aliases = build_alias_map(&ret.program);
+
+    // Pass 2: collect exports, iq requests, the response parser, and the mixin
+    // modules this module folds in (for cross-module xmlns/type resolution).
+    let mut scanner = ModuleScanner {
+        source,
+        scope: &scope,
+        aliases: &aliases,
+        iq_calls: Vec::new(),
+        parser: None,
+        exports: Vec::new(),
+        type_hints: std::collections::HashMap::new(),
+        mixin_callees: Vec::new(),
+        current_export: None,
+    };
+    scanner.visit_program(&ret.program);
+
+    if scanner.iq_calls.is_empty() {
+        return Err(DropReason::NoIqCall);
+    }
+
+    // Phase 2: resolve namespace/type for iq calls that lacked them locally, by
+    // unioning the iq fragments of the mixins this module references. The guard
+    // (drop when namespace or type stays unresolved) is preserved — only
+    // previously-discarded calls can be recovered, never relaxed.
+    //
+    // The mixin union is module-level (one set of referenced mixins per module),
+    // so compute it once and only when some iq call actually needs it.
+    let needs_resolution = scanner
+        .iq_calls
+        .iter()
+        .any(|iq| iq.namespace.is_none() || iq.iq_type.is_none());
+    let mixin_resolved = if needs_resolution {
+        crate::mixin_index::resolve(mixins, &scanner.mixin_callees)
+    } else {
+        (None, None, None)
+    };
+    let resolved: Vec<ResolvedIqCall> = scanner
+        .iq_calls
+        .into_iter()
+        .filter_map(|mut iq| {
+            if iq.namespace.is_none() {
+                iq.namespace = mixin_resolved.0.clone();
+            }
+            if iq.iq_type.is_none() {
+                iq.iq_type = mixin_resolved.1;
+            }
+            // Adopt a Group target only if a mixin said so and we hadn't already.
+            if iq.target != IqTarget::Group && mixin_resolved.2 == Some(IqTarget::Group) {
+                iq.target = IqTarget::Group;
+            }
+            // Guard: a stanza needs both a namespace and a type, or it's dropped.
+            match (iq.namespace, iq.iq_type) {
+                (Some(namespace), Some(iq_type)) => Some(ResolvedIqCall {
+                    namespace,
+                    iq_type,
+                    target: iq.target,
+                    children: iq.children,
+                    export: iq.export,
+                }),
+                _ => None,
+            }
+        })
+        .collect();
+
+    // Modules often build the same `<iq>` in several code paths; emit each distinct
+    // stanza once (identity = namespace/type/target/children, ignoring which export
+    // built it). Order-preserving so the first occurrence's export wins. n is tiny.
+    let mut deduped: Vec<ResolvedIqCall> = Vec::new();
+    for r in resolved {
+        if !deduped.iter().any(|d| {
+            d.namespace == r.namespace
+                && d.iq_type == r.iq_type
+                && d.target == r.target
+                && d.children == r.children
+        }) {
+            deduped.push(r);
+        }
+    }
+    let resolved = deduped;
+
+    if resolved.is_empty() {
+        return Err(DropReason::Unresolved);
+    }
+
+    let exports = scanner.exports;
+    let function_exports: Vec<&str> = exports
+        .iter()
+        .map(String::as_str)
+        .filter(|e| {
+            *e != "default" && !is_all_caps(e) && !ends_ci(e, "parser") && !ends_ci(e, "response")
+        })
+        .collect();
+    let primary: Option<&str> = function_exports
+        .first()
+        .copied()
+        .or_else(|| exports.iter().any(|e| e == "default").then_some("default"))
+        .or_else(|| exports.first().map(String::as_str));
+
+    // Response: the legacy `WADeprecatedWapParser` if this module has one;
+    // otherwise, for a smax `WASmaxOut<X>Request`, the typed response parsed from
+    // the separate `WASmaxIn<X>ResponseSuccess` module (Phase 3). Legacy modules
+    // (`WAWeb*`) never enter the smax branch, so the 33 legacy responses are
+    // preserved byte-exact.
+    let smax_response: Option<ParsedResponse> = if scanner.parser.is_none() {
+        smax_request_op_name(module_name).and_then(|x| responses.get_by_x(x).cloned())
+    } else {
+        None
+    };
+    let response = scanner
+        .parser
+        .clone()
+        .or(smax_response)
+        .unwrap_or_else(unknown_parser);
+    let parser_name = response.parser_name.clone();
+
+    Ok(resolved
+        .into_iter()
+        .map(|iq| IqStanzaDef {
+            module_name: module_name.to_string(),
+            namespace: iq.namespace.clone(),
+            iq_type: iq.iq_type,
+            target: iq.target,
+            parser_name: parser_name.clone(),
+            // The export that lexically built this iq; fall back to the module's
+            // primary function export when it wasn't captured (e.g. built at top level).
+            exported_function: iq.export.clone().or_else(|| primary.map(str::to_string)),
+            all_exports: exports.clone(),
+            request: IqRequestDef {
+                namespace: iq.namespace,
+                iq_type: iq.iq_type,
+                target: iq.target,
+                children: iq.children,
+            },
+            response: response.clone(),
+        })
+        .collect())
+}
+
+fn unknown_parser() -> ParsedResponse {
+    ParsedResponse {
+        parser_name: "unknown".to_string(),
+        assertions: Vec::new(),
+        fields: Vec::new(),
+    }
+}
+
+/// `^[A-Z_]+$` — an all-uppercase/underscore constant name.
+fn is_all_caps(s: &str) -> bool {
+    !s.is_empty() && s.bytes().all(|b| b.is_ascii_uppercase() || b == b'_')
+}
+
+/// Case-insensitive suffix check (`/[Ss]uffix$/`). Byte-compared so a non-ASCII
+/// export name can't trigger a UTF-8 boundary panic.
+fn ends_ci(s: &str, suffix: &str) -> bool {
+    let (sb, fb) = (s.as_bytes(), suffix.as_bytes());
+    sb.len() >= fb.len() && sb[sb.len() - fb.len()..].eq_ignore_ascii_case(fb)
+}
+
+/// An iq builder call as collected during the walk. `namespace`/`iq_type` may be
+/// unresolved locally (e.g. a `smax("iq", null, …)` whose xmlns/type come from
+/// mixins) and get filled in afterwards from the [`MixinIndex`].
+struct IqCall {
+    namespace: Option<String>,
+    iq_type: Option<IqType>,
+    target: IqTarget,
+    children: Vec<WapChildNode>,
+    /// The module export whose function lexically encloses this call (e.g.
+    /// `e.sendFooBar = function(){ … wap("iq") … }` → `sendFooBar`), captured
+    /// during the walk so the stanza's `exportedFunction` isn't guessed by index.
+    export: Option<String>,
+}
+
+/// An iq call after namespace/type resolution + guard — ready to emit.
+struct ResolvedIqCall {
+    namespace: String,
+    iq_type: IqType,
+    target: IqTarget,
+    children: Vec<WapChildNode>,
+    export: Option<String>,
+}
+
+struct ModuleScanner<'src> {
+    source: &'src str,
+    scope: &'src VarScope,
+    aliases: &'src AliasMap,
+    iq_calls: Vec<IqCall>,
+    parser: Option<ParsedResponse>,
+    exports: Vec<String>,
+    /// iq-call span start → `type` implied by an enclosing `merge…(Get|Set)…Mixin`.
+    /// Populated when the wrapper is visited (parent-before-child), read when the
+    /// inner iq call is visited.
+    type_hints: std::collections::HashMap<u32, IqType>,
+    /// `WASmaxOut…` mixin modules this module folds in (by name, source order,
+    /// deduped) — the candidates for cross-module xmlns/type resolution.
+    mixin_callees: Vec<String>,
+    /// The export name currently being walked (`e.<name> = …`), so an iq call is
+    /// tagged with the function that lexically encloses it. Saved/restored around
+    /// each member-assignment to handle nesting.
+    current_export: Option<String>,
+}
+
+impl<'a> Visit<'a> for ModuleScanner<'_> {
+    fn visit_assignment_expression(&mut self, assign: &AssignmentExpression<'a>) {
+        let mut export: Option<String> = None;
+        if let Some(m) = assign.left.as_member_expression()
+            && let Some(prop) = m.static_property_name()
+            && prop != "__esModule"
+            && prop != "prototype"
+        {
+            self.exports.push(prop.to_string());
+            export = Some(prop.to_string());
+        }
+        // Tag iq calls inside `e.<name> = …` with `<name>`; restore on exit so
+        // nested assignments don't leak their name to siblings.
+        let prev = self.current_export.clone();
+        if export.is_some() {
+            self.current_export = export;
+        }
+        walk::walk_assignment_expression(self, assign);
+        self.current_export = prev;
+    }
+
+    fn visit_call_expression(&mut self, call: &CallExpression<'a>) {
+        // A `merge…(Get|Set)…Mixin(stanza, …)` wrapper carries the iq `type` for
+        // its inner stanza-builder argument (the type lives in a base mixin in
+        // another module). Record the hint for that inner call's span; since the
+        // walk visits this wrapper before its arguments, the hint is in place by
+        // the time the inner iq call is visited.
+        if let (Some(ty), Some(inner)) = (mixin_type_hint(call), call.arguments.first())
+            && let Some(inner_call) = arg_expr(inner).and_then(as_call)
+        {
+            self.type_hints.insert(inner_call.span().start, ty);
+        }
+
+        // Collect `o("WASmaxOut…").merge…Mixin(…)` references so the post-walk
+        // pass can resolve xmlns/type from those mixins' fragments.
+        if let Some(method) = callee_method(call)
+            && method.starts_with("merge")
+            && method.contains("Mixin")
+            && let Some(name) = callee_object(call).and_then(require_module_name)
+            && name.starts_with("WASmaxOut")
+            && !self.mixin_callees.contains(&name)
+        {
+            self.mixin_callees.push(name);
+        }
+
+        let hint = self.type_hints.get(&call.span().start).copied();
+        if let Some(iq) = self.try_iq_call(call, hint) {
+            self.iq_calls.push(iq);
+        }
+        walk::walk_call_expression(self, call);
+    }
+
+    fn visit_new_expression(&mut self, new_expr: &NewExpression<'a>) {
+        if self.parser.is_none() {
+            self.try_parser(new_expr);
+        }
+        walk::walk_new_expression(self, new_expr);
+    }
+}
+
+/// If `call` is a `merge…Get…Mixin` / `merge…Set…Mixin` invocation, the iq type
+/// its inner stanza argument should take. `None` for any other call.
+fn mixin_type_hint(call: &CallExpression) -> Option<IqType> {
+    iq_type_from_merge_name(callee_method(call)?)
+}
+
+/// `o("ModuleName")` → `"ModuleName"` (custom-require call, one string-literal
+/// arg). Shared with [`crate::mixin_index`].
+pub(crate) fn require_module_name(e: &Expression) -> Option<String> {
+    wa_oxc::first_string_arg(as_call(e)?).map(str::to_string)
+}
+
+/// `WASmaxOut<X>Request` → `X` (operation name shared with the response module
+/// `WASmaxIn<X>ResponseSuccess`). `None` for any other module name.
+fn smax_request_op_name(module: &str) -> Option<&str> {
+    module
+        .strip_prefix("WASmaxOut")
+        .and_then(|s| s.strip_suffix("Request"))
+}
+
+/// The iq type implied by a `merge…(Get|Set)…Mixin` function name, or `None` if
+/// the name isn't a merge-mixin or is ambiguous. Shared by the per-module type
+/// hint (above) and the cross-module mixin index ([`crate::mixin_index`]).
+pub(crate) fn iq_type_from_merge_name(method: &str) -> Option<IqType> {
+    // Accept both `…Mixin` and `…MixinGroup` (the OR-combinator variant).
+    if !(method.starts_with("merge") && method.contains("Mixin")) {
+        return None;
+    }
+    // Require an unambiguous Get/Set token between "merge" and "Mixin".
+    match (method.contains("Get"), method.contains("Set")) {
+        (true, false) => Some(IqType::Get),
+        (false, true) => Some(IqType::Set),
+        _ => None,
+    }
+}
+
+impl ModuleScanner<'_> {
+    fn try_iq_call(&self, call: &CallExpression, mixin_type: Option<IqType>) -> Option<IqCall> {
+        let wap = parse_wap_call(call, self.aliases)?;
+        if wap.tag != "iq" {
+            return None;
+        }
+        // Attrs may be `null`/absent (e.g. `smax("iq", null, …children)`), in which
+        // case namespace/type are resolved later from the referenced mixins.
+        let attrs = wap
+            .attrs_node
+            .map(|n| extract_attrs_from_obj(n, self.source, self.aliases))
+            .unwrap_or_default();
+        // namespace: literal xmlns if present locally; else left None for the
+        // post-walk mixin resolution (which re-applies the drop-if-unresolved guard).
+        let namespace = const_value(&attrs, "xmlns").map(str::to_string);
+        // type: inline `type:"get"/"set"`, else the enclosing merge…(Get|Set)…Mixin
+        // hint; an unknown inline value (not get/set) drops the call outright.
+        let iq_type = match const_value(&attrs, "type") {
+            Some("get") => Some(IqType::Get),
+            Some("set") => Some(IqType::Set),
+            Some(_) => return None,
+            None => mixin_type,
+        };
+        let target = match attrs.iter().find(|a| a.name == "to") {
+            Some(a) if a.kind == WapAttrKind::Const && a.value.as_deref() == Some("g.us") => {
+                IqTarget::Group
+            }
+            _ => IqTarget::Server,
+        };
+
+        let mut children = Vec::new();
+        for child_arg in wap.child_args {
+            if let Some(ce) = arg_expr(child_arg) {
+                children.extend(resolve_child_node(
+                    ce,
+                    self.source,
+                    self.scope,
+                    self.source,
+                    self.aliases,
+                ));
+            }
+        }
+
+        Some(IqCall {
+            namespace,
+            iq_type,
+            target,
+            children,
+            export: self.current_export.clone(),
+        })
+    }
+
+    fn try_parser(&mut self, new_expr: &NewExpression) {
+        if new_expr.arguments.len() < 2 {
+            return;
+        }
+        let Some(name) = arg_expr(&new_expr.arguments[0]).and_then(wa_oxc::as_string_lit) else {
+            return;
+        };
+        let Some(Expression::FunctionExpression(cb)) = arg_expr(&new_expr.arguments[1]) else {
+            return;
+        };
+
+        // The callee must reference WADeprecatedWapParser.
+        let callee_span = new_expr.callee.span();
+        let callee_src = &self.source[callee_span.start as usize..callee_span.end as usize];
+        if !callee_src.contains(PARSER_CLASS) {
+            return;
+        }
+
+        let Some(param) = cb
+            .params
+            .items
+            .first()
+            .and_then(|p| p.pattern.get_identifier_name())
+        else {
+            return;
+        };
+        let Some(body) = cb.body.as_ref() else { return };
+        let cb_body = &self.source[body.span.start as usize..body.span.end as usize];
+        let result = analyze_parser_ast(cb_body, param.as_str());
+        self.parser = Some(ParsedResponse {
+            parser_name: name.to_string(),
+            assertions: result.assertions,
+            fields: result.fields,
+        });
+    }
+}
+
+/// Value of a `const`-kind attribute by name.
+fn const_value<'a>(attrs: &'a [WapAttrDef], name: &str) -> Option<&'a str> {
+    attrs
+        .iter()
+        .find(|a| a.name == name)
+        .and_then(|a| a.value.as_deref())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Empty mixin index: with it, `scan_module_source` is purely local (the
+    /// Phase-2 path resolves nothing), matching pre-Phase-2 behavior.
+    fn mi() -> MixinIndex {
+        MixinIndex::default()
+    }
+
+    /// Empty response index: the smax response branch resolves nothing.
+    fn ri() -> ResponseIndex {
+        ResponseIndex::default()
+    }
+
+    const MODULE: &str = r#"
+        __d("WAWebFooBarRPC", ["WADeprecatedSendIq","WAWap"], function(g,r,d,o,e,i,n){
+            "use strict";
+            e.sendFooBar = function(t){
+                var q = i.wap("iq", { to: i.S_WHATSAPP_NET, xmlns: "w:foo", type: "get", id: i.generateId() },
+                    i.wap("query", { jid: i.USER_JID() }));
+                return r("WADeprecatedSendIq").sendIq(q, new (r("WADeprecatedWapParser"))("FooBarResult", function(s){
+                    s.assertTag("iq");
+                    var c = s.child("result");
+                    c.attrString("status");
+                    c.forEachChildWithTag("entry", function(x){ x.attrInt("code"); });
+                }));
+            };
+        }, 123);
+    "#;
+
+    #[test]
+    fn scans_full_module() {
+        let stanzas = scan_module_source(MODULE, &mi(), &ri());
+        assert_eq!(stanzas.len(), 1);
+        let s = &stanzas[0];
+        assert_eq!(s.module_name, "WAWebFooBarRPC");
+        assert_eq!(s.namespace, "w:foo");
+        assert_eq!(s.iq_type, IqType::Get);
+        assert_eq!(s.target, IqTarget::Server);
+        assert_eq!(s.parser_name, "FooBarResult");
+        assert_eq!(s.exported_function.as_deref(), Some("sendFooBar"));
+
+        // Request children: <query jid=.../>.
+        assert_eq!(s.request.children.len(), 1);
+        assert_eq!(s.request.children[0].tag, "query");
+        assert!(s.request.children[0].attrs.iter().any(|a| a.name == "jid"));
+
+        // Response: result child with status attr + repeating entry children.
+        let result = s
+            .response
+            .fields
+            .iter()
+            .find(|f| f.tag.as_deref() == Some("result"))
+            .unwrap();
+        let kids = result.children.as_ref().unwrap();
+        assert!(kids.iter().any(|c| c.name == "status"));
+        assert!(
+            kids.iter()
+                .any(|c| c.tag.as_deref() == Some("entry") && c.repeats == Some(true))
+        );
+        assert!(
+            s.response
+                .assertions
+                .iter()
+                .any(|a| a.name.as_deref() == Some("iq"))
+        );
+    }
+
+    #[test]
+    fn identical_iq_built_twice_emits_one_stanza() {
+        // Same <iq> built in two code paths → one stanza (dedup), and the export
+        // is the function that lexically built it (not guessed by index).
+        let m = r#"__d("WAWebDup",["WADeprecatedSendIq","WAWap"],function(g,r,d,o,e,i){
+            e.viaA = function(){ return i.wap("iq", { xmlns: "w:dup", type: "get" }); };
+            e.viaB = function(){ return i.wap("iq", { xmlns: "w:dup", type: "get" }); };
+        });"#;
+        let s = scan_module_source(m, &mi(), &ri());
+        assert_eq!(s.len(), 1, "identical iq calls must dedup to one stanza");
+        assert_eq!(s[0].namespace, "w:dup");
+        assert_eq!(s[0].exported_function.as_deref(), Some("viaA"));
+    }
+
+    #[test]
+    fn distinct_iqs_keep_their_enclosing_export() {
+        // Two different stanzas, each named by its own enclosing export (the old
+        // index-based mapping could cross-wire these).
+        let m = r#"__d("WAWebTwo",["WADeprecatedSendIq","WAWap"],function(g,r,d,o,e,i){
+            e.getThing = function(){ return i.wap("iq", { xmlns: "w:a", type: "get" }); };
+            e.setThing = function(){ return i.wap("iq", { xmlns: "w:b", type: "set" }); };
+        });"#;
+        let mut s = scan_module_source(m, &mi(), &ri());
+        s.sort_by(|a, b| a.namespace.cmp(&b.namespace));
+        assert_eq!(s.len(), 2);
+        assert_eq!(s[0].namespace, "w:a");
+        assert_eq!(s[0].exported_function.as_deref(), Some("getThing"));
+        assert_eq!(s[1].namespace, "w:b");
+        assert_eq!(s[1].exported_function.as_deref(), Some("setThing"));
+    }
+
+    #[test]
+    fn group_target_detected() {
+        let m = r#"__d("WAWebGrp",["WADeprecatedSendIq","WAWap"],function(g,r,d,o,e,i){
+            e.go = function(){ return i.wap("iq", { to: "g.us", xmlns: "w:g2", type: "set" }); };
+        });"#;
+        let s = scan_module_source(m, &mi(), &ri());
+        assert_eq!(s.len(), 1);
+        assert_eq!(s[0].target, IqTarget::Group);
+        assert_eq!(s[0].iq_type, IqType::Set);
+    }
+
+    #[test]
+    fn no_iq_yields_nothing() {
+        assert!(
+            scan_module_source(
+                r#"__d("WAWebNope",[],function(){ var x = 1; });"#,
+                &mi(),
+                &ri()
+            )
+            .is_empty()
+        );
+        // Not a module at all.
+        assert!(scan_module_source("var z = 1;", &mi(), &ri()).is_empty());
+    }
+
+    #[test]
+    fn iq_without_parser_uses_unknown() {
+        let m = r#"__d("WAWebNP",["WAWap"],function(g,r,d,o,e,i){
+            e.f = function(){ return i.wap("iq", { xmlns: "w:x", type: "get" }); };
+        });"#;
+        let s = scan_module_source(m, &mi(), &ri());
+        assert_eq!(s.len(), 1);
+        assert_eq!(s[0].parser_name, "unknown");
+        assert!(s[0].response.fields.is_empty());
+    }
+
+    #[test]
+    fn iq_type_other_than_get_set_is_skipped() {
+        let m = r#"__d("WAWebOdd",["WAWap"],function(g,r,d,o,e,i){
+            e.f = function(){ return i.wap("iq", { xmlns: "w:x", type: "result" }); };
+        });"#;
+        assert!(scan_module_source(m, &mi(), &ri()).is_empty());
+    }
+
+    #[test]
+    fn ends_ci_is_utf8_safe() {
+        assert!(ends_ci("fooParser", "parser"));
+        assert!(ends_ci("Response", "response"));
+        assert!(!ends_ci("xy", "parser"));
+        // A multibyte char near the suffix boundary must not panic.
+        assert!(!ends_ci("café", "parser"));
+        assert!(!ends_ci("naïve", "ive"));
+    }
+
+    #[test]
+    fn export_filtering_prefers_function_export() {
+        // Exports include a CONST, a Parser-suffixed name, and a real fn export.
+        let m = r#"__d("WAWebE",["WAWap"],function(g,r,d,o,e,i){
+            e.SOME_CONST = 1;
+            e.fooParser = 2;
+            e.doThing = function(){ return i.wap("iq", { xmlns: "w:e", type: "get" }); };
+        });"#;
+        let s = scan_module_source(m, &mi(), &ri());
+        assert_eq!(s[0].exported_function.as_deref(), Some("doThing"));
+        assert!(s[0].all_exports.contains(&"SOME_CONST".to_string()));
+    }
+}

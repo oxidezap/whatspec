@@ -1,0 +1,19 @@
+[package]
+name = "wa-appstate"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Native tooling: extract WhatsApp AppState (syncd) action schemas from WA Web bundles. Not WASM-targeted."
+
+[dependencies]
+regex = "1"
+wa-ir = { workspace = true }
+wa-text = { workspace = true }
+wa-transform = { workspace = true }
+
+[dev-dependencies]
+anyhow = { workspace = true }
+serde_json = { workspace = true }

@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Format
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      # Also lint with every feature on, so otherwise-gated code (the reserved
+      # `generalized-stanza` model, the `schema` derives) can't silently rot.
+      - name: Clippy (all features)
+        run: cargo clippy --workspace --all-features --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --workspace
+
+      # The JSON Schema derivation + envelope self-tests only build under the
+      # `schema` feature, so run them explicitly.
+      - name: Schema self-tests
+        run: cargo test -p wa-ir --features schema
+
+      # The IR is the contract shared with the future WASM/tsify layer: it must
+      # stay free of native deps. This fails if oxc/ureq/regex ever leak in.
+      - name: wa-ir is WASM-safe (serde-only)
+        run: cargo check -p wa-ir --target wasm32-unknown-unknown
+
+      # The browser `fetch` adapter must keep compiling to WASM with the native
+      # (ureq) transport off — the path the web/tsify layer will use.
+      - name: wa-fetch WASM adapter builds
+        run: cargo check -p wa-fetch --no-default-features --target wasm32-unknown-unknown
+
+      # The CLI must build fetch-free (offline `--bundles` workflow; keeps the
+      # network transport optional rather than load-bearing).
+      - name: whatspec builds without fetch
+        run: cargo build -p whatspec --no-default-features
+
+      # Enforce the C-free guarantee: rustls uses the pure-Rust RustCrypto
+      # provider, so `ring`/`aws-lc`/`openssl-sys` must never enter the tree (a
+      # ureq feature flip or a new dep could otherwise reintroduce a C/asm build).
+      - name: C-free (no ring/aws-lc/openssl-sys)
+        run: |
+          tree=$(cargo tree --workspace --edges normal --all-features)
+          if echo "$tree" | grep -Eiq '\b(ring|aws-lc-sys|aws-lc-rs|openssl-sys)\b'; then
+            echo "::error::native crypto/C dependency detected in the tree"
+            echo "$tree" | grep -Ei '\b(ring|aws-lc-sys|aws-lc-rs|openssl-sys)\b'
+            exit 1
+          fi
+          echo "C-free OK"
+
+      # Catch dependencies declared in a Cargo.toml but no longer used in code.
+      - name: Install cargo-shear
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-shear
+      - name: Unused dependencies
+        run: cargo shear
+
+      # Drift guard: the committed `generated/*/index.json` must still conform to
+      # the committed `generated/schema/*.json`. Network-free and deterministic.
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Validate generated artifacts against schemas
+        run: |
+          pip install --quiet jsonschema
+          python scripts/validate-schemas.py generated

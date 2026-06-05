@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "IrEnvelope",
+  "description": "Envelope that stamps a domain IR document with [`SCHEMA_VERSION`] at emit\ntime, without altering the inner document's shape.\n\n`#[serde(flatten)]` keeps the document's own fields (`waVersion`, `stanzas`,\n…) at the top level and merely adds `schemaVersion` alongside them — additive,\nso existing consumers that ignore unknown fields are unaffected.",
+  "type": "object",
+  "properties": {
+    "enums": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/InternalEnumDef"
+      }
+    },
+    "schemaVersion": {
+      "description": "The IR contract version — see [`SCHEMA_VERSION`].",
+      "type": "string"
+    },
+    "waVersion": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "waVersion",
+    "enums"
+  ],
+  "$defs": {
+    "EnumValueKind": {
+      "description": "Whether an enum's values are integer codes or wire strings.",
+      "type": "string",
+      "enum": [
+        "int",
+        "string"
+      ]
+    },
+    "EnumVariant": {
+      "description": "One `NAME: value` member of an enum (value is an [`Scalar::Int`] or\n[`Scalar::Str`], matching the enclosing [`InternalEnumDef::value_kind`]).",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/$defs/Scalar"
+        }
+      },
+      "required": [
+        "name",
+        "value"
+      ]
+    },
+    "InternalEnumDef": {
+      "description": "A single `$InternalEnum` definition with its resolved name.",
+      "type": "object",
+      "properties": {
+        "module": {
+          "description": "The module that defines it.",
+          "type": "string"
+        },
+        "name": {
+          "description": "Resolved enum name (its export, or the module name for a default export).",
+          "type": "string"
+        },
+        "valueKind": {
+          "$ref": "#/$defs/EnumValueKind"
+        },
+        "variants": {
+          "description": "Variants in source order (often ordinal-significant for int enums).",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EnumVariant"
+          }
+        }
+      },
+      "required": [
+        "name",
+        "module",
+        "valueKind",
+        "variants"
+      ]
+    },
+    "Scalar": {
+      "description": "A JSON scalar literal (bool / integer / float / string), used for A/B-prop\ndefaults and enum values. `untagged` so it serializes as the bare JSON value;\nthe surrounding `valueType` / `valueKind` field tells consumers which arm to\nexpect. Not `Eq` because of the `f64` arm.",
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "integer",
+          "format": "int64"
+        },
+        {
+          "type": "number",
+          "format": "double"
+        },
+        {
+          "type": "string"
+        }
+      ]
+    }
+  }
+}

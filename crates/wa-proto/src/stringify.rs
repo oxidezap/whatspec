@@ -1,0 +1,218 @@
+//! Render a [`ProtoFile`] to `.proto` text: 4-space indent,
+//! `flags type name = id [packed=true];`, top-level entities sorted by name, a
+//! blank line after each message (none after an enum), and the
+//! `syntax`/`package`/version header.
+
+use wa_ir::{ProtoEntity, ProtoEnum, ProtoField, ProtoFile, ProtoMember, ProtoMessage};
+
+const INDENT: &str = "    ";
+
+/// Render a full `.proto` file.
+pub fn stringify(file: &ProtoFile) -> String {
+    let mut entities: Vec<&ProtoEntity> = file.entities.iter().collect();
+    entities.sort_by(|a, b| a.name().cmp(b.name()));
+
+    let body = entities
+        .iter()
+        .map(|e| entity_lines(e).join("\n"))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    format!(
+        "syntax = \"proto3\";\npackage waproto;\n\n/// WhatsApp Version: {}\n\n{}",
+        file.wa_version, body
+    )
+}
+
+fn entity_lines(e: &ProtoEntity) -> Vec<String> {
+    match e {
+        ProtoEntity::Enum(en) => enum_lines(en),
+        ProtoEntity::Message(m) => message_lines(m),
+    }
+}
+
+fn enum_lines(e: &ProtoEnum) -> Vec<String> {
+    let mut out = vec![format!("enum {} {{", e.name)];
+    for v in &e.values {
+        out.push(format!("{INDENT}{} = {};", v.name, v.id));
+    }
+    out.push("}".to_string());
+    out
+}
+
+fn message_lines(m: &ProtoMessage) -> Vec<String> {
+    let mut out = vec![format!("message {} {{", m.name)];
+    for member in &m.members {
+        out.extend(indent(member_lines(member)));
+    }
+    for nested in &m.nested {
+        out.extend(indent(entity_lines(nested)));
+    }
+    out.push("}".to_string());
+    out.push(String::new()); // trailing blank line after a message
+
+    out
+}
+
+fn member_lines(member: &ProtoMember) -> Vec<String> {
+    match member {
+        ProtoMember::Field(f) => vec![field_line(f)],
+        ProtoMember::OneOf(o) => {
+            let mut out = vec![format!("oneof {} {{", o.name)];
+            for f in &o.fields {
+                out.push(format!("{INDENT}{}", field_line(f)));
+            }
+            out.push("}".to_string());
+            out
+        }
+    }
+}
+
+fn field_line(f: &ProtoField) -> String {
+    let flags = f.flags.join(" ");
+    let sep = if f.flags.is_empty() { "" } else { " " };
+    let packed = if f.packed { " [packed=true]" } else { "" };
+    format!("{flags}{sep}{} {} = {}{packed};", f.type_name, f.name, f.id)
+}
+
+/// Prefix every line with one indent level (blank lines included, matching the
+/// reference's `addPrefix`).
+fn indent(lines: Vec<String>) -> Vec<String> {
+    lines.into_iter().map(|l| format!("{INDENT}{l}")).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wa_ir::{ProtoEnumValue, ProtoOneOf};
+
+    fn field(name: &str, ftype: &str, id: i64, flags: &[&str], packed: bool) -> ProtoMember {
+        ProtoMember::Field(ProtoField {
+            name: name.to_string(),
+            id,
+            type_name: ftype.to_string(),
+            flags: flags.iter().map(|s| s.to_string()).collect(),
+            packed,
+        })
+    }
+
+    #[test]
+    fn matches_adv_snippet() {
+        // Hand-built IR for the ADV* head of a real WAProto.proto.
+        let file = ProtoFile {
+            wa_version: "2.3000.1040225260".to_string(),
+            entities: vec![
+                ProtoEntity::Message(ProtoMessage {
+                    name: "ADVDeviceIdentity".to_string(),
+                    members: vec![
+                        field("rawId", "uint32", 1, &["optional"], false),
+                        field("timestamp", "uint64", 2, &["optional"], false),
+                        field("keyIndex", "uint32", 3, &["optional"], false),
+                        field("accountType", "ADVEncryptionType", 4, &["optional"], false),
+                        field("deviceType", "ADVEncryptionType", 5, &["optional"], false),
+                    ],
+                    nested: vec![],
+                }),
+                ProtoEntity::Enum(ProtoEnum {
+                    name: "ADVEncryptionType".to_string(),
+                    values: vec![
+                        ProtoEnumValue {
+                            name: "E2EE".to_string(),
+                            id: 0,
+                        },
+                        ProtoEnumValue {
+                            name: "HOSTED".to_string(),
+                            id: 1,
+                        },
+                        ProtoEnumValue {
+                            name: "NON_E2EE".to_string(),
+                            id: 2,
+                        },
+                    ],
+                }),
+                ProtoEntity::Message(ProtoMessage {
+                    name: "ADVKeyIndexList".to_string(),
+                    members: vec![
+                        field("rawId", "uint32", 1, &["optional"], false),
+                        field("timestamp", "uint64", 2, &["optional"], false),
+                        field("currentIndex", "uint32", 3, &["optional"], false),
+                        field("validIndexes", "uint32", 4, &["repeated"], true),
+                        field("accountType", "ADVEncryptionType", 5, &["optional"], false),
+                    ],
+                    nested: vec![],
+                }),
+            ],
+        };
+
+        let expected = "syntax = \"proto3\";\npackage waproto;\n\n/// WhatsApp Version: 2.3000.1040225260\n\n\
+message ADVDeviceIdentity {\n\
+\x20   optional uint32 rawId = 1;\n\
+\x20   optional uint64 timestamp = 2;\n\
+\x20   optional uint32 keyIndex = 3;\n\
+\x20   optional ADVEncryptionType accountType = 4;\n\
+\x20   optional ADVEncryptionType deviceType = 5;\n\
+}\n\
+\n\
+enum ADVEncryptionType {\n\
+\x20   E2EE = 0;\n\
+\x20   HOSTED = 1;\n\
+\x20   NON_E2EE = 2;\n\
+}\n\
+message ADVKeyIndexList {\n\
+\x20   optional uint32 rawId = 1;\n\
+\x20   optional uint64 timestamp = 2;\n\
+\x20   optional uint32 currentIndex = 3;\n\
+\x20   repeated uint32 validIndexes = 4 [packed=true];\n\
+\x20   optional ADVEncryptionType accountType = 5;\n\
+}\n";
+
+        assert_eq!(stringify(&file), expected);
+    }
+
+    #[test]
+    fn oneof_and_nested_and_map() {
+        let file = ProtoFile {
+            wa_version: "2.3000.1".to_string(),
+            entities: vec![ProtoEntity::Message(ProtoMessage {
+                name: "Outer".to_string(),
+                members: vec![
+                    ProtoMember::OneOf(ProtoOneOf {
+                        name: "body".to_string(),
+                        fields: vec![
+                            ProtoField {
+                                name: "text".to_string(),
+                                id: 1,
+                                type_name: "string".to_string(),
+                                flags: vec![],
+                                packed: false,
+                            },
+                            ProtoField {
+                                name: "num".to_string(),
+                                id: 2,
+                                type_name: "int32".to_string(),
+                                flags: vec![],
+                                packed: false,
+                            },
+                        ],
+                    }),
+                    field("labels", "map<string, string>", 3, &[], false),
+                    field("inner", "Outer.Inner", 4, &["optional"], false),
+                ],
+                nested: vec![ProtoEntity::Message(ProtoMessage {
+                    name: "Inner".to_string(),
+                    members: vec![field("x", "uint32", 1, &["optional"], false)],
+                    nested: vec![],
+                })],
+            })],
+        };
+
+        let out = stringify(&file);
+        assert!(out.contains(
+            "    oneof body {\n        string text = 1;\n        int32 num = 2;\n    }\n"
+        ));
+        assert!(out.contains("    map<string, string> labels = 3;\n"));
+        assert!(out.contains("    optional Outer.Inner inner = 4;\n"));
+        // Nested message is indented one level inside Outer.
+        assert!(out.contains("    message Inner {\n        optional uint32 x = 1;\n    }\n"));
+    }
+}

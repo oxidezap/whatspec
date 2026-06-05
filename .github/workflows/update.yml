@@ -1,0 +1,41 @@
+name: Update WhatsApp specs
+
+# Regenerates generated/ from the live WhatsApp Web bundles and commits any diff.
+# Manual for now; switch the schedule on for daily/weekly runs.
+on:
+  workflow_dispatch:
+  # schedule:
+  #   - cron: "0 6 * * *"   # daily 06:00 UTC
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-specs
+  cancel-in-progress: true
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Regenerate specs
+        run: ./scripts/update.sh
+
+      - name: Commit changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ -n "$(git status --porcelain generated)" ]; then
+            ver=$(jq -r .waVersion generated/manifest.json)
+            git add generated
+            git commit -m "chore: update WhatsApp specs to ${ver}"
+            git push
+          else
+            echo "No spec changes."
+          fi

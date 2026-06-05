@@ -1,0 +1,13 @@
+/target
+**/*.rs.bk
+.DS_Store
+# Conventional location for the `whatspec update --cache` bundle cache.
+/.wa-cache/
+
+# The committed contract is the language-neutral IR (index.json + schema +
+# manifest + WAProto.proto); the reference Rust codegen is regenerated, not tracked.
+/generated/**/*.rs
+
+# Python bytecode cache from the helper scripts.
+scripts/__pycache__/
+*.pyc

@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "IrEnvelope",
+  "description": "Envelope that stamps a domain IR document with [`SCHEMA_VERSION`] at emit\ntime, without altering the inner document's shape.\n\n`#[serde(flatten)]` keeps the document's own fields (`waVersion`, `stanzas`,\n…) at the top level and merely adds `schemaVersion` alongside them — additive,\nso existing consumers that ignore unknown fields are unaffected.",
+  "type": "object",
+  "properties": {
+    "operations": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/MexOperation"
+      }
+    },
+    "schemaVersion": {
+      "description": "The IR contract version — see [`SCHEMA_VERSION`].",
+      "type": "string"
+    },
+    "waVersion": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "waVersion",
+    "operations"
+  ],
+  "$defs": {
+    "MexOperation": {
+      "type": "object",
+      "properties": {
+        "docId": {
+          "description": "Persisted query id (numeric string), or the operation name when the\nquery is sent as text rather than persisted.",
+          "type": "string"
+        },
+        "operationKind": {
+          "$ref": "#/$defs/MexOperationKind"
+        },
+        "originalName": {
+          "description": "The full Relay operation name, e.g. `WAWebFetchGroupInfoQuery`.",
+          "type": "string"
+        },
+        "response": {
+          "description": "Typed shape of the response (top-level field → type tree).",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/TypeNode"
+          }
+        },
+        "variables": {
+          "description": "Top-level variable (argument) names.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "variablesShape": {
+          "description": "Typed shape of the input variables (argument name → type tree).",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/TypeNode"
+          }
+        }
+      },
+      "required": [
+        "originalName",
+        "docId",
+        "operationKind"
+      ]
+    },
+    "MexOperationKind": {
+      "type": "string",
+      "enum": [
+        "query",
+        "mutation"
+      ]
+    },
+    "TypeNode": {
+      "description": "A node in a `variablesShape` / `response` type tree.\n\nMirrors the reference's JSON shape via `untagged`: an object renders as\n`{field: ..}`, a plural field as a single-element `[inner]` array, and a\nscalar leaf as a type-tag string (`\"string\"`/`\"number\"`/`\"boolean\"`/\n`\"enum:A|B\"`/`\"unknown\"`). Object key ordering is normalized (sorted) — the\ntree is compared semantically, not by source order.",
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/TypeNode"
+          }
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TypeNode"
+          }
+        },
+        {
+          "type": "string"
+        }
+      ]
+    }
+  }
+}

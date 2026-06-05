@@ -1,0 +1,31 @@
+[package]
+name = "wa-ir"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "WASM-safe serde model for the extracted WhatsApp Web protocol IR (the codegen contract)."
+
+[features]
+# Off by default to keep the WASM-safe contract minimal (serde only). Enabling
+# `schema` derives `schemars::JsonSchema` on the IR types so the CLI can emit a
+# JSON Schema of the contract for cross-language consumers. schemars is pure-Rust
+# (no C), so the C-free guarantee holds.
+schema = ["dep:schemars", "dep:serde_json"]
+
+# The generalized-stanza model (`StanzaDef`, `StanzaScanResult`,
+# `IncomingHandlerDef`, …) is reserved for future non-IQ stanza coverage and is
+# not part of the shipped contract: no extractor produces it and it appears in no
+# emitted artifact. Gated off by default so the active API surface and schema
+# stay minimal; enable to experiment with it.
+generalized-stanza = []
+
+[dependencies]
+schemars = { version = "1", optional = true }
+serde = { workspace = true }
+serde_json = { workspace = true, optional = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

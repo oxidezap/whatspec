@@ -1,0 +1,51 @@
+[workspace]
+resolver = "2"
+# Per-crate descriptions live in each crate's Cargo.toml `description` (kept here
+# comment-free so the formatter can't misalign per-member notes).
+members = [
+    "crates/wa-abprops",
+    "crates/wa-appstate",
+    "crates/wa-codegen",
+    "crates/wa-enums",
+    "crates/wa-fetch",
+    "crates/wa-ir",
+    "crates/wa-mex",
+    "crates/wa-oxc",
+    "crates/wa-proto",
+    "crates/wa-scan",
+    "crates/wa-text",
+    "crates/wa-transform",
+    "crates/whatspec",
+]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.85"
+license = "MIT"
+authors = ["João Lucas <jlucaso@hotmail.com>"]
+repository = "https://github.com/oxidezap/whatspec"
+
+[workspace.dependencies]
+anyhow = "1"
+
+# oxc (native JS parsing/AST) — tooling crates only, never the WASM build.
+oxc_allocator = "0.133"
+oxc_ast = "0.133"
+oxc_ast_visit = "0.133"
+oxc_parser = "0.133"
+oxc_span = "0.133"
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+wa-abprops = { path = "crates/wa-abprops" }
+wa-appstate = { path = "crates/wa-appstate" }
+wa-codegen = { path = "crates/wa-codegen" }
+wa-enums = { path = "crates/wa-enums" }
+wa-fetch = { path = "crates/wa-fetch" }
+wa-ir = { path = "crates/wa-ir" }
+wa-mex = { path = "crates/wa-mex" }
+wa-oxc = { path = "crates/wa-oxc" }
+wa-proto = { path = "crates/wa-proto" }
+wa-scan = { path = "crates/wa-scan" }
+wa-text = { path = "crates/wa-text" }
+wa-transform = { path = "crates/wa-transform" }

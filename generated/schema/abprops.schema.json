@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "IrEnvelope",
+  "description": "Envelope that stamps a domain IR document with [`SCHEMA_VERSION`] at emit\ntime, without altering the inner document's shape.\n\n`#[serde(flatten)]` keeps the document's own fields (`waVersion`, `stanzas`,\n…) at the top level and merely adds `schemaVersion` alongside them — additive,\nso existing consumers that ignore unknown fields are unaffected.",
+  "type": "object",
+  "properties": {
+    "configs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/AbPropConfig"
+      }
+    },
+    "schemaVersion": {
+      "description": "The IR contract version — see [`SCHEMA_VERSION`].",
+      "type": "string"
+    },
+    "waVersion": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "waVersion",
+    "configs"
+  ],
+  "$defs": {
+    "AbPropConfig": {
+      "description": "One feature-flag entry: `name → [code, type, default, alt_default]`.",
+      "type": "object",
+      "properties": {
+        "altDefault": {
+          "description": "A second default the bundle stores per flag (differs for ~25% of flags —\noften the server/\"enabled\" default); present only when it differs from\n`default`. Exact semantics are WA-internal.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Scalar"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "code": {
+          "description": "Numeric config id sent in the `<props>` IQ.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "default": {
+          "description": "The flag's default value (typed per `value_type`).",
+          "$ref": "#/$defs/Scalar"
+        },
+        "name": {
+          "description": "Flag key, e.g. `privacy_token_sending_on_all_1_on_1_messages`.",
+          "type": "string"
+        },
+        "valueType": {
+          "$ref": "#/$defs/AbPropType"
+        }
+      },
+      "required": [
+        "name",
+        "code",
+        "valueType",
+        "default"
+      ]
+    },
+    "AbPropType": {
+      "description": "The declared value type of an A/B prop.",
+      "type": "string",
+      "enum": [
+        "bool",
+        "int",
+        "string",
+        "float"
+      ]
+    },
+    "Scalar": {
+      "description": "A JSON scalar literal (bool / integer / float / string), used for A/B-prop\ndefaults and enum values. `untagged` so it serializes as the bare JSON value;\nthe surrounding `valueType` / `valueKind` field tells consumers which arm to\nexpect. Not `Eq` because of the `f64` arm.",
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "integer",
+          "format": "int64"
+        },
+        {
+          "type": "number",
+          "format": "double"
+        },
+        {
+          "type": "string"
+        }
+      ]
+    }
+  }
+}

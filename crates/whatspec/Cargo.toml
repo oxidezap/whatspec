@@ -1,0 +1,36 @@
+[package]
+name = "whatspec"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Extract WhatsApp Web's protocol surface from its JS bundle into a language-neutral IR (+ reference Rust)."
+
+[[bin]]
+name = "whatspec"
+path = "src/main.rs"
+
+[features]
+default = ["fetch"]
+# Network fetch of bundles from web.whatsapp.com (pulls in wa-fetch's native
+# HTTP/TLS stack). On by default. Build with --no-default-features to get a
+# fetch-free binary that only processes local bundles via `--bundles <dir>`.
+fetch = ["dep:wa-fetch"]
+
+[dependencies]
+anyhow = { workspace = true }
+serde_json = { workspace = true }
+wa-abprops = { workspace = true }
+wa-appstate = { workspace = true }
+wa-codegen = { workspace = true }
+wa-enums = { workspace = true }
+wa-fetch = { workspace = true, optional = true }
+wa-ir = { workspace = true, features = ["schema"] }
+wa-mex = { workspace = true }
+wa-proto = { workspace = true }
+wa-scan = { workspace = true }
+# Pure-Rust content hashing (sha256_hex) for the manifest — no C, always available.
+wa-text = { workspace = true }
+wa-transform = { workspace = true }

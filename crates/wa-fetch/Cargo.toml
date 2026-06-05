@@ -1,0 +1,35 @@
+[package]
+name = "wa-fetch"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Discover and download WhatsApp Web JS bundles. Ports-and-adapters: a WASM-safe HttpClient port + an optional native ureq/rustls adapter."
+
+[features]
+default = ["native"]
+# Native HTTP adapter (ureq over rustls + pure-Rust RustCrypto, no `ring`) plus
+# the on-disk version-keyed bundle cache (needs std::fs, serde, sha2). Disable to
+# keep only the WASM-safe HttpClient port + discovery parser, for a
+# browser-`fetch` adapter to drive.
+native = ["dep:ureq", "dep:rustls-rustcrypto", "dep:serde"]
+
+[dependencies]
+anyhow = { workspace = true }
+rustls-rustcrypto = { version = "0.0.2-alpha", optional = true }
+# Native cache only — manifest (de)serialization.
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true }
+# Native adapter only — minimal blocking HTTP (no tokio/hyper). TLS uses rustls
+# with a pure-Rust RustCrypto provider instead of `ring`. `rustls-no-provider`
+# drops ring; `rustls-webpki-roots` keeps the bundled roots.
+ureq = { version = "3.3.0", default-features = false, features = ["rustls-no-provider", "rustls-webpki-roots"], optional = true }
+# Pure/WASM-safe; provides the shared sha256_hex used by the bundle cache.
+wa-text = { workspace = true }
+
+[[example]]
+name = "discover"
+path = "examples/discover.rs"
+required-features = ["native"]

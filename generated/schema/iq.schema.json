@@ -1,0 +1,405 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "IrEnvelope",
+  "description": "Envelope that stamps a domain IR document with [`SCHEMA_VERSION`] at emit\ntime, without altering the inner document's shape.\n\n`#[serde(flatten)]` keeps the document's own fields (`waVersion`, `stanzas`,\n…) at the top level and merely adds `schemaVersion` alongside them — additive,\nso existing consumers that ignore unknown fields are unaffected.",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "description": "The IR contract version — see [`SCHEMA_VERSION`].",
+      "type": "string"
+    },
+    "stanzas": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/IqStanzaDef"
+      }
+    },
+    "unparseable": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Unparseable"
+      }
+    },
+    "waVersion": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "waVersion",
+    "stanzas"
+  ],
+  "$defs": {
+    "AssertionKind": {
+      "description": "What a response parser asserts before accepting a node as its variant.",
+      "type": "string",
+      "enum": [
+        "tag",
+        "attr",
+        "from_server"
+      ]
+    },
+    "ContentType": {
+      "description": "How a child/leaf node's content is accessed in the response parser.",
+      "type": "string",
+      "enum": [
+        "string",
+        "bytes",
+        "nodes"
+      ]
+    },
+    "IqRequestDef": {
+      "description": "The outgoing request half of an IQ operation.",
+      "type": "object",
+      "properties": {
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/WapChildNode"
+          }
+        },
+        "iqType": {
+          "$ref": "#/$defs/IqType"
+        },
+        "namespace": {
+          "type": "string"
+        },
+        "target": {
+          "$ref": "#/$defs/IqTarget"
+        }
+      },
+      "required": [
+        "namespace",
+        "iqType",
+        "target",
+        "children"
+      ]
+    },
+    "IqStanzaDef": {
+      "description": "A complete IQ operation: its request shape and response parser.",
+      "type": "object",
+      "properties": {
+        "allExports": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "exportedFunction": {
+          "description": "Primary exported function name, or `null` when the module default-exports.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "iqType": {
+          "$ref": "#/$defs/IqType"
+        },
+        "moduleName": {
+          "type": "string"
+        },
+        "namespace": {
+          "type": "string"
+        },
+        "parserName": {
+          "type": "string"
+        },
+        "request": {
+          "$ref": "#/$defs/IqRequestDef"
+        },
+        "response": {
+          "$ref": "#/$defs/ParsedResponse"
+        },
+        "target": {
+          "$ref": "#/$defs/IqTarget"
+        }
+      },
+      "required": [
+        "moduleName",
+        "namespace",
+        "iqType",
+        "target",
+        "parserName",
+        "allExports",
+        "request",
+        "response"
+      ]
+    },
+    "IqTarget": {
+      "description": "IQ target server.",
+      "type": "string",
+      "enum": [
+        "s.whatsapp.net",
+        "g.us"
+      ]
+    },
+    "IqType": {
+      "description": "IQ operation kind.",
+      "type": "string",
+      "enum": [
+        "get",
+        "set"
+      ]
+    },
+    "ParsedField": {
+      "description": "One field extracted from a response stanza by a parser.\n\n`method` is the parser accessor used (e.g. `attrString`, `maybeChild`,\n`forEachChildWithTag`) and is left open-ended (free-form string) to track the\nreal WA accessor surface; the codegen switches on it.",
+      "type": "object",
+      "properties": {
+        "byteLength": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "children": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/ParsedField"
+          }
+        },
+        "contentType": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ContentType"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "enumKeys": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "method": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "repeats": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "tag": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "type": {
+          "$ref": "#/$defs/ParsedFieldType"
+        }
+      },
+      "required": [
+        "method",
+        "name",
+        "type",
+        "required"
+      ]
+    },
+    "ParsedFieldType": {
+      "description": "Scalar type a parsed response field decodes to.",
+      "type": "string",
+      "enum": [
+        "string",
+        "integer",
+        "enum",
+        "bytes",
+        "jid",
+        "device_jid",
+        "group_jid",
+        "jid_typed"
+      ]
+    },
+    "ParsedResponse": {
+      "description": "The parsed response half of an IQ operation.",
+      "type": "object",
+      "properties": {
+        "assertions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ResponseAssertion"
+          }
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ParsedField"
+          }
+        },
+        "parserName": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "parserName",
+        "assertions",
+        "fields"
+      ]
+    },
+    "ResponseAssertion": {
+      "description": "A single guard a response parser applies.",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/AssertionKind"
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "value": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "kind"
+      ]
+    },
+    "Unparseable": {
+      "description": "A module the scanner recognized as an IQ module but could not fully parse.",
+      "type": "object",
+      "properties": {
+        "moduleName": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "moduleName",
+        "reason"
+      ]
+    },
+    "WapAttrDef": {
+      "description": "A single attribute on a request stanza node.",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/WapAttrKind"
+        },
+        "name": {
+          "type": "string"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "value": {
+          "description": "Present only for [`WapAttrKind::Const`].",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "kind",
+        "required"
+      ]
+    },
+    "WapAttrKind": {
+      "description": "Classification of a single WAP attribute on a request stanza node.",
+      "oneOf": [
+        {
+          "description": "Fixed literal value (carried in [`WapAttrDef::value`]).",
+          "type": "string",
+          "const": "const"
+        },
+        {
+          "description": "Dynamic string argument.",
+          "type": "string",
+          "const": "string"
+        },
+        {
+          "description": "Integer argument (stringified on the wire).",
+          "type": "string",
+          "const": "integer"
+        },
+        {
+          "description": "`<user>@s.whatsapp.net`.",
+          "type": "string",
+          "const": "user_jid"
+        },
+        {
+          "description": "`<user>:<device>@s.whatsapp.net`.",
+          "type": "string",
+          "const": "device_jid"
+        },
+        {
+          "description": "`<group>@g.us`.",
+          "type": "string",
+          "const": "group_jid"
+        },
+        {
+          "description": "Auto-generated stanza id (`wap.generateId()`).",
+          "type": "string",
+          "const": "generated_id"
+        },
+        {
+          "description": "Optional string argument.",
+          "type": "string",
+          "const": "optional"
+        },
+        {
+          "description": "Computed/dynamic value not statically resolvable.",
+          "type": "string",
+          "const": "dynamic"
+        }
+      ]
+    },
+    "WapChildNode": {
+      "description": "A node in a request stanza tree.",
+      "type": "object",
+      "properties": {
+        "attrs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/WapAttrDef"
+          }
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/WapChildNode"
+          }
+        },
+        "repeats": {
+          "description": "Whether this child can appear multiple times (maps to `Vec<_>` in codegen).",
+          "type": "boolean"
+        },
+        "tag": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tag",
+        "attrs",
+        "children",
+        "repeats"
+      ]
+    }
+  }
+}

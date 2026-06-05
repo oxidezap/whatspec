@@ -1,0 +1,238 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "IrEnvelope",
+  "description": "Envelope that stamps a domain IR document with [`SCHEMA_VERSION`] at emit\ntime, without altering the inner document's shape.\n\n`#[serde(flatten)]` keeps the document's own fields (`waVersion`, `stanzas`,\n…) at the top level and merely adds `schemaVersion` alongside them — additive,\nso existing consumers that ignore unknown fields are unaffected.",
+  "type": "object",
+  "properties": {
+    "actions": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/AppstateAction"
+      }
+    },
+    "collections": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "schemaVersion": {
+      "description": "The IR contract version — see [`SCHEMA_VERSION`].",
+      "type": "string"
+    },
+    "waVersion": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "waVersion",
+    "collections",
+    "actions"
+  ],
+  "$defs": {
+    "AppstateAction": {
+      "description": "A single AppState action schema.",
+      "type": "object",
+      "properties": {
+        "baseClass": {
+          "type": "string"
+        },
+        "chatJidIndex": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64"
+        },
+        "collection": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "indexParts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/IndexPart"
+          }
+        },
+        "module": {
+          "type": "string"
+        },
+        "name": {
+          "description": "Wire action name (e.g. `deviceAgent`).",
+          "type": "string"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "valueEnumFields": {
+          "description": "Map of value-field name → protobuf enum path, when the value has enums.",
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "valueField": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "valueProtoType": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "version": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "module",
+        "name",
+        "scope",
+        "baseClass",
+        "indexParts"
+      ]
+    },
+    "IndexPart": {
+      "description": "One element of an action's mutation index. `type` discriminates the shape.",
+      "oneOf": [
+        {
+          "description": "Fixed literal at a position (the action wire name lives at position 0).",
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "literal"
+            },
+            "value": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "value"
+          ]
+        },
+        {
+          "description": "WhatsApp JID string.",
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "const": "jid"
+            }
+          },
+          "required": [
+            "type",
+            "name"
+          ]
+        },
+        {
+          "description": "`'0'`/`'1'` boolean encoding.",
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "const": "boolString"
+            }
+          },
+          "required": [
+            "type",
+            "name"
+          ]
+        },
+        {
+          "description": "Participant slot — a JID, or literal `'0'`.",
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "const": "jidOrZero"
+            }
+          },
+          "required": [
+            "type",
+            "name"
+          ]
+        },
+        {
+          "description": "Stringified protobuf enum int; `protoEnum` is the enum path under SyncActionValue.",
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "protoEnum": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "const": "enum"
+            }
+          },
+          "required": [
+            "type",
+            "name",
+            "protoEnum"
+          ]
+        },
+        {
+          "description": "Opaque identifier (msg id, label id, …).",
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "const": "string"
+            }
+          },
+          "required": [
+            "type",
+            "name"
+          ]
+        },
+        {
+          "description": "Unrecognised slot.",
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "const": "unknown"
+            }
+          },
+          "required": [
+            "type",
+            "name"
+          ]
+        }
+      ]
+    }
+  }
+}

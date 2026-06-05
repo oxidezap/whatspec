@@ -1,0 +1,18 @@
+[package]
+name = "wa-codegen"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "IR -> Rust source generation (targets wacore IqSpec patterns)."
+
+[dependencies]
+regex = "1"
+wa-ir = { workspace = true }
+
+[dev-dependencies]
+anyhow = { workspace = true }
+serde_json = { workspace = true }
+wa-scan = { workspace = true }
