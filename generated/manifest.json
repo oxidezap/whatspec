@@ -4,6 +4,11 @@
   "diagnostics": {
     "iq": {
       "candidateModules": 206,
+      "crossModule": {
+        "fieldsRecovered": 10,
+        "requestsEnriched": 8,
+        "requestsWithMixins": 103
+      },
       "degradedResponses": 20,
       "dropsByReason": {
         "iq builder substring present but no AST iq call": 5,
@@ -33,7 +38,7 @@
     "iq": {
       "file": "iq/index.json",
       "schema": "schema/iq.schema.json",
-      "sha256": "0788105b90599f3667021ec910876f4416b83c2e7c363c1190d2b1fdc8a06e26"
+      "sha256": "24c0c17afb0175e39747880a3d08076c26711b6d1ecb3f07b5bee2e9ba54947f"
     },
     "mex": {
       "file": "mex/index.json",

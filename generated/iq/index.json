@@ -12977,7 +12977,14 @@
         "namespace": "newsletter",
         "iqType": "get",
         "target": "s.whatsapp.net",
-        "children": []
+        "children": [
+          {
+            "tag": "messages",
+            "attrs": [],
+            "children": [],
+            "repeats": false
+          }
+        ]
       },
       "response": {
         "parserName": "WASmaxNewslettersGetNewsletterMessagesRPC",
@@ -18135,7 +18142,14 @@
         "namespace": "newsletter",
         "iqType": "get",
         "target": "s.whatsapp.net",
-        "children": []
+        "children": [
+          {
+            "tag": "statuses",
+            "attrs": [],
+            "children": [],
+            "repeats": false
+          }
+        ]
       },
       "response": {
         "parserName": "WASmaxNewslettersGetNewsletterStatusesRPC",
@@ -22581,6 +22595,16 @@
                 "name": "source",
                 "kind": "optional",
                 "required": false
+              },
+              {
+                "name": "subject",
+                "kind": "string",
+                "required": true
+              },
+              {
+                "name": "spam_flow",
+                "kind": "string",
+                "required": true
               }
             ],
             "children": [
@@ -22867,6 +22891,11 @@
                 "name": "jid",
                 "kind": "optional",
                 "required": false
+              },
+              {
+                "name": "spam_flow",
+                "kind": "string",
+                "required": true
               }
             ],
             "children": [
@@ -23152,6 +23181,16 @@
                 "name": "jid",
                 "kind": "user_jid",
                 "required": true
+              },
+              {
+                "name": "subject",
+                "kind": "string",
+                "required": true
+              },
+              {
+                "name": "spam_flow",
+                "kind": "string",
+                "required": true
               }
             ],
             "children": [
@@ -23424,6 +23463,11 @@
                 "name": "jid",
                 "kind": "user_jid",
                 "required": true
+              },
+              {
+                "name": "spam_flow",
+                "kind": "string",
+                "required": true
               }
             ],
             "children": [
@@ -23695,6 +23739,11 @@
               {
                 "name": "jid",
                 "kind": "user_jid",
+                "required": true
+              },
+              {
+                "name": "spam_flow",
+                "kind": "string",
                 "required": true
               }
             ],
@@ -55478,7 +55527,14 @@
         "namespace": "w:g2",
         "iqType": "set",
         "target": "s.whatsapp.net",
-        "children": []
+        "children": [
+          {
+            "tag": "subject",
+            "attrs": [],
+            "children": [],
+            "repeats": false
+          }
+        ]
       },
       "response": {
         "parserName": "WASmaxGroupsSetSubjectRPC",

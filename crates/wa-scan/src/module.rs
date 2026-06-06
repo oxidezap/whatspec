@@ -31,7 +31,23 @@ pub fn scan_module_source(
     mixins: &MixinIndex,
     responses: &ResponseIndex,
 ) -> Vec<IqStanzaDef> {
-    scan_module_outcome(source, mixins, responses).unwrap_or_default()
+    scan_module_outcome(source, mixins, responses)
+        .map(|(stanzas, _)| stanzas)
+        .unwrap_or_default()
+}
+
+/// How much one IQ-request module gained from the cross-module `mergeStanzas`
+/// fragments — the input to the `diagnostics.iq.crossModule` manifest counters.
+/// A module that builds its whole `<iq>` inline has `referenced_mixins == false`
+/// and `fields_recovered == 0`.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CrossModuleStat {
+    /// The module folds in ≥1 `o("WASmaxOut…").merge…Mixin(…)` fragment.
+    pub referenced_mixins: bool,
+    /// Tag/attr entries the fragment merge ADDED to this module's richest emitted
+    /// `<iq>` (i.e. fields that would be dropped without Phase 2). 0 when the
+    /// referenced mixins only contributed `xmlns`/`type`, not children.
+    pub fields_recovered: usize,
 }
 
 /// Why an IQ-candidate module (matched by [`crate::is_iq_module`]) yielded no
@@ -71,7 +87,7 @@ pub fn scan_module_outcome(
     source: &str,
     mixins: &MixinIndex,
     responses: &ResponseIndex,
-) -> Result<Vec<IqStanzaDef>, DropReason> {
+) -> Result<(Vec<IqStanzaDef>, CrossModuleStat), DropReason> {
     let alloc = Allocator::default();
     let ret = wa_oxc::parse_cjs(&alloc, source);
     // A catastrophic parse failure leaves an empty program; surface it instead of
@@ -124,6 +140,20 @@ pub fn scan_module_outcome(
     } else {
         (None, None, None)
     };
+    // Cross-module `mergeStanzas` fragments: the children/attrs the referenced
+    // mixins add to the `<iq>` (e.g. `spam_list{spam_flow}`). Merged by tag into the
+    // locally-built children so those cross-module fields aren't lost.
+    let referenced_mixins = !scanner.mixin_callees.is_empty();
+    let frag_children = if scanner.mixin_callees.is_empty() {
+        Vec::new()
+    } else {
+        crate::mixin_index::resolve_fragment_children(mixins, &scanner.mixin_callees)
+    };
+    // Diagnostic: the most fields any single emitted stanza recovers from the
+    // cross-module fragments (counted on the guard-surviving stanzas only, since a
+    // dropped one contributes nothing to the IR). Reported as `crossModule` so the
+    // Phase-2 recovery is visible/regressable in the manifest.
+    let mut fields_recovered = 0usize;
     let resolved: Vec<ResolvedIqCall> = scanner
         .iq_calls
         .into_iter()
@@ -139,14 +169,20 @@ pub fn scan_module_outcome(
                 iq.target = IqTarget::Group;
             }
             // Guard: a stanza needs both a namespace and a type, or it's dropped.
-            match (iq.namespace, iq.iq_type) {
-                (Some(namespace), Some(iq_type)) => Some(ResolvedIqCall {
-                    namespace,
-                    iq_type,
-                    target: iq.target,
-                    children: iq.children,
-                    export: iq.export,
-                }),
+            match (iq.namespace.clone(), iq.iq_type) {
+                (Some(namespace), Some(iq_type)) => {
+                    let recovered =
+                        crate::mixin_index::count_recovered_fields(&iq.children, &frag_children);
+                    fields_recovered = fields_recovered.max(recovered);
+                    crate::mixin_index::merge_children(&mut iq.children, &frag_children);
+                    Some(ResolvedIqCall {
+                        namespace,
+                        iq_type,
+                        target: iq.target,
+                        children: iq.children,
+                        export: iq.export,
+                    })
+                }
                 _ => None,
             }
         })
@@ -203,7 +239,7 @@ pub fn scan_module_outcome(
         .unwrap_or_else(unknown_parser);
     let parser_name = response.parser_name.clone();
 
-    Ok(resolved
+    let stanzas = resolved
         .into_iter()
         .map(|iq| IqStanzaDef {
             module_name: module_name.to_string(),
@@ -223,7 +259,15 @@ pub fn scan_module_outcome(
             },
             response: response.clone(),
         })
-        .collect())
+        .collect();
+
+    Ok((
+        stanzas,
+        CrossModuleStat {
+            referenced_mixins,
+            fields_recovered,
+        },
+    ))
 }
 
 fn unknown_parser() -> ParsedResponse {
