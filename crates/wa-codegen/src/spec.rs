@@ -70,6 +70,27 @@ fn parser_is_valid(fields: &[wa_ir::ParsedField], response_type_name: &str, pref
     true
 }
 
+/// The names of fields whose absence makes a generated variant parser return `Err`
+/// (so they discriminate which variant a response matches): required attrs
+/// (`attr…`, read with `?`) and required `child` nodes (read with `ok_or_else`).
+/// Excludes optionals (`maybe…`), content reads (defaulted, never fail), and
+/// untyped union/mixin placeholders (`method == ""`). Recursive.
+fn fail_required_fields(fields: &[wa_ir::ParsedField]) -> std::collections::BTreeSet<String> {
+    let mut out = std::collections::BTreeSet::new();
+    fn walk(fields: &[wa_ir::ParsedField], out: &mut std::collections::BTreeSet<String>) {
+        for f in fields {
+            if f.required && (f.method == "child" || f.method.starts_with("attr")) {
+                out.insert(f.name.clone());
+            }
+            if let Some(kids) = &f.children {
+                walk(kids, out);
+            }
+        }
+    }
+    walk(fields, &mut out);
+    out
+}
+
 /// Emit, for an RPC outcome-union response, a `#[derive(Default)]` struct per
 /// variant (and its child item structs) plus an `enum` wrapping them. Returns
 /// `(variant_name, struct_name)` per variant for the parser — but only when EVERY
@@ -115,6 +136,29 @@ fn emit_outcome_types(
         .all(|(v, (_, sname))| parser_is_valid(&v.fields, sname, sname));
     if !all_valid {
         return None;
+    }
+
+    // Bail if the try-each would be ambiguous. Each variant's parser accepts a
+    // response iff it carries all the variant's *fail-on-absent* fields (required
+    // attrs/children). The variants' real discriminators — `literal(type,"result")`,
+    // `flattenedChildWithTag("error")` — aren't captured in the IR (assertions are
+    // empty), so if an earlier variant's required-field set is a subset of a later
+    // one's, the earlier shadows the later (any later-response matches it first) and
+    // the union would misclassify (e.g. an error returned as a bare `type`-only
+    // success). Fall back to `()` rather than emit a parser that lies; capturing the
+    // discriminators is the proper recovery.
+    let req: Vec<std::collections::BTreeSet<String>> = op
+        .response
+        .variants
+        .iter()
+        .map(|v| fail_required_fields(&v.fields))
+        .collect();
+    for i in 0..req.len() {
+        for j in (i + 1)..req.len() {
+            if req[i].is_subset(&req[j]) {
+                return None;
+            }
+        }
     }
 
     let mut info: Vec<(String, String)> = Vec::new();
@@ -722,6 +766,49 @@ mod tests {
         assert!(
             code.contains("MakeGetThingRequestResponse: no response variant matched"),
             "{code}"
+        );
+    }
+
+    #[test]
+    fn ambiguous_outcome_union_falls_back_not_misclassifies() {
+        use wa_ir::{ParsedField, ParsedFieldType, ResponseVariant, ResponseVariantKind};
+        fn attr(name: &str) -> ParsedField {
+            ParsedField {
+                method: "attrString".into(),
+                name: name.into(),
+                field_type: ParsedFieldType::String,
+                required: true,
+                ..Default::default()
+            }
+        }
+        // A type-only success precedes type-only errors (their real discriminators —
+        // type value, <error> child — aren't captured): the success would shadow the
+        // errors. The codegen must NOT emit a (misclassifying) enum.
+        let mut op = stanza("WASmaxOutFooGetThingRequest", Some("makeGetThingRequest"));
+        op.response = ParsedResponse {
+            parser_name: "FooGetThingRPC".into(),
+            variants: vec![
+                ResponseVariant {
+                    tag: "GetThingResponseSuccess".into(),
+                    module_name: "m".into(),
+                    kind: ResponseVariantKind::Success,
+                    assertions: vec![],
+                    fields: vec![attr("type")],
+                },
+                ResponseVariant {
+                    tag: "GetThingResponseError".into(),
+                    module_name: "m".into(),
+                    kind: ResponseVariantKind::Error,
+                    assertions: vec![],
+                    fields: vec![attr("type")],
+                },
+            ],
+            ..Default::default()
+        };
+        let code = generate_spec(&op, "FOO_NAMESPACE", "MakeGetThingRequestSpec");
+        assert!(
+            !code.contains("pub enum MakeGetThingRequestResponse"),
+            "ambiguous union must not generate an enum: {code}"
         );
     }
 
