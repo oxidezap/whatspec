@@ -424,6 +424,10 @@ fn merge_node_into(d: &mut WapChildNode, src: &WapChildNode, optional: bool) {
             d.attrs.push(a.clone());
         }
     }
+    // A repeatable contribution (its root came from `REPEATED_CHILD`/`.map(…)`)
+    // promotes a locally-singular child, mirroring `mixin_index::merge_children` so a
+    // repeated child folded onto an existing tag isn't silently treated as singular.
+    d.repeats = d.repeats || src.repeats;
     crate::mixin_index::merge_children(&mut d.children, &src.children);
     for g in &src.variant_groups {
         let mut g2 = g.clone();
@@ -1257,5 +1261,30 @@ mod tests {
         assert_eq!(out2.len(), 1);
         assert_eq!(out2[0].tag, "row");
         assert!(out2[0].repeats);
+    }
+
+    #[test]
+    fn merge_node_into_promotes_repeats() {
+        // A repeatable contribution folded onto a locally-singular child of the same
+        // tag must promote `repeats` (mirrors mixin_index::merge_children).
+        let mut dst = WapChildNode {
+            tag: "item".into(),
+            attrs: vec![],
+            children: vec![],
+            repeats: false,
+            variant_groups: vec![],
+        };
+        let src = WapChildNode {
+            tag: "item".into(),
+            attrs: vec![],
+            children: vec![],
+            repeats: true,
+            variant_groups: vec![],
+        };
+        merge_node_into(&mut dst, &src, false);
+        assert!(
+            dst.repeats,
+            "repeatable contribution must promote the child"
+        );
     }
 }
