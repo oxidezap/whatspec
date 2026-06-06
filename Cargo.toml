@@ -37,6 +37,9 @@ oxc_span = "0.133"
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Dev-only: syntax-check the generated reference `.rs` so codegen changes can't
+# silently emit invalid Rust (the generated tree isn't part of any compiled crate).
+syn = { version = "2", features = ["full", "parsing"] }
 wa-abprops = { path = "crates/wa-abprops" }
 wa-appstate = { path = "crates/wa-appstate" }
 wa-codegen = { path = "crates/wa-codegen" }

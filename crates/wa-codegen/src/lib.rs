@@ -428,4 +428,20 @@ mod tests {
         assert!(c.contains("InfoQuery::set(W_X_NAMESPACE, Jid::new(\"\", Server::Group), None)"));
         assert!(c.contains("Ok(())"));
     }
+
+    #[test]
+    fn generated_iq_rs_is_valid_rust() {
+        // The generated IQ module compiles into no crate in this workspace (it targets
+        // wacore downstream), so nothing here would catch a codegen change that emits
+        // syntactically-broken Rust. Generate from the committed reference IR and
+        // syntax-check the whole file (resolution/types aren't checked — syn only
+        // parses — but every brace/expr/enum/match must be well-formed).
+        let ir_path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../generated/iq/index.json");
+        let json =
+            std::fs::read_to_string(ir_path).unwrap_or_else(|e| panic!("read {ir_path}: {e}"));
+        let ir: wa_ir::IqIr = serde_json::from_str(&json).expect("deserialize committed IqIr");
+        let code = generate_iq(&ir);
+        syn::parse_file(&code)
+            .unwrap_or_else(|e| panic!("generated iq.rs is not valid Rust ({e})"));
+    }
 }
