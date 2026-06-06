@@ -6,8 +6,7 @@ use wa_ir::wap;
 use wa_ir::{ParsedField, ParsedFieldType, WapAttrKind, WapChildNode};
 
 use crate::fields::{
-    child_content_type, collect_response_fields, flatten_same_node, is_attr_field, is_child_field,
-    is_jid_kind,
+    child_content_type, flatten_same_node, is_attr_field, is_child_field, is_jid_kind,
 };
 use crate::naming::{pascal_case, rust_ident, rust_lit, rust_lit_inner, snake_case};
 
@@ -97,194 +96,23 @@ pub(crate) fn emit_response_parser(
     // lines[0] is reserved for the deferred `use` import, lines[1] is a blank.
     let mut lines: Vec<String> = vec![String::new(), String::new()];
 
-    // Same-node mixin fields are nested in the IR but read off the parent node;
-    // flatten them so the parser emits a flat attr/child read sequence.
-    let fields = &flatten_same_node(fields);
-
-    let (struct_fields, _) = collect_response_fields(fields, prefix);
-    let struct_field_names: std::collections::HashSet<String> =
-        struct_fields.iter().map(|f| f.name.clone()).collect();
-
-    let top_attrs: Vec<&ParsedField> = fields
-        .iter()
-        .filter(|f| is_attr_field(f) && f.method != "hasAttr")
-        .collect();
-    let child_fields: Vec<&ParsedField> = fields.iter().filter(|f| is_child_field(f)).collect();
-
-    // A field may carry a `source_path` of wrapper tags to descend before the
-    // read (smax `flattenedChildWithTag`): e.g. `protocol` lives on <props>, not
-    // the <iq> root. Descend each wrapper once (memoized) so the attr is read off
-    // the right node — for optional attrs too (their wrapper node is still required,
-    // only the attr is absent), otherwise an optional-only wrapper's attrs would be
-    // read off the root and never found.
-    let mut wrapper_vars: HashMap<Vec<String>, String> = HashMap::new();
-    for f in &top_attrs {
-        if !struct_field_names.contains(&rust_ident(&f.name)) {
-            continue;
-        }
-        let node_var = match f.source_path.as_deref() {
-            Some(path) if !path.is_empty() => {
-                ensure_wrapper_var(path, &mut wrapper_vars, &mut lines, indent)
-            }
-            _ => "response".to_string(),
-        };
-        lines.extend(emit_field_parse(f, &node_var, indent));
-    }
-
+    // Recursively emit the reads off `response`, mirroring `collect_response_fields`:
+    // attrs/content leaves become fields, repeated children become `Vec<Item>` loops,
+    // and a non-repeated child is descended and its fields flattened into the parent
+    // (so the parser inits exactly the struct `collect_response_fields` derived).
+    let mut wrapper_vars: HashMap<(String, Vec<String>), String> = HashMap::new();
     let mut init_fields: Vec<String> = Vec::new();
-    let mut emitted: std::collections::HashSet<String> = std::collections::HashSet::new();
-    let mut add_init = |line: String, key: String| {
-        if emitted.insert(key) {
-            init_fields.push(line);
-        }
-    };
-
-    for f in &top_attrs {
-        add_init(
-            format!("{indent}    {},", rust_ident(&f.name)),
-            rust_ident(&f.name),
-        );
-    }
-
-    for child in &child_fields {
-        let child_tag = tag_or_name(child);
-        let child_var = rust_ident(child_tag);
-        let child_lit = rust_lit(child_tag);
-        let kids = children_of(child);
-
-        // Leaf child/maybeChild with contentType, OR a `child("x").contentString()`
-        // wrapper → a single `x` field read off the child node's content.
-        if let Some(ct) = child.content_type.or_else(|| child_content_type(child)) {
-            let field_name = rust_ident(child_tag);
-            let bytes = ct == wa_ir::ContentType::Bytes;
-            let base = child_base(child, &mut wrapper_vars, &mut lines, indent);
-            if child.method == "maybeChild" {
-                lines.push(format!(
-                    "{indent}let {field_name} = {base}.get_optional_child({child_lit})"
-                ));
-                if bytes {
-                    lines.push(format!(
-                        "{indent}    .and_then(|n| n.content_bytes().map(|b| b.to_vec()));"
-                    ));
-                } else {
-                    lines.push(format!(
-                        "{indent}    .and_then(|n| n.content_str().map(|s| s.to_string()));"
-                    ));
-                }
-            } else {
-                lines.push(format!(
-                    "{indent}let {field_name}_node = {base}.get_optional_child({child_lit})"
-                ));
-                lines.push(format!(
-                    "{indent}    .ok_or_else(|| anyhow::anyhow!(\"missing <{}>\"))?;",
-                    rust_lit_inner(child_tag)
-                ));
-                if bytes {
-                    lines.push(format!("{indent}let {field_name} = {field_name}_node.content_bytes().map(|b| b.to_vec()).unwrap_or_default();"));
-                } else {
-                    lines.push(format!("{indent}let {field_name} = {field_name}_node.content_str().unwrap_or_default().to_string();"));
-                }
-            }
-            add_init(format!("{indent}    {field_name},"), field_name);
-            continue;
-        }
-        if kids.is_empty() {
-            continue;
-        }
-
-        let has_parseable =
-            kids.iter().any(is_attr_field) || kids.iter().any(|f| is_child_field(f) && repeats(f));
-        if !has_parseable {
-            continue;
-        }
-
-        if child.method == "child" {
-            let base = child_base(child, &mut wrapper_vars, &mut lines, indent);
-            lines.push(format!(
-                "{indent}let {child_var} = {base}.get_optional_child({child_lit})"
-            ));
-            lines.push(format!(
-                "{indent}    .ok_or_else(|| anyhow::anyhow!(\"missing <{}>\"))?;",
-                rust_lit_inner(child_tag)
-            ));
-            let child_attrs: Vec<&ParsedField> = kids
-                .iter()
-                .filter(|f| is_attr_field(f) && f.method != "hasAttr")
-                .collect();
-            let child_nested: Vec<&ParsedField> =
-                kids.iter().filter(|f| is_child_field(f)).collect();
-
-            for cf in &child_attrs {
-                lines.extend(emit_field_parse(cf, &child_var, indent));
-                add_init(
-                    format!("{indent}    {},", rust_ident(&cf.name)),
-                    rust_ident(&cf.name),
-                );
-            }
-
-            for nf in &child_nested {
-                if !repeats(nf) || children_of(nf).is_empty() {
-                    continue;
-                }
-                let n_attrs = dedup_attrs(children_of(nf));
-                // No parseable attrs on the item → `collect_response_fields` emits
-                // no `<Tag>Item` struct/field for it, so skip here too (keeps the
-                // parser's references in sync with the structs that get defined).
-                if n_attrs.is_empty() {
-                    continue;
-                }
-                let n_tag = tag_or_name(nf);
-                let n_struct = format!("{prefix}{}Item", pascal_case(n_tag));
-                let n_vec = format!("{}_items", snake_case(n_tag));
-
-                lines.push(format!("{indent}let mut {n_vec} = Vec::new();"));
-                lines.push(format!(
-                    "{indent}for child in {child_var}.get_children_by_tag({}) {{",
-                    rust_lit(n_tag)
-                ));
-
-                for ncf in &n_attrs {
-                    lines.extend(emit_field_parse(ncf, "child", &format!("{indent}    ")));
-                }
-                lines.push(format!("{indent}    {n_vec}.push({n_struct} {{"));
-                for ncf in &n_attrs {
-                    lines.push(format!("{indent}        {},", rust_ident(&ncf.name)));
-                }
-                lines.push(format!("{indent}        ..Default::default()"));
-                lines.push(format!("{indent}    }});"));
-                lines.push(format!("{indent}}}"));
-                add_init(
-                    format!("{indent}    {}: {n_vec},", rust_ident(n_tag)),
-                    rust_ident(n_tag),
-                );
-            }
-        } else if repeats(child) {
-            let base = child_base(child, &mut wrapper_vars, &mut lines, indent);
-            let struct_name = format!("{prefix}{}Item", pascal_case(child_tag));
-            let vec_var = format!("{}_items", snake_case(child_tag));
-
-            lines.push(format!("{indent}let mut {vec_var} = Vec::new();"));
-            lines.push(format!(
-                "{indent}for child in {base}.get_children_by_tag({child_lit}) {{"
-            ));
-
-            let child_attrs = dedup_attrs(kids);
-            for cf in &child_attrs {
-                lines.extend(emit_field_parse(cf, "child", &format!("{indent}    ")));
-            }
-            lines.push(format!("{indent}    {vec_var}.push({struct_name} {{"));
-            for cf in &child_attrs {
-                lines.push(format!("{indent}        {},", rust_ident(&cf.name)));
-            }
-            lines.push(format!("{indent}        ..Default::default()"));
-            lines.push(format!("{indent}    }});"));
-            lines.push(format!("{indent}}}"));
-            add_init(
-                format!("{indent}    {}: {vec_var},", rust_ident(child_tag)),
-                rust_ident(child_tag),
-            );
-        }
-    }
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    emit_struct_reads(
+        fields,
+        "response",
+        prefix,
+        indent,
+        &mut lines,
+        &mut wrapper_vars,
+        &mut init_fields,
+        &mut seen,
+    );
 
     lines.push(format!("{indent}Ok({response_type_name} {{"));
     lines.extend(init_fields);
@@ -297,32 +125,42 @@ pub(crate) fn emit_response_parser(
     lines
 }
 
-/// Emit the wrapper descent for a `source_path` (memoized per prefix) and return
-/// the node var the field should be read from. Each segment is read as required:
-/// the fields driving the descent carry required attrs, so a missing wrapper is a
-/// parse error, mirroring how a direct required `child` is read.
-fn ensure_wrapper_var(
-    path: &[String],
-    vars: &mut HashMap<Vec<String>, String>,
+/// Descend `path` (a field's `source_path` wrapper tags) from `base`, returning the
+/// node var to read off. `source_path` is relative to the enclosing node, so the
+/// descent is keyed by `(base, path)` (memoized per base — the same wrapper under two
+/// different parents must descend each). Each segment is read as required (a missing
+/// wrapper is a parse error), mirroring a required `child`.
+fn descend_from(
+    base: &str,
+    path: Option<&[String]>,
+    vars: &mut HashMap<(String, Vec<String>), String>,
     lines: &mut Vec<String>,
     indent: &str,
 ) -> String {
-    let mut parent = "response".to_string();
-    let mut prefix: Vec<String> = Vec::new();
+    let Some(path) = path.filter(|p| !p.is_empty()) else {
+        return base.to_string();
+    };
+    let mut parent = base.to_string();
+    let mut acc: Vec<String> = Vec::new();
     for seg in path {
-        prefix.push(seg.clone());
-        if let Some(var) = vars.get(&prefix) {
+        acc.push(seg.clone());
+        let key = (base.to_string(), acc.clone());
+        if let Some(var) = vars.get(&key) {
             parent = var.clone();
             continue;
         }
-        let var = format!(
-            "{}_wrap",
-            prefix
-                .iter()
-                .map(|s| snake_case(s))
-                .collect::<Vec<_>>()
-                .join("_")
-        );
+        let segs = acc
+            .iter()
+            .map(|s| snake_case(s))
+            .collect::<Vec<_>>()
+            .join("_");
+        // The common top-level descent stays `<path>_wrap`; nested descents prefix the
+        // base node so the same wrapper tag under different parents can't collide.
+        let var = if base == "response" {
+            format!("{segs}_wrap")
+        } else {
+            format!("{}__{segs}_wrap", snake_case(base))
+        };
         lines.push(format!(
             "{indent}let {var} = {parent}.get_optional_child({})",
             rust_lit(seg)
@@ -331,24 +169,317 @@ fn ensure_wrapper_var(
             "{indent}    .ok_or_else(|| anyhow::anyhow!(\"missing <{}>\"))?;",
             rust_lit_inner(seg)
         ));
-        vars.insert(prefix.clone(), var.clone());
+        vars.insert(key, var.clone());
         parent = var;
     }
     parent
 }
 
-/// The node var a child field is read off: its descended `source_path` wrapper or
-/// the response root. The wrapper is descended as required, matching how this
-/// codegen already reads `child` nodes (with `ok_or_else`).
-fn child_base(
-    child: &ParsedField,
-    vars: &mut HashMap<Vec<String>, String>,
-    lines: &mut Vec<String>,
+/// Recursively emit the reads for `fields` off `node_var`, appending each resulting
+/// struct field to `inits` (deduped via `seen`). Mirrors `collect_response_fields`
+/// branch-for-branch so the parser inits exactly the fields that function derives:
+/// attrs/content-leaves become fields read off the (source-path-descended) node; a
+/// repeated child becomes a `Vec<Item>` loop (with one level of repeated grandchild
+/// item vecs, as collect models); a non-repeated child is descended and its fields
+/// flattened into the SAME struct (collect inlines single children).
+#[allow(clippy::too_many_arguments)]
+fn emit_struct_reads(
+    fields: &[ParsedField],
+    node_var: &str,
+    prefix: &str,
     indent: &str,
-) -> String {
-    match child.source_path.as_deref() {
-        Some(path) if !path.is_empty() => ensure_wrapper_var(path, vars, lines, indent),
-        _ => "response".to_string(),
+    lines: &mut Vec<String>,
+    wrapper_vars: &mut HashMap<(String, Vec<String>), String>,
+    inits: &mut Vec<String>,
+    seen: &mut std::collections::HashSet<String>,
+) {
+    let fields = flatten_same_node(fields);
+    for f in &fields {
+        // ── discriminated union (`type=union`) → enum read ──
+        // Gated on the same `classify_union` that `collect_response_fields` uses, so a
+        // codegen-able union inits the `Option<Enum>` field collect derived, and an
+        // unsupported one is skipped by both (the rest of the struct stays typed).
+        if f.field_type == ParsedFieldType::Union {
+            let id = rust_ident(&f.name);
+            if !seen.insert(id.clone()) {
+                continue;
+            }
+            // `emit_union_read` handles its own (optional) `source_path` descent — a
+            // union is `Option<Enum>`, so an absent wrapper must yield `None`, not the
+            // required `?` descent `descend_from` would emit.
+            if let Some((union_lines, init)) =
+                crate::union::emit_union_read(f, node_var, prefix, indent)
+            {
+                lines.extend(union_lines);
+                inits.push(init);
+            } else {
+                seen.remove(&id);
+            }
+            continue;
+        }
+        // ── attribute / content-leaf-via-method field ──
+        if is_attr_field(f) && f.method != "hasAttr" {
+            let id = rust_ident(&f.name);
+            if !seen.insert(id.clone()) {
+                continue;
+            }
+            let base = descend_from(
+                node_var,
+                f.source_path.as_deref(),
+                wrapper_vars,
+                lines,
+                indent,
+            );
+            lines.extend(emit_field_parse(f, &base, indent));
+            inits.push(format!("{indent}    {id},"));
+            continue;
+        }
+        if !is_child_field(f) {
+            continue;
+        }
+        let tag = tag_or_name(f);
+
+        // ── child whose content is the value (`child("x").contentString()`) ──
+        if let Some(ct) = f.content_type.or_else(|| child_content_type(f)) {
+            let id = rust_ident(tag);
+            if !seen.insert(id.clone()) {
+                continue;
+            }
+            let base = descend_from(
+                node_var,
+                f.source_path.as_deref(),
+                wrapper_vars,
+                lines,
+                indent,
+            );
+            let lit = rust_lit(tag);
+            let bytes = ct == wa_ir::ContentType::Bytes;
+            if f.method == "maybeChild" {
+                lines.push(format!(
+                    "{indent}let {id} = {base}.get_optional_child({lit})"
+                ));
+                lines.push(if bytes {
+                    format!("{indent}    .and_then(|n| n.content_bytes().map(|b| b.to_vec()));")
+                } else {
+                    format!("{indent}    .and_then(|n| n.content_str().map(|s| s.to_string()));")
+                });
+            } else {
+                lines.push(format!(
+                    "{indent}let {id}_node = {base}.get_optional_child({lit})"
+                ));
+                lines.push(format!(
+                    "{indent}    .ok_or_else(|| anyhow::anyhow!(\"missing <{}>\"))?;",
+                    rust_lit_inner(tag)
+                ));
+                lines.push(if bytes {
+                    format!("{indent}let {id} = {id}_node.content_bytes().map(|b| b.to_vec()).unwrap_or_default();")
+                } else {
+                    format!("{indent}let {id} = {id}_node.content_str().unwrap_or_default().to_string();")
+                });
+            }
+            inits.push(format!("{indent}    {id},"));
+            continue;
+        }
+
+        let kids = children_of(f);
+        if kids.is_empty() {
+            continue;
+        }
+
+        if repeats(f) {
+            // Repeated child → `Vec<Item>`. The Item carries this child's own attrs
+            // and one level of repeated grandchild vecs (matching collect).
+            let id = rust_ident(tag);
+            if !seen.insert(id.clone()) {
+                continue;
+            }
+            // Use `kids` as-is (no same-node flatten) so the Item's read set matches
+            // what `collect_response_fields` puts in the `<Tag>Item` struct exactly.
+            let item_attrs = dedup_attrs(kids);
+            let nested_repeats: Vec<&ParsedField> = kids
+                .iter()
+                .filter(|n| is_child_field(n) && repeats(n) && !children_of(n).is_empty())
+                .filter(|n| !dedup_attrs(children_of(n)).is_empty())
+                .collect();
+            if item_attrs.is_empty() && nested_repeats.is_empty() {
+                seen.remove(&id);
+                continue;
+            }
+            let struct_name = format!("{prefix}{}Item", pascal_case(tag));
+            let vec_var = format!("{}_items", snake_case(tag));
+            let loop_var = format!("{}_item", snake_case(tag));
+            let inner = format!("{indent}    ");
+            let base = descend_from(
+                node_var,
+                f.source_path.as_deref(),
+                wrapper_vars,
+                lines,
+                indent,
+            );
+            lines.push(format!("{indent}let mut {vec_var} = Vec::new();"));
+            lines.push(format!(
+                "{indent}for {loop_var} in {base}.get_children_by_tag({}) {{",
+                rust_lit(tag)
+            ));
+            for cf in &item_attrs {
+                lines.extend(emit_field_parse(cf, &loop_var, &inner));
+            }
+            let mut nested_init: Vec<String> = Vec::new();
+            for nf in &nested_repeats {
+                let n_tag = tag_or_name(nf);
+                // collect names the nested item `<prefix><Tag>Item` (spec-prefixed).
+                let n_struct = format!("{prefix}{}Item", pascal_case(n_tag));
+                let n_vec = format!("{}_items", snake_case(n_tag));
+                let n_loop = format!("{}_item", snake_case(n_tag));
+                let n_inner = format!("{inner}    ");
+                let n_attrs = dedup_attrs(children_of(nf));
+                let n_base = descend_from(
+                    &loop_var,
+                    nf.source_path.as_deref(),
+                    wrapper_vars,
+                    lines,
+                    &inner,
+                );
+                lines.push(format!("{inner}let mut {n_vec} = Vec::new();"));
+                lines.push(format!(
+                    "{inner}for {n_loop} in {n_base}.get_children_by_tag({}) {{",
+                    rust_lit(n_tag)
+                ));
+                for ncf in &n_attrs {
+                    lines.extend(emit_field_parse(ncf, &n_loop, &n_inner));
+                }
+                lines.push(format!("{n_inner}{n_vec}.push({n_struct} {{"));
+                for ncf in &n_attrs {
+                    lines.push(format!("{n_inner}    {},", rust_ident(&ncf.name)));
+                }
+                lines.push(format!("{n_inner}    ..Default::default()"));
+                lines.push(format!("{n_inner}}});"));
+                lines.push(format!("{inner}}}"));
+                nested_init.push(format!("{inner}    {}: {n_vec},", rust_ident(n_tag)));
+            }
+            lines.push(format!("{inner}{vec_var}.push({struct_name} {{"));
+            for cf in &item_attrs {
+                lines.push(format!("{inner}    {},", rust_ident(&cf.name)));
+            }
+            lines.extend(nested_init);
+            lines.push(format!("{inner}    ..Default::default()"));
+            lines.push(format!("{inner}}});"));
+            lines.push(format!("{indent}}}"));
+            inits.push(format!("{indent}    {id}: {vec_var},"));
+        } else {
+            // Non-repeated child → descend and flatten its fields into the current
+            // struct, mirroring collect's single-child inlining. The descent is
+            // emitted as a required (`?`) binding ONLY when the subtree actually reads
+            // a field: a childless wrapper (e.g. a bare `<appeal_status/>` marker that
+            // contributes nothing to the struct) would otherwise create a dead binding
+            // whose required `ok_or_else` makes the whole parse fail whenever that
+            // optional marker is simply absent. Decide via a scratch run over clones
+            // (so a discarded subtree pollutes neither `seen` nor `wrapper_vars`), then
+            // re-run against the real buffers to commit consistently.
+            let cvar = rust_ident(tag);
+            let mut scratch_lines: Vec<String> = Vec::new();
+            let mut scratch_inits: Vec<String> = Vec::new();
+            let mut scratch_seen = seen.clone();
+            let mut scratch_vars = wrapper_vars.clone();
+            emit_struct_reads(
+                kids,
+                &cvar,
+                prefix,
+                indent,
+                &mut scratch_lines,
+                &mut scratch_vars,
+                &mut scratch_inits,
+                &mut scratch_seen,
+            );
+            if scratch_inits.is_empty() {
+                // Childless wrapper — descending would read nothing, so skip it
+                // entirely rather than emit a dead, fragile required binding.
+                continue;
+            }
+            let base = descend_from(
+                node_var,
+                f.source_path.as_deref(),
+                wrapper_vars,
+                lines,
+                indent,
+            );
+            if f.required {
+                // Required child: a missing `<tag>` is a parse error.
+                lines.push(format!(
+                    "{indent}let {cvar} = {base}.get_optional_child({})",
+                    rust_lit(tag)
+                ));
+                lines.push(format!(
+                    "{indent}    .ok_or_else(|| anyhow::anyhow!(\"missing <{}>\"))?;",
+                    rust_lit_inner(tag)
+                ));
+                emit_struct_reads(
+                    kids,
+                    &cvar,
+                    prefix,
+                    indent,
+                    lines,
+                    wrapper_vars,
+                    inits,
+                    seen,
+                );
+            } else {
+                // Optional child (`optionalChildWithTag` in smax): when absent, its
+                // fields default rather than failing the whole parse. Read the subtree
+                // inside `if let Some(<tag>)` and bind every contributed field through a
+                // tuple, defaulting each in the `else`. Field TYPES are unchanged (the
+                // `else` defaults each element), so `collect_response_fields` needs no
+                // weakening — required leaves INSIDE a present child still fail-fast.
+                let inner = format!("{indent}    ");
+                let mut body_lines: Vec<String> = Vec::new();
+                let mut body_inits: Vec<String> = Vec::new();
+                emit_struct_reads(
+                    kids,
+                    &cvar,
+                    prefix,
+                    &inner,
+                    &mut body_lines,
+                    wrapper_vars,
+                    &mut body_inits,
+                    seen,
+                );
+                // Map each init `name,` / `name: value,` to (outer binding, inner value).
+                let pairs: Vec<(String, String)> = body_inits
+                    .iter()
+                    .map(|l| {
+                        let t = l.trim().trim_end_matches(',');
+                        match t.split_once(": ") {
+                            Some((name, value)) => (name.to_string(), value.to_string()),
+                            None => (t.to_string(), t.to_string()),
+                        }
+                    })
+                    .collect();
+                let names = pairs.iter().map(|(n, _)| n.clone()).collect::<Vec<_>>();
+                let values = pairs.iter().map(|(_, v)| v.clone()).collect::<Vec<_>>();
+                let defaults = vec!["Default::default()".to_string(); pairs.len()];
+                // A 1-tuple needs the trailing comma; >1 don't (and reads cleaner).
+                let tuple = |items: &[String]| {
+                    if items.len() == 1 {
+                        format!("({},)", items[0])
+                    } else {
+                        format!("({})", items.join(", "))
+                    }
+                };
+                lines.push(format!(
+                    "{indent}let {} = if let Some({cvar}) = {base}.get_optional_child({}) {{",
+                    tuple(&names),
+                    rust_lit(tag)
+                ));
+                lines.extend(body_lines);
+                lines.push(format!("{inner}{}", tuple(&values)));
+                lines.push(format!("{indent}}} else {{"));
+                lines.push(format!("{inner}{}", tuple(&defaults)));
+                lines.push(format!("{indent}}};"));
+                for n in names {
+                    inits.push(format!("{indent}    {n},"));
+                }
+            }
+        }
     }
 }
 
@@ -361,6 +492,16 @@ fn dedup_attrs(kids: &[ParsedField]) -> Vec<&ParsedField> {
         .collect()
 }
 
+/// Accumulators threaded through [`emit_child_builder`] for a node's variant groups
+/// (smax MixinGroup disjunctions): `enum_defs` collects the top-level `enum` types,
+/// `fields` the `(struct_field, type, optional)` triples the spec struct must carry.
+/// `spec_base` prefixes generated enum names so two specs don't collide.
+pub(crate) struct VariantCtx<'a> {
+    pub spec_base: &'a str,
+    pub enum_defs: &'a mut Vec<String>,
+    pub fields: &'a mut Vec<(String, String, bool)>,
+}
+
 /// Emit the `let <tag>_node = NodeBuilder::new("tag")…build();` statements for a
 /// request child, recursing into nested children first. `used_names` dedups
 /// repeated tags. Returns `(lines, var_name)` — the caller takes the returned
@@ -369,10 +510,13 @@ fn dedup_attrs(kids: &[ParsedField]) -> Vec<&ParsedField> {
 ///
 /// The node is built through a rebindable `let mut` so optional attributes can be
 /// added conditionally (`if let Some(v) = &self.x`), which a fluent chain can't.
+/// A node's variant groups (mutually-exclusive MixinGroup alternatives) generate an
+/// `enum` per group and a `match` in the build; see [`emit_variant_groups`].
 pub(crate) fn emit_child_builder(
     child: &WapChildNode,
     indent: &str,
     used_names: &mut HashMap<String, usize>,
+    ctx: &mut VariantCtx,
 ) -> (Vec<String>, String) {
     let mut lines: Vec<String> = Vec::new();
     let base_name = format!("{}_node", snake_case(&child.tag));
@@ -386,7 +530,7 @@ pub(crate) fn emit_child_builder(
 
     let mut nested_var_names: Vec<String> = Vec::new();
     for nested in &child.children {
-        let (nested_lines, nested_var) = emit_child_builder(nested, indent, used_names);
+        let (nested_lines, nested_var) = emit_child_builder(nested, indent, used_names, ctx);
         lines.extend(nested_lines);
         nested_var_names.push(nested_var);
     }
@@ -429,6 +573,7 @@ pub(crate) fn emit_child_builder(
             _ => {}
         }
     }
+    body.extend(emit_variant_groups(child, &var_name, indent, ctx));
     if !nested_var_names.is_empty() {
         body.push(format!(
             "{indent}{var_name} = {var_name}.children([{}]);",
@@ -452,9 +597,199 @@ pub(crate) fn emit_child_builder(
     (lines, var_name)
 }
 
+/// Emit, for each of a node's variant groups, a top-level `enum` (pushed to
+/// `ctx.enum_defs`), a spec-struct field (pushed to `ctx.fields`), and the build
+/// `match` that applies the chosen variant's attrs to `var_name`. A group is a smax
+/// MixinGroup disjunction: exactly one variant applies (or none, when optional).
+fn emit_variant_groups(
+    node: &WapChildNode,
+    var_name: &str,
+    indent: &str,
+    ctx: &mut VariantCtx,
+) -> Vec<String> {
+    let mut build = Vec::new();
+    let multi = node.variant_groups.len() > 1;
+    for (gi, group) in node.variant_groups.iter().enumerate() {
+        let base = format!("{}{}", ctx.spec_base, pascal_case(&node.tag));
+        let enum_name = if multi {
+            format!("{base}Variant{}", gi + 1)
+        } else {
+            format!("{base}Variant")
+        };
+        let field = {
+            let f = snake_case(&node.tag);
+            if multi { format!("{f}_v{}", gi + 1) } else { f }
+        };
+        let disc = variant_discriminator(group);
+
+        // enum definition
+        let mut def = vec![
+            "#[derive(Debug, Clone)]".to_string(),
+            format!("pub enum {enum_name} {{"),
+        ];
+        for (vi, v) in group.variants.iter().enumerate() {
+            let vname = variant_name(v, disc.as_deref(), vi);
+            let payload: Vec<String> = v
+                .attrs
+                .iter()
+                .filter(|a| !matches!(a.kind, WapAttrKind::Const | WapAttrKind::GeneratedId))
+                .map(|a| {
+                    format!(
+                        "{}: {}",
+                        rust_ident(&a.name),
+                        crate::fields::rust_attr_type(&a.kind)
+                    )
+                })
+                .collect();
+            if payload.is_empty() {
+                def.push(format!("    {vname},"));
+            } else {
+                def.push(format!("    {vname} {{ {} }},", payload.join(", ")));
+            }
+        }
+        def.push("}".to_string());
+        ctx.enum_defs.extend(def);
+        ctx.enum_defs.push(String::new());
+
+        let ty = if group.optional {
+            format!("Option<{enum_name}>")
+        } else {
+            enum_name.clone()
+        };
+        ctx.fields.push((field.clone(), ty, group.optional));
+
+        // build match
+        let (matchee, inner_indent) = if group.optional {
+            build.push(format!("{indent}if let Some(__v) = &self.{field} {{"));
+            ("__v".to_string(), format!("{indent}    "))
+        } else {
+            (format!("&self.{field}"), indent.to_string())
+        };
+        build.push(format!("{inner_indent}match {matchee} {{"));
+        for (vi, v) in group.variants.iter().enumerate() {
+            let vname = variant_name(v, disc.as_deref(), vi);
+            build.extend(variant_arm(
+                &enum_name,
+                &vname,
+                v,
+                var_name,
+                &format!("{inner_indent}    "),
+            ));
+        }
+        build.push(format!("{inner_indent}}}"));
+        if group.optional {
+            build.push(format!("{indent}}}"));
+        }
+    }
+    build
+}
+
+/// A const attr present in every variant of a group with DISTINCT values is the
+/// discriminator (e.g. `type` = `jid`/`invite`); variants are named by its value.
+fn variant_discriminator(group: &wa_ir::WapVariantGroup) -> Option<String> {
+    let first = group.variants.first()?;
+    'attr: for a in &first.attrs {
+        if a.kind != WapAttrKind::Const {
+            continue;
+        }
+        let mut values = Vec::new();
+        for v in &group.variants {
+            match v
+                .attrs
+                .iter()
+                .find(|x| x.name == a.name && x.kind == WapAttrKind::Const)
+            {
+                Some(found) => values.push(found.value.clone().unwrap_or_default()),
+                None => continue 'attr,
+            }
+        }
+        // distinct across variants → a usable discriminator
+        let mut sorted = values.clone();
+        sorted.sort();
+        sorted.dedup();
+        if sorted.len() == group.variants.len() {
+            return Some(a.name.clone());
+        }
+    }
+    None
+}
+
+/// Variant name: the discriminator value (`Jid`/`Invite`), else the first non-const
+/// attr name (`Before`/`After`), else `VariantN`.
+fn variant_name(v: &wa_ir::WapVariant, disc: Option<&str>, idx: usize) -> String {
+    if let Some(d) = disc
+        && let Some(a) = v.attrs.iter().find(|x| x.name == d)
+        && let Some(val) = &a.value
+    {
+        return pascal_case(val);
+    }
+    if let Some(a) = v
+        .attrs
+        .iter()
+        .find(|a| !matches!(a.kind, WapAttrKind::Const | WapAttrKind::GeneratedId))
+    {
+        return pascal_case(&a.name);
+    }
+    format!("Variant{}", idx + 1)
+}
+
+/// One `match` arm: destructure the variant's non-const attrs and apply each attr
+/// (const literal, bound dynamic, or optional) to the node `var_name`.
+fn variant_arm(
+    enum_name: &str,
+    vname: &str,
+    v: &wa_ir::WapVariant,
+    var_name: &str,
+    indent: &str,
+) -> Vec<String> {
+    let binds: Vec<String> = v
+        .attrs
+        .iter()
+        .filter(|a| !matches!(a.kind, WapAttrKind::Const | WapAttrKind::GeneratedId))
+        .map(|a| rust_ident(&a.name))
+        .collect();
+    let pat = if binds.is_empty() {
+        format!("{enum_name}::{vname}")
+    } else {
+        format!("{enum_name}::{vname} {{ {} }}", binds.join(", "))
+    };
+    let mut lines = vec![format!("{indent}{pat} => {{")];
+    let body_indent = format!("{indent}    ");
+    for a in &v.attrs {
+        let alit = rust_lit(&a.name);
+        let ident = rust_ident(&a.name);
+        match &a.kind {
+            WapAttrKind::Const => {
+                if let Some(value) = &a.value {
+                    lines.push(format!(
+                        "{body_indent}{var_name} = {var_name}.attr({alit}, {});",
+                        rust_lit(value)
+                    ));
+                }
+            }
+            WapAttrKind::Optional => lines.push(format!(
+                "{body_indent}if let Some(x) = {ident} {{ {var_name} = {var_name}.attr({alit}, x.as_str()); }}"
+            )),
+            WapAttrKind::Integer => lines.push(format!(
+                "{body_indent}{var_name} = {var_name}.attr({alit}, {ident}.to_string());"
+            )),
+            k if is_jid_kind(k) => lines.push(format!(
+                "{body_indent}{var_name} = {var_name}.attr({alit}, {ident}.clone());"
+            )),
+            WapAttrKind::String | WapAttrKind::Dynamic => lines.push(format!(
+                "{body_indent}{var_name} = {var_name}.attr({alit}, {ident}.as_str());"
+            )),
+            _ => {}
+        }
+    }
+    lines.push(format!("{indent}}}"));
+    lines
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fields::collect_response_fields;
     use wa_ir::{WapAttrDef, WapChildNode};
 
     fn attr(name: &str, kind: WapAttrKind, value: Option<&str>) -> WapAttrDef {
@@ -471,7 +806,117 @@ mod tests {
             attrs: vec![],
             children: vec![],
             repeats: false,
+            variant_groups: vec![],
         }
+    }
+
+    /// Build a child node with a throwaway variant context (for the tests that don't
+    /// exercise variant groups).
+    fn build1(child: &WapChildNode) -> (Vec<String>, String) {
+        let (mut enums, mut fields) = (Vec::new(), Vec::new());
+        let mut ctx = VariantCtx {
+            spec_base: "T",
+            enum_defs: &mut enums,
+            fields: &mut fields,
+        };
+        emit_child_builder(child, "", &mut HashMap::new(), &mut ctx)
+    }
+
+    #[test]
+    fn variant_group_emits_enum_field_and_match() {
+        use wa_ir::{WapVariant, WapVariantGroup};
+        // `messages{count}` with a required query-params disjunction (jid/invite,
+        // discriminated by `type`) and an optional directions disjunction.
+        let node = WapChildNode {
+            tag: "messages".into(),
+            attrs: vec![attr("count", WapAttrKind::Integer, None)],
+            children: vec![],
+            repeats: false,
+            variant_groups: vec![
+                WapVariantGroup {
+                    optional: false,
+                    variants: vec![
+                        WapVariant {
+                            attrs: vec![
+                                attr("type", WapAttrKind::Const, Some("jid")),
+                                attr("jid", WapAttrKind::UserJid, None),
+                            ],
+                            children: vec![],
+                        },
+                        WapVariant {
+                            attrs: vec![
+                                attr("type", WapAttrKind::Const, Some("invite")),
+                                attr("key", WapAttrKind::String, None),
+                            ],
+                            children: vec![],
+                        },
+                    ],
+                },
+                WapVariantGroup {
+                    optional: true,
+                    variants: vec![
+                        WapVariant {
+                            attrs: vec![attr("before", WapAttrKind::Integer, None)],
+                            children: vec![],
+                        },
+                        WapVariant {
+                            attrs: vec![attr("after", WapAttrKind::Integer, None)],
+                            children: vec![],
+                        },
+                    ],
+                },
+            ],
+        };
+        let (mut enums, mut fields) = (Vec::new(), Vec::new());
+        let mut ctx = VariantCtx {
+            spec_base: "Foo",
+            enum_defs: &mut enums,
+            fields: &mut fields,
+        };
+        let (lines, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
+        let enum_src = enums.join("\n");
+        let code = lines.join("\n");
+
+        // Discriminated enum for the query-params group (named by `type`).
+        assert!(
+            enum_src.contains("pub enum FooMessagesVariant1 {"),
+            "{enum_src}"
+        );
+        assert!(enum_src.contains("Jid { jid: Jid }"), "{enum_src}");
+        assert!(enum_src.contains("Invite { key: String }"), "{enum_src}");
+        // Directions group named by its distinguishing attr.
+        assert!(
+            enum_src.contains("pub enum FooMessagesVariant2 {"),
+            "{enum_src}"
+        );
+        assert!(enum_src.contains("Before { before: u64 }"), "{enum_src}");
+
+        // Spec fields: required enum + optional enum.
+        assert!(
+            fields
+                .iter()
+                .any(|(n, t, opt)| n == "messages_v1" && t == "FooMessagesVariant1" && !opt)
+        );
+        assert!(
+            fields.iter().any(|(n, t, opt)| n == "messages_v2"
+                && t == "Option<FooMessagesVariant2>"
+                && *opt)
+        );
+
+        // Build match applies the const discriminator + bound payload.
+        assert!(code.contains("match &self.messages_v1 {"), "{code}");
+        assert!(
+            code.contains("messages_node = messages_node.attr(\"type\", \"jid\");"),
+            "{code}"
+        );
+        assert!(
+            code.contains("messages_node = messages_node.attr(\"jid\", jid.clone());"),
+            "{code}"
+        );
+        assert!(
+            code.contains("if let Some(__v) = &self.messages_v2 {"),
+            "{code}"
+        );
     }
 
     #[test]
@@ -520,13 +965,55 @@ mod tests {
             code.contains("let detail_wrap = response.get_optional_child(\"detail\")"),
             "{code}"
         );
+        // The child is optional (`required:false`), so it reads inside `if let Some` —
+        // but still off the descended <detail> wrapper, not the response root.
         assert!(
-            code.contains("let request = detail_wrap.get_optional_child(\"request\")"),
+            code.contains("if let Some(request) = detail_wrap.get_optional_child(\"request\")"),
             "child not read off the <detail> wrapper:\n{code}"
         );
         assert!(
             !code.contains("response.get_optional_child(\"request\")"),
             "child STILL read off the response root:\n{code}"
+        );
+    }
+
+    #[test]
+    fn optional_child_defaults_when_absent_instead_of_failing() {
+        // A `required:false` child (smax `optionalChildWithTag`) must not bail the whole
+        // parse when absent: its fields read inside `if let Some` and default otherwise.
+        let fields: Vec<ParsedField> = serde_json::from_value(serde_json::json!([
+            {"method":"child","name":"suspended","tag":"suspended","type":"string","required":false,
+             "children":[{"method":"attrInt","name":"value","wireName":"value","type":"integer","required":true}]}
+        ]))
+        .unwrap();
+        let code = emit_response_parser(&fields, "Resp", "    ", "Foo").join("\n");
+        assert!(
+            code.contains("if let Some(suspended) = response.get_optional_child(\"suspended\")"),
+            "optional child should read inside `if let Some`:\n{code}"
+        );
+        assert!(
+            code.contains("} else {") && code.contains("(Default::default(),)"),
+            "absent optional child should default its fields:\n{code}"
+        );
+        assert!(
+            !code.contains(".ok_or_else(|| anyhow::anyhow!(\"missing <suspended>\"))"),
+            "optional child must NOT bail when absent:\n{code}"
+        );
+    }
+
+    #[test]
+    fn required_child_still_bails_when_absent() {
+        // A `required:true` child keeps the fail-fast descent.
+        let fields: Vec<ParsedField> = serde_json::from_value(serde_json::json!([
+            {"method":"child","name":"group","tag":"group","type":"string","required":true,
+             "children":[{"method":"attrString","name":"id","wireName":"id","type":"string","required":true}]}
+        ]))
+        .unwrap();
+        let code = emit_response_parser(&fields, "Resp", "    ", "Foo").join("\n");
+        assert!(
+            code.contains("let group = response.get_optional_child(\"group\")")
+                && code.contains(".ok_or_else(|| anyhow::anyhow!(\"missing <group>\"))?"),
+            "required child must fail-fast when absent:\n{code}"
         );
     }
 
@@ -587,7 +1074,7 @@ mod tests {
         ]))
         .unwrap();
         // Struct field is Option<…>.
-        let (struct_fields, _) = collect_response_fields(&fields, "Foo");
+        let (struct_fields, _, _) = collect_response_fields(&fields, "Foo");
         let df = struct_fields
             .iter()
             .find(|f| f.name == "display_name")
@@ -618,8 +1105,9 @@ mod tests {
             ],
             children: vec![],
             repeats: false,
+            variant_groups: vec![],
         };
-        let (lines, var) = emit_child_builder(&child, "", &mut HashMap::new());
+        let (lines, var) = build1(&child);
         let code = lines.join("\n");
         assert_eq!(var, "query_node");
         assert!(code.contains("let mut query_node = NodeBuilder::new(\"query\");"));
@@ -635,7 +1123,7 @@ mod tests {
 
     #[test]
     fn empty_node_avoids_unused_mut() {
-        let (lines, _) = emit_child_builder(&leaf("ping"), "", &mut HashMap::new());
+        let (lines, _) = build1(&leaf("ping"));
         let code = lines.join("\n");
         assert!(code.contains("let ping_node = NodeBuilder::new(\"ping\").build();"));
         assert!(!code.contains("let mut ping_node"));
@@ -648,8 +1136,9 @@ mod tests {
             attrs: vec![],
             children: vec![leaf("item"), leaf("item")],
             repeats: false,
+            variant_groups: vec![],
         };
-        let (lines, _) = emit_child_builder(&parent, "", &mut HashMap::new());
+        let (lines, _) = build1(&parent);
         let code = lines.join("\n");
         assert!(code.contains("let item_node = NodeBuilder::new(\"item\").build();"));
         assert!(code.contains("let item_node_2 = NodeBuilder::new(\"item\").build();"));

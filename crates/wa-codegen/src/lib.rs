@@ -12,6 +12,7 @@ mod mex_export;
 mod mex_ids;
 mod naming;
 mod spec;
+mod union;
 
 pub use abprops_export::generate_abprops;
 pub use appstate_export::generate_appstate_schemas;
@@ -23,9 +24,9 @@ use std::collections::HashSet;
 
 use wa_ir::{IqIr, IqStanzaDef};
 
-use fields::{RustChildStruct, collect_response_fields};
+use fields::{RustChildStruct, RustEnum, collect_response_fields, emit_enum_def};
 use naming::{rust_lit, snake_case};
-use spec::{generate_spec, spec_base_name};
+use spec::{generate_spec, op_uses_outcome_union, spec_base_name};
 
 /// Generate the single reference Rust file from the IQ IR: one `pub mod` per IQ
 /// namespace (the namespace const, shared child types, and one `IqSpec` impl per
@@ -51,7 +52,9 @@ pub fn generate_iq(ir: &IqIr) -> String {
         "//! Auto-generated IQ stanza specs (WhatsApp {}). DO NOT EDIT.\n\
          //!\n//! One `pub mod` per IQ namespace; each holds the namespace const, shared child\n\
          //! types, and one `IqSpec` impl per stanza. Regenerated from the IQ IR by wa-codegen.\n\n\
-         #![allow(clippy::all)]\n\n",
+         // A generated catalog: a consumer uses a subset (so unused specs/types are\n\
+         // expected), and nested wrapper vars use a `base__path_wrap` convention.\n\
+         #![allow(clippy::all, dead_code, non_snake_case)]\n\n",
         ir.wa_version
     ));
 
@@ -158,12 +161,18 @@ fn namespace_body(namespace: &str, operations: &[&IqStanzaDef]) -> Vec<String> {
     // namespace can carry same-tagged children with incompatible shapes. Names are
     // unique per spec now, so the dedup only collapses byte-identical specs.
     let mut all_child_structs: Vec<RustChildStruct> = Vec::new();
+    let mut all_enums: Vec<RustEnum> = Vec::new();
     for (op, spec_name, _) in &resolved {
-        if op.response.fields.is_empty() {
+        let prefix = spec_name.trim_end_matches("Spec");
+        // A true outcome-union op emits its per-variant structs/enums inline in
+        // `generate_spec`; collecting the primary-mirror types here would be dead. But
+        // an op that CARRIES variants yet falls back to the single-shape struct (the
+        // outcome wasn't separable) emits from `response.fields` — so it still needs
+        // its child structs/enums at module level.
+        if op.response.fields.is_empty() || op_uses_outcome_union(op, prefix) {
             continue;
         }
-        let prefix = spec_name.trim_end_matches("Spec");
-        let (_, mut child_structs) = collect_response_fields(&op.response.fields, prefix);
+        let (_, mut child_structs, enums) = collect_response_fields(&op.response.fields, prefix);
         for cs in &mut child_structs {
             let mut seen = HashSet::new();
             cs.fields.retain(|f| seen.insert(f.name.clone()));
@@ -178,9 +187,15 @@ fn namespace_body(namespace: &str, operations: &[&IqStanzaDef]) -> Vec<String> {
                 _ => {}
             }
         }
+        for e in enums {
+            // Enum names are spec-prefixed; a collision means a byte-identical enum.
+            if !all_enums.iter().any(|x| x.name == e.name) {
+                all_enums.push(e);
+            }
+        }
     }
 
-    if !all_child_structs.is_empty() {
+    if !all_child_structs.is_empty() || !all_enums.is_empty() {
         lines.push(
             "// ─── Shared child types ──────────────────────────────────────────────────────"
                 .to_string(),
@@ -195,6 +210,9 @@ fn namespace_body(namespace: &str, operations: &[&IqStanzaDef]) -> Vec<String> {
             }
             lines.push("}".to_string());
             lines.push(String::new());
+        }
+        for e in &all_enums {
+            lines.extend(emit_enum_def(e));
         }
     }
 
@@ -315,6 +333,7 @@ mod tests {
                         ],
                         children: vec![],
                         repeats: false,
+                        variant_groups: vec![],
                     }],
                 },
                 response: ParsedResponse {
@@ -424,5 +443,21 @@ mod tests {
         assert!(c.contains("type Response = ();"));
         assert!(c.contains("InfoQuery::set(W_X_NAMESPACE, Jid::new(\"\", Server::Group), None)"));
         assert!(c.contains("Ok(())"));
+    }
+
+    #[test]
+    fn generated_iq_rs_is_valid_rust() {
+        // The generated IQ module compiles into no crate in this workspace (it targets
+        // wacore downstream), so nothing here would catch a codegen change that emits
+        // syntactically-broken Rust. Generate from the committed reference IR and
+        // syntax-check the whole file (resolution/types aren't checked — syn only
+        // parses — but every brace/expr/enum/match must be well-formed).
+        let ir_path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../generated/iq/index.json");
+        let json =
+            std::fs::read_to_string(ir_path).unwrap_or_else(|e| panic!("read {ir_path}: {e}"));
+        let ir: wa_ir::IqIr = serde_json::from_str(&json).expect("deserialize committed IqIr");
+        let code = generate_iq(&ir);
+        syn::parse_file(&code)
+            .unwrap_or_else(|e| panic!("generated iq.rs is not valid Rust ({e})"));
     }
 }

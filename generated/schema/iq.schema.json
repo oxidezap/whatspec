@@ -32,11 +32,20 @@
   "$defs": {
     "AssertionKind": {
       "description": "What a response parser asserts before accepting a node as its variant.",
-      "type": "string",
-      "enum": [
-        "tag",
-        "attr",
-        "from_server"
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "tag",
+            "attr",
+            "from_server"
+          ]
+        },
+        {
+          "description": "The node's text content is pinned to a fixed value (`literalContent(content,\nnode, \"admin_add\")`) — a discriminator for marker union variants. The value is\nin [`ResponseAssertion::value`]; `name` is unused.",
+          "type": "string",
+          "const": "content"
+        }
       ]
     },
     "ContentType": {
@@ -385,6 +394,13 @@
       "description": "One alternative of a discriminated union (`{name, value}` smax disjunction).",
       "type": "object",
       "properties": {
+        "assertions": {
+          "description": "The same-node guards the variant's parser enforces (`assertTag`,\n`literal(attr,value)`, `literalContent(value)`) — how a consumer tells this\nvariant apart from its siblings. Empty when the parser carries no fixed guard.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ResponseAssertion"
+          }
+        },
         "fields": {
           "description": "The variant's payload fields (empty for a marker/unit variant).",
           "type": "array",
@@ -500,6 +516,7 @@
       "type": "object",
       "properties": {
         "attrs": {
+          "description": "Attributes always present on this node (independent of any variant group).",
           "type": "array",
           "items": {
             "$ref": "#/$defs/WapAttrDef"
@@ -517,6 +534,13 @@
         },
         "tag": {
           "type": "string"
+        },
+        "variantGroups": {
+          "description": "Mutually-exclusive variant groups this node can take, each from a smax\nMixinGroup disjunction (e.g. newsletter params: a `jid` variant XOR an\n`invite` variant, discriminated by `type`). Exactly one variant of each\nrequired group applies; at most one of each optional group. Empty for the\ncommon case of a node with no disjunction.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/WapVariantGroup"
+          }
         }
       },
       "required": [
@@ -524,6 +548,46 @@
         "attrs",
         "children",
         "repeats"
+      ]
+    },
+    "WapVariant": {
+      "description": "One alternative within a [`WapVariantGroup`]: the attrs/children it contributes\nto the node. Variants of a group sharing a const attr (e.g. `type`) are\ndiscriminated by it.",
+      "type": "object",
+      "properties": {
+        "attrs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/WapAttrDef"
+          }
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/WapChildNode"
+          }
+        }
+      },
+      "required": [
+        "attrs"
+      ]
+    },
+    "WapVariantGroup": {
+      "description": "A set of mutually-exclusive alternatives a [`WapChildNode`] can take, recovered\nfrom one smax MixinGroup disjunction (`if(flagA) merge…A; if(flagB) merge…B;\nelse throw`). Consumers pick exactly one variant (or none when [`optional`]).\n\n[`optional`]: WapVariantGroup::optional",
+      "type": "object",
+      "properties": {
+        "optional": {
+          "description": "The group is folded via `optionalMerge`: zero variants may apply.",
+          "type": "boolean"
+        },
+        "variants": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/WapVariant"
+          }
+        }
+      },
+      "required": [
+        "variants"
       ]
     }
   }

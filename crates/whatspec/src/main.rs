@@ -464,6 +464,11 @@ struct IqDiagnostics {
     degraded_responses: usize,
     unparseable: usize,
     drops_by_reason: std::collections::BTreeMap<String, usize>,
+    /// Cross-module (`mergeStanzas`, Phase 2) recovery counters: how many requests
+    /// fold in mixin fragments, how many gain fields from them, and the total
+    /// fields recovered. `requests_enriched`/`fields_recovered` going to 0 flags a
+    /// regression in Phase-2 fragment merging.
+    cross_module: wa_scan::CrossModuleStats,
 }
 
 /// Returns `(wa_version, concatenated_bundle_source)`. The `--wa-version`
@@ -817,6 +822,11 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
                 "degradedResponses": iq_diag.degraded_responses,
                 "unparseable": iq_diag.unparseable,
                 "dropsByReason": iq_diag.drops_by_reason,
+                "crossModule": {
+                    "requestsWithMixins": iq_diag.cross_module.requests_with_mixins,
+                    "requestsEnriched": iq_diag.cross_module.requests_enriched,
+                    "fieldsRecovered": iq_diag.cross_module.fields_recovered,
+                },
             },
         },
     });
@@ -897,7 +907,8 @@ fn push_iq(
     source: &str,
     module_defs: &[wa_transform::ModuleDefinition],
 ) -> Result<(usize, IqDiagnostics)> {
-    let ir = wa_scan::extract_iq_from_modules(source, module_defs, wa_version);
+    let (ir, cross_module) =
+        wa_scan::extract_iq_from_modules_with_diagnostics(source, module_defs, wa_version);
 
     // M8/M9 diagnostics. Every IQ candidate module yields ≥1 stanza or exactly one
     // `unparseable` entry, so the candidate count is the number of distinct
@@ -935,6 +946,13 @@ fn push_iq(
     for u in &ir.unparseable {
         *drops_by_reason.entry(u.reason.clone()).or_default() += 1;
     }
+    eprintln!(
+        "iq: cross-module fragments -> {} request(s) reference mixins, {} enriched, \
+         {} field(s) recovered",
+        cross_module.requests_with_mixins,
+        cross_module.requests_enriched,
+        cross_module.fields_recovered,
+    );
     let diag = IqDiagnostics {
         candidate_modules: candidates,
         stanzas: ir.stanzas.len(),
@@ -942,6 +960,7 @@ fn push_iq(
         degraded_responses: degraded,
         unparseable: ir.unparseable.len(),
         drops_by_reason,
+        cross_module,
     };
 
     // Neutral, language-agnostic IR (the cross-language contract): the same

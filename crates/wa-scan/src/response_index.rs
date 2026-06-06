@@ -77,11 +77,15 @@ pub(crate) fn build_pass(defs: &[ModuleDefinition], source: &str) -> ResponseInd
             if kind == ResponseVariantKind::Success && primary.is_empty() {
                 primary = fields.clone();
             }
+            // The variant's same-node discriminators (e.g. `type:"result"` / `type:"error"`),
+            // recovered separately since the JS keeps them as parser asserts, not fields.
+            // These let codegen guard each arm so the outcome union doesn't misclassify.
+            let assertions = resolver.assertions(&module, &func);
             variants.push(ResponseVariant {
                 tag,
                 module_name: module,
                 kind,
-                assertions: Vec::new(),
+                assertions,
                 fields,
             });
         }

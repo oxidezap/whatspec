@@ -19,17 +19,20 @@
 //! sub-stanzas contribute nothing here), and resolution applies only when the
 //! union is unambiguous (exactly one `xmlns`, one `type`).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use oxc_allocator::Allocator;
-use oxc_ast::ast::{AssignmentExpression, CallExpression};
+use oxc_ast::ast::{AssignmentExpression, CallExpression, Expression};
 use oxc_ast_visit::{Visit, walk};
-use wa_ir::{IqTarget, IqType, WapAttrKind};
+use wa_ir::{IqTarget, IqType, WapAttrKind, WapChildNode};
 
 use crate::alias::{AliasMap, build_alias_map};
 use crate::attrs::{extract_attrs_from_obj, parse_wap_call};
-use crate::module::iq_type_from_merge_name;
-use wa_oxc::{callee_method, callee_object};
+use crate::module::{iq_type_from_merge_name, require_module_name};
+use crate::request::{
+    MixinContributions, VarScope, build_var_scope, resolve_child_node, resolve_contribution,
+};
+use wa_oxc::{arg_expr, callee_method, callee_object};
 use wa_transform::ModuleDefinition;
 
 /// What one mixin contributes to the `<iq>` it helps build.
@@ -46,6 +49,10 @@ pub(crate) struct MixinIqFragment {
     /// order with duplicates removed — for transitive resolution (e.g. a Hack
     /// mixin whose `type` comes from a Base mixin it calls).
     pub merged_callees: Vec<String>,
+    /// The children the mixin's inner `smax("iq", …, children)` fragment adds to
+    /// the `<iq>` (e.g. `BaseReportMixin` → `spam_list{spam_flow}`). Merged by tag
+    /// into a Request's children so cross-module attrs/children aren't lost.
+    pub children: Vec<WapChildNode>,
 }
 
 /// Global index: mixin module name → its `<iq>` contribution.
@@ -65,29 +72,122 @@ impl MixinIndex {
 
 /// Build the index over every `WASmaxOut*` module (mixins + requests). Cheap:
 /// only those small slices are re-parsed, not the whole bundle.
+///
+/// Two stages: first resolve each mixin's *contribution* (the stanza tree it folds
+/// into a destination) in dependency order, so a sub-stanza mixin's attrs are known
+/// before any mixin that nests it (Phase 3). Then extract each `<iq>` fragment with
+/// those contributions available, so a fragment's children (e.g. newsletter
+/// `messages`) carry the cross-module attrs the nested mixins add.
 pub(crate) fn build_pass(defs: &[ModuleDefinition], source: &str) -> MixinIndex {
-    let mut by_module = BTreeMap::new();
+    // First-occurrence slice per WASmaxOut* module (the same module may appear in
+    // several bundle shards; the first definition is authoritative).
+    let mut slices: BTreeMap<&str, &str> = BTreeMap::new();
     for m in defs {
-        if !m.name.starts_with("WASmaxOut") {
-            continue;
+        if m.name.starts_with("WASmaxOut") {
+            slices.entry(&m.name).or_insert(&source[m.start..m.end]);
         }
-        let slice = &source[m.start..m.end];
-        if let Some(frag) = extract_fragment(slice) {
-            by_module.insert(m.name.clone(), frag);
+    }
+
+    // Dependency graph: which WASmaxOut* mixins each module references via `o("…")`.
+    let deps: BTreeMap<&str, Vec<String>> = slices
+        .iter()
+        .map(|(name, slice)| (*name, collect_mixin_deps(slice, name)))
+        .collect();
+
+    // Resolve contributions in post-order (dependencies first), memoized.
+    let mut contributions: MixinContributions = BTreeMap::new();
+    let mut visiting: HashSet<String> = HashSet::new();
+    for name in slices.keys() {
+        resolve_contribution_rec(name, &slices, &deps, &mut contributions, &mut visiting);
+    }
+
+    // Extract each module's `<iq>` fragment with the contributions available, so the
+    // fragment's children pick up the nested mixins' attrs.
+    let mut by_module = BTreeMap::new();
+    for (name, slice) in &slices {
+        if let Some(frag) = extract_fragment(slice, &contributions) {
+            by_module.insert(name.to_string(), frag);
         }
     }
     MixinIndex { by_module }
 }
 
+/// WASmaxOut* module names a slice references via `o("…")` (excluding itself) —
+/// the candidate dependency edges for contribution ordering. Over-inclusive is
+/// safe: an extra edge only forces earlier resolution; cycles are bounded by the
+/// `visiting` set in [`resolve_contribution_rec`].
+fn collect_mixin_deps(slice: &str, self_name: &str) -> Vec<String> {
+    let alloc = Allocator::default();
+    let ret = wa_oxc::parse_cjs(&alloc, slice);
+    let mut v = DepCollector {
+        self_name,
+        deps: Vec::new(),
+    };
+    v.visit_program(&ret.program);
+    v.deps
+}
+
+struct DepCollector<'s> {
+    self_name: &'s str,
+    deps: Vec<String>,
+}
+
+impl<'a> Visit<'a> for DepCollector<'_> {
+    fn visit_call_expression(&mut self, call: &CallExpression<'a>) {
+        // `o("WASmaxOut…")` — a require call: callee is a bare identifier (not a
+        // member like `x.smax("messages")`, whose string arg is a tag, not a module).
+        if matches!(&call.callee, Expression::Identifier(_))
+            && let Some(arg) = wa_oxc::first_string_arg(call)
+            && arg.starts_with("WASmaxOut")
+            && arg != self.self_name
+            && !self.deps.iter().any(|d| d == arg)
+        {
+            self.deps.push(arg.to_string());
+        }
+        walk::walk_call_expression(self, call);
+    }
+}
+
+/// Resolve `name`'s contribution after all its dependencies', memoizing into
+/// `contributions`. The `visiting` set bounds cycles (a mixin in-progress is
+/// treated as contributing nothing until it completes).
+fn resolve_contribution_rec(
+    name: &str,
+    slices: &BTreeMap<&str, &str>,
+    deps: &BTreeMap<&str, Vec<String>>,
+    contributions: &mut MixinContributions,
+    visiting: &mut HashSet<String>,
+) {
+    if contributions.contains_key(name) || visiting.contains(name) {
+        return;
+    }
+    visiting.insert(name.to_string());
+    if let Some(ds) = deps.get(name) {
+        for d in ds {
+            resolve_contribution_rec(d, slices, deps, contributions, visiting);
+        }
+    }
+    visiting.remove(name);
+    if let Some(slice) = slices.get(name) {
+        let contrib = resolve_contribution(slice, contributions);
+        contributions.insert(name.to_string(), contrib);
+    }
+}
+
 /// Parse a `WASmaxOut*` module slice and extract its `<iq>` fragment, if it
 /// builds one. Returns `None` for modules that don't construct a `smax("iq", …)`.
-fn extract_fragment(slice: &str) -> Option<MixinIqFragment> {
+/// `contributions` lets the fragment's children pick up cross-module sub-stanza
+/// attrs (Phase 3); pass an empty map for purely structural extraction.
+fn extract_fragment(slice: &str, contributions: &MixinContributions) -> Option<MixinIqFragment> {
     let alloc = Allocator::default();
     let ret = wa_oxc::parse_cjs(&alloc, slice);
     let aliases = build_alias_map(&ret.program);
+    let scope = build_var_scope(&ret.program);
     let mut v = FragmentVisitor {
         source: slice,
         aliases: &aliases,
+        scope: &scope,
+        contributions,
         merge_fn: None,
         frag: MixinIqFragment::default(),
         found_iq: false,
@@ -108,6 +208,10 @@ fn extract_fragment(slice: &str) -> Option<MixinIqFragment> {
 struct FragmentVisitor<'s> {
     source: &'s str,
     aliases: &'s AliasMap,
+    scope: &'s VarScope,
+    /// Resolved contributions of the mixins this one nests (Phase 3) — lets the iq's
+    /// children pick up cross-module sub-stanza attrs.
+    contributions: &'s MixinContributions,
     /// The exported `l.merge<Name>Mixin = …` name, captured from the assignment.
     merge_fn: Option<String>,
     frag: MixinIqFragment,
@@ -164,6 +268,21 @@ impl<'a> Visit<'a> for FragmentVisitor<'_> {
                     self.frag.target = Some(IqTarget::Server);
                 }
             }
+            // The fragment's own children (e.g. `spam_list{spam_flow}`) — merged by
+            // tag into a Request's children so cross-module attrs/children survive.
+            for child_arg in wap.child_args {
+                if let Some(ce) = arg_expr(child_arg) {
+                    self.frag.children.extend(resolve_child_node(
+                        ce,
+                        self.source,
+                        self.scope,
+                        self.source,
+                        self.aliases,
+                        Some(self.contributions),
+                        0,
+                    ));
+                }
+            }
         }
 
         // Mixins this module folds in: `o("WASmaxOut…").merge…(…)`. Collected for
@@ -181,8 +300,6 @@ impl<'a> Visit<'a> for FragmentVisitor<'_> {
         walk::walk_call_expression(self, call);
     }
 }
-
-use crate::module::require_module_name;
 
 /// Resolve `xmlns`/`type`/`target` for a Request by unioning the iq fragments of
 /// the mixins it references (`mixin_modules`), following `merged_callees`
@@ -243,9 +360,142 @@ pub(crate) fn resolve(
     )
 }
 
+/// The transitive union of the `<iq>` children every referenced mixin contributes
+/// (following `merged_callees`), pre-merged by tag. The scanner merges this into a
+/// Request's children to recover cross-module attrs/children (e.g. `spam_flow`).
+pub(crate) fn resolve_fragment_children(
+    index: &MixinIndex,
+    mixin_modules: &[String],
+) -> Vec<WapChildNode> {
+    let mut visited = std::collections::HashSet::new();
+    let mut queue: std::collections::VecDeque<String> = mixin_modules.iter().cloned().collect();
+    let mut out: Vec<WapChildNode> = Vec::new();
+    while let Some(name) = queue.pop_front() {
+        if !visited.insert(name.clone()) {
+            continue;
+        }
+        let Some(frag) = index.get(&name) else {
+            continue;
+        };
+        merge_children(&mut out, &frag.children);
+        for c in &frag.merged_callees {
+            if !visited.contains(c) {
+                queue.push_back(c.clone());
+            }
+        }
+    }
+    out
+}
+
+/// Count the tag/attr entries [`merge_children`] would ADD to `into` — fields the
+/// cross-module fragment carries that are absent locally. Mirrors the same tag
+/// matching so the diagnostic reports exactly what the merge recovers (0 when the
+/// fragment only re-states fields already built locally). Used only for the
+/// `diagnostics.iq.crossModule` manifest counters; it does not mutate anything.
+pub(crate) fn count_recovered_fields(into: &[WapChildNode], from: &[WapChildNode]) -> usize {
+    let mut n = 0;
+    for fc in from {
+        if let Some(existing) = into.iter().find(|c| c.tag == fc.tag) {
+            n += fc
+                .attrs
+                .iter()
+                .filter(|fa| !existing.attrs.iter().any(|a| a.name == fa.name))
+                .count();
+            n += count_recovered_fields(&existing.children, &fc.children);
+            // Variant groups absent locally are recovered wholesale.
+            for g in &fc.variant_groups {
+                if !existing.variant_groups.contains(g) {
+                    n += variant_group_field_count(g);
+                }
+            }
+        } else {
+            // Whole subtree is new: its tag + its attrs + every descendant tag/attr.
+            n += 1 + subtree_field_count(fc);
+        }
+    }
+    n
+}
+
+/// Tags + attrs contained in a subtree, excluding the node's own tag (the caller
+/// counts that). The node's attrs plus its variant-group attrs plus, recursively,
+/// each descendant's tag+attrs.
+fn subtree_field_count(node: &WapChildNode) -> usize {
+    let mut n = node.attrs.len();
+    for g in &node.variant_groups {
+        n += variant_group_field_count(g);
+    }
+    for c in &node.children {
+        n += 1 + subtree_field_count(c);
+    }
+    n
+}
+
+/// Attrs (and nested subtree fields) across all variants of a group.
+fn variant_group_field_count(g: &wa_ir::WapVariantGroup) -> usize {
+    g.variants
+        .iter()
+        .map(|v| {
+            v.attrs.len()
+                + v.children
+                    .iter()
+                    .map(|c| 1 + subtree_field_count(c))
+                    .sum::<usize>()
+        })
+        .sum()
+}
+
+/// Merge `from` children into `into` by tag (`mergeStanzas` semantics): a matching
+/// tag has its attrs unioned (existing wins), variant groups unioned, and children
+/// merged recursively; a non-matching child is appended. Locally-extracted fields
+/// take precedence, so the merge only ever ADDS cross-module attrs/children.
+pub(crate) fn merge_children(into: &mut Vec<WapChildNode>, from: &[WapChildNode]) {
+    for fc in from {
+        if let Some(existing) = into.iter_mut().find(|c| c.tag == fc.tag) {
+            for fa in &fc.attrs {
+                if !existing.attrs.iter().any(|a| a.name == fa.name) {
+                    existing.attrs.push(fa.clone());
+                }
+            }
+            // A fragment that marks the child repeated promotes it (the local build
+            // may have seen a single template).
+            existing.repeats = existing.repeats || fc.repeats;
+            // Union variant groups (a node can carry several disjunctions); dedup so
+            // a re-merge of the same fragment doesn't duplicate a group.
+            for g in &fc.variant_groups {
+                if !existing.variant_groups.contains(g) {
+                    existing.variant_groups.push(g.clone());
+                }
+            }
+            merge_children(&mut existing.children, &fc.children);
+        } else {
+            into.push(fc.clone());
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use wa_ir::WapAttrDef;
+
+    fn attr(name: &str) -> WapAttrDef {
+        WapAttrDef {
+            name: name.to_string(),
+            kind: WapAttrKind::Const,
+            value: None,
+            required: false,
+        }
+    }
+
+    fn node(tag: &str, attrs: &[&str], children: Vec<WapChildNode>) -> WapChildNode {
+        WapChildNode {
+            tag: tag.to_string(),
+            attrs: attrs.iter().map(|a| attr(a)).collect(),
+            children,
+            repeats: false,
+            variant_groups: Vec::new(),
+        }
+    }
 
     fn frag(xmlns: Option<&str>, ty: Option<IqType>, callees: &[&str]) -> MixinIqFragment {
         MixinIqFragment {
@@ -253,6 +503,7 @@ mod tests {
             iq_type: ty,
             target: None,
             merged_callees: callees.iter().map(|s| s.to_string()).collect(),
+            children: Vec::new(),
         }
     }
 
@@ -317,7 +568,7 @@ mod tests {
             function s(t){ return o("WASmaxMixins").mergeStanzas(t, e()); }
             l.mergeBaseIQSetRequestMixin = s;
         }, 1);"#;
-        let f = extract_fragment(m).expect("fragment");
+        let f = extract_fragment(m, &MixinContributions::new()).expect("fragment");
         assert_eq!(f.iq_type, Some(IqType::Set));
         assert_eq!(f.xmlns, None);
     }
@@ -330,7 +581,7 @@ mod tests {
             function s(t){ return o("WASmaxMixins").mergeStanzas(t, e()); }
             l.mergeBaseIQGetRequestMixin = s;
         }, 1);"#;
-        let f = extract_fragment(m).expect("fragment");
+        let f = extract_fragment(m, &MixinContributions::new()).expect("fragment");
         assert_eq!(f.xmlns.as_deref(), Some("foo"));
         assert_eq!(f.iq_type, Some(IqType::Get), "type from merge name");
     }
@@ -343,6 +594,112 @@ mod tests {
             function s(t,n){ return o("WASmaxMixins").mergeStanzas(t, e(n)); }
             l.mergeMessageMixin = s;
         }, 1);"#;
-        assert!(extract_fragment(m).is_none());
+        assert!(extract_fragment(m, &MixinContributions::new()).is_none());
+    }
+
+    #[test]
+    fn extract_fragment_captures_iq_children() {
+        // The fragment's `<iq>` carries a `spam_list{spam_flow}` child — it must be
+        // captured so the merge can fold it into a Request's tree (the Phase-2 win).
+        let m = r#"__d("WASmaxOutSpamBaseReportMixin",["WASmaxJsx","WAWap","WASmaxMixins"],function(g,r,d,o,e,i,l){
+            function e(t){ return o("WASmaxJsx").smax("iq",{xmlns:"spam"}, o("WASmaxJsx").smax("spam_list",{spam_flow:o("WAWap").CUSTOM_STRING(t.flow)})); }
+            function s(t,n){ return o("WASmaxMixins").mergeStanzas(t, e(n)); }
+            l.mergeBaseReportMixin = s;
+        }, 1);"#;
+        let f = extract_fragment(m, &MixinContributions::new()).expect("fragment");
+        assert_eq!(f.xmlns.as_deref(), Some("spam"));
+        assert_eq!(f.children.len(), 1, "the iq's spam_list child is captured");
+        assert_eq!(f.children[0].tag, "spam_list");
+        assert!(
+            f.children[0].attrs.iter().any(|a| a.name == "spam_flow"),
+            "spam_flow attr captured on the fragment child"
+        );
+    }
+
+    #[test]
+    fn count_recovered_new_tag_counts_whole_subtree() {
+        // local has nothing; the fragment adds spam_list{jid, spam_flow} > msg{from}.
+        // Recovered = spam_list(tag) + jid + spam_flow + msg(tag) + from = 5.
+        let local: Vec<WapChildNode> = vec![];
+        let from = vec![node(
+            "spam_list",
+            &["jid", "spam_flow"],
+            vec![node("msg", &["from"], vec![])],
+        )];
+        assert_eq!(count_recovered_fields(&local, &from), 5);
+    }
+
+    #[test]
+    fn count_recovered_matching_tag_only_new_attrs() {
+        // spam_list exists locally with `jid`; fragment adds spam_flow + subject.
+        let local = vec![node("spam_list", &["jid"], vec![])];
+        let from = vec![node("spam_list", &["jid", "spam_flow", "subject"], vec![])];
+        assert_eq!(count_recovered_fields(&local, &from), 2);
+    }
+
+    #[test]
+    fn count_recovered_zero_when_fragment_is_subset() {
+        let local = vec![node("spam_list", &["jid", "spam_flow"], vec![])];
+        let from = vec![node("spam_list", &["jid"], vec![])];
+        assert_eq!(
+            count_recovered_fields(&local, &from),
+            0,
+            "a fragment that only re-states local fields recovers nothing"
+        );
+    }
+
+    #[test]
+    fn merge_children_unions_attrs_existing_wins() {
+        // spam_list{jid} + fragment spam_list{jid, spam_flow} → spam_list{jid, spam_flow}.
+        let mut into = vec![node("spam_list", &["jid"], vec![])];
+        merge_children(
+            &mut into,
+            &[node("spam_list", &["jid", "spam_flow"], vec![])],
+        );
+        assert_eq!(into.len(), 1, "same tag merges, not duplicates");
+        let names: Vec<_> = into[0].attrs.iter().map(|a| a.name.as_str()).collect();
+        assert_eq!(names, vec!["jid", "spam_flow"]);
+    }
+
+    #[test]
+    fn merge_children_appends_non_matching_tag() {
+        let mut into = vec![node("a", &[], vec![])];
+        merge_children(&mut into, &[node("b", &["x"], vec![])]);
+        let tags: Vec<_> = into.iter().map(|c| c.tag.as_str()).collect();
+        assert_eq!(tags, vec!["a", "b"]);
+    }
+
+    #[test]
+    fn merge_children_promotes_repeats_and_recurses() {
+        let mut into = vec![node("links", &[], vec![node("link", &["a"], vec![])])];
+        let mut frag_link = node("link", &["b"], vec![]);
+        frag_link.repeats = true;
+        merge_children(&mut into, &[node("links", &[], vec![frag_link])]);
+        let link = &into[0].children[0];
+        assert!(
+            link.repeats,
+            "a fragment that marks the child repeated promotes it"
+        );
+        let names: Vec<_> = link.attrs.iter().map(|a| a.name.as_str()).collect();
+        assert_eq!(names, vec!["a", "b"], "nested attrs unioned recursively");
+    }
+
+    #[test]
+    fn resolve_fragment_children_unions_transitively() {
+        // Report folds in Base; spam_list's attrs come from BOTH (Report: spam_flow
+        // directly, Base: subject via merged_callees).
+        let mut base = frag(Some("spam"), Some(IqType::Set), &[]);
+        base.children = vec![node("spam_list", &["subject"], vec![])];
+        let mut report = frag(None, None, &["Base"]);
+        report.children = vec![node("spam_list", &["spam_flow"], vec![])];
+        let idx = index(&[("Base", base), ("Report", report)]);
+        let kids = resolve_fragment_children(&idx, &["Report".into()]);
+        assert_eq!(kids.len(), 1);
+        let names: Vec<_> = kids[0].attrs.iter().map(|a| a.name.as_str()).collect();
+        assert!(names.contains(&"spam_flow"), "direct child attr");
+        assert!(
+            names.contains(&"subject"),
+            "transitive child attr via callee"
+        );
     }
 }

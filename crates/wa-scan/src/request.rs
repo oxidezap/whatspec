@@ -9,19 +9,39 @@
 //! scope lookups slice the module source. This mirrors the TS scanner's re-parse
 //! approach while staying lifetime-clean.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use oxc_allocator::Allocator;
-use oxc_ast::ast::{Expression, Function, Program, Statement, VariableDeclaration};
+use oxc_ast::ast::{
+    AssignmentExpression, Expression, Function, Program, Statement, VariableDeclaration,
+};
 use oxc_ast_visit::{Visit, walk};
 use oxc_span::GetSpan;
 use wa_ir::WapChildNode;
 
 use crate::alias::{AliasMap, build_alias_map, resolve_owner};
 use crate::attrs::{extract_attrs_from_obj, parse_wap_call};
+use crate::module::require_module_name;
 use wa_oxc::{arg_expr, as_call, as_identifier, callee_method, callee_object};
 
-const MAX_FN_DEPTH: u32 = 3;
+/// Max function-boundary crossings while tracing returns/templates. Bounds the
+/// `resolve_child_node` ↔ `resolve_function_return` recursion so a (pathological)
+/// mutually-recursive helper pair can't loop forever; real builders nest only a
+/// few templates deep.
+const MAX_FN_DEPTH: u32 = 8;
+
+/// Wildcard tag a mixin uses when it contributes attrs/children to *whatever*
+/// stanza it's merged into (`smax("smax$any", {…})`): on merge the attrs/children
+/// are applied to the destination node regardless of its tag.
+const WILDCARD_TAG: &str = "smax$any";
+
+/// Cross-module mixin contributions: mixin module name → the stanza tree it folds
+/// into a destination via `mergeStanzas`/`merge…Mixin`/`optionalMerge`. Built once
+/// (topologically) by [`crate::mixin_index`]; passed to [`resolve_child_node`] so a
+/// `merge…Mixin(dst, …)` recovers not just `dst` but the attrs/children the mixin
+/// adds to it (e.g. newsletter `messages{after, before, count}`). `None` makes
+/// resolution purely structural — identical to the pre-Phase-3 behavior.
+pub(crate) type MixinContributions = BTreeMap<String, Vec<WapChildNode>>;
 
 /// One initializer of a tracked variable, as byte spans into the module source.
 #[derive(Clone)]
@@ -113,7 +133,22 @@ pub(crate) fn resolve_child_node(
     scope: &VarScope,
     module_source: &str,
     aliases: &AliasMap,
+    contributions: Option<&MixinContributions>,
+    depth: u32,
 ) -> Vec<WapChildNode> {
+    // Unwrap `(…)` — a transparent wrapper (e.g. a re-parsed `return (expr)`).
+    if let Expression::ParenthesizedExpression(p) = node {
+        return resolve_child_node(
+            &p.expression,
+            node_source,
+            scope,
+            module_source,
+            aliases,
+            contributions,
+            depth,
+        );
+    }
+
     // Case 1: direct wap()/smax() call.
     if let Some(call) = as_call(node)
         && let Some(wap) = parse_wap_call(call, aliases)
@@ -131,6 +166,8 @@ pub(crate) fn resolve_child_node(
                     scope,
                     module_source,
                     aliases,
+                    contributions,
+                    depth,
                 ));
             }
         }
@@ -139,7 +176,28 @@ pub(crate) fn resolve_child_node(
             attrs,
             children,
             repeats: false,
+            variant_groups: Vec::new(),
         }];
+    }
+
+    // Case 1b: an array of children — `[a, b]` or `[].concat(a, b)` produce a
+    // children list; resolve and flatten each element.
+    if let Expression::ArrayExpression(arr) = node {
+        let mut out = Vec::new();
+        for el in &arr.elements {
+            if let Some(e) = el.as_expression() {
+                out.extend(resolve_child_node(
+                    e,
+                    node_source,
+                    scope,
+                    module_source,
+                    aliases,
+                    contributions,
+                    depth,
+                ));
+            }
+        }
+        return out;
     }
 
     // Case 2: variable reference — try every initializer (re-parsing its slice).
@@ -153,7 +211,15 @@ pub(crate) fn resolve_child_node(
                     if let Some(m) = resolve_map_call(expr, slice, aliases) {
                         return m;
                     }
-                    let r = resolve_child_node(expr, slice, scope, module_source, aliases);
+                    let r = resolve_child_node(
+                        expr,
+                        slice,
+                        scope,
+                        module_source,
+                        aliases,
+                        contributions,
+                        depth,
+                    );
                     if !r.is_empty() {
                         return r;
                     }
@@ -169,11 +235,16 @@ pub(crate) fn resolve_child_node(
     }
 
     // Case 4: smax composition/optional/repeated child helpers.
-    //   WASmaxChildren.REPEATED_CHILD(fn, list, …)  → repeating child template
-    //   WASmaxChildren.OPTIONAL_CHILD / HAS_OPTIONAL_CHILD(fn, val) → optional child
-    //   WASmax…Mixin.merge…Mixin(stanza, …)         → resolve the inner stanza
-    // For all of these the stanza/template lives in the FIRST argument; we resolve
-    // that locally (cross-module mixin fragments are a future iteration).
+    //   WASmaxChildren.REPEATED_CHILD(tmpl, list, …)        → repeating child template
+    //   WASmaxChildren.OPTIONAL_CHILD/HAS_OPTIONAL_CHILD(tmpl, val) → optional child
+    //   WASmax…Mixin.merge…Mixin(stanza, …)                 → the passed-in stanza
+    //   WASmaxMixins.optionalMerge(mergeFn, stanza, …)      → the stanza (2nd arg)
+    //   [].concat(a, b, …)                                  → flatten the lists
+    // The `tmpl` of REPEATED/OPTIONAL_CHILD is a stanza or a template *function*
+    // (resolved via its return); merge/optionalMerge/concat may carry the stanza in
+    // any argument, so we resolve them all. When `contributions` is provided, a
+    // `merge…Mixin(dst, …)` / `optionalMerge(mergeFn, dst, …)` also folds the mixin's
+    // own attrs/children into the resolved `dst` (Phase 3 — nested sub-stanza attrs).
     if let Some(call) = as_call(node)
         && let Some(method) = callee_method(call)
     {
@@ -181,18 +252,94 @@ pub(crate) fn resolve_child_node(
         let repeated = owner == Some("WASmaxChildren") && method == "REPEATED_CHILD";
         let optional = owner == Some("WASmaxChildren")
             && matches!(method, "OPTIONAL_CHILD" | "HAS_OPTIONAL_CHILD");
-        let is_merge = method.starts_with("merge") && method.ends_with("Mixin");
-        if (repeated || optional || is_merge)
-            && let Some(first) = call.arguments.first().and_then(arg_expr)
-        {
-            let mut r = resolve_child_node(first, node_source, scope, module_source, aliases);
-            if repeated {
-                for c in &mut r {
-                    c.repeats = true;
+        if repeated || optional {
+            if let Some(first) = call.arguments.first().and_then(arg_expr) {
+                let mut r = resolve_template_arg(
+                    first,
+                    node_source,
+                    scope,
+                    module_source,
+                    aliases,
+                    contributions,
+                    depth,
+                );
+                if repeated {
+                    for c in &mut r {
+                        c.repeats = true;
+                    }
+                }
+                if !r.is_empty() {
+                    return r;
                 }
             }
-            if !r.is_empty() {
-                return r;
+        }
+        // `merge…Mixin` and the disjunction `merge…MixinGroup` both wrap a stanza.
+        let is_merge = method.starts_with("merge") && method.contains("Mixin");
+        // A MixinGroup's selector method drops the `Mixin` suffix
+        // (`mergeQueryNewsletterParams`); recognize it by a `WASmaxOut*` owner so its
+        // contribution is still folded in.
+        let merge_owner = callee_object(call).and_then(require_module_name);
+        let is_cross_merge = method.starts_with("merge")
+            && merge_owner
+                .as_deref()
+                .is_some_and(|m| m.starts_with("WASmaxOut"));
+        let is_optional_merge = owner == Some("WASmaxMixins") && method == "optionalMerge";
+        // `WASmaxMixins.mergeStanzas(dst, frag)` fuses two stanzas — resolve both.
+        let is_merge_stanzas = owner == Some("WASmaxMixins") && method == "mergeStanzas";
+        let is_concat = method == "concat";
+        if is_merge || is_cross_merge || is_optional_merge || is_merge_stanzas || is_concat {
+            // The stanza/children can be in any argument (concat lists, the 2nd-arg
+            // stanza of optionalMerge, the 1st-arg stanza of a merge); resolve all.
+            let mut out = Vec::new();
+            // `recv.concat(extra)` returns the receiver's elements too, so resolve
+            // the receiver (e.g. `[a].concat(b)` must keep `a`).
+            if is_concat && let Some(obj) = callee_object(call) {
+                out.extend(resolve_child_node(
+                    obj,
+                    node_source,
+                    scope,
+                    module_source,
+                    aliases,
+                    contributions,
+                    depth,
+                ));
+            }
+            for a in &call.arguments {
+                if let Some(e) = arg_expr(a) {
+                    out.extend(resolve_child_node(
+                        e,
+                        node_source,
+                        scope,
+                        module_source,
+                        aliases,
+                        contributions,
+                        depth,
+                    ));
+                }
+            }
+            // Phase 3: fold the called mixin's own contribution into the resolved
+            // destination(s). For a `merge…(dst,…)` the mixin is the callee's owner
+            // module; for `optionalMerge(o("X").merge…, dst,…)` it's the owner of the
+            // 1st argument (the merge-fn reference).
+            if let Some(contribs) = contributions
+                && (is_merge || is_cross_merge || is_optional_merge)
+            {
+                let mixin = if is_optional_merge {
+                    call.arguments
+                        .first()
+                        .and_then(arg_expr)
+                        .and_then(merge_ref_owner)
+                } else {
+                    merge_owner
+                };
+                if let Some(name) = mixin
+                    && let Some(contrib) = contribs.get(&name)
+                {
+                    apply_contribution(&mut out, contrib, is_optional_merge);
+                }
+            }
+            if !out.is_empty() {
+                return out;
             }
         }
     }
@@ -204,7 +351,15 @@ pub(crate) fn resolve_child_node(
     {
         for vi in inits {
             if let Some((bs, be)) = vi.fn_body {
-                let r = resolve_function_return(bs, be, scope, module_source, aliases, 0);
+                let r = resolve_function_return(
+                    bs,
+                    be,
+                    scope,
+                    module_source,
+                    aliases,
+                    contributions,
+                    depth + 1,
+                );
                 if !r.is_empty() {
                     return r;
                 }
@@ -213,6 +368,128 @@ pub(crate) fn resolve_child_node(
     }
 
     Vec::new()
+}
+
+/// The mixin module a merge-fn reference belongs to: `o("X").merge…Mixin` (a member
+/// expression) or `o("X").merge…Mixin(…)` (a call) → `"X"`. Used to resolve the
+/// `optionalMerge` first argument to the contributing mixin.
+fn merge_ref_owner(expr: &Expression) -> Option<String> {
+    if let Some(call) = as_call(expr) {
+        return callee_object(call).and_then(require_module_name);
+    }
+    if let Some(m) = expr.as_member_expression() {
+        return require_module_name(m.object());
+    }
+    None
+}
+
+/// Fold a mixin's contribution into the destination node(s) it's merged onto,
+/// mirroring `mergeStanzas`. A contribution root tagged [`WILDCARD_TAG`] (`smax$any`)
+/// applies its attrs/children/variant-groups to every destination node regardless of
+/// tag; any other root merges by tag and is APPENDED when no destination matches (the
+/// dst may be an external placeholder that resolves empty — e.g. a MixinGroup union's
+/// `e_dst` — so the contribution must still produce the node). `optional` (set for
+/// `optionalMerge`) marks the folded variant groups optional. Only ever ADDS.
+fn apply_contribution(dst: &mut Vec<WapChildNode>, contrib: &[WapChildNode], optional: bool) {
+    for root in contrib {
+        if root.tag == WILDCARD_TAG {
+            if dst.is_empty() {
+                // No destination yet: keep the wildcard so a later merge can apply
+                // it. It never reaches the IR — the base sub-stanza is always present
+                // by the time a request resolves.
+                let mut r = root.clone();
+                mark_groups_optional(&mut r.variant_groups, optional);
+                dst.push(r);
+            } else {
+                for d in dst.iter_mut() {
+                    merge_node_into(d, root, optional);
+                }
+            }
+        } else if let Some(d) = dst.iter_mut().find(|d| d.tag == root.tag) {
+            merge_node_into(d, root, optional);
+        } else {
+            // No matching destination tag: append the node (mergeStanzas semantics).
+            let mut r = root.clone();
+            mark_groups_optional(&mut r.variant_groups, optional);
+            dst.push(r);
+        }
+    }
+}
+
+/// Fold `src`'s attrs (existing win), children (by tag), and variant groups into the
+/// in-place destination node `d`. `optional` weakens the folded variant groups.
+fn merge_node_into(d: &mut WapChildNode, src: &WapChildNode, optional: bool) {
+    for a in &src.attrs {
+        if !d.attrs.iter().any(|x| x.name == a.name) {
+            d.attrs.push(a.clone());
+        }
+    }
+    // A repeatable contribution (its root came from `REPEATED_CHILD`/`.map(…)`)
+    // promotes a locally-singular child, mirroring `mixin_index::merge_children` so a
+    // repeated child folded onto an existing tag isn't silently treated as singular.
+    d.repeats = d.repeats || src.repeats;
+    crate::mixin_index::merge_children(&mut d.children, &src.children);
+    for g in &src.variant_groups {
+        let mut g2 = g.clone();
+        g2.optional = g2.optional || optional;
+        d.variant_groups.push(g2);
+    }
+}
+
+fn mark_groups_optional(groups: &mut [wa_ir::WapVariantGroup], optional: bool) {
+    if optional {
+        for g in groups {
+            g.optional = true;
+        }
+    }
+}
+
+/// Resolve a `REPEATED_CHILD`/`OPTIONAL_CHILD` template argument: an inline stanza,
+/// or a template *function* reference whose return builds the child (`REPEATED_CHILD(e, …)`
+/// where `function e(o){ return …smax("item", …) }`).
+fn resolve_template_arg(
+    arg: &Expression,
+    node_source: &str,
+    scope: &VarScope,
+    module_source: &str,
+    aliases: &AliasMap,
+    contributions: Option<&MixinContributions>,
+    depth: u32,
+) -> Vec<WapChildNode> {
+    // A template is usually a *function* reference: trace its return. Prefer the
+    // function initializer over any same-named non-function var — the flat scope
+    // conflates a template fn `e` with an unrelated `var e = smax(…)` in a sibling
+    // helper, and the function is the one passed as the template.
+    if let Some(name) = as_identifier(arg)
+        && let Some(inits) = scope.vars.get(name)
+    {
+        for vi in inits {
+            if let Some((bs, be)) = vi.fn_body {
+                let r = resolve_function_return(
+                    bs,
+                    be,
+                    scope,
+                    module_source,
+                    aliases,
+                    contributions,
+                    depth + 1,
+                );
+                if !r.is_empty() {
+                    return r;
+                }
+            }
+        }
+    }
+    // Otherwise an inline stanza or other directly-resolvable expression.
+    resolve_child_node(
+        arg,
+        node_source,
+        scope,
+        module_source,
+        aliases,
+        contributions,
+        depth,
+    )
 }
 
 /// `x.map(function(o){ return e.wap(...) })` → repeating child template(s).
@@ -241,18 +518,100 @@ fn resolve_map_call(
     Some(children)
 }
 
+/// Resolve each top-level `return <expr>` of a function body SEPARATELY (one entry
+/// per return), so a MixinGroup union's branch variants stay distinct. Applies the
+/// same lexical-scope merge as [`resolve_function_return`]. Does not run the
+/// no-returns fallbacks (those only matter when there are no resolvable returns).
+fn resolve_function_returns_each(
+    body_start: usize,
+    body_end: usize,
+    scope: &VarScope,
+    module_source: &str,
+    aliases: &AliasMap,
+    contributions: Option<&MixinContributions>,
+    depth: u32,
+) -> Vec<Vec<WapChildNode>> {
+    if depth > MAX_FN_DEPTH {
+        return Vec::new();
+    }
+    let body = &module_source[body_start..body_end];
+    // Lexical scope: this body's own vars (shifted to module-absolute offsets) SHADOW
+    // the module scope, but the module scope still backs cross-function refs. Mirrors
+    // the merge in `resolve_function_return`.
+    let alloc = Allocator::default();
+    let parsed = wa_oxc::parse_cjs(&alloc, body);
+    let mut merged = build_var_scope(&parsed.program);
+    for inits in merged.vars.values_mut() {
+        for vi in inits {
+            vi.init_start += body_start;
+            vi.init_end += body_start;
+            if let Some((s, e)) = vi.fn_body.as_mut() {
+                *s += body_start;
+                *e += body_start;
+            }
+        }
+    }
+    for (name, ginits) in &scope.vars {
+        merged
+            .vars
+            .entry(name.clone())
+            .or_default()
+            .extend(ginits.iter().cloned());
+    }
+    let mut per_return = Vec::new();
+    for arg_src in collect_return_arg_sources(body) {
+        let alloc2 = Allocator::default();
+        let owned = format!("({arg_src});");
+        let r2 = wa_oxc::parse_cjs(&alloc2, &owned);
+        if let Some(expr) = first_expression(&r2.program) {
+            let r = resolve_child_node(
+                expr,
+                &owned,
+                &merged,
+                module_source,
+                aliases,
+                contributions,
+                depth,
+            );
+            if !r.is_empty() {
+                per_return.push(r);
+            }
+        }
+    }
+    per_return
+}
+
 /// Trace a function body for `wap()` calls, following `return helper(...)` chains.
+/// Flattens every `return` into one child list (nesting preserved); for the
+/// per-return form used by union detection see [`resolve_function_returns_each`].
 fn resolve_function_return(
     body_start: usize,
     body_end: usize,
     scope: &VarScope,
     module_source: &str,
     aliases: &AliasMap,
+    contributions: Option<&MixinContributions>,
     depth: u32,
 ) -> Vec<WapChildNode> {
+    let flat: Vec<WapChildNode> = resolve_function_returns_each(
+        body_start,
+        body_end,
+        scope,
+        module_source,
+        aliases,
+        contributions,
+        depth,
+    )
+    .into_iter()
+    .flatten()
+    .collect();
+    if !flat.is_empty() {
+        return flat;
+    }
     if depth > MAX_FN_DEPTH {
         return Vec::new();
     }
+    // No resolvable returns: fall back to a flat scan, then `return helper(...)` chains.
     let body = &module_source[body_start..body_end];
     let direct = find_wap_calls_in_body(body, aliases);
     if !direct.is_empty() {
@@ -262,8 +621,15 @@ fn resolve_function_return(
         if let Some(inits) = scope.vars.get(&name) {
             for vi in inits {
                 if let Some((nbs, nbe)) = vi.fn_body {
-                    let r =
-                        resolve_function_return(nbs, nbe, scope, module_source, aliases, depth + 1);
+                    let r = resolve_function_return(
+                        nbs,
+                        nbe,
+                        scope,
+                        module_source,
+                        aliases,
+                        contributions,
+                        depth + 1,
+                    );
                     if !r.is_empty() {
                         return r;
                     }
@@ -272,6 +638,103 @@ fn resolve_function_return(
         }
     }
     Vec::new()
+}
+
+/// Resolve the stanza tree a mixin module contributes when merged into a
+/// destination — its exported `merge…` function's return, with cross-module
+/// `merge…Mixin`/`optionalMerge` calls expanded via `contributions` (the already-
+/// resolved fragments of the mixins it depends on; the caller resolves in
+/// dependency order). Same-tag roots are collapsed so a MixinGroup union's variants
+/// (`before`/`after`) fold into one node. Returns empty for a module with no
+/// `merge…` export (e.g. a Request module). See [`crate::mixin_index`].
+pub(crate) fn resolve_contribution(
+    slice: &str,
+    contributions: &MixinContributions,
+) -> Vec<WapChildNode> {
+    let alloc = Allocator::default();
+    let ret = wa_oxc::parse_cjs(&alloc, slice);
+    let scope = build_var_scope(&ret.program);
+    let aliases = build_alias_map(&ret.program);
+    let Some((bs, be)) = find_merge_fn_body(&ret.program, &scope) else {
+        return Vec::new();
+    };
+
+    // A MixinGroup disjunction (`if(flagA) merge…A; if(flagB) merge…B; else throw`)
+    // contributes a single node carrying its branches as mutually-exclusive variants
+    // — preserving the discriminator (e.g. `type:"jid"` vs `type:"invite"`) instead of
+    // collapsing the branches into one over-merged node.
+    if slice.contains("MixinGroupExhaustiveError") {
+        let branches =
+            resolve_function_returns_each(bs, be, &scope, slice, &aliases, Some(contributions), 0);
+        // Each branch resolves to one node (the dst with that variant's attrs folded
+        // in); the shared tag (e.g. `messages` or `smax$any`) anchors the group.
+        let variants: Vec<wa_ir::WapVariant> = branches
+            .iter()
+            .filter_map(|b| b.first())
+            .map(|n| wa_ir::WapVariant {
+                attrs: n.attrs.clone(),
+                children: n.children.clone(),
+            })
+            .filter(|v| !v.attrs.is_empty() || !v.children.is_empty())
+            .collect();
+        if variants.len() >= 2 {
+            let tag = branches
+                .iter()
+                .find_map(|b| b.first())
+                .map(|n| n.tag.clone())
+                .unwrap_or_default();
+            return vec![WapChildNode {
+                tag,
+                variant_groups: vec![wa_ir::WapVariantGroup {
+                    optional: false,
+                    variants,
+                }],
+                ..Default::default()
+            }];
+        }
+        // < 2 distinct variants: fall through to the normal (collapsed) resolution.
+    }
+
+    let raw = resolve_function_return(bs, be, &scope, slice, &aliases, Some(contributions), 0);
+    // Collapse same-tag roots so a non-union mixin's repeated returns fold into one.
+    let mut merged = Vec::new();
+    crate::mixin_index::merge_children(&mut merged, &raw);
+    merged
+}
+
+/// Body span of a mixin module's exported `merge…` function: the `RHS` of the
+/// `<exports>.merge… = fn` assignment, either an inline function or a reference to
+/// a named one resolved through `scope`. First match wins.
+fn find_merge_fn_body(program: &Program, scope: &VarScope) -> Option<(usize, usize)> {
+    let mut f = MergeFnFinder { scope, body: None };
+    f.visit_program(program);
+    f.body
+}
+
+struct MergeFnFinder<'s> {
+    scope: &'s VarScope,
+    body: Option<(usize, usize)>,
+}
+
+impl<'a> Visit<'a> for MergeFnFinder<'_> {
+    fn visit_assignment_expression(&mut self, assign: &AssignmentExpression<'a>) {
+        if self.body.is_none()
+            && let Some(m) = assign.left.as_member_expression()
+            && let Some(prop) = m.static_property_name()
+            && prop.starts_with("merge")
+        {
+            match &assign.right {
+                Expression::FunctionExpression(func) => self.body = fn_body_span(func),
+                Expression::Identifier(id) => {
+                    if let Some(inits) = self.scope.vars.get(id.name.as_str()) {
+                        self.body = inits.iter().find_map(|vi| vi.fn_body);
+                    }
+                }
+                _ => {}
+            }
+        }
+        walk::walk_assignment_expression(self, assign);
+    }
 }
 
 /// All `wap()`/`smax()` calls anywhere in a body string, as flat children.
@@ -314,9 +777,70 @@ impl<'a> Visit<'a> for WapCollector<'_> {
                 attrs,
                 children: Vec::new(),
                 repeats: false,
+                variant_groups: Vec::new(),
             });
         }
         walk::walk_call_expression(self, call);
+    }
+}
+
+/// Source text of each top-level `return <expr>` argument in a function body
+/// (descending into nested blocks, but NOT into nested functions — a `.map`/template
+/// callback's own return is resolved separately and must not be hoisted here).
+fn collect_return_arg_sources(body_code: &str) -> Vec<String> {
+    // `return` is only valid inside a function, so wrap the body before parsing;
+    // spans then index into `wrapped`.
+    let wrapped = format!("(function(){body_code});");
+    let alloc = Allocator::default();
+    let ret = wa_oxc::parse_cjs(&alloc, &wrapped);
+    let func = ret.program.body.iter().find_map(|s| match s {
+        Statement::ExpressionStatement(es) => {
+            let e = match &es.expression {
+                Expression::ParenthesizedExpression(p) => &p.expression,
+                other => other,
+            };
+            match e {
+                Expression::FunctionExpression(f) => f.body.as_ref(),
+                _ => None,
+            }
+        }
+        _ => None,
+    });
+    let mut out = Vec::new();
+    if let Some(body) = func {
+        for stmt in &body.statements {
+            collect_returns_in_stmt(stmt, &wrapped, &mut out);
+        }
+    }
+    out
+}
+
+fn collect_returns_in_stmt(stmt: &Statement, src: &str, out: &mut Vec<String>) {
+    match stmt {
+        Statement::BlockStatement(b) => {
+            for s in &b.body {
+                collect_returns_in_stmt(s, src, out);
+            }
+        }
+        // MixinGroup unions select a variant by flag: `if(t.before) return mergeA(…);
+        // if(t.after) return mergeB(…); throw …`. Collect each branch's return so the
+        // contribution is the UNION of the variants (merged by tag downstream); a
+        // guard returning a non-stanza simply resolves to nothing.
+        Statement::IfStatement(i) => {
+            collect_returns_in_stmt(&i.consequent, src, out);
+            if let Some(alt) = &i.alternate {
+                collect_returns_in_stmt(alt, src, out);
+            }
+        }
+        Statement::ReturnStatement(r) => {
+            if let Some(arg) = &r.argument {
+                let sp = arg.span();
+                out.push(src[sp.start as usize..sp.end as usize].to_string());
+            }
+        }
+        // Don't descend into functions: a `.map`/template callback's own return is
+        // resolved separately and must not be hoisted here.
+        _ => {}
     }
 }
 
@@ -370,7 +894,250 @@ mod tests {
         let owned = format!("{expr_src};");
         let ret2 = wa_oxc::parse_cjs(&alloc2, &owned);
         let expr = first_expression(&ret2.program).unwrap();
-        resolve_child_node(expr, &owned, &scope, code, &aliases)
+        resolve_child_node(expr, &owned, &scope, code, &aliases, None, 0)
+    }
+
+    /// Like [`resolve`], but with cross-module mixin contributions available (Phase
+    /// 3): a `merge…Mixin(dst,…)` folds the mixin's attrs/children into `dst`.
+    fn resolve_with(
+        code: &str,
+        expr_src: &str,
+        contributions: &MixinContributions,
+    ) -> Vec<WapChildNode> {
+        let alloc = Allocator::default();
+        let ret = wa_oxc::parse_cjs(&alloc, code);
+        let scope = build_var_scope(&ret.program);
+        let aliases = build_alias_map(&ret.program);
+
+        let alloc2 = Allocator::default();
+        let owned = format!("{expr_src};");
+        let ret2 = wa_oxc::parse_cjs(&alloc2, &owned);
+        let expr = first_expression(&ret2.program).unwrap();
+        resolve_child_node(expr, &owned, &scope, code, &aliases, Some(contributions), 0)
+    }
+
+    #[test]
+    fn inline_alias_merge_optionalmerge_chain() {
+        // Minified Groups-style builder: a `merge…MixinGroup` wrapping an inline-alias
+        // `(n = o("WASmaxMixins")).optionalMerge(…)` chain over a `<create>` whose
+        // children come from `[].concat(REPEATED_CHILD(fn,…), [HAS_OPTIONAL_CHILD(fn,…)])`.
+        // Exercises paren-unwrapped owner resolution + concat + template fn-refs.
+        let code = r#"
+            function e(o){ return o("WASmaxMixins").optionalMerge(o("P").mergePermMixin, o("WASmaxJsx").smax("participant", {jid:"x"}), a); }
+            function u(){ return o("WASmaxJsx").smax("locked", null); }
+            var X = o("WASmaxJsx").smax("iq", null,
+              o("Mod").mergeNamedSubjectFallbackMixinGroup(
+                (n=o("WASmaxMixins")).optionalMerge(o("A").mergeShareMixin,
+                  n.optionalMerge(o("B").mergeDedupMixin,
+                    o("WASmaxJsx").smax("create", null,
+                      [].concat((r=o("WASmaxChildren")).REPEATED_CHILD(e, a, 0, 19999), [r.HAS_OPTIONAL_CHILD(u, l)])
+                    ), A),
+                  F),
+              W));
+        "#;
+        let out = resolve(code, "X");
+        assert_eq!(out.len(), 1);
+        let create = out[0]
+            .children
+            .iter()
+            .find(|c| c.tag == "create")
+            .expect("create recovered through the merge/optionalMerge chain");
+        let tags: Vec<_> = create.children.iter().map(|c| c.tag.as_str()).collect();
+        assert!(
+            tags.contains(&"participant"),
+            "participant template: {tags:?}"
+        );
+        assert!(tags.contains(&"locked"), "locked template: {tags:?}");
+        assert!(
+            create
+                .children
+                .iter()
+                .find(|c| c.tag == "participant")
+                .unwrap()
+                .repeats,
+            "REPEATED_CHILD marks participant repeats"
+        );
+    }
+
+    /// A contribution node `tag{attrs}` for the Phase-3 tests.
+    fn cnode(tag: &str, attrs: &[&str]) -> WapChildNode {
+        WapChildNode {
+            tag: tag.to_string(),
+            attrs: attrs
+                .iter()
+                .map(|a| wa_ir::WapAttrDef {
+                    name: a.to_string(),
+                    kind: wa_ir::WapAttrKind::Const,
+                    value: None,
+                    required: false,
+                })
+                .collect(),
+            children: Vec::new(),
+            repeats: false,
+            variant_groups: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn merge_mixin_folds_contribution_into_dst() {
+        // `mergeFooMixin(smax("messages",null), …)` with a known contribution folds
+        // the mixin's attrs into the resolved destination by tag.
+        let mut contribs = MixinContributions::new();
+        contribs.insert(
+            "WASmaxOutFooPayloadMixin".into(),
+            vec![cnode("messages", &["count"])],
+        );
+        let out = resolve_with(
+            "",
+            r#"o("WASmaxOutFooPayloadMixin").mergeFooPayloadMixin(o("WASmaxJsx").smax("messages", null), a)"#,
+            &contribs,
+        );
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].tag, "messages");
+        assert!(out[0].attrs.iter().any(|a| a.name == "count"));
+    }
+
+    #[test]
+    fn wildcard_contribution_applies_regardless_of_dst_tag() {
+        // A `smax$any` contribution root applies its attrs to the dst whatever its tag.
+        let mut contribs = MixinContributions::new();
+        contribs.insert(
+            "WASmaxOutFooParamsMixin".into(),
+            vec![cnode("smax$any", &["jid", "type"])],
+        );
+        let out = resolve_with(
+            "",
+            r#"o("WASmaxOutFooParamsMixin").mergeFooParamsMixin(o("WASmaxJsx").smax("messages", null), a)"#,
+            &contribs,
+        );
+        assert_eq!(
+            out[0].tag, "messages",
+            "dst keeps its tag, not the wildcard"
+        );
+        let names: Vec<_> = out[0].attrs.iter().map(|a| a.name.as_str()).collect();
+        assert!(names.contains(&"jid") && names.contains(&"type"));
+    }
+
+    #[test]
+    fn cross_merge_without_mixin_suffix_is_recognized() {
+        // A MixinGroup selector method (`mergeFooParams`, no `Mixin` suffix) is folded
+        // when its owner is a `WASmaxOut*` module.
+        let mut contribs = MixinContributions::new();
+        contribs.insert(
+            "WASmaxOutFooParams".into(),
+            vec![cnode("smax$any", &["jid"])],
+        );
+        let out = resolve_with(
+            "",
+            r#"o("WASmaxOutFooParams").mergeFooParams(o("WASmaxJsx").smax("messages", null), a)"#,
+            &contribs,
+        );
+        assert!(out[0].attrs.iter().any(|a| a.name == "jid"));
+    }
+
+    #[test]
+    fn optional_merge_folds_referenced_mixin_contribution() {
+        // `optionalMerge(o("X").mergeY, dst, …)` folds X's contribution onto `dst`,
+        // keeping `dst`'s own local attrs.
+        let mut contribs = MixinContributions::new();
+        contribs.insert(
+            "WASmaxOutDirections".into(),
+            vec![cnode("messages", &["before", "after"])],
+        );
+        let out = resolve_with(
+            "",
+            r#"o("WASmaxMixins").optionalMerge(o("WASmaxOutDirections").mergeDirections, o("WASmaxJsx").smax("messages", {count:o("WAWap").INT(t)}), n)"#,
+            &contribs,
+        );
+        assert_eq!(out[0].tag, "messages");
+        let names: Vec<_> = out[0].attrs.iter().map(|a| a.name.as_str()).collect();
+        assert!(names.contains(&"count"), "local attr kept");
+        assert!(
+            names.contains(&"before") && names.contains(&"after"),
+            "ref contribution folded"
+        );
+    }
+
+    #[test]
+    fn no_contributions_is_structural_only() {
+        // Backward-compat: with no contributions a merge recovers only the dst stanza,
+        // never invents attrs (identical to pre-Phase-3 behavior).
+        let out = resolve(
+            "",
+            r#"o("WASmaxOutFooMixin").mergeFooMixin(o("WASmaxJsx").smax("messages", null), a)"#,
+        );
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].tag, "messages");
+        assert!(out[0].attrs.is_empty());
+    }
+
+    #[test]
+    fn function_return_collects_both_if_branch_returns() {
+        // A MixinGroup selector returns a different stanza per branch; both variants
+        // are collected (so a union's attrs all surface), not just the first.
+        let code = r#"
+            function sel(dst, t){
+                if (t.a) return o("WASmaxJsx").smax("x", {p:"1"});
+                if (t.b) return o("WASmaxJsx").smax("x", {q:"2"});
+                throw err;
+            }
+        "#;
+        let out = resolve(code, "sel(dst, t)");
+        let xs: Vec<_> = out.iter().filter(|c| c.tag == "x").collect();
+        assert_eq!(xs.len(), 2, "both if-branch variants collected");
+    }
+
+    #[test]
+    fn template_fn_preserves_nested_children() {
+        // A template function whose returned stanza has its own child must keep the
+        // nesting (`description > body`), not sibling-ize them.
+        let code = r#"function tmpl(o){ return o("WASmaxJsx").smax("description", {id:"7"}, o("WASmaxJsx").smax("body", {})); }"#;
+        let out = resolve(
+            code,
+            r#"o("WASmaxChildren").REPEATED_CHILD(tmpl, list, 0, 9)"#,
+        );
+        assert_eq!(out.len(), 1, "one top-level child, not flattened siblings");
+        assert_eq!(out[0].tag, "description");
+        assert!(out[0].repeats);
+        assert_eq!(out[0].children.len(), 1, "body nested under description");
+        assert_eq!(out[0].children[0].tag, "body");
+    }
+
+    #[test]
+    fn repeated_child_fn_ref_template_resolves() {
+        // `REPEATED_CHILD(fn, list, …)` where `fn` is a function reference whose
+        // return builds the child template (traced via resolve_function_return).
+        let code = r#"function tmpl(o){ return o("WASmaxJsx").smax("item", {id:"1"}); }"#;
+        let out = resolve(
+            code,
+            r#"o("WASmaxChildren").REPEATED_CHILD(tmpl, list, 0, 20)"#,
+        );
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].tag, "item");
+        assert!(out[0].repeats, "REPEATED_CHILD marks repeats");
+    }
+
+    #[test]
+    fn optional_merge_resolves_stanza_arg() {
+        // `WASmaxMixins.optionalMerge(mergeFn, stanza, …)` → the 2nd-arg stanza.
+        let out = resolve(
+            "",
+            r#"o("WASmaxMixins").optionalMerge(o("M").mergeFooMixin, o("WASmaxJsx").smax("query", {phash:"p"}), args)"#,
+        );
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].tag, "query");
+    }
+
+    #[test]
+    fn concat_includes_non_empty_receiver() {
+        // `[recv].concat(extra)` keeps both the receiver's and the arguments'
+        // children (the receiver is not dropped).
+        let out = resolve(
+            "",
+            r#"[o("WASmaxJsx").smax("a", {})].concat(o("WASmaxJsx").smax("b", {}))"#,
+        );
+        let tags: Vec<_> = out.iter().map(|c| c.tag.as_str()).collect();
+        assert_eq!(tags, ["a", "b"], "receiver `a` and argument `b` both kept");
     }
 
     #[test]
@@ -494,5 +1261,30 @@ mod tests {
         assert_eq!(out2.len(), 1);
         assert_eq!(out2[0].tag, "row");
         assert!(out2[0].repeats);
+    }
+
+    #[test]
+    fn merge_node_into_promotes_repeats() {
+        // A repeatable contribution folded onto a locally-singular child of the same
+        // tag must promote `repeats` (mirrors mixin_index::merge_children).
+        let mut dst = WapChildNode {
+            tag: "item".into(),
+            attrs: vec![],
+            children: vec![],
+            repeats: false,
+            variant_groups: vec![],
+        };
+        let src = WapChildNode {
+            tag: "item".into(),
+            attrs: vec![],
+            children: vec![],
+            repeats: true,
+            variant_groups: vec![],
+        };
+        merge_node_into(&mut dst, &src, false);
+        assert!(
+            dst.repeats,
+            "repeatable contribution must promote the child"
+        );
     }
 }
