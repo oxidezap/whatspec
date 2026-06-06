@@ -403,24 +403,82 @@ fn emit_struct_reads(
                 lines,
                 indent,
             );
-            lines.push(format!(
-                "{indent}let {cvar} = {base}.get_optional_child({})",
-                rust_lit(tag)
-            ));
-            lines.push(format!(
-                "{indent}    .ok_or_else(|| anyhow::anyhow!(\"missing <{}>\"))?;",
-                rust_lit_inner(tag)
-            ));
-            emit_struct_reads(
-                kids,
-                &cvar,
-                prefix,
-                indent,
-                lines,
-                wrapper_vars,
-                inits,
-                seen,
-            );
+            if f.required {
+                // Required child: a missing `<tag>` is a parse error.
+                lines.push(format!(
+                    "{indent}let {cvar} = {base}.get_optional_child({})",
+                    rust_lit(tag)
+                ));
+                lines.push(format!(
+                    "{indent}    .ok_or_else(|| anyhow::anyhow!(\"missing <{}>\"))?;",
+                    rust_lit_inner(tag)
+                ));
+                emit_struct_reads(
+                    kids,
+                    &cvar,
+                    prefix,
+                    indent,
+                    lines,
+                    wrapper_vars,
+                    inits,
+                    seen,
+                );
+            } else {
+                // Optional child (`optionalChildWithTag` in smax): when absent, its
+                // fields default rather than failing the whole parse. Read the subtree
+                // inside `if let Some(<tag>)` and bind every contributed field through a
+                // tuple, defaulting each in the `else`. Field TYPES are unchanged (the
+                // `else` defaults each element), so `collect_response_fields` needs no
+                // weakening — required leaves INSIDE a present child still fail-fast.
+                let inner = format!("{indent}    ");
+                let mut body_lines: Vec<String> = Vec::new();
+                let mut body_inits: Vec<String> = Vec::new();
+                emit_struct_reads(
+                    kids,
+                    &cvar,
+                    prefix,
+                    &inner,
+                    &mut body_lines,
+                    wrapper_vars,
+                    &mut body_inits,
+                    seen,
+                );
+                // Map each init `name,` / `name: value,` to (outer binding, inner value).
+                let pairs: Vec<(String, String)> = body_inits
+                    .iter()
+                    .map(|l| {
+                        let t = l.trim().trim_end_matches(',');
+                        match t.split_once(": ") {
+                            Some((name, value)) => (name.to_string(), value.to_string()),
+                            None => (t.to_string(), t.to_string()),
+                        }
+                    })
+                    .collect();
+                let names = pairs.iter().map(|(n, _)| n.clone()).collect::<Vec<_>>();
+                let values = pairs.iter().map(|(_, v)| v.clone()).collect::<Vec<_>>();
+                let defaults = vec!["Default::default()".to_string(); pairs.len()];
+                // A 1-tuple needs the trailing comma; >1 don't (and reads cleaner).
+                let tuple = |items: &[String]| {
+                    if items.len() == 1 {
+                        format!("({},)", items[0])
+                    } else {
+                        format!("({})", items.join(", "))
+                    }
+                };
+                lines.push(format!(
+                    "{indent}let {} = if let Some({cvar}) = {base}.get_optional_child({}) {{",
+                    tuple(&names),
+                    rust_lit(tag)
+                ));
+                lines.extend(body_lines);
+                lines.push(format!("{inner}{}", tuple(&values)));
+                lines.push(format!("{indent}}} else {{"));
+                lines.push(format!("{inner}{}", tuple(&defaults)));
+                lines.push(format!("{indent}}};"));
+                for n in names {
+                    inits.push(format!("{indent}    {n},"));
+                }
+            }
         }
     }
 }
@@ -907,13 +965,55 @@ mod tests {
             code.contains("let detail_wrap = response.get_optional_child(\"detail\")"),
             "{code}"
         );
+        // The child is optional (`required:false`), so it reads inside `if let Some` —
+        // but still off the descended <detail> wrapper, not the response root.
         assert!(
-            code.contains("let request = detail_wrap.get_optional_child(\"request\")"),
+            code.contains("if let Some(request) = detail_wrap.get_optional_child(\"request\")"),
             "child not read off the <detail> wrapper:\n{code}"
         );
         assert!(
             !code.contains("response.get_optional_child(\"request\")"),
             "child STILL read off the response root:\n{code}"
+        );
+    }
+
+    #[test]
+    fn optional_child_defaults_when_absent_instead_of_failing() {
+        // A `required:false` child (smax `optionalChildWithTag`) must not bail the whole
+        // parse when absent: its fields read inside `if let Some` and default otherwise.
+        let fields: Vec<ParsedField> = serde_json::from_value(serde_json::json!([
+            {"method":"child","name":"suspended","tag":"suspended","type":"string","required":false,
+             "children":[{"method":"attrInt","name":"value","wireName":"value","type":"integer","required":true}]}
+        ]))
+        .unwrap();
+        let code = emit_response_parser(&fields, "Resp", "    ", "Foo").join("\n");
+        assert!(
+            code.contains("if let Some(suspended) = response.get_optional_child(\"suspended\")"),
+            "optional child should read inside `if let Some`:\n{code}"
+        );
+        assert!(
+            code.contains("} else {") && code.contains("(Default::default(),)"),
+            "absent optional child should default its fields:\n{code}"
+        );
+        assert!(
+            !code.contains(".ok_or_else(|| anyhow::anyhow!(\"missing <suspended>\"))"),
+            "optional child must NOT bail when absent:\n{code}"
+        );
+    }
+
+    #[test]
+    fn required_child_still_bails_when_absent() {
+        // A `required:true` child keeps the fail-fast descent.
+        let fields: Vec<ParsedField> = serde_json::from_value(serde_json::json!([
+            {"method":"child","name":"group","tag":"group","type":"string","required":true,
+             "children":[{"method":"attrString","name":"id","wireName":"id","type":"string","required":true}]}
+        ]))
+        .unwrap();
+        let code = emit_response_parser(&fields, "Resp", "    ", "Foo").join("\n");
+        assert!(
+            code.contains("let group = response.get_optional_child(\"group\")")
+                && code.contains(".ok_or_else(|| anyhow::anyhow!(\"missing <group>\"))?"),
+            "required child must fail-fast when absent:\n{code}"
         );
     }
 
