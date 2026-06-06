@@ -77403,99 +77403,99 @@
   "unparseable": [
     {
       "moduleName": "WASmaxOutAbPropsBaseIQGetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutAccountBaseIQSetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutBizAccessTokenBaseIQGetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutBizAccessTokenHackBaseIQGetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutBizCtwaAdAccountBaseIQGetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutBizCtwaAdAccountHackBaseIQGetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutBizCtwaNativeAdBaseIQSetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutBizCtwaNativeAdHackBaseIQSetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutBizLinkingBaseIQGetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutBizLinkingHackBaseIQGetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutBizMarketingMessageBaseIQGetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutBizMarketingMessageHackBaseIQGetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutBizSettingsBaseIQGetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutBizSettingsBaseIQSetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutBlocklistsUpdateBlockListReportBlockEntryPointMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutBotBaseIQGetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutBugReportingBaseIQSetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutBugReportingHackBaseIQSetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutGroupsBaseIQGetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutGroupsBaseIQSetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutGroupsSetSubjectChangeSubjectMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutInAppCommsBaseIQSetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutMdBaseIQGetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutMdBaseIQSetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutMdSetRegResponseClientResponse",
@@ -77515,75 +77515,75 @@
     },
     {
       "moduleName": "WASmaxOutNewslettersBaseIQGetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutNewslettersBaseIQSetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutPingsClientWellFormedToMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutPreKeysClientRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutPrivacyBaseIQGetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutProfilePictureBaseIQGetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutProfilePictureGetIQMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutProfilePictureServerDomainIQMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutPsaBaseIQGetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutPsaBaseIQSetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutPushConfigBaseIQSetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutPushConfigSetClearMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutPushConfigSetSetConfigMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutSmbMeteredMessagingAccountBaseIQGetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutSmbMeteredMessagingAccountHackBaseIQGetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutSpamBaseIQSetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutSpamBaseReportMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutSpamEntitySubjectMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutSpamFRXMixin",
@@ -77591,39 +77591,39 @@
     },
     {
       "moduleName": "WASmaxOutSpamIsKnownChatMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutStatsBaseIQSetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutSupportBaseIQSetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutSupportHackBaseIQSetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutSupportMessageFeedbackBaseIQSetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutSupportMessageFeedbackHackBaseIQSetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutUserNoticeBaseIQGetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutUserNoticeBaseIQSetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutWaffleBaseIQGetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WAWebHandleStanzaCommon",

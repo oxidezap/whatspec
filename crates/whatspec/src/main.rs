@@ -924,12 +924,22 @@ fn push_iq(
         .iter()
         .filter(|s| s.response.parser_name == "unknown")
         .count();
+    // Benign cross-module mixin fragments (folded into real requests) are recorded as
+    // drops to honor the no-silent-vanish invariant, but they aren't genuine failures —
+    // break them out so the headline reflects the real unresolved count.
+    let fragment_reason = wa_scan::DropReason::MixinFragment.as_str();
+    let fragments = ir
+        .unparseable
+        .iter()
+        .filter(|u| u.reason == fragment_reason)
+        .count();
+    let genuine_unparseable = ir.unparseable.len() - fragments;
     eprintln!(
         "iq: {candidates} candidate module(s) -> {} stanza(s) from {} module(s), \
-         {} unparseable, {} typed / {degraded} degraded response(s)",
+         {genuine_unparseable} unparseable (+ {fragments} benign mixin fragments), \
+         {} typed / {degraded} degraded response(s)",
         ir.stanzas.len(),
         producing.len(),
-        ir.unparseable.len(),
         ir.stanzas.len() - degraded,
     );
     if candidates == 0 {

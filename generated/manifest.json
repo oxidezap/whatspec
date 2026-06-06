@@ -12,7 +12,8 @@
       "degradedResponses": 19,
       "dropsByReason": {
         "iq builder substring present but no AST iq call": 5,
-        "namespace/type unresolved (dropped by guard)": 52
+        "mixin fragment (folded into requests, not a standalone stanza)": 51,
+        "namespace/type unresolved (dropped by guard)": 1
       },
       "stanzas": 156,
       "typedResponses": 137,
@@ -38,7 +39,7 @@
     "iq": {
       "file": "iq/index.json",
       "schema": "schema/iq.schema.json",
-      "sha256": "a94b7cd6848e4b43691f97a52c4430e763f19c91e55002e023b79200f9d65a32"
+      "sha256": "f9bf96b63efc106f2bc75d5bb231fda79377237786313c3fe08ccb32c24f92d2"
     },
     "mex": {
       "file": "mex/index.json",

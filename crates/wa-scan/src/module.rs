@@ -65,6 +65,12 @@ pub enum DropReason {
     /// IQ builder call(s) found, but every one was dropped by the namespace/type
     /// guard — xmlns or get/set type stayed unresolved even after mixin merge.
     Unresolved,
+    /// A cross-module mixin fragment: the module ONLY exports `merge…Mixin`
+    /// combinators, so its partial `<iq>` (missing xmlns and/or type by design) is
+    /// meant to be folded into real requests via `mergeStanzas` — not a standalone
+    /// stanza. Its data already lives in the concrete request consumers; recording
+    /// it separately keeps these benign fragments out of the genuine-failure count.
+    MixinFragment,
 }
 
 impl DropReason {
@@ -75,6 +81,9 @@ impl DropReason {
             DropReason::NotAModule => "not a __d() module",
             DropReason::NoIqCall => "iq builder substring present but no AST iq call",
             DropReason::Unresolved => "namespace/type unresolved (dropped by guard)",
+            DropReason::MixinFragment => {
+                "mixin fragment (folded into requests, not a standalone stanza)"
+            }
         }
     }
 }
@@ -204,10 +213,8 @@ pub fn scan_module_outcome(
     }
     let resolved = deduped;
 
-    if resolved.is_empty() {
-        return Err(DropReason::Unresolved);
-    }
-
+    // Exports drive the primary-name pick (below) and the fragment classification at
+    // the unresolved bail (hoisted here so both see them).
     let exports = scanner.exports;
     let function_exports: Vec<&str> = exports
         .iter()
@@ -216,6 +223,23 @@ pub fn scan_module_outcome(
             *e != "default" && !is_all_caps(e) && !ends_ci(e, "parser") && !ends_ci(e, "response")
         })
         .collect();
+
+    if resolved.is_empty() {
+        // A module whose only functions are `merge…Mixin` combinators is a fragment
+        // (a partial `<iq>` folded into real requests), not a dropped stanza — its data
+        // already lives in the concrete request consumers. Record it as such so the
+        // benign fragments don't masquerade as genuine namespace/type failures.
+        let is_fragment = !function_exports.is_empty()
+            && function_exports
+                .iter()
+                .all(|e| e.starts_with("merge") && e.contains("Mixin"));
+        return Err(if is_fragment {
+            DropReason::MixinFragment
+        } else {
+            DropReason::Unresolved
+        });
+    }
+
     let primary: Option<&str> = function_exports
         .first()
         .copied()
