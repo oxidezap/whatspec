@@ -193,7 +193,11 @@ fn extract_fragment(slice: &str, contributions: &MixinContributions) -> Option<M
         found_iq: false,
     };
     v.visit_program(&ret.program);
-    if !v.found_iq {
+    // A router-only MixinGroup (e.g. `mergeBaseGetGroupOrServerMixinGroup`: pure
+    // `if (cond) return …BaseGetGroupMixin; …`) builds no direct `smax("iq", …)`, but
+    // the branch mixins it folds DO carry `xmlns`/`type`. Keep it in the index when it
+    // has callees so `resolve`'s BFS can bridge request → router → branch → base.
+    if !v.found_iq && v.frag.merged_callees.is_empty() {
         return None;
     }
     // type: an inline `type:` on the iq wins; else infer from the export name.

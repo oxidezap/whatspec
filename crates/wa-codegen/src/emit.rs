@@ -621,6 +621,12 @@ fn emit_variant_groups(
             if multi { format!("{f}_v{}", gi + 1) } else { f }
         };
         let disc = variant_discriminator(group);
+        // Deduped variant names: when the discriminator can't tell variants apart
+        // (e.g. six `<config>` alternatives that all lead with a dynamic `platform`
+        // attr → all named `Platform`), suffix collisions so the enum has distinct
+        // variants. Computed once and indexed by both the def and the match below so
+        // the arm always names the same variant the def declared.
+        let vnames = dedup_variant_names(group, disc.as_deref());
 
         // enum definition
         let mut def = vec![
@@ -628,7 +634,7 @@ fn emit_variant_groups(
             format!("pub enum {enum_name} {{"),
         ];
         for (vi, v) in group.variants.iter().enumerate() {
-            let vname = variant_name(v, disc.as_deref(), vi);
+            let vname = &vnames[vi];
             let payload: Vec<String> = v
                 .attrs
                 .iter()
@@ -667,10 +673,10 @@ fn emit_variant_groups(
         };
         build.push(format!("{inner_indent}match {matchee} {{"));
         for (vi, v) in group.variants.iter().enumerate() {
-            let vname = variant_name(v, disc.as_deref(), vi);
+            let vname = &vnames[vi];
             build.extend(variant_arm(
                 &enum_name,
-                &vname,
+                vname,
                 v,
                 var_name,
                 &format!("{inner_indent}    "),
@@ -731,6 +737,27 @@ fn variant_name(v: &wa_ir::WapVariant, disc: Option<&str>, idx: usize) -> String
         return pascal_case(&a.name);
     }
     format!("Variant{}", idx + 1)
+}
+
+/// Variant names for a whole group, deduped: two alternatives that resolve to the
+/// same [`variant_name`] (e.g. several `platform`-led `<config>` variants → all
+/// `Platform`) would otherwise collide into one enum variant with mismatched fields.
+/// The first keeps the base name; later collisions get a `2`/`3`/… suffix, stable in
+/// declaration order so the def and the match agree.
+fn dedup_variant_names(group: &wa_ir::WapVariantGroup, disc: Option<&str>) -> Vec<String> {
+    let mut used: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut out = Vec::with_capacity(group.variants.len());
+    for (vi, v) in group.variants.iter().enumerate() {
+        let base = variant_name(v, disc, vi);
+        let mut name = base.clone();
+        let mut n = 2;
+        while !used.insert(name.clone()) {
+            name = format!("{base}{n}");
+            n += 1;
+        }
+        out.push(name);
+    }
+    out
 }
 
 /// One `match` arm: destructure the variant's non-const attrs and apply each attr
@@ -915,6 +942,58 @@ mod tests {
         );
         assert!(
             code.contains("if let Some(__v) = &self.messages_v2 {"),
+            "{code}"
+        );
+    }
+
+    #[test]
+    fn same_named_variants_are_deduped() {
+        use wa_ir::{WapVariant, WapVariantGroup};
+        // Several `<config>` alternatives that all lead with a dynamic `platform` attr
+        // resolve to the same `variant_name` (`Platform`); they must become distinct
+        // enum variants (Platform / Platform2 / Platform3), and the build match must
+        // name the same deduped variants so the generated code compiles.
+        let mk = |extra: &str| WapVariant {
+            attrs: vec![
+                attr("platform", WapAttrKind::String, None),
+                attr(extra, WapAttrKind::String, None),
+            ],
+            children: vec![],
+        };
+        let node = WapChildNode {
+            tag: "config".into(),
+            attrs: vec![],
+            children: vec![],
+            repeats: false,
+            variant_groups: vec![WapVariantGroup {
+                optional: false,
+                variants: vec![mk("appid"), mk("voip"), mk("endpoint")],
+            }],
+        };
+        let (mut enums, mut fields) = (Vec::new(), Vec::new());
+        let mut ctx = VariantCtx {
+            spec_base: "Foo",
+            enum_defs: &mut enums,
+            fields: &mut fields,
+        };
+        let (lines, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
+        let enum_src = enums.join("\n");
+        // Three distinct variants, no duplicate `Platform`.
+        assert_eq!(
+            enum_src.matches("Platform").count(),
+            3,
+            "expected Platform/Platform2/Platform3:\n{enum_src}"
+        );
+        assert!(
+            enum_src.contains("Platform {")
+                && enum_src.contains("Platform2 {")
+                && enum_src.contains("Platform3 {"),
+            "{enum_src}"
+        );
+        // The match arms reference the same deduped names.
+        let code = lines.join("\n");
+        assert!(
+            code.contains("Platform2 {") && code.contains("Platform3 {"),
             "{code}"
         );
     }

@@ -5,18 +5,18 @@
     "iq": {
       "candidateModules": 206,
       "crossModule": {
-        "fieldsRecovered": 28,
-        "requestsEnriched": 8,
-        "requestsWithMixins": 103
+        "fieldsRecovered": 84,
+        "requestsEnriched": 9,
+        "requestsWithMixins": 104
       },
       "degradedResponses": 20,
       "dropsByReason": {
         "iq builder substring present but no AST iq call": 5,
-        "namespace/type unresolved (dropped by guard)": 53
+        "namespace/type unresolved (dropped by guard)": 52
       },
-      "stanzas": 155,
-      "typedResponses": 135,
-      "unparseable": 58
+      "stanzas": 156,
+      "typedResponses": 136,
+      "unparseable": 57
     }
   },
   "domains": {
@@ -38,7 +38,7 @@
     "iq": {
       "file": "iq/index.json",
       "schema": "schema/iq.schema.json",
-      "sha256": "b0ff4e08102b32f0f8f64139e3f50842f40eaa5fa2ba1f2a44928345cb08fa2a"
+      "sha256": "6a86f8ff856418c84e94b13f4d4bd502bfc07ab9f435888631a613d7d5e37cb3"
     },
     "mex": {
       "file": "mex/index.json",
