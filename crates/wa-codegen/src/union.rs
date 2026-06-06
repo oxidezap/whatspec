@@ -200,6 +200,15 @@ fn variant_signature(v: &UnionVariant) -> BTreeSet<String> {
                 }
                 continue;
             }
+            // A repeated child reads as a possibly-empty `Vec` (the parser never bails
+            // when it's absent), so neither it NOR its contents are fail-on-absent —
+            // they can't discriminate a variant. Excluding them keeps the separability
+            // gate from accepting a union whose first arm matches unconditionally and
+            // shadows a later one (e.g. newsletter views-count: required repeated
+            // `views_count` vs the deprecated `count` attr).
+            if f.repeats == Some(true) {
+                continue;
+            }
             if f.required && (f.method == "child" || f.method.starts_with("attr")) {
                 s.insert(format!("REQ:{}", f.name));
             }
@@ -984,6 +993,31 @@ mod tests {
         assert!(
             classify_union(&f).is_none(),
             "Error == ErrorFallback (no discriminator) must be rejected"
+        );
+    }
+
+    #[test]
+    fn required_repeated_child_is_not_a_discriminator() {
+        // views-count shape: the first arm's only required field is a REPEATED child,
+        // which the parser reads as a possibly-empty Vec (never bails) — so it matches
+        // unconditionally and shadows the later `count`-attr arm. Must be rejected, not
+        // emitted (which would drop the deprecated count).
+        let f = union_field(serde_json::json!({
+            "method": "", "name": "viewsCountViewsOrDeprecated", "type": "union", "required": true,
+            "unionVariants": [
+                {"name": "Views", "fields": [
+                    {"method": "child", "name": "viewsCount", "tag": "views_count", "type": "string",
+                     "required": true, "repeats": true,
+                     "children": [{"method": "attrInt", "name": "v", "wireName": "v", "type": "integer", "required": true}]}
+                ], "assertions": [{"kind": "tag", "name": "message"}]},
+                {"name": "Deprecated", "fields": [
+                    {"method": "attrInt", "name": "viewsCountCount", "wireName": "count", "type": "integer", "required": true}
+                ], "assertions": [{"kind": "tag", "name": "message"}]}
+            ]
+        }));
+        assert!(
+            classify_union(&f).is_none(),
+            "an arm whose only required field is a repeated child shadows later arms"
         );
     }
 }
