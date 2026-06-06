@@ -198,7 +198,7 @@ pub(crate) fn emit_response_parser(
             continue;
         }
 
-        if child.method == "child" {
+        if child.method == "child" && !repeats(child) {
             let base = child_base(child, &mut wrapper_vars, &mut lines, indent);
             lines.push(format!(
                 "{indent}let {child_var} = {base}.get_optional_child({child_lit})"
@@ -268,7 +268,10 @@ pub(crate) fn emit_response_parser(
                 "{indent}for child in {base}.get_children_by_tag({child_lit}) {{"
             ));
 
-            let child_attrs = dedup_attrs(kids);
+            // Flatten same-node mixins inside the item (e.g. a `display_name`
+            // mixin read off the item node) so the parser inits every Item field.
+            let kids_flat = flatten_same_node(kids);
+            let child_attrs = dedup_attrs(&kids_flat);
             for cf in &child_attrs {
                 lines.extend(emit_field_parse(cf, "child", &format!("{indent}    ")));
             }

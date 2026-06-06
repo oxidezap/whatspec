@@ -159,7 +159,9 @@ fn namespace_body(namespace: &str, operations: &[&IqStanzaDef]) -> Vec<String> {
     // unique per spec now, so the dedup only collapses byte-identical specs.
     let mut all_child_structs: Vec<RustChildStruct> = Vec::new();
     for (op, spec_name, _) in &resolved {
-        if op.response.fields.is_empty() {
+        // Outcome-union ops emit their per-variant structs (and child structs) inline
+        // in `generate_spec`; the primary-mirror child structs would be unused here.
+        if op.response.fields.is_empty() || !op.response.variants.is_empty() {
             continue;
         }
         let prefix = spec_name.trim_end_matches("Spec");

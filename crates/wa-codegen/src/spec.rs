@@ -10,6 +10,191 @@ use crate::emit::{VariantCtx, emit_child_builder, emit_response_parser};
 use crate::fields::{collect_response_fields, rust_attr_type};
 use crate::naming::{pascal_case, rust_ident};
 
+/// Length of the common prefix shared by the variant tags, backed up to a word
+/// boundary (next ASCII-uppercase char). Lets `GetBlockListResponseSuccessWithMatch`
+/// / `…MigratedSuccessWithMatch` strip to `SuccessWithMatch` / `MigratedSuccessWithMatch`.
+fn variant_tag_prefix(tags: &[String]) -> usize {
+    let Some(first) = tags.first() else {
+        return 0;
+    };
+    let mut len = first.len();
+    for t in &tags[1..] {
+        let common = first
+            .bytes()
+            .zip(t.bytes())
+            .take_while(|(a, b)| a == b)
+            .count();
+        len = len.min(common);
+    }
+    let b = first.as_bytes();
+    while len > 0 && len < b.len() && !(b[len] as char).is_ascii_uppercase() {
+        len -= 1;
+    }
+    len
+}
+
+/// Whether `emit_response_parser` produces a parser that initializes every field of
+/// the structs `collect_response_fields` derives for `fields` — the guard that keeps
+/// codegen from emitting a parser that references non-existent fields (a shape
+/// `emit_response_parser` mishandles, e.g. a repeated child under a `source_path`).
+fn parser_is_valid(fields: &[wa_ir::ParsedField], response_type_name: &str, prefix: &str) -> bool {
+    let (check_fields, check_child_structs) = collect_response_fields(fields, prefix);
+    let names: Vec<&str> = check_fields.iter().map(|f| f.name.as_str()).collect();
+    if names.iter().collect::<HashSet<_>>().len() != names.len() {
+        return false;
+    }
+    let parser_code =
+        emit_response_parser(fields, response_type_name, "        ", prefix).join("\n");
+    for f in &check_fields {
+        if !parser_code.contains(&format!("{},", f.name))
+            && !parser_code.contains(&format!("{}:", f.name))
+        {
+            return false;
+        }
+    }
+    if LET_KEYWORD.is_match(&parser_code) {
+        return false;
+    }
+    for cs in &check_child_structs {
+        let required: HashSet<&str> = cs.fields.iter().map(|f| f.name.as_str()).collect();
+        for body in struct_init_bodies(&parser_code, &cs.name) {
+            let inited: HashSet<&str> = INIT_FIELD
+                .captures_iter(body)
+                .map(|c| c.get(1).unwrap().as_str())
+                .collect();
+            if !required.iter().all(|r| inited.contains(r)) {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+/// Emit, for an RPC outcome-union response, a `#[derive(Default)]` struct per
+/// variant (and its child item structs) plus an `enum` wrapping them. Returns
+/// `(variant_name, struct_name)` per variant for the parser — but only when EVERY
+/// variant's parser validates ([`parser_is_valid`]); otherwise `None` (and nothing
+/// emitted), so the caller falls back to the single-shape/`()` path rather than
+/// generating an invalid parser. Models the IR's outcome wire shape, not domain types.
+fn emit_outcome_types(
+    op: &IqStanzaDef,
+    spec_base: &str,
+    enum_name: &str,
+    doc: &str,
+    out: &mut Vec<String>,
+) -> Option<Vec<(String, String)>> {
+    let tags: Vec<String> = op.response.variants.iter().map(|v| v.tag.clone()).collect();
+    let plen = variant_tag_prefix(&tags);
+
+    // Resolve variant names first, then bail unless all parsers validate.
+    let mut names: Vec<(String, String)> = Vec::new();
+    let mut used_vnames: HashSet<String> = HashSet::new();
+    for v in &op.response.variants {
+        let raw = if v.tag.len() > plen {
+            &v.tag[plen..]
+        } else {
+            v.tag.as_str()
+        };
+        let mut vname = pascal_case(raw);
+        if vname.is_empty() {
+            vname = pascal_case(&v.tag);
+        }
+        let base = vname.clone();
+        let mut n = 2;
+        while !used_vnames.insert(vname.clone()) {
+            vname = format!("{base}{n}");
+            n += 1;
+        }
+        names.push((vname.clone(), format!("{spec_base}{vname}")));
+    }
+    let all_valid = op
+        .response
+        .variants
+        .iter()
+        .zip(&names)
+        .all(|(v, (_, sname))| parser_is_valid(&v.fields, sname, sname));
+    if !all_valid {
+        return None;
+    }
+
+    let mut info: Vec<(String, String)> = Vec::new();
+    let mut seen_struct: HashSet<String> = HashSet::new();
+    for (v, (vname, struct_name)) in op.response.variants.iter().zip(names) {
+        let (top, child_structs) = collect_response_fields(&v.fields, &struct_name);
+        let mut seen_f = HashSet::new();
+        let top: Vec<_> = top
+            .into_iter()
+            .filter(|f| seen_f.insert(f.name.clone()))
+            .collect();
+        for cs in &child_structs {
+            if !seen_struct.insert(cs.name.clone()) {
+                continue;
+            }
+            out.push("#[derive(Debug, Clone, Default)]".to_string());
+            out.push(format!("pub struct {} {{", cs.name));
+            let mut sf = HashSet::new();
+            for f in &cs.fields {
+                if sf.insert(f.name.clone()) {
+                    out.push(format!("    pub {}: {},", f.name, f.rust_type));
+                }
+            }
+            out.push("}".to_string());
+            out.push(String::new());
+        }
+        out.push("#[derive(Debug, Clone, Default)]".to_string());
+        out.push(format!("pub struct {struct_name} {{"));
+        for f in &top {
+            out.push(format!("    pub {}: {},", f.name, f.rust_type));
+        }
+        out.push("}".to_string());
+        out.push(String::new());
+        info.push((vname, struct_name));
+    }
+    out.push(format!(
+        "/// {doc} — RPC outcome union ({} variants).",
+        info.len()
+    ));
+    out.push("#[derive(Debug, Clone)]".to_string());
+    out.push(format!("pub enum {enum_name} {{"));
+    for (vn, sn) in &info {
+        out.push(format!("    {vn}({sn}),"));
+    }
+    out.push("}".to_string());
+    out.push(String::new());
+    Some(info)
+}
+
+/// Emit the `parse_response` body for an outcome union: try each variant in order
+/// (the RPC's own discrimination — first parser whose required fields all read wins)
+/// and wrap the winner in its enum arm.
+fn emit_outcome_parse(
+    op: &IqStanzaDef,
+    info: &[(String, String)],
+    enum_name: &str,
+    indent: &str,
+) -> Vec<String> {
+    let mut lines = Vec::new();
+    for (v, (vname, sname)) in op.response.variants.iter().zip(info) {
+        lines.push(format!(
+            "{indent}let __r: Result<{sname}, anyhow::Error> = (|| -> Result<{sname}, anyhow::Error> {{"
+        ));
+        lines.extend(emit_response_parser(
+            &v.fields,
+            sname,
+            &format!("{indent}    "),
+            sname,
+        ));
+        lines.push(format!("{indent}}})();"));
+        lines.push(format!(
+            "{indent}if let Ok(__v) = __r {{ return Ok({enum_name}::{vname}(__v)); }}"
+        ));
+    }
+    lines.push(format!(
+        "{indent}anyhow::bail!(\"{enum_name}: no response variant matched\")"
+    ));
+    lines
+}
+
 fn iq_type_str(t: IqType) -> &'static str {
     match t {
         IqType::Get => "get",
@@ -136,25 +321,47 @@ pub(crate) fn generate_spec(op: &IqStanzaDef, ns_const: &str, spec_name: &str) -
     // namespace can carry same-tagged children with incompatible shapes without a
     // struct-name collision (e.g. `tos` `<notice>` differs across specs).
     let child_prefix = spec_name.trim_end_matches("Spec");
-    let mut response_type_name: String;
-    if is_confirmation {
-        response_type_name = "()".to_string();
-    } else {
-        let (mut top_fields, _) = collect_response_fields(&op.response.fields, child_prefix);
-        let mut seen = HashSet::new();
-        top_fields.retain(|f| seen.insert(f.name.clone()));
-        if top_fields.is_empty() {
+    // An RPC outcome union (`response.variants`) becomes an `enum` over per-variant
+    // structs — the wire-shape outcomes (success/error) the IR records, which the
+    // single-struct path below can't express. Falls through to that path when any
+    // variant's parser can't be generated cleanly (`emit_outcome_types` → None).
+    let mut outcome_info: Vec<(String, String)> = Vec::new();
+    let mut use_union = false;
+    let mut response_type_name: String = "()".to_string();
+    if !op.response.variants.is_empty() {
+        let enum_name = format!("{child_prefix}Response");
+        if let Some(info) = emit_outcome_types(
+            op,
+            child_prefix,
+            &enum_name,
+            &format!("{doc_owner}:{iq}"),
+            &mut lines,
+        ) {
+            response_type_name = enum_name;
+            outcome_info = info;
+            use_union = true;
+        }
+    }
+    if !use_union {
+        if is_confirmation {
             response_type_name = "()".to_string();
         } else {
-            response_type_name = format!("{}Response", spec_name.trim_end_matches("Spec"));
-            lines.push(format!("/// Response from {doc_owner}:{iq}."));
-            lines.push("#[derive(Debug, Clone, Default)]".to_string());
-            lines.push(format!("pub struct {response_type_name} {{"));
-            for f in &top_fields {
-                lines.push(format!("    pub {}: {},", f.name, f.rust_type));
+            let (mut top_fields, _) = collect_response_fields(&op.response.fields, child_prefix);
+            let mut seen = HashSet::new();
+            top_fields.retain(|f| seen.insert(f.name.clone()));
+            if top_fields.is_empty() {
+                response_type_name = "()".to_string();
+            } else {
+                response_type_name = format!("{}Response", spec_name.trim_end_matches("Spec"));
+                lines.push(format!("/// Response from {doc_owner}:{iq}."));
+                lines.push("#[derive(Debug, Clone, Default)]".to_string());
+                lines.push(format!("pub struct {response_type_name} {{"));
+                for f in &top_fields {
+                    lines.push(format!("    pub {}: {},", f.name, f.rust_type));
+                }
+                lines.push("}".to_string());
+                lines.push(String::new());
             }
-            lines.push("}".to_string());
-            lines.push(String::new());
         }
     }
     let effectively_confirmation = response_type_name == "()";
@@ -166,8 +373,9 @@ pub(crate) fn generate_spec(op: &IqStanzaDef, ns_const: &str, spec_name: &str) -
     lines.extend(build_iq_lines);
     lines.push(String::new());
 
-    // parse_response — validate the parser can produce all struct fields.
-    let mut can_generate = !effectively_confirmation;
+    // parse_response — validate the parser can produce all struct fields. Skipped
+    // for outcome unions, which generate their own per-variant try-each parser.
+    let mut can_generate = !effectively_confirmation && !use_union;
     if can_generate {
         let (check_fields, check_child_structs) =
             collect_response_fields(&op.response.fields, child_prefix);
@@ -213,8 +421,8 @@ pub(crate) fn generate_spec(op: &IqStanzaDef, ns_const: &str, spec_name: &str) -
         }
     }
 
-    // Fall back to () if the parser can't be generated cleanly.
-    if !can_generate && !effectively_confirmation {
+    // Fall back to () if the parser can't be generated cleanly (non-union path).
+    if !can_generate && !effectively_confirmation && !use_union {
         let marker = format!("/// Response from {doc_owner}:{iq}.");
         if let Some(start) = lines.iter().rposition(|l| *l == marker) {
             let mut end = start;
@@ -235,7 +443,21 @@ pub(crate) fn generate_spec(op: &IqStanzaDef, ns_const: &str, spec_name: &str) -
     } else {
         "response"
     };
-    if effectively_confirmation || response_type_name == "()" {
+    if use_union {
+        lines.push(
+            "    #[allow(clippy::needless_update, unused_variables, clippy::redundant_closure_call)]"
+                .to_string(),
+        );
+        lines.push(
+            "    fn parse_response(&self, response: &wacore_binary::NodeRef<'_>) -> Result<Self::Response, anyhow::Error> {".to_string()
+        );
+        lines.extend(emit_outcome_parse(
+            op,
+            &outcome_info,
+            &response_type_name,
+            "        ",
+        ));
+    } else if effectively_confirmation || response_type_name == "()" {
         lines.push(format!(
             "    fn parse_response(&self, {resp_param}: &wacore_binary::NodeRef<'_>) -> Result<Self::Response, anyhow::Error> {{"
         ));
@@ -439,6 +661,65 @@ mod tests {
     #[test]
     fn struct_init_bodies_ignores_name_not_followed_by_brace() {
         assert!(struct_init_bodies("let EntryItem = 1;", "EntryItem").is_empty());
+    }
+
+    #[test]
+    fn outcome_union_generates_enum_and_try_each_parse() {
+        use wa_ir::{ParsedField, ParsedFieldType, ResponseVariant, ResponseVariantKind};
+        fn attr(name: &str) -> ParsedField {
+            ParsedField {
+                method: "attrString".into(),
+                name: name.into(),
+                field_type: ParsedFieldType::String,
+                required: true,
+                ..Default::default()
+            }
+        }
+        let mut op = stanza("WASmaxOutFooGetThingRequest", Some("makeGetThingRequest"));
+        op.response = ParsedResponse {
+            parser_name: "FooGetThingRPC".into(),
+            variants: vec![
+                ResponseVariant {
+                    tag: "GetThingResponseSuccess".into(),
+                    module_name: "m".into(),
+                    kind: ResponseVariantKind::Success,
+                    assertions: vec![],
+                    fields: vec![attr("token")],
+                },
+                ResponseVariant {
+                    tag: "GetThingResponseError".into(),
+                    module_name: "m".into(),
+                    kind: ResponseVariantKind::Error,
+                    assertions: vec![],
+                    fields: vec![attr("code")],
+                },
+            ],
+            ..Default::default()
+        };
+        let code = generate_spec(&op, "FOO_NAMESPACE", "MakeGetThingRequestSpec");
+        // One enum over per-variant structs (prefix stripped to the discriminating tail).
+        assert!(
+            code.contains("pub enum MakeGetThingRequestResponse {"),
+            "{code}"
+        );
+        assert!(
+            code.contains("Success(MakeGetThingRequestSuccess)"),
+            "{code}"
+        );
+        assert!(code.contains("Error(MakeGetThingRequestError)"), "{code}");
+        assert!(
+            code.contains("type Response = MakeGetThingRequestResponse;"),
+            "{code}"
+        );
+        // Try-each parse: first variant whose required fields all read wins.
+        assert!(
+            code.contains("return Ok(MakeGetThingRequestResponse::Success(__v));"),
+            "{code}"
+        );
+        assert!(
+            code.contains("MakeGetThingRequestResponse: no response variant matched"),
+            "{code}"
+        );
     }
 
     #[test]
