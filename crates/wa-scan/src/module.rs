@@ -228,7 +228,15 @@ pub fn scan_module_outcome(
     // (`WAWeb*`) never enter the smax branch, so the 33 legacy responses are
     // preserved byte-exact.
     let smax_response: Option<ParsedResponse> = if scanner.parser.is_none() {
-        smax_request_op_name(module_name).and_then(|x| responses.get_by_x(x).cloned())
+        smax_request_op_name(module_name).and_then(|x| {
+            // Prefer the RPC/ResponseSuccess index; fall back to a request-anchored
+            // lookup for ops whose response module ends differently (e.g. ping's
+            // `…ResponseServerResponse`).
+            responses
+                .get_by_x(x)
+                .cloned()
+                .or_else(|| responses.resolve_for_request_op(x))
+        })
     } else {
         None
     };

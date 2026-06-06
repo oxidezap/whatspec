@@ -22,12 +22,52 @@ use wa_transform::ModuleDefinition;
 pub struct ResponseIndex {
     /// Operation name `X` (from `WASmaxIn<X>ResponseSuccess`) → its parsed response.
     by_x: BTreeMap<String, ParsedResponse>,
+    /// Owned `WASmaxIn*` module name → slice, kept for the request-anchored fallback
+    /// ([`Self::resolve_for_request_op`]) — Pass 1/2 only key the `RPC`/`ResponseSuccess`
+    /// shapes, so an op whose response module ends differently (e.g. PingsClient's
+    /// `…ResponseServerResponse`) needs a lookup that anchors on the known op name.
+    in_slices: Vec<(String, String)>,
 }
 
 impl ResponseIndex {
     /// Look up the response for operation `x` (derived from a request module name).
     pub(crate) fn get_by_x(&self, x: &str) -> Option<&ParsedResponse> {
         self.by_x.get(x)
+    }
+
+    /// Fallback for an op with no `RPC`/`ResponseSuccess` module: find a
+    /// `WASmaxIn<x>Response<V>` whose variant `V` is success-like (not an error/Mixin),
+    /// anchored on the EXACT op name `x` (so the prefix match is unambiguous — never
+    /// reverse-derived by stripping `Response`, which would mis-split `…ServerResponse`
+    /// or an op ending in `Responses`). Parses it on demand; returns its typed fields.
+    pub(crate) fn resolve_for_request_op(&self, x: &str) -> Option<ParsedResponse> {
+        let slices: HashMap<&str, &str> = self
+            .in_slices
+            .iter()
+            .map(|(n, s)| (n.as_str(), s.as_str()))
+            .collect();
+        let resolver = Resolver::new(&slices);
+        let prefix = format!("WASmaxIn{x}Response");
+        for (name, slice) in &self.in_slices {
+            let Some(variant) = name.strip_prefix(&prefix) else {
+                continue;
+            };
+            // Skip the bare `…Response`, error variants, and mixin payloads.
+            if variant.is_empty()
+                || variant.contains("Mixin")
+                || variant_kind(variant) != ResponseVariantKind::Success
+            {
+                continue;
+            }
+            if let Some(pr) = analyze_module_exports(slice, &resolver)
+                .into_iter()
+                .find(|(_, pr)| !pr.fields.is_empty())
+                .map(|(_, pr)| pr)
+            {
+                return Some(pr);
+            }
+        }
+        None
     }
 }
 
@@ -118,7 +158,14 @@ pub(crate) fn build_pass(defs: &[ModuleDefinition], source: &str) -> ResponseInd
         by_x.entry(response_op_name(&m.name)).or_insert(pr);
     }
 
-    ResponseIndex { by_x }
+    // Keep the `WASmaxIn*` slices (owned) for the request-anchored fallback.
+    let in_slices: Vec<(String, String)> = slices
+        .iter()
+        .filter(|(n, _)| n.starts_with("WASmaxIn"))
+        .map(|(n, s)| (n.to_string(), s.to_string()))
+        .collect();
+
+    ResponseIndex { by_x, in_slices }
 }
 
 /// A discriminated-union field carrying `variants`.

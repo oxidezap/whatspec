@@ -71355,7 +71355,7 @@
       "namespace": "w:p",
       "iqType": "get",
       "target": "s.whatsapp.net",
-      "parserName": "unknown",
+      "parserName": "parseClientResponseServerResponse",
       "exportedFunction": "makeClientRequest",
       "allExports": [
         "makeClientRequest"
@@ -71367,9 +71367,41 @@
         "children": []
       },
       "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
+        "parserName": "parseClientResponseServerResponse",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "iq"
+          },
+          {
+            "kind": "attr",
+            "name": "type",
+            "value": "result"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrJidWithType",
+            "name": "from",
+            "wireName": "from",
+            "type": "jid",
+            "required": true
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "wireName": "type",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "attrInt",
+            "name": "t",
+            "wireName": "t",
+            "type": "integer",
+            "required": true
+          }
+        ]
       }
     },
     {
