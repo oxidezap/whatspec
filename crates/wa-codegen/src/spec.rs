@@ -351,10 +351,13 @@ fn iq_type_str(t: IqType) -> &'static str {
 static LET_KEYWORD: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\blet (type|fn|loop|match|mod|pub|use|struct|impl|trait|enum)\b").unwrap()
 });
-// Captures struct-init field names, including raw identifiers (`r#type`) — without
-// the `r#` alternative the validator would think a `type`/`match` field (emitted as
-// `r#type,`) was never initialized and wrongly reject an otherwise-valid parser.
-static INIT_FIELD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(r#\w+|\w+),").unwrap());
+// Captures struct-init field KEYS, including raw identifiers (`r#type`). Matches the
+// identifier before `:` (explicit `key: value,`) OR `,` (field shorthand) — a nested
+// repeated grandchild is emitted as `tag: tag_items,`, where the old `,`-only pattern
+// captured the VALUE (`tag_items`) instead of the KEY (`tag`) and wrongly rejected an
+// otherwise-valid parser. The acceptance check is one-directional (required ⊆ inited),
+// so the extra value/`Default` matches the broader pattern admits are harmless.
+static INIT_FIELD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(r#\w+|\w+)\s*[:,]").unwrap());
 static LET_BINDING: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\blet\s+(mut\s+)?(\w+)\b").unwrap());
 
