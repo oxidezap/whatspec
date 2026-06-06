@@ -12,9 +12,9 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use wa_ir::ParsedResponse;
+use wa_ir::{ParsedField, ParsedFieldType, ParsedResponse, ResponseVariant, ResponseVariantKind};
 
-use crate::response_smax::analyze_module_exports;
+use crate::response_smax::{Resolved, Resolver, analyze_module_exports, scan_cascade_variants};
 use wa_transform::ModuleDefinition;
 
 /// Index of smax response parsers, keyed for request→response linkage.
@@ -33,29 +33,68 @@ impl ResponseIndex {
 
 /// Build the response index over every `WASmaxIn*` module.
 pub(crate) fn build_pass(defs: &[ModuleDefinition], source: &str) -> ResponseIndex {
-    // Pass 1: every payload mixin's fields, keyed by its `parse…Mixin` fn name.
-    // Mixins can reference other mixins; two widening rounds cover the shallow
-    // mixin→mixin nesting seen in the bundle (a mixin built before its dependency
-    // still picks it up on the second round).
-    let mut mixins: HashMap<String, ParsedResponse> = HashMap::new();
-    let mixin_mods: Vec<&str> = unique_modules(defs, source, |name| {
-        name.starts_with("WASmaxIn") && name.ends_with("Mixin")
-    });
-    for _ in 0..2 {
-        for slice in &mixin_mods {
-            for (fn_name, pr) in analyze_module_exports(slice, &mixins) {
-                if fn_name.ends_with("Mixin")
-                    && !pr.fields.is_empty()
-                    && !mixins.contains_key(&fn_name)
-                {
-                    mixins.insert(fn_name, pr);
-                }
-            }
+    // First occurrence of each module name → its slice (shard dedup).
+    let mut slices: HashMap<&str, &str> = HashMap::new();
+    for m in defs {
+        slices
+            .entry(m.name.as_str())
+            .or_insert(&source[m.start..m.end]);
+    }
+    // Lazily resolves cross-module parsers/mixins/unions on demand (memoized),
+    // replacing the old eager mixin index.
+    let resolver = Resolver::new(&slices);
+
+    let mut by_x = BTreeMap::new();
+
+    // Pass 1 (authoritative): each `WASmax<X>RPC` orchestrator defines the response
+    // as an ordered discriminated union of `WASmaxIn<X>Response<Variant>` parsers
+    // (first success wins). Parse the cascade → typed variants; the primary success
+    // variant's fields fill `ParsedResponse.fields` for single-shape consumers.
+    let mut seen_rpc = HashSet::new();
+    for m in defs {
+        if !(m.name.starts_with("WASmax") && m.name.ends_with("RPC")) {
+            continue;
         }
+        if !seen_rpc.insert(m.name.as_str()) {
+            continue;
+        }
+        let slice = &source[m.start..m.end];
+        let variant_refs = scan_cascade_variants(slice);
+        if variant_refs.is_empty() {
+            continue;
+        }
+        let mut variants = Vec::new();
+        let mut primary: Vec<ParsedField> = Vec::new();
+        for (tag, module, func) in variant_refs {
+            // Resolve the exact parser the RPC calls (`o(module).<func>`); a
+            // `ResponseSuccess` module exports several `parse…` fns, so match by name.
+            let fields = match resolver.resolve(&module, &func) {
+                Some(Resolved::Fields(f)) => f,
+                Some(Resolved::Union(v)) if !v.is_empty() => vec![union_field("value", v)],
+                _ => Vec::new(),
+            };
+            let kind = variant_kind(&tag);
+            if kind == ResponseVariantKind::Success && primary.is_empty() {
+                primary = fields.clone();
+            }
+            variants.push(ResponseVariant {
+                tag,
+                module_name: module,
+                kind,
+                assertions: Vec::new(),
+                fields,
+            });
+        }
+        by_x.entry(rpc_op_name(&m.name)).or_insert(ParsedResponse {
+            parser_name: m.name.clone(),
+            fields: primary,
+            variants,
+            ..Default::default()
+        });
     }
 
-    // Pass 2: each `ResponseSuccess` parser, resolving payload mixins from pass 1.
-    let mut by_x = BTreeMap::new();
+    // Pass 2 (fallback): a plain `WASmaxIn<X>ResponseSuccess` for ops with no RPC
+    // (e.g. PingsClient). Only fills gaps the RPC pass didn't cover.
     let mut seen = HashSet::new();
     for m in defs {
         if !(m.name.starts_with("WASmaxIn") && m.name.ends_with("ResponseSuccess")) {
@@ -65,7 +104,7 @@ pub(crate) fn build_pass(defs: &[ModuleDefinition], source: &str) -> ResponseInd
             continue;
         }
         let slice = &source[m.start..m.end];
-        let Some(pr) = analyze_module_exports(slice, &mixins)
+        let Some(pr) = analyze_module_exports(slice, &resolver)
             .into_iter()
             .find(|(n, pr)| n.ends_with("ResponseSuccess") && !pr.fields.is_empty())
             .map(|(_, pr)| pr)
@@ -78,17 +117,50 @@ pub(crate) fn build_pass(defs: &[ModuleDefinition], source: &str) -> ResponseInd
     ResponseIndex { by_x }
 }
 
-/// First slice of each distinct module name matching `pred` (shard dedup).
-fn unique_modules<'s>(
-    defs: &[ModuleDefinition],
-    source: &'s str,
-    pred: impl Fn(&str) -> bool,
-) -> Vec<&'s str> {
-    let mut seen = HashSet::new();
-    defs.iter()
-        .filter(|m| pred(&m.name) && seen.insert(m.name.as_str()))
-        .map(|m| &source[m.start..m.end])
-        .collect()
+/// A discriminated-union field carrying `variants`.
+fn union_field(name: &str, variants: Vec<wa_ir::UnionVariant>) -> ParsedField {
+    ParsedField {
+        name: name.to_string(),
+        field_type: ParsedFieldType::Union,
+        union_variants: Some(variants),
+        required: true,
+        ..Default::default()
+    }
+}
+
+/// `WASmax<X>RPC` → `X` (the op key shared with `WASmaxOut<X>Request`).
+fn rpc_op_name(module: &str) -> String {
+    module
+        .strip_prefix("WASmax")
+        .and_then(|s| s.strip_suffix("RPC"))
+        .unwrap_or(module)
+        .to_string()
+}
+
+/// Classify a response variant by its discriminator tag's tokens.
+fn variant_kind(tag: &str) -> ResponseVariantKind {
+    const ERROR_TOKENS: &[&str] = &[
+        "Error",
+        "InvalidRequest",
+        "Nack",
+        "Conflict",
+        "Forbidden",
+        "TooManyAttempts",
+        "IncorrectNonce",
+        "RecoveryRequired",
+        "AlreadyExists",
+        "Negative",
+        "BadStanza",
+        "NotAuthorized",
+        "NotAcceptable",
+        "NotExist",
+        "ResourceLimit",
+    ];
+    if ERROR_TOKENS.iter().any(|t| tag.contains(t)) {
+        ResponseVariantKind::Error
+    } else {
+        ResponseVariantKind::Success
+    }
 }
 
 /// `WASmaxIn<X>ResponseSuccess` → `X` (operation name shared with the request).

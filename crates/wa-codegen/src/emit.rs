@@ -6,7 +6,8 @@ use wa_ir::wap;
 use wa_ir::{ParsedField, ParsedFieldType, WapAttrKind, WapChildNode};
 
 use crate::fields::{
-    child_content_type, collect_response_fields, is_attr_field, is_child_field, is_jid_kind,
+    child_content_type, collect_response_fields, flatten_same_node, is_attr_field, is_child_field,
+    is_jid_kind,
 };
 use crate::naming::{pascal_case, rust_ident, rust_lit, rust_lit_inner, snake_case};
 
@@ -91,11 +92,16 @@ pub(crate) fn emit_response_parser(
     fields: &[ParsedField],
     response_type_name: &str,
     indent: &str,
+    prefix: &str,
 ) -> Vec<String> {
     // lines[0] is reserved for the deferred `use` import, lines[1] is a blank.
     let mut lines: Vec<String> = vec![String::new(), String::new()];
 
-    let (struct_fields, _) = collect_response_fields(fields);
+    // Same-node mixin fields are nested in the IR but read off the parent node;
+    // flatten them so the parser emits a flat attr/child read sequence.
+    let fields = &flatten_same_node(fields);
+
+    let (struct_fields, _) = collect_response_fields(fields, prefix);
     let struct_field_names: std::collections::HashSet<String> =
         struct_fields.iter().map(|f| f.name.clone()).collect();
 
@@ -105,11 +111,24 @@ pub(crate) fn emit_response_parser(
         .collect();
     let child_fields: Vec<&ParsedField> = fields.iter().filter(|f| is_child_field(f)).collect();
 
+    // A field may carry a `source_path` of wrapper tags to descend before the
+    // read (smax `flattenedChildWithTag`): e.g. `protocol` lives on <props>, not
+    // the <iq> root. Descend each wrapper once (memoized) so the attr is read off
+    // the right node — for optional attrs too (their wrapper node is still required,
+    // only the attr is absent), otherwise an optional-only wrapper's attrs would be
+    // read off the root and never found.
+    let mut wrapper_vars: HashMap<Vec<String>, String> = HashMap::new();
     for f in &top_attrs {
         if !struct_field_names.contains(&rust_ident(&f.name)) {
             continue;
         }
-        lines.extend(emit_field_parse(f, "response", indent));
+        let node_var = match f.source_path.as_deref() {
+            Some(path) if !path.is_empty() => {
+                ensure_wrapper_var(path, &mut wrapper_vars, &mut lines, indent)
+            }
+            _ => "response".to_string(),
+        };
+        lines.extend(emit_field_parse(f, &node_var, indent));
     }
 
     let mut init_fields: Vec<String> = Vec::new();
@@ -138,9 +157,10 @@ pub(crate) fn emit_response_parser(
         if let Some(ct) = child.content_type.or_else(|| child_content_type(child)) {
             let field_name = rust_ident(child_tag);
             let bytes = ct == wa_ir::ContentType::Bytes;
+            let base = child_base(child, &mut wrapper_vars, &mut lines, indent);
             if child.method == "maybeChild" {
                 lines.push(format!(
-                    "{indent}let {field_name} = response.get_optional_child({child_lit})"
+                    "{indent}let {field_name} = {base}.get_optional_child({child_lit})"
                 ));
                 if bytes {
                     lines.push(format!(
@@ -153,7 +173,7 @@ pub(crate) fn emit_response_parser(
                 }
             } else {
                 lines.push(format!(
-                    "{indent}let {field_name}_node = response.get_optional_child({child_lit})"
+                    "{indent}let {field_name}_node = {base}.get_optional_child({child_lit})"
                 ));
                 lines.push(format!(
                     "{indent}    .ok_or_else(|| anyhow::anyhow!(\"missing <{}>\"))?;",
@@ -179,8 +199,9 @@ pub(crate) fn emit_response_parser(
         }
 
         if child.method == "child" {
+            let base = child_base(child, &mut wrapper_vars, &mut lines, indent);
             lines.push(format!(
-                "{indent}let {child_var} = response.get_optional_child({child_lit})"
+                "{indent}let {child_var} = {base}.get_optional_child({child_lit})"
             ));
             lines.push(format!(
                 "{indent}    .ok_or_else(|| anyhow::anyhow!(\"missing <{}>\"))?;",
@@ -213,7 +234,7 @@ pub(crate) fn emit_response_parser(
                     continue;
                 }
                 let n_tag = tag_or_name(nf);
-                let n_struct = format!("{}Item", pascal_case(n_tag));
+                let n_struct = format!("{prefix}{}Item", pascal_case(n_tag));
                 let n_vec = format!("{}_items", snake_case(n_tag));
 
                 lines.push(format!("{indent}let mut {n_vec} = Vec::new();"));
@@ -238,12 +259,13 @@ pub(crate) fn emit_response_parser(
                 );
             }
         } else if repeats(child) {
-            let struct_name = format!("{}Item", pascal_case(child_tag));
+            let base = child_base(child, &mut wrapper_vars, &mut lines, indent);
+            let struct_name = format!("{prefix}{}Item", pascal_case(child_tag));
             let vec_var = format!("{}_items", snake_case(child_tag));
 
             lines.push(format!("{indent}let mut {vec_var} = Vec::new();"));
             lines.push(format!(
-                "{indent}for child in response.get_children_by_tag({child_lit}) {{"
+                "{indent}for child in {base}.get_children_by_tag({child_lit}) {{"
             ));
 
             let child_attrs = dedup_attrs(kids);
@@ -273,6 +295,61 @@ pub(crate) fn emit_response_parser(
     // `get_optional_child`, …) and fully-qualified `anyhow!`, so no `use` is
     // needed; the reserved lines[0]/lines[1] stay blank.
     lines
+}
+
+/// Emit the wrapper descent for a `source_path` (memoized per prefix) and return
+/// the node var the field should be read from. Each segment is read as required:
+/// the fields driving the descent carry required attrs, so a missing wrapper is a
+/// parse error, mirroring how a direct required `child` is read.
+fn ensure_wrapper_var(
+    path: &[String],
+    vars: &mut HashMap<Vec<String>, String>,
+    lines: &mut Vec<String>,
+    indent: &str,
+) -> String {
+    let mut parent = "response".to_string();
+    let mut prefix: Vec<String> = Vec::new();
+    for seg in path {
+        prefix.push(seg.clone());
+        if let Some(var) = vars.get(&prefix) {
+            parent = var.clone();
+            continue;
+        }
+        let var = format!(
+            "{}_wrap",
+            prefix
+                .iter()
+                .map(|s| snake_case(s))
+                .collect::<Vec<_>>()
+                .join("_")
+        );
+        lines.push(format!(
+            "{indent}let {var} = {parent}.get_optional_child({})",
+            rust_lit(seg)
+        ));
+        lines.push(format!(
+            "{indent}    .ok_or_else(|| anyhow::anyhow!(\"missing <{}>\"))?;",
+            rust_lit_inner(seg)
+        ));
+        vars.insert(prefix.clone(), var.clone());
+        parent = var;
+    }
+    parent
+}
+
+/// The node var a child field is read off: its descended `source_path` wrapper or
+/// the response root. The wrapper is descended as required, matching how this
+/// codegen already reads `child` nodes (with `ok_or_else`).
+fn child_base(
+    child: &ParsedField,
+    vars: &mut HashMap<Vec<String>, String>,
+    lines: &mut Vec<String>,
+    indent: &str,
+) -> String {
+    match child.source_path.as_deref() {
+        Some(path) if !path.is_empty() => ensure_wrapper_var(path, vars, lines, indent),
+        _ => "response".to_string(),
+    }
 }
 
 /// Dedup attribute children by name, dropping `hasAttr`.
@@ -395,6 +472,140 @@ mod tests {
             children: vec![],
             repeats: false,
         }
+    }
+
+    #[test]
+    fn source_path_attr_is_read_off_descended_wrapper() {
+        // `protocol` carries sourcePath=["props"]: it lives on <props>, not the
+        // <iq> root. The parser must descend the wrapper, and optional siblings
+        // sharing the wrapper must read off it too, while a plain root attr stays
+        // on `response`.
+        let fields: Vec<ParsedField> = serde_json::from_value(serde_json::json!([
+            {"method":"attrString","name":"propsProtocol","wireName":"protocol","type":"string","required":true,"sourcePath":["props"]},
+            {"method":"maybeAttrString","name":"propsHash","wireName":"hash","type":"string","required":false,"sourcePath":["props"]},
+            {"method":"attrString","name":"type","wireName":"type","type":"string","required":true}
+        ]))
+        .unwrap();
+        let code = emit_response_parser(&fields, "Resp", "    ", "Foo").join("\n");
+        assert!(
+            code.contains("let props_wrap = response.get_optional_child(\"props\")"),
+            "no <props> wrapper descent:\n{code}"
+        );
+        assert!(
+            code.contains("let props_protocol = props_wrap.get_attr(\"protocol\")"),
+            "required attr not read off the wrapper:\n{code}"
+        );
+        assert!(
+            code.contains("let props_hash = props_wrap.get_attr(\"hash\")"),
+            "optional sibling not read off the wrapper:\n{code}"
+        );
+        assert!(
+            code.contains("response.get_attr(\"type\")"),
+            "root attr should still read off response:\n{code}"
+        );
+    }
+
+    #[test]
+    fn source_path_child_is_read_off_descended_wrapper() {
+        // A child with sourcePath=["detail"] (smax flattenedChildWithTag): the
+        // <request> child lives under <detail>, not the <iq> root, and its attrs
+        // are read off that descended child.
+        let fields: Vec<ParsedField> = serde_json::from_value(serde_json::json!([
+            {"method":"child","name":"detailRequest","tag":"request","type":"string","required":false,"sourcePath":["detail"],
+             "children":[{"method":"attrString","name":"foo","wireName":"foo","type":"string","required":true}]}
+        ]))
+        .unwrap();
+        let code = emit_response_parser(&fields, "Resp", "    ", "Foo").join("\n");
+        assert!(
+            code.contains("let detail_wrap = response.get_optional_child(\"detail\")"),
+            "{code}"
+        );
+        assert!(
+            code.contains("let request = detail_wrap.get_optional_child(\"request\")"),
+            "child not read off the <detail> wrapper:\n{code}"
+        );
+        assert!(
+            !code.contains("response.get_optional_child(\"request\")"),
+            "child STILL read off the response root:\n{code}"
+        );
+    }
+
+    #[test]
+    fn nested_source_path_descends_each_segment() {
+        let fields: Vec<ParsedField> = serde_json::from_value(serde_json::json!([
+            {"method":"attrString","name":"nonceValue","wireName":"value","type":"string","required":true,"sourcePath":["detail","nonce"]}
+        ]))
+        .unwrap();
+        let code = emit_response_parser(&fields, "Resp", "    ", "Foo").join("\n");
+        assert!(
+            code.contains("let detail_wrap = response.get_optional_child(\"detail\")"),
+            "{code}"
+        );
+        assert!(
+            code.contains("let detail_nonce_wrap = detail_wrap.get_optional_child(\"nonce\")"),
+            "{code}"
+        );
+        assert!(
+            code.contains("let nonce_value = detail_nonce_wrap.get_attr(\"value\")"),
+            "{code}"
+        );
+    }
+
+    #[test]
+    fn optional_only_wrapper_is_still_descended() {
+        // Every attr under <props> is optional → the wrapper node is still required
+        // (smax `flattenedChildWithTag`), so it must be descended, not read off the
+        // <iq> root (else the attrs would always parse as None).
+        let fields: Vec<ParsedField> = serde_json::from_value(serde_json::json!([
+            {"method":"maybeAttrString","name":"propsAbKey","wireName":"ab_key","type":"string","required":false,"sourcePath":["props"]},
+            {"method":"maybeAttrString","name":"propsHash","wireName":"hash","type":"string","required":false,"sourcePath":["props"]}
+        ]))
+        .unwrap();
+        let code = emit_response_parser(&fields, "Resp", "    ", "Foo").join("\n");
+        assert!(
+            code.contains("let props_wrap = response.get_optional_child(\"props\")"),
+            "optional-only wrapper not descended:\n{code}"
+        );
+        assert!(
+            code.contains("let props_ab_key = props_wrap.get_attr(\"ab_key\")"),
+            "optional attr not read off the wrapper:\n{code}"
+        );
+        assert!(
+            !code.contains("response.get_attr(\"ab_key\")"),
+            "optional attr STILL read off the root:\n{code}"
+        );
+    }
+
+    #[test]
+    fn optional_same_node_wrapper_weakens_attr_children() {
+        // `{displayNameMixin: m.success ? m.value : null}` → an OPTIONAL same-node
+        // wrapper. When flattened the wrapper disappears, so its required attr child
+        // must be weakened to an optional read (the wrapper may be absent).
+        let fields: Vec<ParsedField> = serde_json::from_value(serde_json::json!([
+            {"method":"","name":"displayNameMixin","type":"string","required":false,"sameNode":true,
+             "children":[{"method":"attrString","name":"displayName","wireName":"display_name","type":"string","required":true}]}
+        ]))
+        .unwrap();
+        // Struct field is Option<…>.
+        let (struct_fields, _) = collect_response_fields(&fields, "Foo");
+        let df = struct_fields
+            .iter()
+            .find(|f| f.name == "display_name")
+            .expect("display_name field");
+        assert_eq!(
+            df.rust_type, "Option<String>",
+            "weakened field should be Option"
+        );
+        // Parser reads it optionally (no `missing` error).
+        let code = emit_response_parser(&fields, "Resp", "    ", "Foo").join("\n");
+        assert!(
+            code.contains("let display_name = response.get_attr(\"display_name\").map("),
+            "optional same_node child not read optionally:\n{code}"
+        );
+        assert!(
+            !code.contains("missing display_name"),
+            "optional same_node child still read as required:\n{code}"
+        );
     }
 
     #[test]

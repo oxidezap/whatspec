@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1040878135",
+  "waVersion": "2.3000.1040944432",
   "operations": {
     "ACSServerProviderConfig": {
       "originalName": "WAWebACSServerProviderConfigQuery",
@@ -2064,7 +2064,7 @@
     },
     "FetchNewsletterEnforcements": {
       "originalName": "WAWebMexFetchNewsletterEnforcementsJobQuery",
-      "docId": "26807357005541676",
+      "docId": "27144556038512360",
       "operationKind": "query",
       "variables": [
         "locale",
@@ -2080,6 +2080,12 @@
             {
               "base_enforcement_data": {
                 "appeal_creation_time": "number",
+                "appeal_reason_options": [
+                  {
+                    "label": "string",
+                    "reason": "string"
+                  }
+                ],
                 "appeal_state": "string",
                 "enforcement_creation_time": "number",
                 "enforcement_extra_data": {
@@ -2121,6 +2127,12 @@
           "profile_picture_deletions": [
             {
               "appeal_creation_time": "number",
+              "appeal_reason_options": [
+                {
+                  "label": "string",
+                  "reason": "string"
+                }
+              ],
               "appeal_state": "string",
               "enforcement_creation_time": "number",
               "enforcement_extra_data": {
@@ -2146,6 +2158,12 @@
           "suspensions": [
             {
               "appeal_creation_time": "number",
+              "appeal_reason_options": [
+                {
+                  "label": "string",
+                  "reason": "string"
+                }
+              ],
               "appeal_state": "string",
               "enforcement_creation_time": "number",
               "enforcement_extra_data": {
@@ -2181,6 +2199,12 @@
             {
               "base_enforcement_data": {
                 "appeal_creation_time": "number",
+                "appeal_reason_options": [
+                  {
+                    "label": "string",
+                    "reason": "string"
+                  }
+                ],
                 "appeal_state": "string",
                 "enforcement_creation_time": "number",
                 "enforcement_extra_data": {
@@ -2407,8 +2431,14 @@
     },
     "FetchNewsletterReports": {
       "originalName": "WAWebMexFetchNewsletterReportsJobQuery",
-      "docId": "24241374008893508",
+      "docId": "27717296871209353",
       "operationKind": "query",
+      "variables": [
+        "locale"
+      ],
+      "variablesShape": {
+        "locale": "string"
+      },
       "response": {
         "xwa2_channels_reports": {
           "channels_reports": [

@@ -120,11 +120,68 @@ fn repeats(f: &ParsedField) -> bool {
     f.repeats == Some(true)
 }
 
+/// Hoist `same_node` fields (smax payload mixins nested under a key but read off
+/// the PARENT node) so the codegen sees a flat attr/child list. The IR keeps them
+/// nested for fidelity; the reference codegen flattens for a simple struct shape.
+/// Recurses into real child fields' children (where nested same-node mixins live).
+///
+/// An *optional* same-node wrapper (`{key: m.success ? m.value : null}` →
+/// `required:false`) makes every leaf it contributes optional: when hoisted the
+/// wrapper itself disappears, so its absence can only be modeled by weakening the
+/// hoisted attr leaves to their `maybe…` (optional) form.
+pub(crate) fn flatten_same_node(fields: &[ParsedField]) -> Vec<ParsedField> {
+    flatten_same_node_inner(fields, false)
+}
+
+fn flatten_same_node_inner(fields: &[ParsedField], force_optional: bool) -> Vec<ParsedField> {
+    let mut out = Vec::new();
+    for f in fields {
+        if f.same_node {
+            let child_optional = force_optional || !f.required;
+            out.extend(flatten_same_node_inner(
+                f.children.as_deref().unwrap_or(&[]),
+                child_optional,
+            ));
+        } else {
+            let mut f = f.clone();
+            if force_optional {
+                weaken_attr_to_optional(&mut f);
+            }
+            if let Some(kids) = &f.children {
+                f.children = Some(flatten_same_node_inner(kids, force_optional));
+            }
+            out.push(f);
+        }
+    }
+    out
+}
+
+/// Weaken an attribute leaf to its optional `maybe…` accessor (so an optional
+/// same-node wrapper's children read as `Option<_>`). Content leaves already read
+/// leniently (`unwrap_or_default`); child/JID accessors have no `maybe` form here,
+/// so they are left unchanged (a rare over-strictness in the reference codegen).
+fn weaken_attr_to_optional(f: &mut ParsedField) {
+    let weakened = match f.method.as_str() {
+        wap::ATTR_STRING => Some(wap::MAYBE_ATTR_STRING),
+        wap::ATTR_INT => Some(wap::MAYBE_ATTR_INT),
+        wap::ATTR_ENUM => Some(wap::MAYBE_ATTR_ENUM),
+        _ => None,
+    };
+    if let Some(m) = weakened {
+        f.method = m.to_string();
+        f.required = false;
+    }
+}
+
 /// Walk the response field tree, collecting top-level struct fields and any
-/// `<Tag>Item` child structs for repeating children.
+/// `<Prefix><Tag>Item` child structs for repeating children. `prefix` (the owning
+/// spec's base name) keeps child struct names unique across a namespace — two specs
+/// can have a same-tagged child with incompatible shapes (e.g. `tos` `<notice>`).
 pub(crate) fn collect_response_fields(
     fields: &[ParsedField],
+    prefix: &str,
 ) -> (Vec<RustField>, Vec<RustChildStruct>) {
+    let flattened = &flatten_same_node(fields);
     let mut top_fields: Vec<RustField> = Vec::new();
     let mut child_structs: Vec<RustChildStruct> = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
@@ -135,7 +192,7 @@ pub(crate) fn collect_response_fields(
         }
     };
 
-    for f in fields {
+    for f in flattened {
         if is_child_field(f) {
             let kids = children_of(f);
             // `child("x").contentString()` → a single `x: String` field (named by
@@ -171,7 +228,7 @@ pub(crate) fn collect_response_fields(
                 kids.iter().filter(|c| is_child_field(c)).collect();
 
             if repeats(f) {
-                let struct_name = format!("{}Item", pascal_case(tag_or_name(f)));
+                let struct_name = format!("{prefix}{}Item", pascal_case(tag_or_name(f)));
                 let mut struct_fields: Vec<RustField> = Vec::new();
 
                 for cf in &attr_children {
@@ -187,7 +244,7 @@ pub(crate) fn collect_response_fields(
 
                 for nf in &nested_children {
                     if repeats(nf) && !children_of(nf).is_empty() {
-                        let nested_struct = format!("{}Item", pascal_case(tag_or_name(nf)));
+                        let nested_struct = format!("{prefix}{}Item", pascal_case(tag_or_name(nf)));
                         let mut nested_fields: Vec<RustField> = Vec::new();
                         for ncf in children_of(nf).iter().filter(|c| is_attr_field(c)) {
                             if ncf.method == "hasAttr" {
@@ -244,7 +301,7 @@ pub(crate) fn collect_response_fields(
                 }
                 let nested_owned: Vec<ParsedField> =
                     nested_children.iter().map(|c| (*c).clone()).collect();
-                let (nested_top, nested_structs) = collect_response_fields(&nested_owned);
+                let (nested_top, nested_structs) = collect_response_fields(&nested_owned, prefix);
                 for nf in nested_top {
                     add_field(&mut top_fields, nf);
                 }
