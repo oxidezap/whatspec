@@ -124,20 +124,53 @@ fn repeats(f: &ParsedField) -> bool {
 /// the PARENT node) so the codegen sees a flat attr/child list. The IR keeps them
 /// nested for fidelity; the reference codegen flattens for a simple struct shape.
 /// Recurses into real child fields' children (where nested same-node mixins live).
+///
+/// An *optional* same-node wrapper (`{key: m.success ? m.value : null}` →
+/// `required:false`) makes every leaf it contributes optional: when hoisted the
+/// wrapper itself disappears, so its absence can only be modeled by weakening the
+/// hoisted attr leaves to their `maybe…` (optional) form.
 pub(crate) fn flatten_same_node(fields: &[ParsedField]) -> Vec<ParsedField> {
+    flatten_same_node_inner(fields, false)
+}
+
+fn flatten_same_node_inner(fields: &[ParsedField], force_optional: bool) -> Vec<ParsedField> {
     let mut out = Vec::new();
     for f in fields {
         if f.same_node {
-            out.extend(flatten_same_node(f.children.as_deref().unwrap_or(&[])));
+            let child_optional = force_optional || !f.required;
+            out.extend(flatten_same_node_inner(
+                f.children.as_deref().unwrap_or(&[]),
+                child_optional,
+            ));
         } else {
             let mut f = f.clone();
+            if force_optional {
+                weaken_attr_to_optional(&mut f);
+            }
             if let Some(kids) = &f.children {
-                f.children = Some(flatten_same_node(kids));
+                f.children = Some(flatten_same_node_inner(kids, force_optional));
             }
             out.push(f);
         }
     }
     out
+}
+
+/// Weaken an attribute leaf to its optional `maybe…` accessor (so an optional
+/// same-node wrapper's children read as `Option<_>`). Content leaves already read
+/// leniently (`unwrap_or_default`); child/JID accessors have no `maybe` form here,
+/// so they are left unchanged (a rare over-strictness in the reference codegen).
+fn weaken_attr_to_optional(f: &mut ParsedField) {
+    let weakened = match f.method.as_str() {
+        wap::ATTR_STRING => Some(wap::MAYBE_ATTR_STRING),
+        wap::ATTR_INT => Some(wap::MAYBE_ATTR_INT),
+        wap::ATTR_ENUM => Some(wap::MAYBE_ATTR_ENUM),
+        _ => None,
+    };
+    if let Some(m) = weakened {
+        f.method = m.to_string();
+        f.required = false;
+    }
 }
 
 /// Walk the response field tree, collecting top-level struct fields and any

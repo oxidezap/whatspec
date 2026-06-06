@@ -113,30 +113,22 @@ pub(crate) fn emit_response_parser(
 
     // A field may carry a `source_path` of wrapper tags to descend before the
     // read (smax `flattenedChildWithTag`): e.g. `protocol` lives on <props>, not
-    // the <iq> root. Descend each required wrapper once (memoized) so the attr is
-    // read off the right node. Optional-only wrappers (no required field through
-    // them) are left reading off the root for now.
+    // the <iq> root. Descend each wrapper once (memoized) so the attr is read off
+    // the right node — for optional attrs too (their wrapper node is still required,
+    // only the attr is absent), otherwise an optional-only wrapper's attrs would be
+    // read off the root and never found.
     let mut wrapper_vars: HashMap<Vec<String>, String> = HashMap::new();
-    for f in top_attrs
-        .iter()
-        .filter(|f| f.required && struct_field_names.contains(&rust_ident(&f.name)))
-    {
-        if let Some(path) = f.source_path.as_deref().filter(|p| !p.is_empty()) {
-            ensure_wrapper_var(path, &mut wrapper_vars, &mut lines, indent);
-        }
-    }
     for f in &top_attrs {
         if !struct_field_names.contains(&rust_ident(&f.name)) {
             continue;
         }
         let node_var = match f.source_path.as_deref() {
-            Some(path) if !path.is_empty() => wrapper_vars
-                .get(path)
-                .map(String::as_str)
-                .unwrap_or("response"),
-            _ => "response",
+            Some(path) if !path.is_empty() => {
+                ensure_wrapper_var(path, &mut wrapper_vars, &mut lines, indent)
+            }
+            _ => "response".to_string(),
         };
-        lines.extend(emit_field_parse(f, node_var, indent));
+        lines.extend(emit_field_parse(f, &node_var, indent));
     }
 
     let mut init_fields: Vec<String> = Vec::new();
@@ -556,6 +548,63 @@ mod tests {
         assert!(
             code.contains("let nonce_value = detail_nonce_wrap.get_attr(\"value\")"),
             "{code}"
+        );
+    }
+
+    #[test]
+    fn optional_only_wrapper_is_still_descended() {
+        // Every attr under <props> is optional → the wrapper node is still required
+        // (smax `flattenedChildWithTag`), so it must be descended, not read off the
+        // <iq> root (else the attrs would always parse as None).
+        let fields: Vec<ParsedField> = serde_json::from_value(serde_json::json!([
+            {"method":"maybeAttrString","name":"propsAbKey","wireName":"ab_key","type":"string","required":false,"sourcePath":["props"]},
+            {"method":"maybeAttrString","name":"propsHash","wireName":"hash","type":"string","required":false,"sourcePath":["props"]}
+        ]))
+        .unwrap();
+        let code = emit_response_parser(&fields, "Resp", "    ", "Foo").join("\n");
+        assert!(
+            code.contains("let props_wrap = response.get_optional_child(\"props\")"),
+            "optional-only wrapper not descended:\n{code}"
+        );
+        assert!(
+            code.contains("let props_ab_key = props_wrap.get_attr(\"ab_key\")"),
+            "optional attr not read off the wrapper:\n{code}"
+        );
+        assert!(
+            !code.contains("response.get_attr(\"ab_key\")"),
+            "optional attr STILL read off the root:\n{code}"
+        );
+    }
+
+    #[test]
+    fn optional_same_node_wrapper_weakens_attr_children() {
+        // `{displayNameMixin: m.success ? m.value : null}` → an OPTIONAL same-node
+        // wrapper. When flattened the wrapper disappears, so its required attr child
+        // must be weakened to an optional read (the wrapper may be absent).
+        let fields: Vec<ParsedField> = serde_json::from_value(serde_json::json!([
+            {"method":"","name":"displayNameMixin","type":"string","required":false,"sameNode":true,
+             "children":[{"method":"attrString","name":"displayName","wireName":"display_name","type":"string","required":true}]}
+        ]))
+        .unwrap();
+        // Struct field is Option<…>.
+        let (struct_fields, _) = collect_response_fields(&fields, "Foo");
+        let df = struct_fields
+            .iter()
+            .find(|f| f.name == "display_name")
+            .expect("display_name field");
+        assert_eq!(
+            df.rust_type, "Option<String>",
+            "weakened field should be Option"
+        );
+        // Parser reads it optionally (no `missing` error).
+        let code = emit_response_parser(&fields, "Resp", "    ", "Foo").join("\n");
+        assert!(
+            code.contains("let display_name = response.get_attr(\"display_name\").map("),
+            "optional same_node child not read optionally:\n{code}"
+        );
+        assert!(
+            !code.contains("missing display_name"),
+            "optional same_node child still read as required:\n{code}"
         );
     }
 
