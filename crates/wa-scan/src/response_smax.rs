@@ -444,7 +444,22 @@ fn classify_call(
                 None => Binding::None,
             }
         }
-        "literalContent" => Binding::None,
+        // `literalContent(ACC, node, "value")` pins the node's text content to a
+        // constant — the discriminator for marker union variants (`admin_add` vs
+        // `all_member_add`). Not an output field (the value is fixed); record it as a
+        // Content assertion when on the same node.
+        "literalContent" => {
+            if source_path.is_none()
+                && let Some(value) = args.get(2).and_then(arg_expr).and_then(as_string_lit)
+            {
+                assertions.push(ResponseAssertion {
+                    kind: AssertionKind::Content,
+                    name: None,
+                    value: Some(value.to_string()),
+                });
+            }
+            Binding::None
+        }
         // `contentLiteralBytes(node, [..])` pins the node's content to a fixed byte
         // sequence and returns it — a real bytes field when named in `makeResult`.
         "contentLiteralBytes" => Binding::Field {
@@ -722,7 +737,16 @@ fn analyze_disjunction(fn_src: &str, resolver: &Resolver) -> Vec<UnionVariant> {
                 }],
                 _ => Vec::new(),
             };
-            UnionVariant { name, fields }
+            // The variant parser's same-node guards (`assertTag`, `literal(attr,val)`,
+            // `literalContent(val)`) are how a consumer discriminates this variant from
+            // its siblings — e.g. a marker like `AdminAddMode` carries only
+            // `content == "admin_add"`.
+            let assertions = resolver.assertions(&module, &func);
+            UnionVariant {
+                name,
+                fields,
+                assertions,
+            }
         })
         .collect()
 }
@@ -1830,6 +1854,60 @@ mod tests {
                 .count(),
             1,
             "duplicate tag assertion deduped: {ea:?}"
+        );
+    }
+
+    #[test]
+    fn marker_union_variants_capture_content_discriminator() {
+        // A MixinGroup of marker variants discriminated by node content
+        // (`literalContent(content, e, "admin_add")`) — the content value must be
+        // captured as the variant's discriminator, and the fallback (plain
+        // `contentString`) carries none.
+        let admin = r#"__d("WASmaxInGAdminAddModeMixin",["WASmaxParseUtils","WAResultOrError"],(function(t,n,r,o,a,i,l){
+            function e(e){var t=o("WASmaxParseUtils").assertTag(e,"member_add_mode");if(!t.success)return t;var n=o("WASmaxParseUtils").literalContent(o("WASmaxParseUtils").contentString,e,"admin_add");return n.success?o("WAResultOrError").makeResult({}):n;}
+            l.parseAdminAddModeMixin=e;
+        }),1);"#;
+        let unknown = r#"__d("WASmaxInGUnknownAddModeMixin",["WASmaxParseUtils","WAResultOrError"],(function(t,n,r,o,a,i,l){
+            function e(e){var t=o("WASmaxParseUtils").assertTag(e,"member_add_mode");if(!t.success)return t;var n=o("WASmaxParseUtils").contentString(e);return n.success?o("WAResultOrError").makeResult({elementValue:n.value}):n;}
+            l.parseUnknownAddModeMixin=e;
+        }),1);"#;
+        let group = r#"__d("WASmaxInGMemberAddModes",["WAResultOrError","WASmaxInGAdminAddModeMixin","WASmaxInGUnknownAddModeMixin","WASmaxParseUtils"],(function(t,n,r,o,a,i,l){
+            function e(e){var t=o("WASmaxInGAdminAddModeMixin").parseAdminAddModeMixin(e);if(t.success)return o("WAResultOrError").makeResult({name:"AdminAddMode",value:t.value});var n=o("WASmaxInGUnknownAddModeMixin").parseUnknownAddModeMixin(e);return n.success?o("WAResultOrError").makeResult({name:"UnknownAddMode",value:n.value}):o("WASmaxParseUtils").errorMixinDisjunction(e,["AdminAddMode","UnknownAddMode"]);}
+            l.parseMemberAddModes=e;
+        }),1);"#;
+        let slices = HashMap::from([
+            ("WASmaxInGAdminAddModeMixin", admin),
+            ("WASmaxInGUnknownAddModeMixin", unknown),
+            ("WASmaxInGMemberAddModes", group),
+        ]);
+        let resolver = Resolver::new(&slices);
+        let Some(Resolved::Union(variants)) =
+            resolver.resolve("WASmaxInGMemberAddModes", "parseMemberAddModes")
+        else {
+            panic!("expected a union");
+        };
+        let admin_v = variants
+            .iter()
+            .find(|v| v.name == "AdminAddMode")
+            .expect("admin");
+        assert!(
+            admin_v.assertions.iter().any(
+                |a| a.kind == AssertionKind::Content && a.value.as_deref() == Some("admin_add")
+            ),
+            "marker variant captures its content discriminator: {:?}",
+            admin_v.assertions
+        );
+        let unknown_v = variants
+            .iter()
+            .find(|v| v.name == "UnknownAddMode")
+            .expect("unknown");
+        assert!(
+            !unknown_v
+                .assertions
+                .iter()
+                .any(|a| a.kind == AssertionKind::Content),
+            "the plain-content fallback carries no content discriminator: {:?}",
+            unknown_v.assertions
         );
     }
 }

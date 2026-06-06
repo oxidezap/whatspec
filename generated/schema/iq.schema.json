@@ -32,11 +32,20 @@
   "$defs": {
     "AssertionKind": {
       "description": "What a response parser asserts before accepting a node as its variant.",
-      "type": "string",
-      "enum": [
-        "tag",
-        "attr",
-        "from_server"
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "tag",
+            "attr",
+            "from_server"
+          ]
+        },
+        {
+          "description": "The node's text content is pinned to a fixed value (`literalContent(content,\nnode, \"admin_add\")`) — a discriminator for marker union variants. The value is\nin [`ResponseAssertion::value`]; `name` is unused.",
+          "type": "string",
+          "const": "content"
+        }
       ]
     },
     "ContentType": {
@@ -385,6 +394,13 @@
       "description": "One alternative of a discriminated union (`{name, value}` smax disjunction).",
       "type": "object",
       "properties": {
+        "assertions": {
+          "description": "The same-node guards the variant's parser enforces (`assertTag`,\n`literal(attr,value)`, `literalContent(value)`) — how a consumer tells this\nvariant apart from its siblings. Empty when the parser carries no fixed guard.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ResponseAssertion"
+          }
+        },
         "fields": {
           "description": "The variant's payload fields (empty for a marker/unit variant).",
           "type": "array",

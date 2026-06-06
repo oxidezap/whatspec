@@ -38,7 +38,7 @@
     "iq": {
       "file": "iq/index.json",
       "schema": "schema/iq.schema.json",
-      "sha256": "14d771ba466292b9912ff83f1655d57e4bf9c2aa4ae1068f04a4e98a7a8ec9e4"
+      "sha256": "b0ff4e08102b32f0f8f64139e3f50842f40eaa5fa2ba1f2a44928345cb08fa2a"
     },
     "mex": {
       "file": "mex/index.json",

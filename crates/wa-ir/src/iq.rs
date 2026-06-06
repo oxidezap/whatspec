@@ -145,6 +145,10 @@ pub enum AssertionKind {
     Tag,
     Attr,
     FromServer,
+    /// The node's text content is pinned to a fixed value (`literalContent(content,
+    /// node, "admin_add")`) — a discriminator for marker union variants. The value is
+    /// in [`ResponseAssertion::value`]; `name` is unused.
+    Content,
 }
 
 /// A single guard a response parser applies.
@@ -200,6 +204,11 @@ pub struct UnionVariant {
     pub name: String,
     /// The variant's payload fields (empty for a marker/unit variant).
     pub fields: Vec<ParsedField>,
+    /// The same-node guards the variant's parser enforces (`assertTag`,
+    /// `literal(attr,value)`, `literalContent(value)`) — how a consumer tells this
+    /// variant apart from its siblings. Empty when the parser carries no fixed guard.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub assertions: Vec<ResponseAssertion>,
 }
 
 /// One field extracted from a response stanza by a parser.
