@@ -467,6 +467,10 @@ impl ModuleScanner<'_> {
                     self.scope,
                     self.source,
                     self.aliases,
+                    // The request's locally-built children resolve structurally; the
+                    // cross-module attrs a referenced mixin contributes arrive via
+                    // `resolve_fragment_children` (Phase 2/3), merged in afterward.
+                    None,
                     0,
                 ));
             }

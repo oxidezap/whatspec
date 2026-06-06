@@ -19,17 +19,19 @@
 //! sub-stanzas contribute nothing here), and resolution applies only when the
 //! union is unambiguous (exactly one `xmlns`, one `type`).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use oxc_allocator::Allocator;
-use oxc_ast::ast::{AssignmentExpression, CallExpression};
+use oxc_ast::ast::{AssignmentExpression, CallExpression, Expression};
 use oxc_ast_visit::{Visit, walk};
 use wa_ir::{IqTarget, IqType, WapAttrKind, WapChildNode};
 
 use crate::alias::{AliasMap, build_alias_map};
 use crate::attrs::{extract_attrs_from_obj, parse_wap_call};
-use crate::module::iq_type_from_merge_name;
-use crate::request::{VarScope, build_var_scope, resolve_child_node};
+use crate::module::{iq_type_from_merge_name, require_module_name};
+use crate::request::{
+    MixinContributions, VarScope, build_var_scope, resolve_child_node, resolve_contribution,
+};
 use wa_oxc::{arg_expr, callee_method, callee_object};
 use wa_transform::ModuleDefinition;
 
@@ -70,23 +72,113 @@ impl MixinIndex {
 
 /// Build the index over every `WASmaxOut*` module (mixins + requests). Cheap:
 /// only those small slices are re-parsed, not the whole bundle.
+///
+/// Two stages: first resolve each mixin's *contribution* (the stanza tree it folds
+/// into a destination) in dependency order, so a sub-stanza mixin's attrs are known
+/// before any mixin that nests it (Phase 3). Then extract each `<iq>` fragment with
+/// those contributions available, so a fragment's children (e.g. newsletter
+/// `messages`) carry the cross-module attrs the nested mixins add.
 pub(crate) fn build_pass(defs: &[ModuleDefinition], source: &str) -> MixinIndex {
-    let mut by_module = BTreeMap::new();
+    // First-occurrence slice per WASmaxOut* module (the same module may appear in
+    // several bundle shards; the first definition is authoritative).
+    let mut slices: BTreeMap<&str, &str> = BTreeMap::new();
     for m in defs {
-        if !m.name.starts_with("WASmaxOut") {
-            continue;
+        if m.name.starts_with("WASmaxOut") {
+            slices.entry(&m.name).or_insert(&source[m.start..m.end]);
         }
-        let slice = &source[m.start..m.end];
-        if let Some(frag) = extract_fragment(slice) {
-            by_module.insert(m.name.clone(), frag);
+    }
+
+    // Dependency graph: which WASmaxOut* mixins each module references via `o("…")`.
+    let deps: BTreeMap<&str, Vec<String>> = slices
+        .iter()
+        .map(|(name, slice)| (*name, collect_mixin_deps(slice, name)))
+        .collect();
+
+    // Resolve contributions in post-order (dependencies first), memoized.
+    let mut contributions: MixinContributions = BTreeMap::new();
+    let mut visiting: HashSet<String> = HashSet::new();
+    for name in slices.keys() {
+        resolve_contribution_rec(name, &slices, &deps, &mut contributions, &mut visiting);
+    }
+
+    // Extract each module's `<iq>` fragment with the contributions available, so the
+    // fragment's children pick up the nested mixins' attrs.
+    let mut by_module = BTreeMap::new();
+    for (name, slice) in &slices {
+        if let Some(frag) = extract_fragment(slice, &contributions) {
+            by_module.insert(name.to_string(), frag);
         }
     }
     MixinIndex { by_module }
 }
 
+/// WASmaxOut* module names a slice references via `o("…")` (excluding itself) —
+/// the candidate dependency edges for contribution ordering. Over-inclusive is
+/// safe: an extra edge only forces earlier resolution; cycles are bounded by the
+/// `visiting` set in [`resolve_contribution_rec`].
+fn collect_mixin_deps(slice: &str, self_name: &str) -> Vec<String> {
+    let alloc = Allocator::default();
+    let ret = wa_oxc::parse_cjs(&alloc, slice);
+    let mut v = DepCollector {
+        self_name,
+        deps: Vec::new(),
+    };
+    v.visit_program(&ret.program);
+    v.deps
+}
+
+struct DepCollector<'s> {
+    self_name: &'s str,
+    deps: Vec<String>,
+}
+
+impl<'a> Visit<'a> for DepCollector<'_> {
+    fn visit_call_expression(&mut self, call: &CallExpression<'a>) {
+        // `o("WASmaxOut…")` — a require call: callee is a bare identifier (not a
+        // member like `x.smax("messages")`, whose string arg is a tag, not a module).
+        if matches!(&call.callee, Expression::Identifier(_))
+            && let Some(arg) = wa_oxc::first_string_arg(call)
+            && arg.starts_with("WASmaxOut")
+            && arg != self.self_name
+            && !self.deps.iter().any(|d| d == arg)
+        {
+            self.deps.push(arg.to_string());
+        }
+        walk::walk_call_expression(self, call);
+    }
+}
+
+/// Resolve `name`'s contribution after all its dependencies', memoizing into
+/// `contributions`. The `visiting` set bounds cycles (a mixin in-progress is
+/// treated as contributing nothing until it completes).
+fn resolve_contribution_rec(
+    name: &str,
+    slices: &BTreeMap<&str, &str>,
+    deps: &BTreeMap<&str, Vec<String>>,
+    contributions: &mut MixinContributions,
+    visiting: &mut HashSet<String>,
+) {
+    if contributions.contains_key(name) || visiting.contains(name) {
+        return;
+    }
+    visiting.insert(name.to_string());
+    if let Some(ds) = deps.get(name) {
+        for d in ds {
+            resolve_contribution_rec(d, slices, deps, contributions, visiting);
+        }
+    }
+    visiting.remove(name);
+    if let Some(slice) = slices.get(name) {
+        let contrib = resolve_contribution(slice, contributions);
+        contributions.insert(name.to_string(), contrib);
+    }
+}
+
 /// Parse a `WASmaxOut*` module slice and extract its `<iq>` fragment, if it
 /// builds one. Returns `None` for modules that don't construct a `smax("iq", …)`.
-fn extract_fragment(slice: &str) -> Option<MixinIqFragment> {
+/// `contributions` lets the fragment's children pick up cross-module sub-stanza
+/// attrs (Phase 3); pass an empty map for purely structural extraction.
+fn extract_fragment(slice: &str, contributions: &MixinContributions) -> Option<MixinIqFragment> {
     let alloc = Allocator::default();
     let ret = wa_oxc::parse_cjs(&alloc, slice);
     let aliases = build_alias_map(&ret.program);
@@ -95,6 +187,7 @@ fn extract_fragment(slice: &str) -> Option<MixinIqFragment> {
         source: slice,
         aliases: &aliases,
         scope: &scope,
+        contributions,
         merge_fn: None,
         frag: MixinIqFragment::default(),
         found_iq: false,
@@ -116,6 +209,9 @@ struct FragmentVisitor<'s> {
     source: &'s str,
     aliases: &'s AliasMap,
     scope: &'s VarScope,
+    /// Resolved contributions of the mixins this one nests (Phase 3) — lets the iq's
+    /// children pick up cross-module sub-stanza attrs.
+    contributions: &'s MixinContributions,
     /// The exported `l.merge<Name>Mixin = …` name, captured from the assignment.
     merge_fn: Option<String>,
     frag: MixinIqFragment,
@@ -182,6 +278,7 @@ impl<'a> Visit<'a> for FragmentVisitor<'_> {
                         self.scope,
                         self.source,
                         self.aliases,
+                        Some(self.contributions),
                         0,
                     ));
                 }
@@ -203,8 +300,6 @@ impl<'a> Visit<'a> for FragmentVisitor<'_> {
         walk::walk_call_expression(self, call);
     }
 }
-
-use crate::module::require_module_name;
 
 /// Resolve `xmlns`/`type`/`target` for a Request by unioning the iq fragments of
 /// the mixins it references (`mixin_modules`), following `merged_callees`
@@ -441,7 +536,7 @@ mod tests {
             function s(t){ return o("WASmaxMixins").mergeStanzas(t, e()); }
             l.mergeBaseIQSetRequestMixin = s;
         }, 1);"#;
-        let f = extract_fragment(m).expect("fragment");
+        let f = extract_fragment(m, &MixinContributions::new()).expect("fragment");
         assert_eq!(f.iq_type, Some(IqType::Set));
         assert_eq!(f.xmlns, None);
     }
@@ -454,7 +549,7 @@ mod tests {
             function s(t){ return o("WASmaxMixins").mergeStanzas(t, e()); }
             l.mergeBaseIQGetRequestMixin = s;
         }, 1);"#;
-        let f = extract_fragment(m).expect("fragment");
+        let f = extract_fragment(m, &MixinContributions::new()).expect("fragment");
         assert_eq!(f.xmlns.as_deref(), Some("foo"));
         assert_eq!(f.iq_type, Some(IqType::Get), "type from merge name");
     }
@@ -467,7 +562,7 @@ mod tests {
             function s(t,n){ return o("WASmaxMixins").mergeStanzas(t, e(n)); }
             l.mergeMessageMixin = s;
         }, 1);"#;
-        assert!(extract_fragment(m).is_none());
+        assert!(extract_fragment(m, &MixinContributions::new()).is_none());
     }
 
     #[test]
@@ -479,7 +574,7 @@ mod tests {
             function s(t,n){ return o("WASmaxMixins").mergeStanzas(t, e(n)); }
             l.mergeBaseReportMixin = s;
         }, 1);"#;
-        let f = extract_fragment(m).expect("fragment");
+        let f = extract_fragment(m, &MixinContributions::new()).expect("fragment");
         assert_eq!(f.xmlns.as_deref(), Some("spam"));
         assert_eq!(f.children.len(), 1, "the iq's spam_list child is captured");
         assert_eq!(f.children[0].tag, "spam_list");

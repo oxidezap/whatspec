@@ -288,6 +288,74 @@ mod tests {
     }
 
     #[test]
+    fn nested_sub_stanza_mixin_attrs_recovered() {
+        // Phase 3: a request whose `<iq>` child (`messages`) gets its attrs from a
+        // chain of cross-module mixins — a base attr (`count`), a MixinGroup union
+        // (`before`/`after` via optionalMerge), and a `smax$any` wildcard (`jid`).
+        // All must land on `messages` through the topological contribution build.
+        let bundle = r#"
+            __d("WASmaxOutNlBeforeMixinMixin",["WASmaxJsx","WASmaxMixins","WAWap"],function(g,r,d,o,e,i,l){
+                function b(a){ return o("WASmaxJsx").smax("messages",{before:o("WAWap").INT(a.b)}); }
+                function s(t,n){ return o("WASmaxMixins").mergeStanzas(t,b(n)); }
+                l.mergeBeforeMixinMixin=s;
+            },1);
+            __d("WASmaxOutNlAfterMixinMixin",["WASmaxJsx","WASmaxMixins","WAWap"],function(g,r,d,o,e,i,l){
+                function b(a){ return o("WASmaxJsx").smax("messages",{after:o("WAWap").INT(a.a)}); }
+                function s(t,n){ return o("WASmaxMixins").mergeStanzas(t,b(n)); }
+                l.mergeAfterMixinMixin=s;
+            },1);
+            __d("WASmaxOutNlDirections",["WASmaxOutNlBeforeMixinMixin","WASmaxOutNlAfterMixinMixin"],function(g,r,d,o,e,i,l){
+                function sel(t,n){ if(n.before) return o("WASmaxOutNlBeforeMixinMixin").mergeBeforeMixinMixin(t,n.before); if(n.after) return o("WASmaxOutNlAfterMixinMixin").mergeAfterMixinMixin(t,n.after); throw n; }
+                l.mergeDirections=sel;
+            },1);
+            __d("WASmaxOutNlJidParamsMixin",["WASmaxJsx","WASmaxMixins","WAWap"],function(g,r,d,o,e,i,l){
+                function b(a){ return o("WASmaxJsx").smax("smax$any",{type:"jid",jid:o("WAWap").JID(a.j)}); }
+                function s(t,n){ return o("WASmaxMixins").mergeStanzas(t,b(n)); }
+                l.mergeJidParamsMixin=s;
+            },1);
+            __d("WASmaxOutNlPayloadMixin",["WASmaxJsx","WASmaxMixins","WASmaxOutNlDirections","WASmaxOutNlJidParamsMixin","WAWap"],function(g,r,d,o,e,i,l){
+                function b(a){ return o("WASmaxOutNlJidParamsMixin").mergeJidParamsMixin(o("WASmaxMixins").optionalMerge(o("WASmaxOutNlDirections").mergeDirections, o("WASmaxJsx").smax("messages",{count:o("WAWap").INT(a.c)}), a.d), a.j); }
+                function s(t,n){ return o("WASmaxMixins").mergeStanzas(t,b(n)); }
+                l.mergePayloadMixin=s;
+            },1);
+            __d("WASmaxOutNlIQPayloadMixin",["WASmaxJsx","WASmaxMixins","WASmaxOutNlPayloadMixin"],function(g,r,d,o,e,i,l){
+                function b(a){ return o("WASmaxJsx").smax("iq",{xmlns:"newsletter",type:"get"}, o("WASmaxOutNlPayloadMixin").mergePayloadMixin(o("WASmaxJsx").smax("messages",null), a)); }
+                function s(t,n){ return o("WASmaxMixins").mergeStanzas(t,b(n)); }
+                l.mergeIQPayloadMixin=s;
+            },1);
+            __d("WASmaxOutNlGetMessagesRequest",["WASmaxJsx","WASmaxOutNlIQPayloadMixin"],function(g,r,d,o,e,i,l){
+                function b(n){ return o("WASmaxOutNlIQPayloadMixin").mergeIQPayloadMixin(o("WASmaxJsx").smax("iq",null), n); }
+                l.makeGetMessagesRequest=b;
+            },1);
+        "#;
+        let defs = wa_transform::extract_module_definitions(bundle);
+        let scan = scan_iq_stanzas_from_modules(bundle, &defs);
+        let req = scan
+            .stanzas
+            .iter()
+            .find(|s| s.module_name == "WASmaxOutNlGetMessagesRequest")
+            .expect("request stanza");
+        assert_eq!(req.namespace, "newsletter");
+        assert_eq!(req.iq_type, IqType::Get);
+        let messages = req
+            .request
+            .children
+            .iter()
+            .find(|c| c.tag == "messages")
+            .expect("messages child recovered via the IQ-payload mixin");
+        let names: Vec<_> = messages.attrs.iter().map(|a| a.name.as_str()).collect();
+        // count (direct), before+after (union via optionalMerge), jid+type (smax$any).
+        for want in ["count", "before", "after", "jid", "type"] {
+            assert!(names.contains(&want), "messages missing {want}: {names:?}");
+        }
+        // The wildcard placeholder tag must never reach the IR.
+        assert!(
+            !req.request.children.iter().any(|c| c.tag == "smax$any"),
+            "smax$any wildcard leaked into the request tree"
+        );
+    }
+
+    #[test]
     fn scans_bundle_with_two_modules_one_iq() {
         let bundle = r#"
             __d("WAWebPlain", ["SomeDep"], function(g,r,d,o,e,i){ e.x = 1; }, 1);

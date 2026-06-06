@@ -12980,7 +12980,44 @@
         "children": [
           {
             "tag": "messages",
-            "attrs": [],
+            "attrs": [
+              {
+                "name": "type",
+                "kind": "const",
+                "value": "jid",
+                "required": true
+              },
+              {
+                "name": "jid",
+                "kind": "user_jid",
+                "required": true
+              },
+              {
+                "name": "view_role",
+                "kind": "optional",
+                "required": false
+              },
+              {
+                "name": "key",
+                "kind": "string",
+                "required": true
+              },
+              {
+                "name": "count",
+                "kind": "integer",
+                "required": true
+              },
+              {
+                "name": "before",
+                "kind": "integer",
+                "required": true
+              },
+              {
+                "name": "after",
+                "kind": "integer",
+                "required": true
+              }
+            ],
             "children": [],
             "repeats": false
           }
@@ -18145,7 +18182,44 @@
         "children": [
           {
             "tag": "statuses",
-            "attrs": [],
+            "attrs": [
+              {
+                "name": "type",
+                "kind": "const",
+                "value": "jid",
+                "required": true
+              },
+              {
+                "name": "jid",
+                "kind": "user_jid",
+                "required": true
+              },
+              {
+                "name": "view_role",
+                "kind": "optional",
+                "required": false
+              },
+              {
+                "name": "key",
+                "kind": "string",
+                "required": true
+              },
+              {
+                "name": "count",
+                "kind": "integer",
+                "required": true
+              },
+              {
+                "name": "before",
+                "kind": "integer",
+                "required": true
+              },
+              {
+                "name": "after",
+                "kind": "integer",
+                "required": true
+              }
+            ],
             "children": [],
             "repeats": false
           }
@@ -21858,6 +21932,30 @@
         "iqType": "set",
         "target": "s.whatsapp.net",
         "children": [
+          {
+            "tag": "privacy",
+            "attrs": [],
+            "children": [
+              {
+                "tag": "category",
+                "attrs": [
+                  {
+                    "name": "name",
+                    "kind": "string",
+                    "required": true
+                  },
+                  {
+                    "name": "value",
+                    "kind": "string",
+                    "required": true
+                  }
+                ],
+                "children": [],
+                "repeats": false
+              }
+            ],
+            "repeats": false
+          },
           {
             "tag": "privacy",
             "attrs": [],
