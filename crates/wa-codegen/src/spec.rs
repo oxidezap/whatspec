@@ -205,7 +205,10 @@ fn iq_type_str(t: IqType) -> &'static str {
 static LET_KEYWORD: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\blet (type|fn|loop|match|mod|pub|use|struct|impl|trait|enum)\b").unwrap()
 });
-static INIT_FIELD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(\w+),").unwrap());
+// Captures struct-init field names, including raw identifiers (`r#type`) — without
+// the `r#` alternative the validator would think a `type`/`match` field (emitted as
+// `r#type,`) was never initialized and wrongly reject an otherwise-valid parser.
+static INIT_FIELD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(r#\w+|\w+),").unwrap());
 static LET_BINDING: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\blet\s+(mut\s+)?(\w+)\b").unwrap());
 
