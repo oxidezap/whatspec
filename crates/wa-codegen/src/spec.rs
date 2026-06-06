@@ -270,7 +270,7 @@ fn emit_outcome_parse(
                 && let (Some(name), Some(value)) = (&a.name, &a.value)
             {
                 lines.push(format!(
-                    "{indent}    if response.get_attr({}).map(|x| x.as_str()) != Some({}) {{ anyhow::bail!(\"{vname}: {} != {}\"); }}",
+                    "{indent}    if response.get_attr({}).map(|x| x.as_str()).as_deref() != Some({}) {{ anyhow::bail!(\"{vname}: {} != {}\"); }}",
                     rust_lit(name),
                     rust_lit(value),
                     rust_lit_inner(name),
@@ -317,7 +317,7 @@ fn emit_success_guards(op: &IqStanzaDef, indent: &str) -> Vec<String> {
             AssertionKind::Attr => {
                 if let (Some(name), Some(value)) = (&a.name, &a.value) {
                     lines.push(format!(
-                        "{indent}if response.get_attr({}).map(|x| x.as_str()) != Some({}) {{ anyhow::bail!(\"not a success response: {} != {}\"); }}",
+                        "{indent}if response.get_attr({}).map(|x| x.as_str()).as_deref() != Some({}) {{ anyhow::bail!(\"not a success response: {} != {}\"); }}",
                         rust_lit(name),
                         rust_lit(value),
                         rust_lit_inner(name),
@@ -835,9 +835,9 @@ mod tests {
         let guards = emit_success_guards(&s, "    ");
         assert_eq!(guards.len(), 1);
         assert!(
-            guards[0]
-                .contains("response.get_attr(\"type\").map(|x| x.as_str()) != Some(\"result\")")
-                && guards[0].contains("anyhow::bail!"),
+            guards[0].contains(
+                "response.get_attr(\"type\").map(|x| x.as_str()).as_deref() != Some(\"result\")"
+            ) && guards[0].contains("anyhow::bail!"),
             "{}",
             guards[0]
         );
@@ -955,11 +955,15 @@ mod tests {
             "{code}"
         );
         assert!(
-            code.contains("if response.get_attr(\"type\").map(|x| x.as_str()) != Some(\"result\")"),
+            code.contains(
+                "if response.get_attr(\"type\").map(|x| x.as_str()).as_deref() != Some(\"result\")"
+            ),
             "success arm must guard type==result: {code}"
         );
         assert!(
-            code.contains("if response.get_attr(\"type\").map(|x| x.as_str()) != Some(\"error\")"),
+            code.contains(
+                "if response.get_attr(\"type\").map(|x| x.as_str()).as_deref() != Some(\"error\")"
+            ),
             "error arm must guard type==error: {code}"
         );
     }

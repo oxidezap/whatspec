@@ -52,7 +52,9 @@ pub fn generate_iq(ir: &IqIr) -> String {
         "//! Auto-generated IQ stanza specs (WhatsApp {}). DO NOT EDIT.\n\
          //!\n//! One `pub mod` per IQ namespace; each holds the namespace const, shared child\n\
          //! types, and one `IqSpec` impl per stanza. Regenerated from the IQ IR by wa-codegen.\n\n\
-         #![allow(clippy::all)]\n\n",
+         // A generated catalog: a consumer uses a subset (so unused specs/types are\n\
+         // expected), and nested wrapper vars use a `base__path_wrap` convention.\n\
+         #![allow(clippy::all, dead_code, non_snake_case)]\n\n",
         ir.wa_version
     ));
 
