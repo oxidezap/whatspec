@@ -165,9 +165,10 @@ pub(crate) fn emit_response_parser(
         if let Some(ct) = child.content_type.or_else(|| child_content_type(child)) {
             let field_name = rust_ident(child_tag);
             let bytes = ct == wa_ir::ContentType::Bytes;
+            let base = child_base(child, &mut wrapper_vars, &mut lines, indent);
             if child.method == "maybeChild" {
                 lines.push(format!(
-                    "{indent}let {field_name} = response.get_optional_child({child_lit})"
+                    "{indent}let {field_name} = {base}.get_optional_child({child_lit})"
                 ));
                 if bytes {
                     lines.push(format!(
@@ -180,7 +181,7 @@ pub(crate) fn emit_response_parser(
                 }
             } else {
                 lines.push(format!(
-                    "{indent}let {field_name}_node = response.get_optional_child({child_lit})"
+                    "{indent}let {field_name}_node = {base}.get_optional_child({child_lit})"
                 ));
                 lines.push(format!(
                     "{indent}    .ok_or_else(|| anyhow::anyhow!(\"missing <{}>\"))?;",
@@ -206,8 +207,9 @@ pub(crate) fn emit_response_parser(
         }
 
         if child.method == "child" {
+            let base = child_base(child, &mut wrapper_vars, &mut lines, indent);
             lines.push(format!(
-                "{indent}let {child_var} = response.get_optional_child({child_lit})"
+                "{indent}let {child_var} = {base}.get_optional_child({child_lit})"
             ));
             lines.push(format!(
                 "{indent}    .ok_or_else(|| anyhow::anyhow!(\"missing <{}>\"))?;",
@@ -265,12 +267,13 @@ pub(crate) fn emit_response_parser(
                 );
             }
         } else if repeats(child) {
+            let base = child_base(child, &mut wrapper_vars, &mut lines, indent);
             let struct_name = format!("{prefix}{}Item", pascal_case(child_tag));
             let vec_var = format!("{}_items", snake_case(child_tag));
 
             lines.push(format!("{indent}let mut {vec_var} = Vec::new();"));
             lines.push(format!(
-                "{indent}for child in response.get_children_by_tag({child_lit}) {{"
+                "{indent}for child in {base}.get_children_by_tag({child_lit}) {{"
             ));
 
             let child_attrs = dedup_attrs(kids);
@@ -340,6 +343,21 @@ fn ensure_wrapper_var(
         parent = var;
     }
     parent
+}
+
+/// The node var a child field is read off: its descended `source_path` wrapper or
+/// the response root. The wrapper is descended as required, matching how this
+/// codegen already reads `child` nodes (with `ok_or_else`).
+fn child_base(
+    child: &ParsedField,
+    vars: &mut HashMap<Vec<String>, String>,
+    lines: &mut Vec<String>,
+    indent: &str,
+) -> String {
+    match child.source_path.as_deref() {
+        Some(path) if !path.is_empty() => ensure_wrapper_var(path, vars, lines, indent),
+        _ => "response".to_string(),
+    }
 }
 
 /// Dedup attribute children by name, dropping `hasAttr`.
@@ -492,6 +510,31 @@ mod tests {
         assert!(
             code.contains("response.get_attr(\"type\")"),
             "root attr should still read off response:\n{code}"
+        );
+    }
+
+    #[test]
+    fn source_path_child_is_read_off_descended_wrapper() {
+        // A child with sourcePath=["detail"] (smax flattenedChildWithTag): the
+        // <request> child lives under <detail>, not the <iq> root, and its attrs
+        // are read off that descended child.
+        let fields: Vec<ParsedField> = serde_json::from_value(serde_json::json!([
+            {"method":"child","name":"detailRequest","tag":"request","type":"string","required":false,"sourcePath":["detail"],
+             "children":[{"method":"attrString","name":"foo","wireName":"foo","type":"string","required":true}]}
+        ]))
+        .unwrap();
+        let code = emit_response_parser(&fields, "Resp", "    ", "Foo").join("\n");
+        assert!(
+            code.contains("let detail_wrap = response.get_optional_child(\"detail\")"),
+            "{code}"
+        );
+        assert!(
+            code.contains("let request = detail_wrap.get_optional_child(\"request\")"),
+            "child not read off the <detail> wrapper:\n{code}"
+        );
+        assert!(
+            !code.contains("response.get_optional_child(\"request\")"),
+            "child STILL read off the response root:\n{code}"
         );
     }
 
