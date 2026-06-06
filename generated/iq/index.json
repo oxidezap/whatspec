@@ -201,7 +201,17 @@
             "tag": "GetExperimentConfigResponseSuccess",
             "moduleName": "WASmaxInAbPropsGetExperimentConfigResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -358,7 +368,17 @@
             "tag": "GetExperimentConfigResponseErrorNoRetry",
             "moduleName": "WASmaxInAbPropsGetExperimentConfigResponseErrorNoRetry",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -422,7 +442,17 @@
             "tag": "GetExperimentConfigResponseErrorRetry",
             "moduleName": "WASmaxInAbPropsGetExperimentConfigResponseErrorRetry",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "child",
@@ -617,7 +647,17 @@
             "tag": "GetGroupExperimentConfigResponseSuccess",
             "moduleName": "WASmaxInAbPropsGetGroupExperimentConfigResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "maybeAttrString",
@@ -738,7 +778,17 @@
             "tag": "GetGroupExperimentConfigResponseErrorNoRetry",
             "moduleName": "WASmaxInAbPropsGetGroupExperimentConfigResponseErrorNoRetry",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -802,7 +852,17 @@
             "tag": "GetGroupExperimentConfigResponseErrorRetry",
             "moduleName": "WASmaxInAbPropsGetGroupExperimentConfigResponseErrorRetry",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "child",
@@ -950,7 +1010,17 @@
             "tag": "GetBlockListResponseSuccessWithMismatch",
             "moduleName": "WASmaxInBlocklistsGetBlockListResponseSuccessWithMismatch",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -1028,7 +1098,17 @@
             "tag": "GetBlockListResponseMigratedSuccessWithMismatch",
             "moduleName": "WASmaxInBlocklistsGetBlockListResponseMigratedSuccessWithMismatch",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -1184,7 +1264,17 @@
             "tag": "GetBlockListResponseForceMigratedSuccessWithMismatch",
             "moduleName": "WASmaxInBlocklistsGetBlockListResponseForceMigratedSuccessWithMismatch",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -1350,7 +1440,17 @@
             "tag": "GetBlockListResponseCAPISuccessWithMismatch",
             "moduleName": "WASmaxInBlocklistsGetBlockListResponseCAPISuccessWithMismatch",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -1506,7 +1606,17 @@
             "tag": "GetBlockListResponseSuccessWithMatch",
             "moduleName": "WASmaxInBlocklistsGetBlockListResponseSuccessWithMatch",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -1521,7 +1631,17 @@
             "tag": "GetBlockListResponseInvalidRequest",
             "moduleName": "WASmaxInBlocklistsGetBlockListResponseInvalidRequest",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -1585,7 +1705,17 @@
             "tag": "GetBlockListResponseInternalServerError",
             "moduleName": "WASmaxInBlocklistsGetBlockListResponseInternalServerError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -1758,7 +1888,17 @@
             "tag": "UpdateBlockListResponseSuccessWithMatch",
             "moduleName": "WASmaxInBlocklistsUpdateBlockListResponseSuccessWithMatch",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -1793,7 +1933,17 @@
             "tag": "UpdateBlockListResponseSuccessWithMismatch",
             "moduleName": "WASmaxInBlocklistsUpdateBlockListResponseSuccessWithMismatch",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -1881,7 +2031,17 @@
             "tag": "UpdateBlockListResponseMigratedSuccessWithMismatch",
             "moduleName": "WASmaxInBlocklistsUpdateBlockListResponseMigratedSuccessWithMismatch",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -2054,7 +2214,17 @@
             "tag": "UpdateBlockListResponseCAPISuccessWithMismatch",
             "moduleName": "WASmaxInBlocklistsUpdateBlockListResponseCAPISuccessWithMismatch",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -2227,7 +2397,17 @@
             "tag": "UpdateBlockListResponseInvalidRequest",
             "moduleName": "WASmaxInBlocklistsUpdateBlockListResponseInvalidRequest",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "maybeAttrEnum",
@@ -2382,7 +2562,17 @@
             "tag": "UpdateBlockListResponseServerError",
             "moduleName": "WASmaxInBlocklistsUpdateBlockListResponseServerError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -2644,7 +2834,17 @@
             "tag": "BotListResponseSuccessV2",
             "moduleName": "WASmaxInBotBotListResponseSuccessV2",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -2793,7 +2993,17 @@
             "tag": "BotListResponseSuccessV3",
             "moduleName": "WASmaxInBotBotListResponseSuccessV3",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -2927,7 +3137,17 @@
             "tag": "BotListResponseError",
             "moduleName": "WASmaxInBotBotListResponseError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -3735,7 +3955,17 @@
             "tag": "FetchKeyBundlesResponseSuccess",
             "moduleName": "WASmaxInPreKeysFetchKeyBundlesResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -4014,7 +4244,17 @@
             "tag": "FetchKeyBundlesResponseRequestError",
             "moduleName": "WASmaxInPreKeysFetchKeyBundlesResponseRequestError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -4097,7 +4337,17 @@
             "tag": "FetchKeyBundlesResponseServerError",
             "moduleName": "WASmaxInPreKeysFetchKeyBundlesResponseServerError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -4521,7 +4771,17 @@
             "tag": "FetchMissingPreKeysResponseSuccess",
             "moduleName": "WASmaxInPreKeysFetchMissingPreKeysResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -4824,7 +5084,17 @@
             "tag": "FetchMissingPreKeysResponseRequestError",
             "moduleName": "WASmaxInPreKeysFetchMissingPreKeysResponseRequestError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -4907,7 +5177,17 @@
             "tag": "FetchMissingPreKeysResponseServerError",
             "moduleName": "WASmaxInPreKeysFetchMissingPreKeysResponseServerError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -5239,7 +5519,17 @@
             "tag": "GetAccessTokenAndSessionCookiesResponseSuccess",
             "moduleName": "WASmaxInBizCtwaAdAccountGetAccessTokenAndSessionCookiesResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "contentString",
@@ -5305,7 +5595,17 @@
             "tag": "GetAccessTokenAndSessionCookiesResponseTooManyAttempts",
             "moduleName": "WASmaxInBizCtwaAdAccountGetAccessTokenAndSessionCookiesResponseTooManyAttempts",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -5347,7 +5647,17 @@
             "tag": "GetAccessTokenAndSessionCookiesResponseIncorrectNonce",
             "moduleName": "WASmaxInBizCtwaAdAccountGetAccessTokenAndSessionCookiesResponseIncorrectNonce",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -5389,7 +5699,17 @@
             "tag": "GetAccessTokenAndSessionCookiesResponseError",
             "moduleName": "WASmaxInBizCtwaAdAccountGetAccessTokenAndSessionCookiesResponseError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrJidWithType",
@@ -5583,7 +5903,17 @@
             "tag": "GetAccountNonceResponseSuccess",
             "moduleName": "WASmaxInBizLinkingGetAccountNonceResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "contentString",
@@ -5637,7 +5967,17 @@
             "tag": "GetAccountNonceResponseError",
             "moduleName": "WASmaxInBizLinkingGetAccountNonceResponseError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrJidWithType",
@@ -6101,7 +6441,17 @@
             "tag": "GetLinkedAccountsResponseSuccess",
             "moduleName": "WASmaxInBizLinkingGetLinkedAccountsResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrJidWithType",
@@ -6444,7 +6794,17 @@
             "tag": "GetLinkedAccountsResponseForbidden",
             "moduleName": "WASmaxInBizLinkingGetLinkedAccountsResponseForbidden",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "child",
@@ -6490,7 +6850,17 @@
             "tag": "GetLinkedAccountsResponseError",
             "moduleName": "WASmaxInBizLinkingGetLinkedAccountsResponseError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "child",
@@ -6585,7 +6955,17 @@
             "tag": "RequestSilentNonceResponseSuccess",
             "moduleName": "WASmaxInBizAccessTokenRequestSilentNonceResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -6617,7 +6997,17 @@
             "tag": "RequestSilentNonceResponseRecoveryRequired",
             "moduleName": "WASmaxInBizAccessTokenRequestSilentNonceResponseRecoveryRequired",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -6659,7 +7049,17 @@
             "tag": "RequestSilentNonceResponseError",
             "moduleName": "WASmaxInBizAccessTokenRequestSilentNonceResponseError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrJidWithType",
@@ -6826,7 +7226,17 @@
             "tag": "SendAccountRecoveryNonceResponseSuccess",
             "moduleName": "WASmaxInBizCtwaAdAccountSendAccountRecoveryNonceResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "child",
@@ -6867,7 +7277,17 @@
             "tag": "SendAccountRecoveryNonceResponseError",
             "moduleName": "WASmaxInBizCtwaAdAccountSendAccountRecoveryNonceResponseError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrJidWithType",
@@ -7434,7 +7854,17 @@
             "tag": "ContactFormResponseSuccess",
             "moduleName": "WASmaxInSupportContactFormResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -7496,7 +7926,17 @@
             "tag": "ContactFormResponseRetryableError",
             "moduleName": "WASmaxInSupportContactFormResponseRetryableError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrInt",
@@ -7538,7 +7978,17 @@
             "tag": "ContactFormResponseError",
             "moduleName": "WASmaxInSupportContactFormResponseError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrJidWithType",
@@ -7759,7 +8209,17 @@
             "tag": "ReportBugResponseSuccess",
             "moduleName": "WASmaxInBugReportingReportBugResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "contentString",
@@ -7790,7 +8250,17 @@
             "tag": "ReportBugResponseError",
             "moduleName": "WASmaxInBugReportingReportBugResponseError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrJidWithType",
@@ -7943,7 +8413,17 @@
             "tag": "SendFeedbackResponseSuccess",
             "moduleName": "WASmaxInSupportMessageFeedbackSendFeedbackResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -7975,7 +8455,17 @@
             "tag": "SendFeedbackResponseError",
             "moduleName": "WASmaxInSupportMessageFeedbackSendFeedbackResponseError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrJidWithType",
@@ -8189,7 +8679,17 @@
             "tag": "UploadAdMediaResponseSuccess",
             "moduleName": "WASmaxInBizCtwaNativeAdUploadAdMediaResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrJidWithType",
@@ -8259,7 +8759,17 @@
             "tag": "UploadAdMediaResponseError",
             "moduleName": "WASmaxInBizCtwaNativeAdUploadAdMediaResponseError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrJidWithType",
@@ -8477,7 +8987,17 @@
             "tag": "GetCountryCodeResponseGetCountryCodeResponse",
             "moduleName": "WASmaxInMdGetCountryCodeResponseGetCountryCodeResponse",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -8502,7 +9022,17 @@
             "tag": "GetCountryCodeResponseError",
             "moduleName": "WASmaxInMdGetCountryCodeResponseError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -8621,7 +9151,17 @@
             "tag": "GetPasskeyRequestOptionsResponseSuccess",
             "moduleName": "WASmaxInMdGetPasskeyRequestOptionsResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "child",
@@ -8652,7 +9192,17 @@
             "tag": "GetPasskeyRequestOptionsResponseError",
             "moduleName": "WASmaxInMdGetPasskeyRequestOptionsResponseError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "child",
@@ -8739,7 +9289,17 @@
             "tag": "GetRefResponseSuccess",
             "moduleName": "WASmaxInMdGetRefResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "contentBytes",
@@ -8833,7 +9393,17 @@
             "tag": "CompanionFinishResponseSuccess",
             "moduleName": "WASmaxInMdCompanionFinishResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -8848,7 +9418,17 @@
             "tag": "CompanionFinishResponseError",
             "moduleName": "WASmaxInMdCompanionFinishResponseError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -9020,7 +9600,17 @@
             "tag": "CompanionHelloResponseNotifyCompanion",
             "moduleName": "WASmaxInMdCompanionHelloResponseNotifyCompanion",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -9055,7 +9645,17 @@
             "tag": "CompanionHelloResponseError",
             "moduleName": "WASmaxInMdCompanionHelloResponseError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -9215,7 +9815,17 @@
             "tag": "SetCompanionNonceResponseSuccess",
             "moduleName": "WASmaxInMdSetCompanionNonceResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -9269,7 +9879,17 @@
             "tag": "SetEncryptedPairingRequestResponseSuccess",
             "moduleName": "WASmaxInMdSetEncryptedPairingRequestResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -9349,7 +9969,17 @@
             "tag": "SetPasskeyPrologueResponseSuccess",
             "moduleName": "WASmaxInMdSetPasskeyPrologueResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -11099,7 +11729,17 @@
             "tag": "GetNewsletterMessageUpdatesResponseSuccess",
             "moduleName": "WASmaxInNewslettersGetNewsletterMessageUpdatesResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "child",
@@ -12729,7 +13369,12 @@
             "tag": "GetNewsletterMessageUpdatesResponseClientError",
             "moduleName": "WASmaxInNewslettersGetNewsletterMessageUpdatesResponseClientError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              }
+            ],
             "fields": [
               {
                 "method": "",
@@ -12925,7 +13570,17 @@
             "tag": "GetNewsletterMessageUpdatesResponseServerError",
             "moduleName": "WASmaxInNewslettersGetNewsletterMessageUpdatesResponseServerError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "child",
@@ -14697,7 +15352,17 @@
             "tag": "GetNewsletterMessagesResponseSuccess",
             "moduleName": "WASmaxInNewslettersGetNewsletterMessagesResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrJidWithType",
@@ -16331,7 +16996,12 @@
             "tag": "GetNewsletterMessagesResponseClientError",
             "moduleName": "WASmaxInNewslettersGetNewsletterMessagesResponseClientError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              }
+            ],
             "fields": [
               {
                 "method": "",
@@ -16563,7 +17233,17 @@
             "tag": "GetNewsletterMessagesResponseServerError",
             "moduleName": "WASmaxInNewslettersGetNewsletterMessagesResponseServerError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrJidWithType",
@@ -16818,7 +17498,17 @@
             "tag": "GetNewsletterResponsesResponseSuccess",
             "moduleName": "WASmaxInNewslettersGetNewsletterResponsesResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrJidWithType",
@@ -16992,7 +17682,12 @@
             "tag": "GetNewsletterResponsesResponseClientError",
             "moduleName": "WASmaxInNewslettersGetNewsletterResponsesResponseClientError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              }
+            ],
             "fields": [
               {
                 "method": "",
@@ -17224,7 +17919,17 @@
             "tag": "GetNewsletterResponsesResponseServerError",
             "moduleName": "WASmaxInNewslettersGetNewsletterResponsesResponseServerError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrJidWithType",
@@ -17637,7 +18342,17 @@
             "tag": "GetNewsletterStatusUpdatesResponseSuccess",
             "moduleName": "WASmaxInNewslettersGetNewsletterStatusUpdatesResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "child",
@@ -17969,7 +18684,12 @@
             "tag": "GetNewsletterStatusUpdatesResponseClientError",
             "moduleName": "WASmaxInNewslettersGetNewsletterStatusUpdatesResponseClientError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              }
+            ],
             "fields": [
               {
                 "method": "",
@@ -18165,7 +18885,17 @@
             "tag": "GetNewsletterStatusUpdatesResponseServerError",
             "moduleName": "WASmaxInNewslettersGetNewsletterStatusUpdatesResponseServerError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "child",
@@ -18639,7 +19369,17 @@
             "tag": "GetNewsletterStatusesResponseSuccess",
             "moduleName": "WASmaxInNewslettersGetNewsletterStatusesResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrJidWithType",
@@ -18975,7 +19715,12 @@
             "tag": "GetNewsletterStatusesResponseClientError",
             "moduleName": "WASmaxInNewslettersGetNewsletterStatusesResponseClientError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              }
+            ],
             "fields": [
               {
                 "method": "",
@@ -19207,7 +19952,17 @@
             "tag": "GetNewsletterStatusesResponseServerError",
             "moduleName": "WASmaxInNewslettersGetNewsletterStatusesResponseServerError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrJidWithType",
@@ -19407,7 +20162,17 @@
             "tag": "MyAddOnsResponseSuccess",
             "moduleName": "WASmaxInNewslettersMyAddOnsResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -19526,7 +20291,12 @@
             "tag": "MyAddOnsResponseClientError",
             "moduleName": "WASmaxInNewslettersMyAddOnsResponseClientError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              }
+            ],
             "fields": [
               {
                 "method": "",
@@ -19686,7 +20456,17 @@
             "tag": "MyAddOnsResponseServerError",
             "moduleName": "WASmaxInNewslettersMyAddOnsResponseServerError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "child",
@@ -19876,7 +20656,17 @@
             "tag": "SubscribeToLiveUpdatesResponseSuccess",
             "moduleName": "WASmaxInNewslettersSubscribeToLiveUpdatesResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrInt",
@@ -19901,7 +20691,12 @@
             "tag": "SubscribeToLiveUpdatesResponseClientError",
             "moduleName": "WASmaxInNewslettersSubscribeToLiveUpdatesResponseClientError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              }
+            ],
             "fields": [
               {
                 "method": "",
@@ -20097,7 +20892,17 @@
             "tag": "SubscribeToLiveUpdatesResponseServerError",
             "moduleName": "WASmaxInNewslettersSubscribeToLiveUpdatesResponseServerError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "child",
@@ -20287,7 +21092,17 @@
             "tag": "GetOptOutListResponseSuccessWithMismatch",
             "moduleName": "WASmaxInBlocklistsGetOptOutListResponseSuccessWithMismatch",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -20385,7 +21200,17 @@
             "tag": "GetOptOutListResponseSuccessWithMatch",
             "moduleName": "WASmaxInBlocklistsGetOptOutListResponseSuccessWithMatch",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -20407,7 +21232,17 @@
             "tag": "GetOptOutListResponseInvalidRequest",
             "moduleName": "WASmaxInBlocklistsGetOptOutListResponseInvalidRequest",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -20471,7 +21306,17 @@
             "tag": "GetOptOutListResponseInternalServerError",
             "moduleName": "WASmaxInBlocklistsGetOptOutListResponseInternalServerError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -20708,7 +21553,17 @@
             "tag": "UpdateOptOutListResponseSuccessWithMatch",
             "moduleName": "WASmaxInBlocklistsUpdateOptOutListResponseSuccessWithMatch",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -20816,7 +21671,17 @@
             "tag": "UpdateOptOutListResponseSuccessWithMismatch",
             "moduleName": "WASmaxInBlocklistsUpdateOptOutListResponseSuccessWithMismatch",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -20931,7 +21796,17 @@
             "tag": "UpdateOptOutListResponseInvalidRequest",
             "moduleName": "WASmaxInBlocklistsUpdateOptOutListResponseInvalidRequest",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -21057,7 +21932,17 @@
             "tag": "UpdateOptOutListResponseServerError",
             "moduleName": "WASmaxInBlocklistsUpdateOptOutListResponseServerError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -21167,7 +22052,17 @@
             "tag": "ActiveIQResponseSuccess",
             "moduleName": "WASmaxInPassiveModeActiveIQResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -21235,7 +22130,17 @@
             "tag": "PassiveIQResponseSuccess",
             "moduleName": "WASmaxInPassiveModePassiveIQResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -21386,7 +22291,17 @@
             "tag": "GetContactBlacklistResponseSuccessLID",
             "moduleName": "WASmaxInPrivacyGetContactBlacklistResponseSuccessLID",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -21491,7 +22406,17 @@
             "tag": "GetContactBlacklistResponseSuccess",
             "moduleName": "WASmaxInPrivacyGetContactBlacklistResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "maybeAttrString",
@@ -21567,7 +22492,17 @@
             "tag": "GetContactBlacklistResponseError",
             "moduleName": "WASmaxInPrivacyGetContactBlacklistResponseError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrJidWithType",
@@ -22457,7 +23392,17 @@
             "tag": "SignCredentialResponseSuccess",
             "moduleName": "WASmaxInPrivatestatsSignCredentialResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -22534,7 +23479,17 @@
             "tag": "SignCredentialResponseErrorNoRetry",
             "moduleName": "WASmaxInPrivatestatsSignCredentialResponseErrorNoRetry",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -22617,7 +23572,17 @@
             "tag": "SignCredentialResponseErrorRetry",
             "moduleName": "WASmaxInPrivatestatsSignCredentialResponseErrorRetry",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "child",
@@ -22853,7 +23818,17 @@
             "tag": "GroupReportResponseSuccess",
             "moduleName": "WASmaxInSpamGroupReportResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrJidWithType",
@@ -22894,7 +23869,17 @@
             "tag": "GroupReportResponseError",
             "moduleName": "WASmaxInSpamGroupReportResponseError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrJidWithType",
@@ -23145,7 +24130,17 @@
             "tag": "IndividualReportResponseSuccess",
             "moduleName": "WASmaxInSpamIndividualReportResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrJidWithType",
@@ -23186,7 +24181,17 @@
             "tag": "IndividualReportResponseError",
             "moduleName": "WASmaxInSpamIndividualReportResponseError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrJidWithType",
@@ -23428,7 +24433,17 @@
             "tag": "NewsletterReportResponseSuccess",
             "moduleName": "WASmaxInSpamNewsletterReportResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrJidWithType",
@@ -23469,7 +24484,17 @@
             "tag": "NewsletterReportResponseError",
             "moduleName": "WASmaxInSpamNewsletterReportResponseError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrJidWithType",
@@ -23705,7 +24730,17 @@
             "tag": "StatusReportResponseSuccess",
             "moduleName": "WASmaxInSpamStatusReportResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrJidWithType",
@@ -23746,7 +24781,17 @@
             "tag": "StatusReportResponseError",
             "moduleName": "WASmaxInSpamStatusReportResponseError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrJidWithType",
@@ -23976,7 +25021,17 @@
             "tag": "StatusReportV2ResponseSuccess",
             "moduleName": "WASmaxInSpamStatusReportV2ResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrJidWithType",
@@ -24017,7 +25072,17 @@
             "tag": "StatusReportV2ResponseError",
             "moduleName": "WASmaxInSpamStatusReportV2ResponseError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrJidWithType",
@@ -24264,7 +25329,17 @@
             "tag": "GetDisclosureStageByIdsResponseClientSuccess",
             "moduleName": "WASmaxInUserNoticeGetDisclosureStageByIdsResponseClientSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -24324,7 +25399,17 @@
             "tag": "GetDisclosureStageByIdsResponseClientError",
             "moduleName": "WASmaxInUserNoticeGetDisclosureStageByIdsResponseClientError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "child",
@@ -24363,7 +25448,17 @@
             "tag": "GetDisclosureStageByIdsResponseServerError",
             "moduleName": "WASmaxInUserNoticeGetDisclosureStageByIdsResponseServerError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -24517,7 +25612,17 @@
             "tag": "GetDisclosuresResponseClientSuccess",
             "moduleName": "WASmaxInUserNoticeGetDisclosuresResponseClientSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -24577,7 +25682,17 @@
             "tag": "GetDisclosuresResponseClientError",
             "moduleName": "WASmaxInUserNoticeGetDisclosuresResponseClientError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "child",
@@ -24616,7 +25731,17 @@
             "tag": "GetDisclosuresResponseServerError",
             "moduleName": "WASmaxInUserNoticeGetDisclosuresResponseServerError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -24800,6 +25925,15 @@
           {
             "kind": "tag",
             "name": "iq"
+          },
+          {
+            "kind": "tag",
+            "name": "iq"
+          },
+          {
+            "kind": "attr",
+            "name": "type",
+            "value": "result"
           }
         ],
         "fields": [
@@ -24884,6 +26018,15 @@
           {
             "kind": "tag",
             "name": "iq"
+          },
+          {
+            "kind": "tag",
+            "name": "iq"
+          },
+          {
+            "kind": "attr",
+            "name": "type",
+            "value": "result"
           }
         ],
         "fields": [
@@ -25268,7 +26411,17 @@
             "tag": "SetPaymentsTOSv3ResponseSuccess",
             "moduleName": "WASmaxInAccountSetPaymentsTOSv3ResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "maybeAttrString",
@@ -25372,7 +26525,17 @@
             "tag": "SetPaymentsTOSv3ResponseError",
             "moduleName": "WASmaxInAccountSetPaymentsTOSv3ResponseError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -25678,7 +26841,17 @@
             "tag": "SetResponseSuccess",
             "moduleName": "WASmaxInPushConfigSetResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -25693,7 +26866,17 @@
             "tag": "SetResponseInternalServerError",
             "moduleName": "WASmaxInPushConfigSetResponseInternalServerError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "child",
@@ -25732,7 +26915,17 @@
             "tag": "SetResponseConflict",
             "moduleName": "WASmaxInPushConfigSetResponseConflict",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "child",
@@ -26290,7 +27483,17 @@
             "tag": "GetBusinessEligibilityResponseSuccess",
             "moduleName": "WASmaxInBizMarketingMessageGetBusinessEligibilityResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrJidWithType",
@@ -26384,7 +27587,17 @@
             "tag": "GetBusinessEligibilityResponseError",
             "moduleName": "WASmaxInBizMarketingMessageGetBusinessEligibilityResponseError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrJidWithType",
@@ -26552,7 +27765,17 @@
             "tag": "GetPrivacySettingResponseSuccess",
             "moduleName": "WASmaxInBizSettingsGetPrivacySettingResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "child",
@@ -26587,7 +27810,17 @@
             "tag": "GetPrivacySettingResponseError",
             "moduleName": "WASmaxInBizSettingsGetPrivacySettingResponseError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -27038,7 +28271,17 @@
             "tag": "GetSMBMeteredMessagingCheckoutResponseSuccess",
             "moduleName": "WASmaxInSmbMeteredMessagingAccountGetSMBMeteredMessagingCheckoutResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrInt",
@@ -27296,7 +28539,17 @@
             "tag": "GetSMBMeteredMessagingCheckoutResponseError",
             "moduleName": "WASmaxInSmbMeteredMessagingAccountGetSMBMeteredMessagingCheckoutResponseError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrJidWithType",
@@ -27521,7 +28774,17 @@
             "tag": "SetPrivacySettingResponseSuccess",
             "moduleName": "WASmaxInBizSettingsSetPrivacySettingResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "child",
@@ -27556,7 +28819,17 @@
             "tag": "SetPrivacySettingResponseError",
             "moduleName": "WASmaxInBizSettingsSetPrivacySettingResponseError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -28195,7 +29468,17 @@
             "tag": "UpdatePreferenceResponseSuccess",
             "moduleName": "WASmaxInBizMsgUserFeedbackUpdatePreferenceResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -28210,7 +29493,17 @@
             "tag": "UpdatePreferenceResponseInvalidRequest",
             "moduleName": "WASmaxInBizMsgUserFeedbackUpdatePreferenceResponseInvalidRequest",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -28336,7 +29629,17 @@
             "tag": "UpdatePreferenceResponseServerError",
             "moduleName": "WASmaxInBizMsgUserFeedbackUpdatePreferenceResponseServerError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -28460,7 +29763,17 @@
             "tag": "EventResponseSuccess",
             "moduleName": "WASmaxInInAppCommsEventResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -28475,7 +29788,17 @@
             "tag": "EventResponseError",
             "moduleName": "WASmaxInInAppCommsEventResponseError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -28614,7 +29937,17 @@
             "tag": "ChatBlockGetResponseSuccess",
             "moduleName": "WASmaxInPsaChatBlockGetResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrEnum",
@@ -28639,7 +29972,17 @@
             "tag": "ChatBlockGetResponseServerError",
             "moduleName": "WASmaxInPsaChatBlockGetResponseServerError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -28796,7 +30139,17 @@
             "tag": "ChatBlockSetResponseSuccess",
             "moduleName": "WASmaxInPsaChatBlockSetResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrEnum",
@@ -28821,7 +30174,17 @@
             "tag": "ChatBlockSetResponseServerError",
             "moduleName": "WASmaxInPsaChatBlockSetResponseServerError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -30332,7 +31695,17 @@
             "tag": "BatchGetGroupInfoResponseSuccess",
             "moduleName": "WASmaxInGroupsBatchGetGroupInfoResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -31697,7 +33070,17 @@
             "tag": "BatchGetGroupInfoResponseClientError",
             "moduleName": "WASmaxInGroupsBatchGetGroupInfoResponseClientError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -31761,7 +33144,17 @@
             "tag": "BatchGetGroupInfoResponseServerError",
             "moduleName": "WASmaxInGroupsBatchGetGroupInfoResponseServerError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -33192,7 +34585,17 @@
             "tag": "GetGroupInfoResponseSuccess",
             "moduleName": "WASmaxInGroupsGetGroupInfoResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -34477,7 +35880,17 @@
             "tag": "GetGroupInfoResponseClientError",
             "moduleName": "WASmaxInGroupsGetGroupInfoResponseClientError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -34617,7 +36030,17 @@
             "tag": "GetGroupInfoResponseServerError",
             "moduleName": "WASmaxInGroupsGetGroupInfoResponseServerError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -35703,7 +37126,17 @@
             "tag": "GetInviteGroupInfoResponseSuccess",
             "moduleName": "WASmaxInGroupsGetInviteGroupInfoResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -36657,7 +38090,17 @@
             "tag": "GetInviteGroupInfoResponseClientError",
             "moduleName": "WASmaxInGroupsGetInviteGroupInfoResponseClientError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -36902,7 +38345,17 @@
             "tag": "GetInviteGroupInfoResponseServerError",
             "moduleName": "WASmaxInGroupsGetInviteGroupInfoResponseServerError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -38052,7 +39505,17 @@
             "tag": "GetLinkedGroupResponseSuccess",
             "moduleName": "WASmaxInGroupsGetLinkedGroupResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "child",
@@ -39083,7 +40546,17 @@
             "tag": "GetLinkedGroupResponseClientError",
             "moduleName": "WASmaxInGroupsGetLinkedGroupResponseClientError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -39204,7 +40677,17 @@
             "tag": "GetLinkedGroupResponseServerError",
             "moduleName": "WASmaxInGroupsGetLinkedGroupResponseServerError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -39397,7 +40880,17 @@
             "tag": "GetLinkedGroupsParticipantsResponseSuccess",
             "moduleName": "WASmaxInGroupsGetLinkedGroupsParticipantsResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -39464,7 +40957,17 @@
             "tag": "GetLinkedGroupsParticipantsResponseClientError",
             "moduleName": "WASmaxInGroupsGetLinkedGroupsParticipantsResponseClientError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -39566,7 +41069,17 @@
             "tag": "GetLinkedGroupsParticipantsResponseServerError",
             "moduleName": "WASmaxInGroupsGetLinkedGroupsParticipantsResponseServerError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -39862,7 +41375,17 @@
             "tag": "GetMembershipApprovalRequestsResponseSuccess",
             "moduleName": "WASmaxInGroupsGetMembershipApprovalRequestsResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "child",
@@ -40032,7 +41555,17 @@
             "tag": "GetMembershipApprovalRequestsResponseClientError",
             "moduleName": "WASmaxInGroupsGetMembershipApprovalRequestsResponseClientError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -40191,7 +41724,17 @@
             "tag": "GetMembershipApprovalRequestsResponseServerError",
             "moduleName": "WASmaxInGroupsGetMembershipApprovalRequestsResponseServerError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -41659,7 +43202,17 @@
             "tag": "GetParticipatingGroupsResponseSuccess",
             "moduleName": "WASmaxInGroupsGetParticipatingGroupsResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -42986,7 +44539,17 @@
             "tag": "GetParticipatingGroupsResponseClientError",
             "moduleName": "WASmaxInGroupsGetParticipatingGroupsResponseClientError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -43069,7 +44632,17 @@
             "tag": "GetParticipatingGroupsResponseServerError",
             "moduleName": "WASmaxInGroupsGetParticipatingGroupsResponseServerError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -43330,7 +44903,17 @@
             "tag": "GetReportedMessagesResponseSuccess",
             "moduleName": "WASmaxInGroupsGetReportedMessagesResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -43465,7 +45048,17 @@
             "tag": "GetReportedMessagesResponseClientError",
             "moduleName": "WASmaxInGroupsGetReportedMessagesResponseClientError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -43586,7 +45179,17 @@
             "tag": "GetReportedMessagesResponseServerError",
             "moduleName": "WASmaxInGroupsGetReportedMessagesResponseServerError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -43965,7 +45568,17 @@
             "tag": "AcceptGroupAddResponseGroupJoinRequestSuccess",
             "moduleName": "WASmaxInGroupsAcceptGroupAddResponseGroupJoinRequestSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -43980,7 +45593,17 @@
             "tag": "AcceptGroupAddResponseSuccess",
             "moduleName": "WASmaxInGroupsAcceptGroupAddResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -43995,7 +45618,17 @@
             "tag": "AcceptGroupAddResponseClientError",
             "moduleName": "WASmaxInGroupsAcceptGroupAddResponseClientError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -44268,7 +45901,17 @@
             "tag": "AcceptGroupAddResponseServerError",
             "moduleName": "WASmaxInGroupsAcceptGroupAddResponseServerError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -44409,7 +46052,17 @@
             "tag": "AcknowledgeGroupResponseSuccess",
             "moduleName": "WASmaxInGroupsAcknowledgeGroupResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -44424,7 +46077,17 @@
             "tag": "AcknowledgeGroupResponseClientError",
             "moduleName": "WASmaxInGroupsAcknowledgeGroupResponseClientError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -44526,7 +46189,17 @@
             "tag": "AcknowledgeGroupResponseServerError",
             "moduleName": "WASmaxInGroupsAcknowledgeGroupResponseServerError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -45098,7 +46771,17 @@
             "tag": "AddParticipantsResponseSuccess",
             "moduleName": "WASmaxInGroupsAddParticipantsResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -45520,7 +47203,17 @@
             "tag": "AddParticipantsResponseClientError",
             "moduleName": "WASmaxInGroupsAddParticipantsResponseClientError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -45778,7 +47471,17 @@
             "tag": "AddParticipantsResponseServerError",
             "moduleName": "WASmaxInGroupsAddParticipantsResponseServerError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -46017,7 +47720,17 @@
             "tag": "CancelGroupMembershipRequestsResponseSuccess",
             "moduleName": "WASmaxInGroupsCancelGroupMembershipRequestsResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -46116,7 +47829,17 @@
             "tag": "CancelGroupMembershipRequestsResponseClientError",
             "moduleName": "WASmaxInGroupsCancelGroupMembershipRequestsResponseClientError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -46237,7 +47960,17 @@
             "tag": "CancelGroupMembershipRequestsResponseServerError",
             "moduleName": "WASmaxInGroupsCancelGroupMembershipRequestsResponseServerError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -47456,7 +49189,17 @@
             "tag": "CreateResponseSuccess",
             "moduleName": "WASmaxInGroupsCreateResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrJidWithType",
@@ -48347,7 +50090,17 @@
             "tag": "CreateResponseGroupAlreadyExists",
             "moduleName": "WASmaxInGroupsCreateResponseGroupAlreadyExists",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrJidWithType",
@@ -48379,7 +50132,17 @@
             "tag": "CreateResponseClientError",
             "moduleName": "WASmaxInGroupsCreateResponseClientError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -48699,7 +50462,17 @@
             "tag": "CreateResponseServerError",
             "moduleName": "WASmaxInGroupsCreateResponseServerError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -48923,7 +50696,17 @@
             "tag": "CreateSubGroupSuggestionResponseNewGroupSuggestionSuccess",
             "moduleName": "WASmaxInGroupsCreateSubGroupSuggestionResponseNewGroupSuggestionSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrJidWithType",
@@ -49021,7 +50804,17 @@
             "tag": "CreateSubGroupSuggestionResponseExistingGroupsSuggestionSuccess",
             "moduleName": "WASmaxInGroupsCreateSubGroupSuggestionResponseExistingGroupsSuggestionSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -49176,7 +50969,17 @@
             "tag": "CreateSubGroupSuggestionResponseClientError",
             "moduleName": "WASmaxInGroupsCreateSubGroupSuggestionResponseClientError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -49378,7 +51181,17 @@
             "tag": "CreateSubGroupSuggestionResponseServerError",
             "moduleName": "WASmaxInGroupsCreateSubGroupSuggestionResponseServerError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -49519,7 +51332,17 @@
             "tag": "DeleteParentGroupResponseSuccess",
             "moduleName": "WASmaxInGroupsDeleteParentGroupResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -49534,7 +51357,17 @@
             "tag": "DeleteParentGroupResponseClientError",
             "moduleName": "WASmaxInGroupsDeleteParentGroupResponseClientError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -49617,7 +51450,17 @@
             "tag": "DeleteParentGroupResponseServerError",
             "moduleName": "WASmaxInGroupsDeleteParentGroupResponseServerError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -49769,7 +51612,17 @@
             "tag": "JoinLinkedGroupResponseGroupJoinRequestSuccess",
             "moduleName": "WASmaxInGroupsJoinLinkedGroupResponseGroupJoinRequestSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -49784,7 +51637,17 @@
             "tag": "JoinLinkedGroupResponseSuccess",
             "moduleName": "WASmaxInGroupsJoinLinkedGroupResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -49799,7 +51662,17 @@
             "tag": "JoinLinkedGroupResponseClientError",
             "moduleName": "WASmaxInGroupsJoinLinkedGroupResponseClientError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -50058,7 +51931,17 @@
             "tag": "JoinLinkedGroupResponseServerError",
             "moduleName": "WASmaxInGroupsJoinLinkedGroupResponseServerError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -50417,7 +52300,17 @@
             "tag": "LinkSubGroupsResponseSuccess",
             "moduleName": "WASmaxInGroupsLinkSubGroupsResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -50614,7 +52507,17 @@
             "tag": "LinkSubGroupsResponseClientError",
             "moduleName": "WASmaxInGroupsLinkSubGroupsResponseClientError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -50830,7 +52733,17 @@
             "tag": "LinkSubGroupsResponseServerError",
             "moduleName": "WASmaxInGroupsLinkSubGroupsResponseServerError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -51366,7 +53279,17 @@
             "tag": "MembershipRequestsActionResponseSuccess",
             "moduleName": "WASmaxInGroupsMembershipRequestsActionResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -51713,7 +53636,17 @@
             "tag": "MembershipRequestsActionResponseClientError",
             "moduleName": "WASmaxInGroupsMembershipRequestsActionResponseClientError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -51853,7 +53786,17 @@
             "tag": "MembershipRequestsActionResponseServerError",
             "moduleName": "WASmaxInGroupsMembershipRequestsActionResponseServerError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -52119,7 +54062,17 @@
             "tag": "PromoteDemoteAdminResponseSuccessMultiAdmin",
             "moduleName": "WASmaxInGroupsPromoteDemoteAdminResponseSuccessMultiAdmin",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -52216,7 +54169,17 @@
             "tag": "PromoteDemoteAdminResponseClientError",
             "moduleName": "WASmaxInGroupsPromoteDemoteAdminResponseClientError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -52394,7 +54357,17 @@
             "tag": "PromoteDemoteAdminResponseServerError",
             "moduleName": "WASmaxInGroupsPromoteDemoteAdminResponseServerError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -52653,7 +54626,17 @@
             "tag": "PromoteDemoteResponseSuccessPromote",
             "moduleName": "WASmaxInGroupsPromoteDemoteResponseSuccessPromote",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -52750,7 +54733,17 @@
             "tag": "PromoteDemoteResponseSuccessDemote",
             "moduleName": "WASmaxInGroupsPromoteDemoteResponseSuccessDemote",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -52840,7 +54833,17 @@
             "tag": "PromoteDemoteResponseClientError",
             "moduleName": "WASmaxInGroupsPromoteDemoteResponseClientError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -53018,7 +55021,17 @@
             "tag": "PromoteDemoteResponseServerError",
             "moduleName": "WASmaxInGroupsPromoteDemoteResponseServerError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -53313,7 +55326,17 @@
             "tag": "RemoveParticipantsResponseSuccess",
             "moduleName": "WASmaxInGroupsRemoveParticipantsResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -53462,7 +55485,17 @@
             "tag": "RemoveParticipantsResponseClientError",
             "moduleName": "WASmaxInGroupsRemoveParticipantsResponseClientError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -53640,7 +55673,17 @@
             "tag": "RemoveParticipantsResponseServerError",
             "moduleName": "WASmaxInGroupsRemoveParticipantsResponseServerError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -53794,7 +55837,17 @@
             "tag": "ReportMessagesResponseSuccess",
             "moduleName": "WASmaxInGroupsReportMessagesResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -53809,7 +55862,17 @@
             "tag": "ReportMessagesResponseClientError",
             "moduleName": "WASmaxInGroupsReportMessagesResponseClientError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -53930,7 +55993,17 @@
             "tag": "ReportMessagesResponseServerError",
             "moduleName": "WASmaxInGroupsReportMessagesResponseServerError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -54160,7 +56233,17 @@
             "tag": "RevokeRequestCodeResponseSuccess",
             "moduleName": "WASmaxInGroupsRevokeRequestCodeResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -54250,7 +56333,17 @@
             "tag": "RevokeRequestCodeResponseClientError",
             "moduleName": "WASmaxInGroupsRevokeRequestCodeResponseClientError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -54390,7 +56483,17 @@
             "tag": "RevokeRequestCodeResponseServerError",
             "moduleName": "WASmaxInGroupsRevokeRequestCodeResponseServerError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -54562,7 +56665,17 @@
             "tag": "SetDescriptionResponseSuccess",
             "moduleName": "WASmaxInGroupsSetDescriptionResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "maybeAttrInt",
@@ -54584,7 +56697,17 @@
             "tag": "SetDescriptionResponseClientError",
             "moduleName": "WASmaxInGroupsSetDescriptionResponseClientError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -54786,7 +56909,17 @@
             "tag": "SetDescriptionResponseServerError",
             "moduleName": "WASmaxInGroupsSetDescriptionResponseServerError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -55199,7 +57332,17 @@
             "tag": "SetPropertyResponseSuccess",
             "moduleName": "WASmaxInGroupsSetPropertyResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -55370,7 +57513,17 @@
             "tag": "SetPropertyResponseClientError",
             "moduleName": "WASmaxInGroupsSetPropertyResponseClientError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -55586,7 +57739,17 @@
             "tag": "SetPropertyResponseServerError",
             "moduleName": "WASmaxInGroupsSetPropertyResponseServerError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -55727,7 +57890,17 @@
             "tag": "SetSubjectResponseSuccess",
             "moduleName": "WASmaxInGroupsSetSubjectResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -55742,7 +57915,17 @@
             "tag": "SetSubjectResponseClientError",
             "moduleName": "WASmaxInGroupsSetSubjectResponseClientError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -55944,7 +58127,17 @@
             "tag": "SetSubjectResponseServerError",
             "moduleName": "WASmaxInGroupsSetSubjectResponseServerError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -56503,7 +58696,17 @@
             "tag": "SubGroupSuggestionsActionResponseSuccess",
             "moduleName": "WASmaxInGroupsSubGroupSuggestionsActionResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -56890,7 +59093,17 @@
             "tag": "SubGroupSuggestionsActionResponseClientError",
             "moduleName": "WASmaxInGroupsSubGroupSuggestionsActionResponseClientError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -57011,7 +59224,17 @@
             "tag": "SubGroupSuggestionsActionResponseServerError",
             "moduleName": "WASmaxInGroupsSubGroupSuggestionsActionResponseServerError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -57295,7 +59518,17 @@
             "tag": "UnlinkGroupsResponseSuccess",
             "moduleName": "WASmaxInGroupsUnlinkGroupsResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -57427,7 +59660,17 @@
             "tag": "UnlinkGroupsResponseClientError",
             "moduleName": "WASmaxInGroupsUnlinkGroupsResponseClientError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -57553,7 +59796,17 @@
             "tag": "UnlinkGroupsResponseServerError",
             "moduleName": "WASmaxInGroupsUnlinkGroupsResponseServerError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -58078,7 +60331,17 @@
             "tag": "CreateCustomPaymentMethodResponseSuccess",
             "moduleName": "WASmaxInBrPaymentCreateCustomPaymentMethodResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "child",
@@ -58191,7 +60454,17 @@
             "tag": "CreateCustomPaymentMethodResponseIQErrorWithCodeAndReason",
             "moduleName": "WASmaxInBrPaymentCreateCustomPaymentMethodResponseIQErrorWithCodeAndReason",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -58378,7 +60651,17 @@
             "tag": "GetResponseSuccessPictureURL",
             "moduleName": "WASmaxInProfilePictureGetResponseSuccessPictureURL",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -58453,7 +60736,17 @@
             "tag": "GetResponseSuccessAvatarURLs",
             "moduleName": "WASmaxInProfilePictureGetResponseSuccessAvatarURLs",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -58499,7 +60792,17 @@
             "tag": "GetResponseSuccessPictureBlob",
             "moduleName": "WASmaxInProfilePictureGetResponseSuccessPictureBlob",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -58553,7 +60856,17 @@
             "tag": "GetResponseSuccessNoData",
             "moduleName": "WASmaxInProfilePictureGetResponseSuccessNoData",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -58568,7 +60881,17 @@
             "tag": "GetResponseError",
             "moduleName": "WASmaxInProfilePictureGetResponseError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -58941,7 +61264,17 @@
             "tag": "SendBufferResponseSuccess",
             "moduleName": "WASmaxInStatsSendBufferResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -58956,7 +61289,17 @@
             "tag": "SendBufferResponseErrorNoRetry",
             "moduleName": "WASmaxInStatsSendBufferResponseErrorNoRetry",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -59063,7 +61406,17 @@
             "tag": "SendBufferResponseErrorRetry",
             "moduleName": "WASmaxInStatsSendBufferResponseErrorRetry",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "child",
@@ -59288,7 +61641,17 @@
             "tag": "EncryptedPayloadRequestResponseSuccess",
             "moduleName": "WASmaxInWaffleEncryptedPayloadRequestResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "child",
@@ -59379,7 +61742,17 @@
             "tag": "EncryptedPayloadRequestResponseError",
             "moduleName": "WASmaxInWaffleEncryptedPayloadRequestResponseError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -59693,7 +62066,17 @@
             "tag": "ForceDeleteStateResponseSuccess",
             "moduleName": "WASmaxInWaffleForceDeleteStateResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -59708,7 +62091,17 @@
             "tag": "ForceDeleteStateResponseError",
             "moduleName": "WASmaxInWaffleForceDeleteStateResponseError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -59896,7 +62289,17 @@
             "tag": "ForceSuspendStateResponseSuccess",
             "moduleName": "WASmaxInWaffleForceSuspendStateResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "attrEnum",
@@ -59920,7 +62323,17 @@
             "tag": "ForceSuspendStateResponseError",
             "moduleName": "WASmaxInWaffleForceSuspendStateResponseError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -60243,7 +62656,17 @@
             "tag": "GenerateAccessTokensResponseSuccess",
             "moduleName": "WASmaxInWaffleGenerateAccessTokensResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "contentInt",
@@ -60327,7 +62750,17 @@
             "tag": "GenerateAccessTokensResponseError",
             "moduleName": "WASmaxInWaffleGenerateAccessTokensResponseError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -60732,7 +63165,17 @@
             "tag": "GenerateWAEntACUserResponseSuccess",
             "moduleName": "WASmaxInWaffleGenerateWAEntACUserResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "child",
@@ -60807,7 +63250,17 @@
             "tag": "GenerateWAEntACUserResponseError",
             "moduleName": "WASmaxInWaffleGenerateWAEntACUserResponseError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -61188,7 +63641,17 @@
             "tag": "GetCertificateResponseSuccess",
             "moduleName": "WASmaxInWaffleGetCertificateResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "child",
@@ -61296,7 +63759,17 @@
             "tag": "GetCertificateResponseError",
             "moduleName": "WASmaxInWaffleGetCertificateResponseError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -61566,7 +64039,17 @@
             "tag": "RefreshAccessTokensResponseSuccess",
             "moduleName": "WASmaxInWaffleRefreshAccessTokensResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "child",
@@ -61641,7 +64124,17 @@
             "tag": "RefreshAccessTokensResponseError",
             "moduleName": "WASmaxInWaffleRefreshAccessTokensResponseError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -61993,7 +64486,17 @@
             "tag": "StateExistsResponseSuccess",
             "moduleName": "WASmaxInWaffleStateExistsResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "contentInt",
@@ -62034,7 +64537,17 @@
             "tag": "StateExistsResponseError",
             "moduleName": "WASmaxInWaffleStateExistsResponseError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",
@@ -62234,7 +64747,17 @@
             "tag": "WFPingResponseSuccess",
             "moduleName": "WASmaxInWaffleWFPingResponseSuccess",
             "kind": "success",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
             "fields": [
               {
                 "method": "contentInt",
@@ -62258,7 +64781,17 @@
             "tag": "WFPingResponseError",
             "moduleName": "WASmaxInWaffleWFPingResponseError",
             "kind": "error",
-            "assertions": [],
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
             "fields": [
               {
                 "method": "attrString",

@@ -69,6 +69,10 @@ pub(crate) struct Resolver<'a> {
     slices: &'a HashMap<&'a str, &'a str>,
     cache: RefCell<HashMap<String, Option<Resolved>>>,
     in_progress: RefCell<HashSet<String>>,
+    /// Memoized same-node assertions per parser (a separate axis from `cache`, which
+    /// holds fields/unions); see [`Resolver::assertions`].
+    assert_cache: RefCell<HashMap<String, Vec<ResponseAssertion>>>,
+    assert_in_progress: RefCell<HashSet<String>>,
 }
 
 impl<'a> Resolver<'a> {
@@ -77,6 +81,8 @@ impl<'a> Resolver<'a> {
             slices,
             cache: RefCell::new(HashMap::new()),
             in_progress: RefCell::new(HashSet::new()),
+            assert_cache: RefCell::new(HashMap::new()),
+            assert_in_progress: RefCell::new(HashSet::new()),
         }
     }
 
@@ -115,6 +121,64 @@ impl<'a> Resolver<'a> {
             let (_assertions, fields) = analyze_fn_source(src, &locals, self, &mut visited)?;
             Some(Resolved::Fields(fields))
         }
+    }
+
+    /// The same-node assertions a parser enforces on its node argument: literal-value
+    /// attr checks (`literal(attrString, e, "type", "result")`) and tag checks,
+    /// including those bubbled up from same-node mixins it calls (e.g. an error
+    /// parser's `type:"error"` comes from `parseIQErrorResponseMixin(e, …)`). These
+    /// are the discriminators that tell RPC outcome variants apart; the JS keeps them
+    /// as parser asserts (not output fields), so they're recovered separately from
+    /// [`Resolver::resolve`]. Memoized; cycle-safe.
+    pub(crate) fn assertions(&self, module: &str, func: &str) -> Vec<ResponseAssertion> {
+        let key = format!("{module}::{func}");
+        if let Some(hit) = self.assert_cache.borrow().get(&key) {
+            return hit.clone();
+        }
+        if !self.assert_in_progress.borrow_mut().insert(key.clone()) {
+            return Vec::new(); // cycle — bail
+        }
+        let result = self.assertions_uncached(module, func);
+        self.assert_in_progress.borrow_mut().remove(&key);
+        self.assert_cache.borrow_mut().insert(key, result.clone());
+        result
+    }
+
+    fn assertions_uncached(&self, module: &str, func: &str) -> Vec<ResponseAssertion> {
+        let Some(slice) = self.slices.get(module) else {
+            return Vec::new();
+        };
+        let locals = collect_local_fn_sources(slice);
+        let Some(local) = collect_exports(slice)
+            .into_iter()
+            .find(|(e, _)| e == func)
+            .map(|(_, l)| l)
+            .filter(|l| locals.contains_key(l))
+            .or_else(|| locals.contains_key(func).then(|| func.to_string()))
+        else {
+            return Vec::new();
+        };
+        let Some(src) = locals.get(&local) else {
+            return Vec::new();
+        };
+        // A disjunction (`…MixinGroup`/`…Errors`) has no single same-node assertion.
+        if src.contains("errorMixinDisjunction") {
+            return Vec::new();
+        }
+        let mut visited = HashSet::new();
+        visited.insert(local.clone());
+        let raw = analyze_fn_source(src, &locals, self, &mut visited)
+            .map(|(assertions, _)| assertions)
+            .unwrap_or_default();
+        // Bubbling can re-add an identical assert (a direct `assertTag(e,"iq")` plus the
+        // same one from a same-node mixin); keep the first occurrence of each (n tiny).
+        let mut out: Vec<ResponseAssertion> = Vec::new();
+        for a in raw {
+            if !out.contains(&a) {
+                out.push(a);
+            }
+        }
+        out
     }
 }
 
@@ -282,6 +346,14 @@ fn classify_call(
             // `flattenedChildWithTag(e, "tag")` → the mixin reads off `<tag>` (and any
             // wrappers above it), so model it as a tagged child, not a same-node mixin.
             let node_path = node_descend_path(&call.arguments, bindings);
+            // A mixin parsed on the SAME node (no descend) enforces its own asserts on
+            // that node — bubble them up so an error variant inherits the `type:"error"`
+            // its `parseIQErrorResponseMixin(e, …)` asserts. Child-descend mixins assert
+            // on the child, not the variant's node, so don't bubble those.
+            if node_path.is_empty() {
+                let bubbled = resolver.assertions(&module, &func);
+                assertions.extend(bubbled);
+            }
             return match resolver.resolve(&module, &func) {
                 Some(Resolved::Fields(fields)) => match split_path(&node_path) {
                     Some((tag, source_path)) => Binding::ChildGroup {
@@ -342,6 +414,20 @@ fn classify_call(
         // wrapped accessor; when it's only an assertion (unreferenced) it emits
         // nothing. `literalContent` pins a constant string (no makeResult value).
         "literal" => {
+            // `literal(ACC, node, "attr", "fixedValue")` pins the attr to a constant —
+            // a hard discriminator when the value is a string literal on the SAME node
+            // (`type:"result"`). A reference value (`literal(…, "id", r.value)`) is
+            // request-relative, not a fixed discriminator, so skip it.
+            if source_path.is_none()
+                && let Some(attr) = args.get(2).and_then(arg_expr).and_then(as_string_lit)
+                && let Some(value) = args.get(3).and_then(arg_expr).and_then(as_string_lit)
+            {
+                assertions.push(ResponseAssertion {
+                    kind: AssertionKind::Attr,
+                    name: Some(attr.to_string()),
+                    value: Some(value.to_string()),
+                });
+            }
             let inner = args
                 .first()
                 .and_then(arg_expr)
@@ -1682,5 +1768,68 @@ mod tests {
         let resolver = Resolver::new(&slices);
         // Just needs to terminate; the cycle collapses to no resolvable fields.
         let _ = resolver.resolve("WASmaxInCycA", "parseA");
+    }
+
+    #[test]
+    fn captures_literal_value_assertion_and_bubbles_same_node_mixin() {
+        // A success parser pins `type:"result"` directly; an error parser inherits
+        // `type:"error"` from a same-node mixin it calls — both must surface as the
+        // variant's discriminating assertion.
+        let success = r#"__d("WASmaxInFooGetResponseSuccess",["WASmaxParseUtils","WAResultOrError"],(function(t,n,r,o,a,i,l){
+            function e(t,n){
+                var r=o("WASmaxParseUtils").assertTag(t,"iq");if(!r.success)return r;
+                var s=o("WASmaxParseUtils").literal(o("WASmaxParseUtils").attrString,t,"type","result");
+                return s.success?o("WAResultOrError").makeResult({type:s.value}):s;
+            }
+            l.parseGetResponseSuccess=e;
+        }),1);"#;
+        let errmixin = r#"__d("WASmaxInFooIQErrorResponseMixin",["WASmaxParseUtils","WAResultOrError"],(function(t,n,r,o,a,i,l){
+            function e(e,t){
+                var r=o("WASmaxParseUtils").assertTag(e,"iq");if(!r.success)return r;
+                var s=o("WASmaxParseUtils").literal(o("WASmaxParseUtils").attrString,e,"type","error");
+                return s.success?o("WAResultOrError").makeResult({type:s.value}):s;
+            }
+            l.parseIQErrorResponseMixin=e;
+        }),1);"#;
+        let error = r#"__d("WASmaxInFooGetResponseError",["WASmaxParseUtils","WASmaxInFooIQErrorResponseMixin","WAResultOrError"],(function(t,n,r,o,a,i,l){
+            function e(e,t){
+                var r=o("WASmaxParseUtils").assertTag(e,"iq");if(!r.success)return r;
+                var m=o("WASmaxInFooIQErrorResponseMixin").parseIQErrorResponseMixin(e,t);if(!m.success)return m;
+                var c=o("WASmaxParseUtils").attrString(e,"code");
+                return c.success?o("WAResultOrError").makeResult({code:c.value}):c;
+            }
+            l.parseGetResponseError=e;
+        }),1);"#;
+        let slices = HashMap::from([
+            ("WASmaxInFooGetResponseSuccess", success),
+            ("WASmaxInFooIQErrorResponseMixin", errmixin),
+            ("WASmaxInFooGetResponseError", error),
+        ]);
+        let resolver = Resolver::new(&slices);
+        let has_type = |asserts: &[ResponseAssertion], val: &str| {
+            asserts.iter().any(|a| {
+                a.kind == AssertionKind::Attr
+                    && a.name.as_deref() == Some("type")
+                    && a.value.as_deref() == Some(val)
+            })
+        };
+        let sa = resolver.assertions("WASmaxInFooGetResponseSuccess", "parseGetResponseSuccess");
+        assert!(
+            has_type(&sa, "result"),
+            "success asserts type=result: {sa:?}"
+        );
+        let ea = resolver.assertions("WASmaxInFooGetResponseError", "parseGetResponseError");
+        assert!(
+            has_type(&ea, "error"),
+            "error bubbles type=error from same-node mixin: {ea:?}"
+        );
+        // The duplicate `assertTag(e,"iq")` (direct + bubbled) is collapsed.
+        assert_eq!(
+            ea.iter()
+                .filter(|a| a.kind == AssertionKind::Tag && a.name.as_deref() == Some("iq"))
+                .count(),
+            1,
+            "duplicate tag assertion deduped: {ea:?}"
+        );
     }
 }

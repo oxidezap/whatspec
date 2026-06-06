@@ -4,11 +4,26 @@ use std::collections::HashSet;
 use std::sync::LazyLock;
 
 use regex::Regex;
-use wa_ir::{IqStanzaDef, IqTarget, IqType, WapAttrKind, WapChildNode};
+use wa_ir::{
+    AssertionKind, IqStanzaDef, IqTarget, IqType, ResponseVariant, WapAttrKind, WapChildNode,
+};
+
+/// Two outcome variants are separable by a discriminator when both pin the SAME attr
+/// to DIFFERENT literal values (`type:"result"` vs `type:"error"`): a response
+/// satisfying one fails the other's guard, so neither can shadow the other.
+fn assertions_conflict(a: &ResponseVariant, b: &ResponseVariant) -> bool {
+    a.assertions.iter().any(|x| {
+        x.kind == AssertionKind::Attr
+            && x.value.is_some()
+            && b.assertions
+                .iter()
+                .any(|y| y.kind == AssertionKind::Attr && y.name == x.name && y.value != x.value)
+    })
+}
 
 use crate::emit::{VariantCtx, emit_child_builder, emit_response_parser};
 use crate::fields::{collect_response_fields, rust_attr_type};
-use crate::naming::{pascal_case, rust_ident};
+use crate::naming::{pascal_case, rust_ident, rust_lit, rust_lit_inner};
 
 /// Length of the common prefix shared by the variant tags, backed up to a word
 /// boundary (next ASCII-uppercase char). Lets `GetBlockListResponseSuccessWithMatch`
@@ -138,15 +153,15 @@ fn emit_outcome_types(
         return None;
     }
 
-    // Bail if the try-each would be ambiguous. Each variant's parser accepts a
-    // response iff it carries all the variant's *fail-on-absent* fields (required
-    // attrs/children). The variants' real discriminators — `literal(type,"result")`,
-    // `flattenedChildWithTag("error")` — aren't captured in the IR (assertions are
-    // empty), so if an earlier variant's required-field set is a subset of a later
-    // one's, the earlier shadows the later (any later-response matches it first) and
-    // the union would misclassify (e.g. an error returned as a bare `type`-only
-    // success). Fall back to `()` rather than emit a parser that lies; capturing the
-    // discriminators is the proper recovery.
+    // Bail if the try-each would still be ambiguous. A variant's parser accepts a
+    // response iff it carries all the variant's *fail-on-absent* fields AND satisfies
+    // its captured discriminator assertions (e.g. `type:"result"`). An earlier variant
+    // shadows a later one only when its required fields are a subset AND no conflicting
+    // assertion sets them apart — then a later-response would match the earlier arm
+    // first (misclassification). When that can happen, fall back to the single-shape
+    // path rather than emit a parser that lies. (Variants distinguished only by an
+    // uncaptured discriminator — e.g. two errors differing by `<error>` code — stay
+    // here; recovering those needs deeper child-discriminator capture.)
     let req: Vec<std::collections::BTreeSet<String>> = op
         .response
         .variants
@@ -155,7 +170,12 @@ fn emit_outcome_types(
         .collect();
     for i in 0..req.len() {
         for j in (i + 1)..req.len() {
-            if req[i].is_subset(&req[j]) {
+            // i (earlier) shadows j only if j-responses also match i: their required
+            // fields are a subset AND no captured discriminator (a conflicting attr
+            // assertion, e.g. `type:"result"` vs `type:"error"`) sets them apart.
+            if req[i].is_subset(&req[j])
+                && !assertions_conflict(&op.response.variants[i], &op.response.variants[j])
+            {
                 return None;
             }
         }
@@ -222,6 +242,21 @@ fn emit_outcome_parse(
         lines.push(format!(
             "{indent}let __r: Result<{sname}, anyhow::Error> = (|| -> Result<{sname}, anyhow::Error> {{"
         ));
+        // Discriminator guards first: an attr pinned to a literal (`type:"result"`)
+        // must match, else this variant doesn't apply — bail so the next arm is tried.
+        for a in &v.assertions {
+            if a.kind == AssertionKind::Attr
+                && let (Some(name), Some(value)) = (&a.name, &a.value)
+            {
+                lines.push(format!(
+                    "{indent}    if response.get_attr({}).map(|x| x.as_str()) != Some({}) {{ anyhow::bail!(\"{vname}: {} != {}\"); }}",
+                    rust_lit(name),
+                    rust_lit(value),
+                    rust_lit_inner(name),
+                    rust_lit_inner(value),
+                ));
+            }
+        }
         lines.extend(emit_response_parser(
             &v.fields,
             sname,
@@ -766,6 +801,66 @@ mod tests {
         assert!(
             code.contains("MakeGetThingRequestResponse: no response variant matched"),
             "{code}"
+        );
+    }
+
+    #[test]
+    fn conflicting_assertions_separate_subset_variants_into_enum() {
+        use wa_ir::{
+            ParsedField, ParsedFieldType, ResponseAssertion, ResponseVariant, ResponseVariantKind,
+        };
+        fn attr(name: &str) -> ParsedField {
+            ParsedField {
+                method: "attrString".into(),
+                name: name.into(),
+                field_type: ParsedFieldType::String,
+                required: true,
+                ..Default::default()
+            }
+        }
+        fn type_assert(value: &str) -> ResponseAssertion {
+            ResponseAssertion {
+                kind: AssertionKind::Attr,
+                name: Some("type".into()),
+                value: Some(value.into()),
+            }
+        }
+        // Success and error read the same field (`type`) — a bare subset that WOULD be
+        // ambiguous — but their captured `type` discriminators differ, so the guard
+        // must emit a (correctly-discriminated) enum, with a guard per arm.
+        let mut op = stanza("WASmaxOutFooGetThingRequest", Some("makeGetThingRequest"));
+        op.response = ParsedResponse {
+            parser_name: "FooGetThingRPC".into(),
+            variants: vec![
+                ResponseVariant {
+                    tag: "GetThingResponseSuccess".into(),
+                    module_name: "m".into(),
+                    kind: ResponseVariantKind::Success,
+                    assertions: vec![type_assert("result")],
+                    fields: vec![attr("type")],
+                },
+                ResponseVariant {
+                    tag: "GetThingResponseError".into(),
+                    module_name: "m".into(),
+                    kind: ResponseVariantKind::Error,
+                    assertions: vec![type_assert("error")],
+                    fields: vec![attr("type")],
+                },
+            ],
+            ..Default::default()
+        };
+        let code = generate_spec(&op, "FOO_NAMESPACE", "MakeGetThingRequestSpec");
+        assert!(
+            code.contains("pub enum MakeGetThingRequestResponse"),
+            "{code}"
+        );
+        assert!(
+            code.contains("if response.get_attr(\"type\").map(|x| x.as_str()) != Some(\"result\")"),
+            "success arm must guard type==result: {code}"
+        );
+        assert!(
+            code.contains("if response.get_attr(\"type\").map(|x| x.as_str()) != Some(\"error\")"),
+            "error arm must guard type==error: {code}"
         );
     }
 
