@@ -176,6 +176,7 @@ pub(crate) fn resolve_child_node(
             attrs,
             children,
             repeats: false,
+            variant_groups: Vec::new(),
         }];
     }
 
@@ -334,7 +335,7 @@ pub(crate) fn resolve_child_node(
                 if let Some(name) = mixin
                     && let Some(contrib) = contribs.get(&name)
                 {
-                    apply_contribution(&mut out, contrib);
+                    apply_contribution(&mut out, contrib, is_optional_merge);
                 }
             }
             if !out.is_empty() {
@@ -384,31 +385,57 @@ fn merge_ref_owner(expr: &Expression) -> Option<String> {
 
 /// Fold a mixin's contribution into the destination node(s) it's merged onto,
 /// mirroring `mergeStanzas`. A contribution root tagged [`WILDCARD_TAG`] (`smax$any`)
-/// applies its attrs/children to every destination node regardless of tag; any other
-/// root merges by tag and is APPENDED when no destination matches (the dst may be an
-/// external placeholder that resolves empty — e.g. a MixinGroup union's `e_dst` — so
-/// the contribution must still produce the node). Only ever ADDS (existing wins).
-fn apply_contribution(dst: &mut Vec<WapChildNode>, contrib: &[WapChildNode]) {
+/// applies its attrs/children/variant-groups to every destination node regardless of
+/// tag; any other root merges by tag and is APPENDED when no destination matches (the
+/// dst may be an external placeholder that resolves empty — e.g. a MixinGroup union's
+/// `e_dst` — so the contribution must still produce the node). `optional` (set for
+/// `optionalMerge`) marks the folded variant groups optional. Only ever ADDS.
+fn apply_contribution(dst: &mut Vec<WapChildNode>, contrib: &[WapChildNode], optional: bool) {
     for root in contrib {
         if root.tag == WILDCARD_TAG {
             if dst.is_empty() {
                 // No destination yet: keep the wildcard so a later merge can apply
                 // it. It never reaches the IR — the base sub-stanza is always present
                 // by the time a request resolves.
-                dst.push(root.clone());
+                let mut r = root.clone();
+                mark_groups_optional(&mut r.variant_groups, optional);
+                dst.push(r);
             } else {
                 for d in dst.iter_mut() {
-                    for a in &root.attrs {
-                        if !d.attrs.iter().any(|x| x.name == a.name) {
-                            d.attrs.push(a.clone());
-                        }
-                    }
-                    crate::mixin_index::merge_children(&mut d.children, &root.children);
+                    merge_node_into(d, root, optional);
                 }
             }
+        } else if let Some(d) = dst.iter_mut().find(|d| d.tag == root.tag) {
+            merge_node_into(d, root, optional);
         } else {
-            // Merge by tag, appending when absent (mergeStanzas semantics).
-            crate::mixin_index::merge_children(dst, std::slice::from_ref(root));
+            // No matching destination tag: append the node (mergeStanzas semantics).
+            let mut r = root.clone();
+            mark_groups_optional(&mut r.variant_groups, optional);
+            dst.push(r);
+        }
+    }
+}
+
+/// Fold `src`'s attrs (existing win), children (by tag), and variant groups into the
+/// in-place destination node `d`. `optional` weakens the folded variant groups.
+fn merge_node_into(d: &mut WapChildNode, src: &WapChildNode, optional: bool) {
+    for a in &src.attrs {
+        if !d.attrs.iter().any(|x| x.name == a.name) {
+            d.attrs.push(a.clone());
+        }
+    }
+    crate::mixin_index::merge_children(&mut d.children, &src.children);
+    for g in &src.variant_groups {
+        let mut g2 = g.clone();
+        g2.optional = g2.optional || optional;
+        d.variant_groups.push(g2);
+    }
+}
+
+fn mark_groups_optional(groups: &mut [wa_ir::WapVariantGroup], optional: bool) {
+    if optional {
+        for g in groups {
+            g.optional = true;
         }
     }
 }
@@ -487,8 +514,11 @@ fn resolve_map_call(
     Some(children)
 }
 
-/// Trace a function body for `wap()` calls, following `return helper(...)` chains.
-fn resolve_function_return(
+/// Resolve each top-level `return <expr>` of a function body SEPARATELY (one entry
+/// per return), so a MixinGroup union's branch variants stay distinct. Applies the
+/// same lexical-scope merge as [`resolve_function_return`]. Does not run the
+/// no-returns fallbacks (those only matter when there are no resolvable returns).
+fn resolve_function_returns_each(
     body_start: usize,
     body_end: usize,
     scope: &VarScope,
@@ -496,21 +526,14 @@ fn resolve_function_return(
     aliases: &AliasMap,
     contributions: Option<&MixinContributions>,
     depth: u32,
-) -> Vec<WapChildNode> {
+) -> Vec<Vec<WapChildNode>> {
     if depth > MAX_FN_DEPTH {
         return Vec::new();
     }
     let body = &module_source[body_start..body_end];
-    // Resolve each `return <expr>` through the normal child resolver so nested
-    // children stay nested (a template returning `smax("description", …,
-    // smax("body", …))` keeps `body` under `description`).
-    //
-    // Lexical scope: this body's own vars (shifted to module-absolute offsets)
-    // SHADOW the module scope, but the module scope still backs cross-function refs
-    // (a sibling template fn like `e` in `REPEATED_CHILD(e, …)`). This fixes the
-    // flat-scope collision (`return e` → this body's `var e`, not a sibling's) while
-    // keeping sibling-fn templates resolvable. Builder helper graphs are acyclic
-    // (they terminate at runtime), so the `resolve_child_node` recursion terminates.
+    // Lexical scope: this body's own vars (shifted to module-absolute offsets) SHADOW
+    // the module scope, but the module scope still backs cross-function refs. Mirrors
+    // the merge in `resolve_function_return`.
     let alloc = Allocator::default();
     let parsed = wa_oxc::parse_cjs(&alloc, body);
     let mut merged = build_var_scope(&parsed.program);
@@ -531,13 +554,13 @@ fn resolve_function_return(
             .or_default()
             .extend(ginits.iter().cloned());
     }
-    let mut out = Vec::new();
+    let mut per_return = Vec::new();
     for arg_src in collect_return_arg_sources(body) {
         let alloc2 = Allocator::default();
         let owned = format!("({arg_src});");
         let r2 = wa_oxc::parse_cjs(&alloc2, &owned);
         if let Some(expr) = first_expression(&r2.program) {
-            out.extend(resolve_child_node(
+            let r = resolve_child_node(
                 expr,
                 &owned,
                 &merged,
@@ -545,12 +568,47 @@ fn resolve_function_return(
                 aliases,
                 contributions,
                 depth,
-            ));
+            );
+            if !r.is_empty() {
+                per_return.push(r);
+            }
         }
     }
-    if !out.is_empty() {
-        return out;
+    per_return
+}
+
+/// Trace a function body for `wap()` calls, following `return helper(...)` chains.
+/// Flattens every `return` into one child list (nesting preserved); for the
+/// per-return form used by union detection see [`resolve_function_returns_each`].
+fn resolve_function_return(
+    body_start: usize,
+    body_end: usize,
+    scope: &VarScope,
+    module_source: &str,
+    aliases: &AliasMap,
+    contributions: Option<&MixinContributions>,
+    depth: u32,
+) -> Vec<WapChildNode> {
+    let flat: Vec<WapChildNode> = resolve_function_returns_each(
+        body_start,
+        body_end,
+        scope,
+        module_source,
+        aliases,
+        contributions,
+        depth,
+    )
+    .into_iter()
+    .flatten()
+    .collect();
+    if !flat.is_empty() {
+        return flat;
     }
+    if depth > MAX_FN_DEPTH {
+        return Vec::new();
+    }
+    // No resolvable returns: fall back to a flat scan, then `return helper(...)` chains.
+    let body = &module_source[body_start..body_end];
     let direct = find_wap_calls_in_body(body, aliases);
     if !direct.is_empty() {
         return direct;
@@ -596,9 +654,45 @@ pub(crate) fn resolve_contribution(
     let Some((bs, be)) = find_merge_fn_body(&ret.program, &scope) else {
         return Vec::new();
     };
+
+    // A MixinGroup disjunction (`if(flagA) merge…A; if(flagB) merge…B; else throw`)
+    // contributes a single node carrying its branches as mutually-exclusive variants
+    // — preserving the discriminator (e.g. `type:"jid"` vs `type:"invite"`) instead of
+    // collapsing the branches into one over-merged node.
+    if slice.contains("MixinGroupExhaustiveError") {
+        let branches =
+            resolve_function_returns_each(bs, be, &scope, slice, &aliases, Some(contributions), 0);
+        // Each branch resolves to one node (the dst with that variant's attrs folded
+        // in); the shared tag (e.g. `messages` or `smax$any`) anchors the group.
+        let variants: Vec<wa_ir::WapVariant> = branches
+            .iter()
+            .filter_map(|b| b.first())
+            .map(|n| wa_ir::WapVariant {
+                attrs: n.attrs.clone(),
+                children: n.children.clone(),
+            })
+            .filter(|v| !v.attrs.is_empty() || !v.children.is_empty())
+            .collect();
+        if variants.len() >= 2 {
+            let tag = branches
+                .iter()
+                .find_map(|b| b.first())
+                .map(|n| n.tag.clone())
+                .unwrap_or_default();
+            return vec![WapChildNode {
+                tag,
+                variant_groups: vec![wa_ir::WapVariantGroup {
+                    optional: false,
+                    variants,
+                }],
+                ..Default::default()
+            }];
+        }
+        // < 2 distinct variants: fall through to the normal (collapsed) resolution.
+    }
+
     let raw = resolve_function_return(bs, be, &scope, slice, &aliases, Some(contributions), 0);
-    // Collapse same-tag roots: a union's branches each return the same dst tag
-    // (`messages{before}` / `messages{after}`) and must merge into one node.
+    // Collapse same-tag roots so a non-union mixin's repeated returns fold into one.
     let mut merged = Vec::new();
     crate::mixin_index::merge_children(&mut merged, &raw);
     merged
@@ -679,6 +773,7 @@ impl<'a> Visit<'a> for WapCollector<'_> {
                 attrs,
                 children: Vec::new(),
                 repeats: false,
+                variant_groups: Vec::new(),
             });
         }
         walk::walk_call_expression(self, call);
@@ -875,6 +970,7 @@ mod tests {
                 .collect(),
             children: Vec::new(),
             repeats: false,
+            variant_groups: Vec::new(),
         }
     }
 

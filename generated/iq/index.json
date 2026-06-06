@@ -12982,44 +12982,82 @@
             "tag": "messages",
             "attrs": [
               {
-                "name": "type",
-                "kind": "const",
-                "value": "jid",
-                "required": true
-              },
-              {
-                "name": "jid",
-                "kind": "user_jid",
-                "required": true
-              },
-              {
-                "name": "view_role",
-                "kind": "optional",
-                "required": false
-              },
-              {
-                "name": "key",
-                "kind": "string",
-                "required": true
-              },
-              {
                 "name": "count",
-                "kind": "integer",
-                "required": true
-              },
-              {
-                "name": "before",
-                "kind": "integer",
-                "required": true
-              },
-              {
-                "name": "after",
                 "kind": "integer",
                 "required": true
               }
             ],
             "children": [],
-            "repeats": false
+            "repeats": false,
+            "variantGroups": [
+              {
+                "variants": [
+                  {
+                    "attrs": [
+                      {
+                        "name": "type",
+                        "kind": "const",
+                        "value": "jid",
+                        "required": true
+                      },
+                      {
+                        "name": "jid",
+                        "kind": "user_jid",
+                        "required": true
+                      },
+                      {
+                        "name": "view_role",
+                        "kind": "optional",
+                        "required": false
+                      }
+                    ]
+                  },
+                  {
+                    "attrs": [
+                      {
+                        "name": "type",
+                        "kind": "const",
+                        "value": "invite",
+                        "required": true
+                      },
+                      {
+                        "name": "key",
+                        "kind": "string",
+                        "required": true
+                      },
+                      {
+                        "name": "view_role",
+                        "kind": "optional",
+                        "required": false
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "optional": true,
+                "variants": [
+                  {
+                    "attrs": [
+                      {
+                        "name": "before",
+                        "kind": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "attrs": [
+                      {
+                        "name": "after",
+                        "kind": "integer",
+                        "required": true
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
           }
         ]
       },
@@ -18184,44 +18222,82 @@
             "tag": "statuses",
             "attrs": [
               {
-                "name": "type",
-                "kind": "const",
-                "value": "jid",
-                "required": true
-              },
-              {
-                "name": "jid",
-                "kind": "user_jid",
-                "required": true
-              },
-              {
-                "name": "view_role",
-                "kind": "optional",
-                "required": false
-              },
-              {
-                "name": "key",
-                "kind": "string",
-                "required": true
-              },
-              {
                 "name": "count",
-                "kind": "integer",
-                "required": true
-              },
-              {
-                "name": "before",
-                "kind": "integer",
-                "required": true
-              },
-              {
-                "name": "after",
                 "kind": "integer",
                 "required": true
               }
             ],
             "children": [],
-            "repeats": false
+            "repeats": false,
+            "variantGroups": [
+              {
+                "variants": [
+                  {
+                    "attrs": [
+                      {
+                        "name": "type",
+                        "kind": "const",
+                        "value": "jid",
+                        "required": true
+                      },
+                      {
+                        "name": "jid",
+                        "kind": "user_jid",
+                        "required": true
+                      },
+                      {
+                        "name": "view_role",
+                        "kind": "optional",
+                        "required": false
+                      }
+                    ]
+                  },
+                  {
+                    "attrs": [
+                      {
+                        "name": "type",
+                        "kind": "const",
+                        "value": "invite",
+                        "required": true
+                      },
+                      {
+                        "name": "key",
+                        "kind": "string",
+                        "required": true
+                      },
+                      {
+                        "name": "view_role",
+                        "kind": "optional",
+                        "required": false
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "optional": true,
+                "variants": [
+                  {
+                    "attrs": [
+                      {
+                        "name": "before",
+                        "kind": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "attrs": [
+                      {
+                        "name": "after",
+                        "kind": "integer",
+                        "required": true
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
           }
         ]
       },

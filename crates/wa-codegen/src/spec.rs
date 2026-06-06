@@ -6,7 +6,7 @@ use std::sync::LazyLock;
 use regex::Regex;
 use wa_ir::{IqStanzaDef, IqTarget, IqType, WapAttrKind, WapChildNode};
 
-use crate::emit::{emit_child_builder, emit_response_parser};
+use crate::emit::{VariantCtx, emit_child_builder, emit_response_parser};
 use crate::fields::{collect_response_fields, rust_attr_type};
 use crate::naming::{pascal_case, rust_ident};
 
@@ -56,15 +56,38 @@ pub(crate) fn generate_spec(op: &IqStanzaDef, ns_const: &str, spec_name: &str) -
     let mut seen_spec = HashSet::new();
     collect_attrs(&op.request.children, &mut spec_fields, &mut seen_spec);
 
+    // Generate `build_iq`'s body first: it discovers each node's variant groups
+    // (smax MixinGroup disjunctions), emitting the enum types and the extra spec
+    // fields they require — both needed before the struct below.
+    let spec_base = spec_name.trim_end_matches("Spec").to_string();
+    let mut variant_enums: Vec<String> = Vec::new();
+    let mut variant_fields: Vec<(String, String, bool)> = Vec::new();
+    let build_iq_lines = emit_build_iq(
+        op,
+        ns_const,
+        iq,
+        &spec_base,
+        &mut variant_enums,
+        &mut variant_fields,
+    );
+
+    // ── Variant enums (top-level, before the struct that references them) ──
+    lines.extend(variant_enums);
+
+    let has_fields = !spec_fields.is_empty() || !variant_fields.is_empty();
+
     // ── Spec struct ──
     let doc_owner = op.exported_function.as_deref().unwrap_or(&op.namespace);
     lines.push(format!("/// {doc_owner}:{iq} IQ spec."));
     lines.push("///".to_string());
     lines.push(format!("/// Source: `{}`", op.module_name));
-    if !spec_fields.is_empty() {
+    if has_fields {
         lines.push("#[derive(Debug, Clone)]".to_string());
         lines.push(format!("pub struct {spec_name} {{"));
         for (name, ty, _) in &spec_fields {
+            lines.push(format!("    pub {name}: {ty},"));
+        }
+        for (name, ty, _) in &variant_fields {
             lines.push(format!("    pub {name}: {ty},"));
         }
         lines.push("}".to_string());
@@ -75,18 +98,22 @@ pub(crate) fn generate_spec(op: &IqStanzaDef, ns_const: &str, spec_name: &str) -
     lines.push(String::new());
 
     // ── Constructor ──
-    if !spec_fields.is_empty() {
+    if has_fields {
         lines.push(format!("impl {spec_name} {{"));
-        let params = spec_fields
+        let mut params: Vec<String> = spec_fields
             .iter()
             .map(|(name, ty, _)| match *ty {
                 "String" => format!("{name}: impl Into<String>"),
                 "Jid" => format!("{name}: &Jid"),
                 _ => format!("{name}: {ty}"),
             })
-            .collect::<Vec<_>>()
-            .join(", ");
-        lines.push(format!("    pub fn new({params}) -> Self {{"));
+            .collect();
+        params.extend(
+            variant_fields
+                .iter()
+                .map(|(name, ty, _)| format!("{name}: {ty}")),
+        );
+        lines.push(format!("    pub fn new({}) -> Self {{", params.join(", ")));
         lines.push("        Self {".to_string());
         for (name, ty, _) in &spec_fields {
             match *ty {
@@ -94,6 +121,9 @@ pub(crate) fn generate_spec(op: &IqStanzaDef, ns_const: &str, spec_name: &str) -
                 "Jid" => lines.push(format!("            {name}: {name}.clone(),")),
                 _ => lines.push(format!("            {name},")),
             }
+        }
+        for (name, _, _) in &variant_fields {
+            lines.push(format!("            {name},"));
         }
         lines.push("        }".to_string());
         lines.push("    }".to_string());
@@ -133,37 +163,7 @@ pub(crate) fn generate_spec(op: &IqStanzaDef, ns_const: &str, spec_name: &str) -
     lines.push(format!("impl IqSpec for {spec_name} {{"));
     lines.push(format!("    type Response = {response_type_name};"));
     lines.push(String::new());
-
-    // build_iq
-    lines.push("    fn build_iq(&self) -> InfoQuery<'static> {".to_string());
-    let target = if matches!(op.target, IqTarget::Group) {
-        "Jid::new(\"\", Server::Group)"
-    } else {
-        "Jid::new(\"\", Server::Pn)"
-    };
-    if !op.request.children.is_empty() {
-        let mut top_var_names: Vec<String> = Vec::new();
-        let mut used_names = std::collections::HashMap::new();
-        for child in &op.request.children {
-            let (child_lines, child_var) = emit_child_builder(child, "        ", &mut used_names);
-            lines.extend(child_lines);
-            top_var_names.push(child_var);
-        }
-        lines.push(String::new());
-        lines.push(format!("        InfoQuery::{iq}("));
-        lines.push(format!("            {ns_const},"));
-        lines.push(format!("            {target},"));
-        lines.push(format!(
-            "            Some(NodeContent::Nodes(vec![{}])),",
-            top_var_names.join(", ")
-        ));
-        lines.push("        )".to_string());
-    } else {
-        lines.push(format!(
-            "        InfoQuery::{iq}({ns_const}, {target}, None)"
-        ));
-    }
-    lines.push("    }".to_string());
+    lines.extend(build_iq_lines);
     lines.push(String::new());
 
     // parse_response — validate the parser can produce all struct fields.
@@ -256,6 +256,56 @@ pub(crate) fn generate_spec(op: &IqStanzaDef, ns_const: &str, spec_name: &str) -
     lines.push("}".to_string());
 
     fix_unused_vars(lines.join("\n"))
+}
+
+/// Emit the `fn build_iq` method (request builder), threading a [`VariantCtx`] so a
+/// node's variant groups contribute their enums (`variant_enums`) and spec fields
+/// (`variant_fields`) back to the caller.
+#[allow(clippy::too_many_arguments)]
+fn emit_build_iq(
+    op: &IqStanzaDef,
+    ns_const: &str,
+    iq: &str,
+    spec_base: &str,
+    variant_enums: &mut Vec<String>,
+    variant_fields: &mut Vec<(String, String, bool)>,
+) -> Vec<String> {
+    let mut lines = vec!["    fn build_iq(&self) -> InfoQuery<'static> {".to_string()];
+    let target = if matches!(op.target, IqTarget::Group) {
+        "Jid::new(\"\", Server::Group)"
+    } else {
+        "Jid::new(\"\", Server::Pn)"
+    };
+    if !op.request.children.is_empty() {
+        let mut ctx = VariantCtx {
+            spec_base,
+            enum_defs: variant_enums,
+            fields: variant_fields,
+        };
+        let mut top_var_names: Vec<String> = Vec::new();
+        let mut used_names = std::collections::HashMap::new();
+        for child in &op.request.children {
+            let (child_lines, child_var) =
+                emit_child_builder(child, "        ", &mut used_names, &mut ctx);
+            lines.extend(child_lines);
+            top_var_names.push(child_var);
+        }
+        lines.push(String::new());
+        lines.push(format!("        InfoQuery::{iq}("));
+        lines.push(format!("            {ns_const},"));
+        lines.push(format!("            {target},"));
+        lines.push(format!(
+            "            Some(NodeContent::Nodes(vec![{}])),",
+            top_var_names.join(", ")
+        ));
+        lines.push("        )".to_string());
+    } else {
+        lines.push(format!(
+            "        InfoQuery::{iq}({ns_const}, {target}, None)"
+        ));
+    }
+    lines.push("    }".to_string());
+    lines
 }
 
 fn collect_attrs(

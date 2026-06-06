@@ -361,6 +361,16 @@ fn dedup_attrs(kids: &[ParsedField]) -> Vec<&ParsedField> {
         .collect()
 }
 
+/// Accumulators threaded through [`emit_child_builder`] for a node's variant groups
+/// (smax MixinGroup disjunctions): `enum_defs` collects the top-level `enum` types,
+/// `fields` the `(struct_field, type, optional)` triples the spec struct must carry.
+/// `spec_base` prefixes generated enum names so two specs don't collide.
+pub(crate) struct VariantCtx<'a> {
+    pub spec_base: &'a str,
+    pub enum_defs: &'a mut Vec<String>,
+    pub fields: &'a mut Vec<(String, String, bool)>,
+}
+
 /// Emit the `let <tag>_node = NodeBuilder::new("tag")…build();` statements for a
 /// request child, recursing into nested children first. `used_names` dedups
 /// repeated tags. Returns `(lines, var_name)` — the caller takes the returned
@@ -369,10 +379,13 @@ fn dedup_attrs(kids: &[ParsedField]) -> Vec<&ParsedField> {
 ///
 /// The node is built through a rebindable `let mut` so optional attributes can be
 /// added conditionally (`if let Some(v) = &self.x`), which a fluent chain can't.
+/// A node's variant groups (mutually-exclusive MixinGroup alternatives) generate an
+/// `enum` per group and a `match` in the build; see [`emit_variant_groups`].
 pub(crate) fn emit_child_builder(
     child: &WapChildNode,
     indent: &str,
     used_names: &mut HashMap<String, usize>,
+    ctx: &mut VariantCtx,
 ) -> (Vec<String>, String) {
     let mut lines: Vec<String> = Vec::new();
     let base_name = format!("{}_node", snake_case(&child.tag));
@@ -386,7 +399,7 @@ pub(crate) fn emit_child_builder(
 
     let mut nested_var_names: Vec<String> = Vec::new();
     for nested in &child.children {
-        let (nested_lines, nested_var) = emit_child_builder(nested, indent, used_names);
+        let (nested_lines, nested_var) = emit_child_builder(nested, indent, used_names, ctx);
         lines.extend(nested_lines);
         nested_var_names.push(nested_var);
     }
@@ -429,6 +442,7 @@ pub(crate) fn emit_child_builder(
             _ => {}
         }
     }
+    body.extend(emit_variant_groups(child, &var_name, indent, ctx));
     if !nested_var_names.is_empty() {
         body.push(format!(
             "{indent}{var_name} = {var_name}.children([{}]);",
@@ -452,6 +466,195 @@ pub(crate) fn emit_child_builder(
     (lines, var_name)
 }
 
+/// Emit, for each of a node's variant groups, a top-level `enum` (pushed to
+/// `ctx.enum_defs`), a spec-struct field (pushed to `ctx.fields`), and the build
+/// `match` that applies the chosen variant's attrs to `var_name`. A group is a smax
+/// MixinGroup disjunction: exactly one variant applies (or none, when optional).
+fn emit_variant_groups(
+    node: &WapChildNode,
+    var_name: &str,
+    indent: &str,
+    ctx: &mut VariantCtx,
+) -> Vec<String> {
+    let mut build = Vec::new();
+    let multi = node.variant_groups.len() > 1;
+    for (gi, group) in node.variant_groups.iter().enumerate() {
+        let base = format!("{}{}", ctx.spec_base, pascal_case(&node.tag));
+        let enum_name = if multi {
+            format!("{base}Variant{}", gi + 1)
+        } else {
+            format!("{base}Variant")
+        };
+        let field = {
+            let f = snake_case(&node.tag);
+            if multi { format!("{f}_v{}", gi + 1) } else { f }
+        };
+        let disc = variant_discriminator(group);
+
+        // enum definition
+        let mut def = vec![
+            "#[derive(Debug, Clone)]".to_string(),
+            format!("pub enum {enum_name} {{"),
+        ];
+        for (vi, v) in group.variants.iter().enumerate() {
+            let vname = variant_name(v, disc.as_deref(), vi);
+            let payload: Vec<String> = v
+                .attrs
+                .iter()
+                .filter(|a| !matches!(a.kind, WapAttrKind::Const | WapAttrKind::GeneratedId))
+                .map(|a| {
+                    format!(
+                        "{}: {}",
+                        rust_ident(&a.name),
+                        crate::fields::rust_attr_type(&a.kind)
+                    )
+                })
+                .collect();
+            if payload.is_empty() {
+                def.push(format!("    {vname},"));
+            } else {
+                def.push(format!("    {vname} {{ {} }},", payload.join(", ")));
+            }
+        }
+        def.push("}".to_string());
+        ctx.enum_defs.extend(def);
+        ctx.enum_defs.push(String::new());
+
+        let ty = if group.optional {
+            format!("Option<{enum_name}>")
+        } else {
+            enum_name.clone()
+        };
+        ctx.fields.push((field.clone(), ty, group.optional));
+
+        // build match
+        let (matchee, inner_indent) = if group.optional {
+            build.push(format!("{indent}if let Some(__v) = &self.{field} {{"));
+            ("__v".to_string(), format!("{indent}    "))
+        } else {
+            (format!("&self.{field}"), indent.to_string())
+        };
+        build.push(format!("{inner_indent}match {matchee} {{"));
+        for (vi, v) in group.variants.iter().enumerate() {
+            let vname = variant_name(v, disc.as_deref(), vi);
+            build.extend(variant_arm(
+                &enum_name,
+                &vname,
+                v,
+                var_name,
+                &format!("{inner_indent}    "),
+            ));
+        }
+        build.push(format!("{inner_indent}}}"));
+        if group.optional {
+            build.push(format!("{indent}}}"));
+        }
+    }
+    build
+}
+
+/// A const attr present in every variant of a group with DISTINCT values is the
+/// discriminator (e.g. `type` = `jid`/`invite`); variants are named by its value.
+fn variant_discriminator(group: &wa_ir::WapVariantGroup) -> Option<String> {
+    let first = group.variants.first()?;
+    'attr: for a in &first.attrs {
+        if a.kind != WapAttrKind::Const {
+            continue;
+        }
+        let mut values = Vec::new();
+        for v in &group.variants {
+            match v
+                .attrs
+                .iter()
+                .find(|x| x.name == a.name && x.kind == WapAttrKind::Const)
+            {
+                Some(found) => values.push(found.value.clone().unwrap_or_default()),
+                None => continue 'attr,
+            }
+        }
+        // distinct across variants → a usable discriminator
+        let mut sorted = values.clone();
+        sorted.sort();
+        sorted.dedup();
+        if sorted.len() == group.variants.len() {
+            return Some(a.name.clone());
+        }
+    }
+    None
+}
+
+/// Variant name: the discriminator value (`Jid`/`Invite`), else the first non-const
+/// attr name (`Before`/`After`), else `VariantN`.
+fn variant_name(v: &wa_ir::WapVariant, disc: Option<&str>, idx: usize) -> String {
+    if let Some(d) = disc
+        && let Some(a) = v.attrs.iter().find(|x| x.name == d)
+        && let Some(val) = &a.value
+    {
+        return pascal_case(val);
+    }
+    if let Some(a) = v
+        .attrs
+        .iter()
+        .find(|a| !matches!(a.kind, WapAttrKind::Const | WapAttrKind::GeneratedId))
+    {
+        return pascal_case(&a.name);
+    }
+    format!("Variant{}", idx + 1)
+}
+
+/// One `match` arm: destructure the variant's non-const attrs and apply each attr
+/// (const literal, bound dynamic, or optional) to the node `var_name`.
+fn variant_arm(
+    enum_name: &str,
+    vname: &str,
+    v: &wa_ir::WapVariant,
+    var_name: &str,
+    indent: &str,
+) -> Vec<String> {
+    let binds: Vec<String> = v
+        .attrs
+        .iter()
+        .filter(|a| !matches!(a.kind, WapAttrKind::Const | WapAttrKind::GeneratedId))
+        .map(|a| rust_ident(&a.name))
+        .collect();
+    let pat = if binds.is_empty() {
+        format!("{enum_name}::{vname}")
+    } else {
+        format!("{enum_name}::{vname} {{ {} }}", binds.join(", "))
+    };
+    let mut lines = vec![format!("{indent}{pat} => {{")];
+    let body_indent = format!("{indent}    ");
+    for a in &v.attrs {
+        let alit = rust_lit(&a.name);
+        let ident = rust_ident(&a.name);
+        match &a.kind {
+            WapAttrKind::Const => {
+                if let Some(value) = &a.value {
+                    lines.push(format!(
+                        "{body_indent}{var_name} = {var_name}.attr({alit}, {});",
+                        rust_lit(value)
+                    ));
+                }
+            }
+            WapAttrKind::Optional => lines.push(format!(
+                "{body_indent}if let Some(x) = {ident} {{ {var_name} = {var_name}.attr({alit}, x.as_str()); }}"
+            )),
+            WapAttrKind::Integer => lines.push(format!(
+                "{body_indent}{var_name} = {var_name}.attr({alit}, {ident}.to_string());"
+            )),
+            k if is_jid_kind(k) => lines.push(format!(
+                "{body_indent}{var_name} = {var_name}.attr({alit}, {ident}.clone());"
+            )),
+            WapAttrKind::String | WapAttrKind::Dynamic => lines.push(format!(
+                "{body_indent}{var_name} = {var_name}.attr({alit}, {ident}.as_str());"
+            )),
+            _ => {}
+        }
+    }
+    lines.push(format!("{indent}}}"));
+    lines
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -471,7 +674,117 @@ mod tests {
             attrs: vec![],
             children: vec![],
             repeats: false,
+            variant_groups: vec![],
         }
+    }
+
+    /// Build a child node with a throwaway variant context (for the tests that don't
+    /// exercise variant groups).
+    fn build1(child: &WapChildNode) -> (Vec<String>, String) {
+        let (mut enums, mut fields) = (Vec::new(), Vec::new());
+        let mut ctx = VariantCtx {
+            spec_base: "T",
+            enum_defs: &mut enums,
+            fields: &mut fields,
+        };
+        emit_child_builder(child, "", &mut HashMap::new(), &mut ctx)
+    }
+
+    #[test]
+    fn variant_group_emits_enum_field_and_match() {
+        use wa_ir::{WapVariant, WapVariantGroup};
+        // `messages{count}` with a required query-params disjunction (jid/invite,
+        // discriminated by `type`) and an optional directions disjunction.
+        let node = WapChildNode {
+            tag: "messages".into(),
+            attrs: vec![attr("count", WapAttrKind::Integer, None)],
+            children: vec![],
+            repeats: false,
+            variant_groups: vec![
+                WapVariantGroup {
+                    optional: false,
+                    variants: vec![
+                        WapVariant {
+                            attrs: vec![
+                                attr("type", WapAttrKind::Const, Some("jid")),
+                                attr("jid", WapAttrKind::UserJid, None),
+                            ],
+                            children: vec![],
+                        },
+                        WapVariant {
+                            attrs: vec![
+                                attr("type", WapAttrKind::Const, Some("invite")),
+                                attr("key", WapAttrKind::String, None),
+                            ],
+                            children: vec![],
+                        },
+                    ],
+                },
+                WapVariantGroup {
+                    optional: true,
+                    variants: vec![
+                        WapVariant {
+                            attrs: vec![attr("before", WapAttrKind::Integer, None)],
+                            children: vec![],
+                        },
+                        WapVariant {
+                            attrs: vec![attr("after", WapAttrKind::Integer, None)],
+                            children: vec![],
+                        },
+                    ],
+                },
+            ],
+        };
+        let (mut enums, mut fields) = (Vec::new(), Vec::new());
+        let mut ctx = VariantCtx {
+            spec_base: "Foo",
+            enum_defs: &mut enums,
+            fields: &mut fields,
+        };
+        let (lines, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
+        let enum_src = enums.join("\n");
+        let code = lines.join("\n");
+
+        // Discriminated enum for the query-params group (named by `type`).
+        assert!(
+            enum_src.contains("pub enum FooMessagesVariant1 {"),
+            "{enum_src}"
+        );
+        assert!(enum_src.contains("Jid { jid: Jid }"), "{enum_src}");
+        assert!(enum_src.contains("Invite { key: String }"), "{enum_src}");
+        // Directions group named by its distinguishing attr.
+        assert!(
+            enum_src.contains("pub enum FooMessagesVariant2 {"),
+            "{enum_src}"
+        );
+        assert!(enum_src.contains("Before { before: u64 }"), "{enum_src}");
+
+        // Spec fields: required enum + optional enum.
+        assert!(
+            fields
+                .iter()
+                .any(|(n, t, opt)| n == "messages_v1" && t == "FooMessagesVariant1" && !opt)
+        );
+        assert!(
+            fields.iter().any(|(n, t, opt)| n == "messages_v2"
+                && t == "Option<FooMessagesVariant2>"
+                && *opt)
+        );
+
+        // Build match applies the const discriminator + bound payload.
+        assert!(code.contains("match &self.messages_v1 {"), "{code}");
+        assert!(
+            code.contains("messages_node = messages_node.attr(\"type\", \"jid\");"),
+            "{code}"
+        );
+        assert!(
+            code.contains("messages_node = messages_node.attr(\"jid\", jid.clone());"),
+            "{code}"
+        );
+        assert!(
+            code.contains("if let Some(__v) = &self.messages_v2 {"),
+            "{code}"
+        );
     }
 
     #[test]
@@ -618,8 +931,9 @@ mod tests {
             ],
             children: vec![],
             repeats: false,
+            variant_groups: vec![],
         };
-        let (lines, var) = emit_child_builder(&child, "", &mut HashMap::new());
+        let (lines, var) = build1(&child);
         let code = lines.join("\n");
         assert_eq!(var, "query_node");
         assert!(code.contains("let mut query_node = NodeBuilder::new(\"query\");"));
@@ -635,7 +949,7 @@ mod tests {
 
     #[test]
     fn empty_node_avoids_unused_mut() {
-        let (lines, _) = emit_child_builder(&leaf("ping"), "", &mut HashMap::new());
+        let (lines, _) = build1(&leaf("ping"));
         let code = lines.join("\n");
         assert!(code.contains("let ping_node = NodeBuilder::new(\"ping\").build();"));
         assert!(!code.contains("let mut ping_node"));
@@ -648,8 +962,9 @@ mod tests {
             attrs: vec![],
             children: vec![leaf("item"), leaf("item")],
             repeats: false,
+            variant_groups: vec![],
         };
-        let (lines, _) = emit_child_builder(&parent, "", &mut HashMap::new());
+        let (lines, _) = build1(&parent);
         let code = lines.join("\n");
         assert!(code.contains("let item_node = NodeBuilder::new(\"item\").build();"));
         assert!(code.contains("let item_node_2 = NodeBuilder::new(\"item\").build();"));

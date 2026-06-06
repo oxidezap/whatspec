@@ -402,6 +402,12 @@ pub(crate) fn count_recovered_fields(into: &[WapChildNode], from: &[WapChildNode
                 .filter(|fa| !existing.attrs.iter().any(|a| a.name == fa.name))
                 .count();
             n += count_recovered_fields(&existing.children, &fc.children);
+            // Variant groups absent locally are recovered wholesale.
+            for g in &fc.variant_groups {
+                if !existing.variant_groups.contains(g) {
+                    n += variant_group_field_count(g);
+                }
+            }
         } else {
             // Whole subtree is new: its tag + its attrs + every descendant tag/attr.
             n += 1 + subtree_field_count(fc);
@@ -411,19 +417,37 @@ pub(crate) fn count_recovered_fields(into: &[WapChildNode], from: &[WapChildNode
 }
 
 /// Tags + attrs contained in a subtree, excluding the node's own tag (the caller
-/// counts that). The node's attrs plus, recursively, each descendant's tag+attrs.
+/// counts that). The node's attrs plus its variant-group attrs plus, recursively,
+/// each descendant's tag+attrs.
 fn subtree_field_count(node: &WapChildNode) -> usize {
     let mut n = node.attrs.len();
+    for g in &node.variant_groups {
+        n += variant_group_field_count(g);
+    }
     for c in &node.children {
         n += 1 + subtree_field_count(c);
     }
     n
 }
 
+/// Attrs (and nested subtree fields) across all variants of a group.
+fn variant_group_field_count(g: &wa_ir::WapVariantGroup) -> usize {
+    g.variants
+        .iter()
+        .map(|v| {
+            v.attrs.len()
+                + v.children
+                    .iter()
+                    .map(|c| 1 + subtree_field_count(c))
+                    .sum::<usize>()
+        })
+        .sum()
+}
+
 /// Merge `from` children into `into` by tag (`mergeStanzas` semantics): a matching
-/// tag has its attrs unioned (existing wins) and children merged recursively; a
-/// non-matching child is appended. Locally-extracted fields take precedence, so the
-/// merge only ever ADDS cross-module attrs/children, never overrides.
+/// tag has its attrs unioned (existing wins), variant groups unioned, and children
+/// merged recursively; a non-matching child is appended. Locally-extracted fields
+/// take precedence, so the merge only ever ADDS cross-module attrs/children.
 pub(crate) fn merge_children(into: &mut Vec<WapChildNode>, from: &[WapChildNode]) {
     for fc in from {
         if let Some(existing) = into.iter_mut().find(|c| c.tag == fc.tag) {
@@ -435,6 +459,13 @@ pub(crate) fn merge_children(into: &mut Vec<WapChildNode>, from: &[WapChildNode]
             // A fragment that marks the child repeated promotes it (the local build
             // may have seen a single template).
             existing.repeats = existing.repeats || fc.repeats;
+            // Union variant groups (a node can carry several disjunctions); dedup so
+            // a re-merge of the same fragment doesn't duplicate a group.
+            for g in &fc.variant_groups {
+                if !existing.variant_groups.contains(g) {
+                    existing.variant_groups.push(g.clone());
+                }
+            }
             merge_children(&mut existing.children, &fc.children);
         } else {
             into.push(fc.clone());
@@ -462,6 +493,7 @@ mod tests {
             attrs: attrs.iter().map(|a| attr(a)).collect(),
             children,
             repeats: false,
+            variant_groups: Vec::new(),
         }
     }
 

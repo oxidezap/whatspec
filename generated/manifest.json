@@ -5,7 +5,7 @@
     "iq": {
       "candidateModules": 206,
       "crossModule": {
-        "fieldsRecovered": 24,
+        "fieldsRecovered": 28,
         "requestsEnriched": 8,
         "requestsWithMixins": 103
       },
@@ -38,7 +38,7 @@
     "iq": {
       "file": "iq/index.json",
       "schema": "schema/iq.schema.json",
-      "sha256": "e91d2014f782dce297eb139953ae2b40156f27f24f08edf5f667c9619ab03732"
+      "sha256": "cac31423491d9eaa6a7c942590bcb592aa79f900ff55d2358d49df6f6d349ba9"
     },
     "mex": {
       "file": "mex/index.json",

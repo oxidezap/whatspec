@@ -59,15 +59,50 @@ pub struct WapAttrDef {
 }
 
 /// A node in a request stanza tree.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct WapChildNode {
     pub tag: String,
+    /// Attributes always present on this node (independent of any variant group).
     pub attrs: Vec<WapAttrDef>,
     pub children: Vec<WapChildNode>,
     /// Whether this child can appear multiple times (maps to `Vec<_>` in codegen).
     pub repeats: bool,
+    /// Mutually-exclusive variant groups this node can take, each from a smax
+    /// MixinGroup disjunction (e.g. newsletter params: a `jid` variant XOR an
+    /// `invite` variant, discriminated by `type`). Exactly one variant of each
+    /// required group applies; at most one of each optional group. Empty for the
+    /// common case of a node with no disjunction.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub variant_groups: Vec<WapVariantGroup>,
+}
+
+/// A set of mutually-exclusive alternatives a [`WapChildNode`] can take, recovered
+/// from one smax MixinGroup disjunction (`if(flagA) merge…A; if(flagB) merge…B;
+/// else throw`). Consumers pick exactly one variant (or none when [`optional`]).
+///
+/// [`optional`]: WapVariantGroup::optional
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct WapVariantGroup {
+    /// The group is folded via `optionalMerge`: zero variants may apply.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub optional: bool,
+    pub variants: Vec<WapVariant>,
+}
+
+/// One alternative within a [`WapVariantGroup`]: the attrs/children it contributes
+/// to the node. Variants of a group sharing a const attr (e.g. `type`) are
+/// discriminated by it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct WapVariant {
+    pub attrs: Vec<WapAttrDef>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub children: Vec<WapChildNode>,
 }
 
 /// IQ operation kind.

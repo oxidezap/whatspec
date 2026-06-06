@@ -315,6 +315,7 @@ mod tests {
                         ],
                         children: vec![],
                         repeats: false,
+                        variant_groups: vec![],
                     }],
                 },
                 response: ParsedResponse {

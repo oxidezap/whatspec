@@ -288,11 +288,12 @@ mod tests {
     }
 
     #[test]
-    fn nested_sub_stanza_mixin_attrs_recovered() {
-        // Phase 3: a request whose `<iq>` child (`messages`) gets its attrs from a
-        // chain of cross-module mixins — a base attr (`count`), a MixinGroup union
-        // (`before`/`after` via optionalMerge), and a `smax$any` wildcard (`jid`).
-        // All must land on `messages` through the topological contribution build.
+    fn nested_sub_stanza_union_variants_recovered() {
+        // Phase 4: a request whose `<iq>` child (`messages`) gets a base attr
+        // (`count`) plus TWO MixinGroup disjunctions — query params (jid XOR invite,
+        // via a direct merge + `smax$any` wildcard) and directions (before XOR after,
+        // via optionalMerge). Each disjunction must surface as a discriminated
+        // variant group on `messages`, not a flattened attr soup.
         let bundle = r#"
             __d("WASmaxOutNlBeforeMixinMixin",["WASmaxJsx","WASmaxMixins","WAWap"],function(g,r,d,o,e,i,l){
                 function b(a){ return o("WASmaxJsx").smax("messages",{before:o("WAWap").INT(a.b)}); }
@@ -304,8 +305,8 @@ mod tests {
                 function s(t,n){ return o("WASmaxMixins").mergeStanzas(t,b(n)); }
                 l.mergeAfterMixinMixin=s;
             },1);
-            __d("WASmaxOutNlDirections",["WASmaxOutNlBeforeMixinMixin","WASmaxOutNlAfterMixinMixin"],function(g,r,d,o,e,i,l){
-                function sel(t,n){ if(n.before) return o("WASmaxOutNlBeforeMixinMixin").mergeBeforeMixinMixin(t,n.before); if(n.after) return o("WASmaxOutNlAfterMixinMixin").mergeAfterMixinMixin(t,n.after); throw n; }
+            __d("WASmaxOutNlDirections",["WASmaxMixinGroupExhaustiveError","WASmaxOutNlBeforeMixinMixin","WASmaxOutNlAfterMixinMixin"],function(g,r,d,o,e,i,l){
+                function sel(t,n){ if(n.before) return o("WASmaxOutNlBeforeMixinMixin").mergeBeforeMixinMixin(t,n.before); if(n.after) return o("WASmaxOutNlAfterMixinMixin").mergeAfterMixinMixin(t,n.after); throw new(o("WASmaxMixinGroupExhaustiveError")).E; }
                 l.mergeDirections=sel;
             },1);
             __d("WASmaxOutNlJidParamsMixin",["WASmaxJsx","WASmaxMixins","WAWap"],function(g,r,d,o,e,i,l){
@@ -313,8 +314,22 @@ mod tests {
                 function s(t,n){ return o("WASmaxMixins").mergeStanzas(t,b(n)); }
                 l.mergeJidParamsMixin=s;
             },1);
-            __d("WASmaxOutNlPayloadMixin",["WASmaxJsx","WASmaxMixins","WASmaxOutNlDirections","WASmaxOutNlJidParamsMixin","WAWap"],function(g,r,d,o,e,i,l){
-                function b(a){ return o("WASmaxOutNlJidParamsMixin").mergeJidParamsMixin(o("WASmaxMixins").optionalMerge(o("WASmaxOutNlDirections").mergeDirections, o("WASmaxJsx").smax("messages",{count:o("WAWap").INT(a.c)}), a.d), a.j); }
+            __d("WASmaxOutNlInviteParamsMixin",["WASmaxJsx","WASmaxMixins","WAWap"],function(g,r,d,o,e,i,l){
+                function b(a){ return o("WASmaxJsx").smax("smax$any",{type:"invite",key:o("WAWap").CUSTOM_STRING(a.k)}); }
+                function s(t,n){ return o("WASmaxMixins").mergeStanzas(t,b(n)); }
+                l.mergeInviteParamsMixin=s;
+            },1);
+            __d("WASmaxOutNlQueryParams",["WASmaxMixinGroupExhaustiveError","WASmaxOutNlJidParamsMixin","WASmaxOutNlInviteParamsMixin"],function(g,r,d,o,e,i,l){
+                function sel(t,n){ if(n.jid) return o("WASmaxOutNlJidParamsMixin").mergeJidParamsMixin(t,n.jid); if(n.invite) return o("WASmaxOutNlInviteParamsMixin").mergeInviteParamsMixin(t,n.invite); throw new(o("WASmaxMixinGroupExhaustiveError")).E; }
+                l.mergeQueryParams=sel;
+            },1);
+            __d("WASmaxOutNlQueryParamsMixin",["WASmaxJsx","WASmaxMixins","WASmaxOutNlQueryParams"],function(g,r,d,o,e,i,l){
+                function b(a){ return o("WASmaxOutNlQueryParams").mergeQueryParams(o("WASmaxJsx").smax("smax$any",null), a.q); }
+                function s(t,n){ return o("WASmaxMixins").mergeStanzas(t,b(n)); }
+                l.mergeQueryParamsMixin=s;
+            },1);
+            __d("WASmaxOutNlPayloadMixin",["WASmaxJsx","WASmaxMixins","WASmaxOutNlDirections","WASmaxOutNlQueryParamsMixin","WAWap"],function(g,r,d,o,e,i,l){
+                function b(a){ return o("WASmaxOutNlQueryParamsMixin").mergeQueryParamsMixin(o("WASmaxMixins").optionalMerge(o("WASmaxOutNlDirections").mergeDirections, o("WASmaxJsx").smax("messages",{count:o("WAWap").INT(a.c)}), a.d), a.q); }
                 function s(t,n){ return o("WASmaxMixins").mergeStanzas(t,b(n)); }
                 l.mergePayloadMixin=s;
             },1);
@@ -343,11 +358,45 @@ mod tests {
             .iter()
             .find(|c| c.tag == "messages")
             .expect("messages child recovered via the IQ-payload mixin");
-        let names: Vec<_> = messages.attrs.iter().map(|a| a.name.as_str()).collect();
-        // count (direct), before+after (union via optionalMerge), jid+type (smax$any).
-        for want in ["count", "before", "after", "jid", "type"] {
-            assert!(names.contains(&want), "messages missing {want}: {names:?}");
-        }
+        // Base attr only; the disjunctions are variant groups, not flattened attrs.
+        let base: Vec<_> = messages.attrs.iter().map(|a| a.name.as_str()).collect();
+        assert_eq!(base, ["count"], "only the base attr stays flat: {base:?}");
+
+        // Two variant groups: query params (required, jid/invite) + directions
+        // (optional, before/after).
+        assert_eq!(messages.variant_groups.len(), 2);
+        let variant_attrs = |g: &wa_ir::WapVariantGroup| -> Vec<Vec<String>> {
+            g.variants
+                .iter()
+                .map(|v| v.attrs.iter().map(|a| a.name.clone()).collect())
+                .collect()
+        };
+        let query = messages
+            .variant_groups
+            .iter()
+            .find(|g| !g.optional)
+            .expect("required query-params group");
+        let qv = variant_attrs(query);
+        assert!(
+            qv.contains(&vec!["type".into(), "jid".into()]),
+            "jid variant: {qv:?}"
+        );
+        assert!(
+            qv.contains(&vec!["type".into(), "key".into()]),
+            "invite variant: {qv:?}"
+        );
+
+        let directions = messages
+            .variant_groups
+            .iter()
+            .find(|g| g.optional)
+            .expect("optional directions group");
+        let dv = variant_attrs(directions);
+        assert!(
+            dv.contains(&vec!["before".into()]) && dv.contains(&vec!["after".into()]),
+            "{dv:?}"
+        );
+
         // The wildcard placeholder tag must never reach the IR.
         assert!(
             !req.request.children.iter().any(|c| c.tag == "smax$any"),
