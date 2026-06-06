@@ -423,6 +423,7 @@ impl ModuleScanner<'_> {
                     self.scope,
                     self.source,
                     self.aliases,
+                    0,
                 ));
             }
         }

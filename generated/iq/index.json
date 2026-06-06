@@ -4195,7 +4195,20 @@
                     "required": false
                   }
                 ],
-                "children": [],
+                "children": [
+                  {
+                    "tag": "device",
+                    "attrs": [
+                      {
+                        "name": "id",
+                        "kind": "integer",
+                        "required": true
+                      }
+                    ],
+                    "children": [],
+                    "repeats": true
+                  }
+                ],
                 "repeats": true
               }
             ],
@@ -21834,24 +21847,48 @@
           {
             "tag": "privacy",
             "attrs": [],
-            "children": [],
-            "repeats": false
-          },
-          {
-            "tag": "category",
-            "attrs": [
+            "children": [
               {
-                "name": "name",
-                "kind": "string",
-                "required": true
-              },
-              {
-                "name": "value",
-                "kind": "string",
-                "required": true
+                "tag": "category",
+                "attrs": [
+                  {
+                    "name": "name",
+                    "kind": "string",
+                    "required": true
+                  },
+                  {
+                    "name": "value",
+                    "kind": "string",
+                    "required": true
+                  },
+                  {
+                    "name": "dhash",
+                    "kind": "string",
+                    "required": true
+                  }
+                ],
+                "children": [
+                  {
+                    "tag": "user",
+                    "attrs": [
+                      {
+                        "name": "action",
+                        "kind": "string",
+                        "required": true
+                      },
+                      {
+                        "name": "jid",
+                        "kind": "user_jid",
+                        "required": true
+                      }
+                    ],
+                    "children": [],
+                    "repeats": true
+                  }
+                ],
+                "repeats": false
               }
             ],
-            "children": [],
             "repeats": false
           }
         ]
@@ -22835,6 +22872,12 @@
             "children": [
               {
                 "tag": "message",
+                "attrs": [],
+                "children": [],
+                "repeats": true
+              },
+              {
+                "tag": "call",
                 "attrs": [],
                 "children": [],
                 "repeats": true
@@ -26452,6 +26495,12 @@
                 "attrs": [],
                 "children": [],
                 "repeats": true
+              },
+              {
+                "tag": "use_ad_account",
+                "attrs": [],
+                "children": [],
+                "repeats": true
               }
             ],
             "repeats": false
@@ -26483,7 +26532,25 @@
           {
             "tag": "pending_campaigns",
             "attrs": [],
-            "children": [],
+            "children": [
+              {
+                "tag": "campaign",
+                "attrs": [
+                  {
+                    "name": "free_reserved_msgs",
+                    "kind": "integer",
+                    "required": true
+                  },
+                  {
+                    "name": "send_timestamp",
+                    "kind": "optional",
+                    "required": false
+                  }
+                ],
+                "children": [],
+                "repeats": true
+              }
+            ],
             "repeats": false
           }
         ]
@@ -46114,13 +46181,33 @@
                     "required": true
                   }
                 ],
-                "children": [],
-                "repeats": false
-              },
-              {
-                "tag": "body",
-                "attrs": [],
-                "children": [],
+                "children": [
+                  {
+                    "tag": "body",
+                    "attrs": [],
+                    "children": [
+                      {
+                        "tag": "parent",
+                        "attrs": [],
+                        "children": [],
+                        "repeats": false
+                      },
+                      {
+                        "tag": "membership_approval_mode",
+                        "attrs": [],
+                        "children": [],
+                        "repeats": false
+                      },
+                      {
+                        "tag": "locked",
+                        "attrs": [],
+                        "children": [],
+                        "repeats": false
+                      }
+                    ],
+                    "repeats": false
+                  }
+                ],
                 "repeats": false
               },
               {
@@ -46137,6 +46224,18 @@
               },
               {
                 "tag": "parent",
+                "attrs": [],
+                "children": [],
+                "repeats": false
+              },
+              {
+                "tag": "membership_approval_mode",
+                "attrs": [],
+                "children": [],
+                "repeats": false
+              },
+              {
+                "tag": "locked",
                 "attrs": [],
                 "children": [],
                 "repeats": false
@@ -46166,6 +46265,12 @@
               },
               {
                 "tag": "membership_approval_mode",
+                "attrs": [],
+                "children": [],
+                "repeats": false
+              },
+              {
+                "tag": "locked",
                 "attrs": [],
                 "children": [],
                 "repeats": false
@@ -49872,7 +49977,14 @@
                         "required": true
                       }
                     ],
-                    "children": [],
+                    "children": [
+                      {
+                        "tag": "hidden_group",
+                        "attrs": [],
+                        "children": [],
+                        "repeats": false
+                      }
+                    ],
                     "repeats": true
                   }
                 ],
@@ -50622,13 +50734,59 @@
               {
                 "tag": "approve",
                 "attrs": [],
-                "children": [],
+                "children": [
+                  {
+                    "tag": "participant",
+                    "attrs": [
+                      {
+                        "name": "jid",
+                        "kind": "user_jid",
+                        "required": true
+                      },
+                      {
+                        "name": "phone_number",
+                        "kind": "optional",
+                        "required": false
+                      },
+                      {
+                        "name": "username",
+                        "kind": "optional",
+                        "required": false
+                      }
+                    ],
+                    "children": [],
+                    "repeats": true
+                  }
+                ],
                 "repeats": false
               },
               {
                 "tag": "reject",
                 "attrs": [],
-                "children": [],
+                "children": [
+                  {
+                    "tag": "participant",
+                    "attrs": [
+                      {
+                        "name": "jid",
+                        "kind": "user_jid",
+                        "required": true
+                      },
+                      {
+                        "name": "phone_number",
+                        "kind": "optional",
+                        "required": false
+                      },
+                      {
+                        "name": "username",
+                        "kind": "optional",
+                        "required": false
+                      }
+                    ],
+                    "children": [],
+                    "repeats": true
+                  }
+                ],
                 "repeats": false
               }
             ],
@@ -51599,13 +51757,39 @@
               {
                 "tag": "promote",
                 "attrs": [],
-                "children": [],
+                "children": [
+                  {
+                    "tag": "participant",
+                    "attrs": [
+                      {
+                        "name": "jid",
+                        "kind": "user_jid",
+                        "required": true
+                      }
+                    ],
+                    "children": [],
+                    "repeats": true
+                  }
+                ],
                 "repeats": false
               },
               {
                 "tag": "demote",
                 "attrs": [],
-                "children": [],
+                "children": [
+                  {
+                    "tag": "participant",
+                    "attrs": [
+                      {
+                        "name": "jid",
+                        "kind": "user_jid",
+                        "required": true
+                      }
+                    ],
+                    "children": [],
+                    "repeats": true
+                  }
+                ],
                 "repeats": false
               }
             ],
@@ -52110,13 +52294,39 @@
           {
             "tag": "promote",
             "attrs": [],
-            "children": [],
+            "children": [
+              {
+                "tag": "participant",
+                "attrs": [
+                  {
+                    "name": "jid",
+                    "kind": "user_jid",
+                    "required": true
+                  }
+                ],
+                "children": [],
+                "repeats": true
+              }
+            ],
             "repeats": false
           },
           {
             "tag": "demote",
             "attrs": [],
-            "children": [],
+            "children": [
+              {
+                "tag": "participant",
+                "attrs": [
+                  {
+                    "name": "jid",
+                    "kind": "user_jid",
+                    "required": true
+                  }
+                ],
+                "children": [],
+                "repeats": true
+              }
+            ],
             "repeats": false
           }
         ]
@@ -54550,6 +54760,12 @@
             "repeats": false
           },
           {
+            "tag": "locked",
+            "attrs": [],
+            "children": [],
+            "repeats": false
+          },
+          {
             "tag": "allow_admin_reports",
             "attrs": [],
             "children": [],
@@ -55627,19 +55843,40 @@
               {
                 "tag": "approve",
                 "attrs": [],
-                "children": [],
+                "children": [
+                  {
+                    "tag": "sub_group_suggestion",
+                    "attrs": [],
+                    "children": [],
+                    "repeats": true
+                  }
+                ],
                 "repeats": false
               },
               {
                 "tag": "reject",
                 "attrs": [],
-                "children": [],
+                "children": [
+                  {
+                    "tag": "sub_group_suggestion",
+                    "attrs": [],
+                    "children": [],
+                    "repeats": true
+                  }
+                ],
                 "repeats": false
               },
               {
                 "tag": "cancel",
                 "attrs": [],
-                "children": [],
+                "children": [
+                  {
+                    "tag": "sub_group_suggestion",
+                    "attrs": [],
+                    "children": [],
+                    "repeats": true
+                  }
+                ],
                 "repeats": false
               }
             ],

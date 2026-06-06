@@ -21,7 +21,11 @@ use crate::alias::{AliasMap, build_alias_map, resolve_owner};
 use crate::attrs::{extract_attrs_from_obj, parse_wap_call};
 use wa_oxc::{arg_expr, as_call, as_identifier, callee_method, callee_object};
 
-const MAX_FN_DEPTH: u32 = 3;
+/// Max function-boundary crossings while tracing returns/templates. Bounds the
+/// `resolve_child_node` ↔ `resolve_function_return` recursion so a (pathological)
+/// mutually-recursive helper pair can't loop forever; real builders nest only a
+/// few templates deep.
+const MAX_FN_DEPTH: u32 = 8;
 
 /// One initializer of a tracked variable, as byte spans into the module source.
 #[derive(Clone)]
@@ -113,7 +117,20 @@ pub(crate) fn resolve_child_node(
     scope: &VarScope,
     module_source: &str,
     aliases: &AliasMap,
+    depth: u32,
 ) -> Vec<WapChildNode> {
+    // Unwrap `(…)` — a transparent wrapper (e.g. a re-parsed `return (expr)`).
+    if let Expression::ParenthesizedExpression(p) = node {
+        return resolve_child_node(
+            &p.expression,
+            node_source,
+            scope,
+            module_source,
+            aliases,
+            depth,
+        );
+    }
+
     // Case 1: direct wap()/smax() call.
     if let Some(call) = as_call(node)
         && let Some(wap) = parse_wap_call(call, aliases)
@@ -131,6 +148,7 @@ pub(crate) fn resolve_child_node(
                     scope,
                     module_source,
                     aliases,
+                    depth,
                 ));
             }
         }
@@ -154,6 +172,7 @@ pub(crate) fn resolve_child_node(
                     scope,
                     module_source,
                     aliases,
+                    depth,
                 ));
             }
         }
@@ -171,7 +190,7 @@ pub(crate) fn resolve_child_node(
                     if let Some(m) = resolve_map_call(expr, slice, aliases) {
                         return m;
                     }
-                    let r = resolve_child_node(expr, slice, scope, module_source, aliases);
+                    let r = resolve_child_node(expr, slice, scope, module_source, aliases, depth);
                     if !r.is_empty() {
                         return r;
                     }
@@ -205,7 +224,8 @@ pub(crate) fn resolve_child_node(
             && matches!(method, "OPTIONAL_CHILD" | "HAS_OPTIONAL_CHILD");
         if repeated || optional {
             if let Some(first) = call.arguments.first().and_then(arg_expr) {
-                let mut r = resolve_template_arg(first, node_source, scope, module_source, aliases);
+                let mut r =
+                    resolve_template_arg(first, node_source, scope, module_source, aliases, depth);
                 if repeated {
                     for c in &mut r {
                         c.repeats = true;
@@ -233,6 +253,7 @@ pub(crate) fn resolve_child_node(
                     scope,
                     module_source,
                     aliases,
+                    depth,
                 ));
             }
             for a in &call.arguments {
@@ -243,6 +264,7 @@ pub(crate) fn resolve_child_node(
                         scope,
                         module_source,
                         aliases,
+                        depth,
                     ));
                 }
             }
@@ -259,7 +281,7 @@ pub(crate) fn resolve_child_node(
     {
         for vi in inits {
             if let Some((bs, be)) = vi.fn_body {
-                let r = resolve_function_return(bs, be, scope, module_source, aliases, 0);
+                let r = resolve_function_return(bs, be, scope, module_source, aliases, depth + 1);
                 if !r.is_empty() {
                     return r;
                 }
@@ -279,6 +301,7 @@ fn resolve_template_arg(
     scope: &VarScope,
     module_source: &str,
     aliases: &AliasMap,
+    depth: u32,
 ) -> Vec<WapChildNode> {
     // A template is usually a *function* reference: trace its return. Prefer the
     // function initializer over any same-named non-function var — the flat scope
@@ -289,7 +312,7 @@ fn resolve_template_arg(
     {
         for vi in inits {
             if let Some((bs, be)) = vi.fn_body {
-                let r = resolve_function_return(bs, be, scope, module_source, aliases, 0);
+                let r = resolve_function_return(bs, be, scope, module_source, aliases, depth + 1);
                 if !r.is_empty() {
                     return r;
                 }
@@ -297,7 +320,7 @@ fn resolve_template_arg(
         }
     }
     // Otherwise an inline stanza or other directly-resolvable expression.
-    resolve_child_node(arg, node_source, scope, module_source, aliases)
+    resolve_child_node(arg, node_source, scope, module_source, aliases, depth)
 }
 
 /// `x.map(function(o){ return e.wap(...) })` → repeating child template(s).
@@ -339,6 +362,55 @@ fn resolve_function_return(
         return Vec::new();
     }
     let body = &module_source[body_start..body_end];
+    // Resolve each `return <expr>` through the normal child resolver so nested
+    // children stay nested (a template returning `smax("description", …,
+    // smax("body", …))` keeps `body` under `description`).
+    //
+    // Lexical scope: this body's own vars (shifted to module-absolute offsets)
+    // SHADOW the module scope, but the module scope still backs cross-function refs
+    // (a sibling template fn like `e` in `REPEATED_CHILD(e, …)`). This fixes the
+    // flat-scope collision (`return e` → this body's `var e`, not a sibling's) while
+    // keeping sibling-fn templates resolvable. Builder helper graphs are acyclic
+    // (they terminate at runtime), so the `resolve_child_node` recursion terminates.
+    let alloc = Allocator::default();
+    let parsed = wa_oxc::parse_cjs(&alloc, body);
+    let mut merged = build_var_scope(&parsed.program);
+    for inits in merged.vars.values_mut() {
+        for vi in inits {
+            vi.init_start += body_start;
+            vi.init_end += body_start;
+            if let Some((s, e)) = vi.fn_body.as_mut() {
+                *s += body_start;
+                *e += body_start;
+            }
+        }
+    }
+    for (name, ginits) in &scope.vars {
+        merged
+            .vars
+            .entry(name.clone())
+            .or_default()
+            .extend(ginits.iter().cloned());
+    }
+    let mut out = Vec::new();
+    for arg_src in collect_return_arg_sources(body) {
+        let alloc2 = Allocator::default();
+        let owned = format!("({arg_src});");
+        let r2 = wa_oxc::parse_cjs(&alloc2, &owned);
+        if let Some(expr) = first_expression(&r2.program) {
+            out.extend(resolve_child_node(
+                expr,
+                &owned,
+                &merged,
+                module_source,
+                aliases,
+                depth,
+            ));
+        }
+    }
+    if !out.is_empty() {
+        return out;
+    }
     let direct = find_wap_calls_in_body(body, aliases);
     if !direct.is_empty() {
         return direct;
@@ -405,6 +477,55 @@ impl<'a> Visit<'a> for WapCollector<'_> {
     }
 }
 
+/// Source text of each top-level `return <expr>` argument in a function body
+/// (descending into nested blocks, but NOT into nested functions — a `.map`/template
+/// callback's own return is resolved separately and must not be hoisted here).
+fn collect_return_arg_sources(body_code: &str) -> Vec<String> {
+    // `return` is only valid inside a function, so wrap the body before parsing;
+    // spans then index into `wrapped`.
+    let wrapped = format!("(function(){body_code});");
+    let alloc = Allocator::default();
+    let ret = wa_oxc::parse_cjs(&alloc, &wrapped);
+    let func = ret.program.body.iter().find_map(|s| match s {
+        Statement::ExpressionStatement(es) => {
+            let e = match &es.expression {
+                Expression::ParenthesizedExpression(p) => &p.expression,
+                other => other,
+            };
+            match e {
+                Expression::FunctionExpression(f) => f.body.as_ref(),
+                _ => None,
+            }
+        }
+        _ => None,
+    });
+    let mut out = Vec::new();
+    if let Some(body) = func {
+        for stmt in &body.statements {
+            collect_returns_in_stmt(stmt, &wrapped, &mut out);
+        }
+    }
+    out
+}
+
+fn collect_returns_in_stmt(stmt: &Statement, src: &str, out: &mut Vec<String>) {
+    match stmt {
+        Statement::BlockStatement(b) => {
+            for s in &b.body {
+                collect_returns_in_stmt(s, src, out);
+            }
+        }
+        Statement::ReturnStatement(r) => {
+            if let Some(arg) = &r.argument {
+                let sp = arg.span();
+                out.push(src[sp.start as usize..sp.end as usize].to_string());
+            }
+        }
+        // Don't descend into functions / control-flow: builder returns are top-level.
+        _ => {}
+    }
+}
+
 /// Names of functions returned directly: `return helper(args)` → `helper`.
 fn collect_returned_call_names(body_code: &str) -> Vec<String> {
     let alloc = Allocator::default();
@@ -455,7 +576,7 @@ mod tests {
         let owned = format!("{expr_src};");
         let ret2 = wa_oxc::parse_cjs(&alloc2, &owned);
         let expr = first_expression(&ret2.program).unwrap();
-        resolve_child_node(expr, &owned, &scope, code, &aliases)
+        resolve_child_node(expr, &owned, &scope, code, &aliases, 0)
     }
 
     #[test]
@@ -499,6 +620,22 @@ mod tests {
                 .repeats,
             "REPEATED_CHILD marks participant repeats"
         );
+    }
+
+    #[test]
+    fn template_fn_preserves_nested_children() {
+        // A template function whose returned stanza has its own child must keep the
+        // nesting (`description > body`), not sibling-ize them.
+        let code = r#"function tmpl(o){ return o("WASmaxJsx").smax("description", {id:"7"}, o("WASmaxJsx").smax("body", {})); }"#;
+        let out = resolve(
+            code,
+            r#"o("WASmaxChildren").REPEATED_CHILD(tmpl, list, 0, 9)"#,
+        );
+        assert_eq!(out.len(), 1, "one top-level child, not flattened siblings");
+        assert_eq!(out[0].tag, "description");
+        assert!(out[0].repeats);
+        assert_eq!(out[0].children.len(), 1, "body nested under description");
+        assert_eq!(out[0].children[0].tag, "body");
     }
 
     #[test]
