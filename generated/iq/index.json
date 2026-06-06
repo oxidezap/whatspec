@@ -855,7 +855,20 @@
         "namespace": "blocklist",
         "iqType": "get",
         "target": "s.whatsapp.net",
-        "children": []
+        "children": [
+          {
+            "tag": "item",
+            "attrs": [
+              {
+                "name": "dhash",
+                "kind": "string",
+                "required": true
+              }
+            ],
+            "children": [],
+            "repeats": false
+          }
+        ]
       },
       "response": {
         "parserName": "WASmaxBlocklistsGetBlockListRPC",
@@ -2406,7 +2419,20 @@
                 "required": false
               }
             ],
-            "children": [],
+            "children": [
+              {
+                "tag": "bot",
+                "attrs": [
+                  {
+                    "name": "jid",
+                    "kind": "user_jid",
+                    "required": true
+                  }
+                ],
+                "children": [],
+                "repeats": true
+              }
+            ],
             "repeats": false
           }
         ]
@@ -3349,7 +3375,25 @@
           {
             "tag": "key",
             "attrs": [],
-            "children": [],
+            "children": [
+              {
+                "tag": "user",
+                "attrs": [
+                  {
+                    "name": "jid",
+                    "kind": "user_jid",
+                    "required": true
+                  },
+                  {
+                    "name": "reason",
+                    "kind": "optional",
+                    "required": false
+                  }
+                ],
+                "children": [],
+                "repeats": true
+              }
+            ],
             "repeats": false
           }
         ]
@@ -4080,7 +4124,25 @@
           {
             "tag": "key_fetch",
             "attrs": [],
-            "children": [],
+            "children": [
+              {
+                "tag": "user",
+                "attrs": [
+                  {
+                    "name": "jid",
+                    "kind": "user_jid",
+                    "required": true
+                  },
+                  {
+                    "name": "reason",
+                    "kind": "optional",
+                    "required": false
+                  }
+                ],
+                "children": [],
+                "repeats": true
+              }
+            ],
             "repeats": false
           }
         ]
@@ -5381,7 +5443,20 @@
         "namespace": "fb:thrift_iq",
         "iqType": "get",
         "target": "s.whatsapp.net",
-        "children": []
+        "children": [
+          {
+            "tag": "identifier",
+            "attrs": [
+              {
+                "name": "scope",
+                "kind": "string",
+                "required": true
+              }
+            ],
+            "children": [],
+            "repeats": false
+          }
+        ]
       },
       "response": {
         "parserName": "WASmaxBizLinkingGetAccountNonceRPC",
@@ -7187,6 +7262,36 @@
             "attrs": [],
             "children": [],
             "repeats": false
+          },
+          {
+            "tag": "topic_id",
+            "attrs": [],
+            "children": [],
+            "repeats": false
+          },
+          {
+            "tag": "debug_information_json",
+            "attrs": [],
+            "children": [],
+            "repeats": false
+          },
+          {
+            "tag": "uploaded_logs_id",
+            "attrs": [],
+            "children": [],
+            "repeats": false
+          },
+          {
+            "tag": "additional_attributes",
+            "attrs": [
+              {
+                "name": "context_flow",
+                "kind": "optional",
+                "required": false
+              }
+            ],
+            "children": [],
+            "repeats": false
           }
         ]
       },
@@ -7474,7 +7579,59 @@
         "namespace": "fb:thrift_iq",
         "iqType": "set",
         "target": "s.whatsapp.net",
-        "children": []
+        "children": [
+          {
+            "tag": "media",
+            "attrs": [
+              {
+                "name": "iv",
+                "kind": "string",
+                "required": true
+              },
+              {
+                "name": "cipherKey",
+                "kind": "string",
+                "required": true
+              },
+              {
+                "name": "type",
+                "kind": "optional",
+                "required": false
+              },
+              {
+                "name": "fileName",
+                "kind": "optional",
+                "required": false
+              }
+            ],
+            "children": [],
+            "repeats": true
+          },
+          {
+            "tag": "title",
+            "attrs": [],
+            "children": [],
+            "repeats": false
+          },
+          {
+            "tag": "category",
+            "attrs": [],
+            "children": [],
+            "repeats": false
+          },
+          {
+            "tag": "client_server_join_key",
+            "attrs": [],
+            "children": [],
+            "repeats": false
+          },
+          {
+            "tag": "reproducibility",
+            "attrs": [],
+            "children": [],
+            "repeats": false
+          }
+        ]
       },
       "response": {
         "parserName": "WASmaxBugReportingReportBugRPC",
@@ -7641,7 +7798,20 @@
           {
             "tag": "feedback_list",
             "attrs": [],
-            "children": [],
+            "children": [
+              {
+                "tag": "feedback",
+                "attrs": [
+                  {
+                    "name": "kind",
+                    "kind": "string",
+                    "required": true
+                  }
+                ],
+                "children": [],
+                "repeats": true
+              }
+            ],
             "repeats": false
           }
         ]
@@ -7817,7 +7987,25 @@
         "namespace": "fb:thrift_iq",
         "iqType": "set",
         "target": "s.whatsapp.net",
-        "children": []
+        "children": [
+          {
+            "tag": "media_list",
+            "attrs": [
+              {
+                "name": "id",
+                "kind": "string",
+                "required": true
+              },
+              {
+                "name": "type",
+                "kind": "string",
+                "required": true
+              }
+            ],
+            "children": [],
+            "repeats": true
+          }
+        ]
       },
       "response": {
         "parserName": "WASmaxBizCtwaNativeAdUploadAdMediaRPC",
@@ -15731,7 +15919,25 @@
         "namespace": "newsletter",
         "iqType": "get",
         "target": "s.whatsapp.net",
-        "children": []
+        "children": [
+          {
+            "tag": "question_responses",
+            "attrs": [
+              {
+                "name": "server_id",
+                "kind": "integer",
+                "required": true
+              },
+              {
+                "name": "count",
+                "kind": "integer",
+                "required": true
+              }
+            ],
+            "children": [],
+            "repeats": false
+          }
+        ]
       },
       "response": {
         "parserName": "WASmaxNewslettersGetNewsletterResponsesRPC",
@@ -19163,7 +19369,20 @@
         "namespace": "optoutlist",
         "iqType": "get",
         "target": "s.whatsapp.net",
-        "children": []
+        "children": [
+          {
+            "tag": "item",
+            "attrs": [
+              {
+                "name": "dhash",
+                "kind": "string",
+                "required": true
+              }
+            ],
+            "children": [],
+            "repeats": false
+          }
+        ]
       },
       "response": {
         "parserName": "WASmaxBlocklistsGetOptOutListRPC",
@@ -21374,7 +21593,31 @@
                 "required": false
               }
             ],
-            "children": [],
+            "children": [
+              {
+                "tag": "message",
+                "attrs": [
+                  {
+                    "name": "from",
+                    "kind": "group_jid",
+                    "required": true
+                  },
+                  {
+                    "name": "phash",
+                    "kind": "optional",
+                    "required": false
+                  }
+                ],
+                "children": [],
+                "repeats": true
+              },
+              {
+                "tag": "call",
+                "attrs": [],
+                "children": [],
+                "repeats": true
+              }
+            ],
             "repeats": false
           }
         ]
@@ -21626,7 +21869,39 @@
         "namespace": "spam",
         "iqType": "set",
         "target": "s.whatsapp.net",
-        "children": []
+        "children": [
+          {
+            "tag": "spam_list",
+            "attrs": [
+              {
+                "name": "jid",
+                "kind": "optional",
+                "required": false
+              }
+            ],
+            "children": [
+              {
+                "tag": "message",
+                "attrs": [],
+                "children": [],
+                "repeats": true
+              },
+              {
+                "tag": "call",
+                "attrs": [],
+                "children": [],
+                "repeats": true
+              },
+              {
+                "tag": "user_initiated_extension",
+                "attrs": [],
+                "children": [],
+                "repeats": true
+              }
+            ],
+            "repeats": false
+          }
+        ]
       },
       "response": {
         "parserName": "WASmaxSpamIndividualReportRPC",
@@ -21883,7 +22158,20 @@
                 "required": true
               }
             ],
-            "children": [],
+            "children": [
+              {
+                "tag": "message",
+                "attrs": [
+                  {
+                    "name": "from",
+                    "kind": "user_jid",
+                    "required": true
+                  }
+                ],
+                "children": [],
+                "repeats": true
+              }
+            ],
             "repeats": false
           }
         ]
@@ -22132,7 +22420,33 @@
         "namespace": "spam",
         "iqType": "set",
         "target": "s.whatsapp.net",
-        "children": []
+        "children": [
+          {
+            "tag": "spam_list",
+            "attrs": [
+              {
+                "name": "jid",
+                "kind": "user_jid",
+                "required": true
+              }
+            ],
+            "children": [
+              {
+                "tag": "message",
+                "attrs": [
+                  {
+                    "name": "from",
+                    "kind": "user_jid",
+                    "required": true
+                  }
+                ],
+                "children": [],
+                "repeats": false
+              }
+            ],
+            "repeats": false
+          }
+        ]
       },
       "response": {
         "parserName": "WASmaxSpamStatusReportRPC",
@@ -22649,7 +22963,25 @@
         "namespace": "tos",
         "iqType": "get",
         "target": "s.whatsapp.net",
-        "children": []
+        "children": [
+          {
+            "tag": "get_disclosure_stage_by_id",
+            "attrs": [
+              {
+                "name": "id",
+                "kind": "integer",
+                "required": true
+              },
+              {
+                "name": "t",
+                "kind": "integer",
+                "required": true
+              }
+            ],
+            "children": [],
+            "repeats": true
+          }
+        ]
       },
       "response": {
         "parserName": "WASmaxUserNoticeGetDisclosureStageByIdsRPC",
@@ -25144,6 +25476,36 @@
             "attrs": [],
             "children": [],
             "repeats": false
+          },
+          {
+            "tag": "use_ad_account",
+            "attrs": [],
+            "children": [],
+            "repeats": false
+          },
+          {
+            "tag": "skip_dedupe",
+            "attrs": [],
+            "children": [],
+            "repeats": false
+          },
+          {
+            "tag": "offer",
+            "attrs": [
+              {
+                "name": "id",
+                "kind": "string",
+                "required": true
+              }
+            ],
+            "children": [],
+            "repeats": false
+          },
+          {
+            "tag": "pending_campaigns",
+            "attrs": [],
+            "children": [],
+            "repeats": false
           }
         ]
       },
@@ -25844,7 +26206,14 @@
         "namespace": "w:biz",
         "iqType": "set",
         "target": "s.whatsapp.net",
-        "children": []
+        "children": [
+          {
+            "tag": "privacy",
+            "attrs": [],
+            "children": [],
+            "repeats": false
+          }
+        ]
       },
       "response": {
         "parserName": "WASmaxBizSettingsSetPrivacySettingRPC",
@@ -27296,7 +27665,20 @@
                 "required": false
               }
             ],
-            "children": [],
+            "children": [
+              {
+                "tag": "group",
+                "attrs": [
+                  {
+                    "name": "jid",
+                    "kind": "group_jid",
+                    "required": true
+                  }
+                ],
+                "children": [],
+                "repeats": true
+              }
+            ],
             "repeats": false
           }
         ]
@@ -30213,7 +30595,33 @@
         "namespace": "w:g2",
         "iqType": "get",
         "target": "s.whatsapp.net",
-        "children": []
+        "children": [
+          {
+            "tag": "query",
+            "attrs": [
+              {
+                "name": "phash",
+                "kind": "optional",
+                "required": false
+              }
+            ],
+            "children": [
+              {
+                "tag": "add_request",
+                "attrs": [
+                  {
+                    "name": "expiration",
+                    "kind": "integer",
+                    "required": true
+                  }
+                ],
+                "children": [],
+                "repeats": false
+              }
+            ],
+            "repeats": false
+          }
+        ]
       },
       "response": {
         "parserName": "WASmaxGroupsGetGroupInfoRPC",
@@ -37991,7 +38399,14 @@
         "namespace": "w:g2",
         "iqType": "get",
         "target": "s.whatsapp.net",
-        "children": []
+        "children": [
+          {
+            "tag": "membership_approval_requests",
+            "attrs": [],
+            "children": [],
+            "repeats": false
+          }
+        ]
       },
       "response": {
         "parserName": "WASmaxGroupsGetMembershipApprovalRequestsRPC",
@@ -38618,6 +39033,12 @@
             "children": [
               {
                 "tag": "participants",
+                "attrs": [],
+                "children": [],
+                "repeats": false
+              },
+              {
+                "tag": "description",
                 "attrs": [],
                 "children": [],
                 "repeats": false
@@ -42943,7 +43364,30 @@
           {
             "tag": "add",
             "attrs": [],
-            "children": [],
+            "children": [
+              {
+                "tag": "participant",
+                "attrs": [
+                  {
+                    "name": "jid",
+                    "kind": "user_jid",
+                    "required": true
+                  },
+                  {
+                    "name": "phone_number",
+                    "kind": "optional",
+                    "required": false
+                  },
+                  {
+                    "name": "username",
+                    "kind": "optional",
+                    "required": false
+                  }
+                ],
+                "children": [],
+                "repeats": true
+              }
+            ],
             "repeats": false
           }
         ]
@@ -44172,7 +44616,20 @@
           {
             "tag": "cancel_membership_requests",
             "attrs": [],
-            "children": [],
+            "children": [
+              {
+                "tag": "participant",
+                "attrs": [
+                  {
+                    "name": "jid",
+                    "kind": "user_jid",
+                    "required": true
+                  }
+                ],
+                "children": [],
+                "repeats": true
+              }
+            ],
             "repeats": false
           }
         ]
@@ -48251,7 +48708,20 @@
                     "required": true
                   }
                 ],
-                "children": [],
+                "children": [
+                  {
+                    "tag": "group",
+                    "attrs": [
+                      {
+                        "name": "jid",
+                        "kind": "group_jid",
+                        "required": true
+                      }
+                    ],
+                    "children": [],
+                    "repeats": true
+                  }
+                ],
                 "repeats": false
               }
             ],
@@ -48994,7 +49464,20 @@
           {
             "tag": "membership_requests_action",
             "attrs": [],
-            "children": [],
+            "children": [
+              {
+                "tag": "approve",
+                "attrs": [],
+                "children": [],
+                "repeats": false
+              },
+              {
+                "tag": "reject",
+                "attrs": [],
+                "children": [],
+                "repeats": false
+              }
+            ],
             "repeats": false
           }
         ]
@@ -49958,7 +50441,20 @@
           {
             "tag": "admin",
             "attrs": [],
-            "children": [],
+            "children": [
+              {
+                "tag": "promote",
+                "attrs": [],
+                "children": [],
+                "repeats": false
+              },
+              {
+                "tag": "demote",
+                "attrs": [],
+                "children": [],
+                "repeats": false
+              }
+            ],
             "repeats": false
           }
         ]
@@ -50456,7 +50952,20 @@
         "namespace": "w:g2",
         "iqType": "set",
         "target": "s.whatsapp.net",
-        "children": []
+        "children": [
+          {
+            "tag": "promote",
+            "attrs": [],
+            "children": [],
+            "repeats": false
+          },
+          {
+            "tag": "demote",
+            "attrs": [],
+            "children": [],
+            "repeats": false
+          }
+        ]
       },
       "response": {
         "parserName": "WASmaxGroupsPromoteDemoteRPC",
@@ -51048,7 +51557,20 @@
                 "required": false
               }
             ],
-            "children": [],
+            "children": [
+              {
+                "tag": "participant",
+                "attrs": [
+                  {
+                    "name": "jid",
+                    "kind": "user_jid",
+                    "required": true
+                  }
+                ],
+                "children": [],
+                "repeats": true
+              }
+            ],
             "repeats": false
           }
         ]
@@ -51941,7 +52463,20 @@
           {
             "tag": "revoke",
             "attrs": [],
-            "children": [],
+            "children": [
+              {
+                "tag": "participant",
+                "attrs": [
+                  {
+                    "name": "jid",
+                    "kind": "user_jid",
+                    "required": true
+                  }
+                ],
+                "children": [],
+                "repeats": true
+              }
+            ],
             "repeats": false
           }
         ]
@@ -52404,7 +52939,14 @@
                 "required": false
               }
             ],
-            "children": [],
+            "children": [
+              {
+                "tag": "body",
+                "attrs": [],
+                "children": [],
+                "repeats": false
+              }
+            ],
             "repeats": false
           }
         ]
@@ -52787,7 +53329,103 @@
         "namespace": "w:g2",
         "iqType": "set",
         "target": "s.whatsapp.net",
-        "children": []
+        "children": [
+          {
+            "tag": "announcement",
+            "attrs": [],
+            "children": [],
+            "repeats": false
+          },
+          {
+            "tag": "no_frequently_forwarded",
+            "attrs": [],
+            "children": [],
+            "repeats": false
+          },
+          {
+            "tag": "ephemeral",
+            "attrs": [
+              {
+                "name": "expiration",
+                "kind": "integer",
+                "required": true
+              },
+              {
+                "name": "trigger",
+                "kind": "optional",
+                "required": false
+              }
+            ],
+            "children": [],
+            "repeats": false
+          },
+          {
+            "tag": "unlocked",
+            "attrs": [],
+            "children": [],
+            "repeats": false
+          },
+          {
+            "tag": "not_announcement",
+            "attrs": [],
+            "children": [],
+            "repeats": false
+          },
+          {
+            "tag": "frequently_forwarded_ok",
+            "attrs": [],
+            "children": [],
+            "repeats": false
+          },
+          {
+            "tag": "not_ephemeral",
+            "attrs": [],
+            "children": [],
+            "repeats": false
+          },
+          {
+            "tag": "membership_approval_mode",
+            "attrs": [],
+            "children": [],
+            "repeats": false
+          },
+          {
+            "tag": "allow_admin_reports",
+            "attrs": [],
+            "children": [],
+            "repeats": false
+          },
+          {
+            "tag": "not_allow_admin_reports",
+            "attrs": [],
+            "children": [],
+            "repeats": false
+          },
+          {
+            "tag": "allow_non_admin_sub_group_creation",
+            "attrs": [],
+            "children": [],
+            "repeats": false
+          },
+          {
+            "tag": "not_allow_non_admin_sub_group_creation",
+            "attrs": [],
+            "children": [],
+            "repeats": false
+          },
+          {
+            "tag": "group_history",
+            "attrs": [],
+            "children": [],
+            "repeats": false
+          },
+          {
+            "tag": "no_group_history",
+            "attrs": [],
+            "children": [],
+            "repeats": false
+          }
+        ]
       },
       "response": {
         "parserName": "WASmaxGroupsSetPropertyRPC",
@@ -53825,7 +54463,26 @@
           {
             "tag": "sub_group_suggestions_action",
             "attrs": [],
-            "children": [],
+            "children": [
+              {
+                "tag": "approve",
+                "attrs": [],
+                "children": [],
+                "repeats": false
+              },
+              {
+                "tag": "reject",
+                "attrs": [],
+                "children": [],
+                "repeats": false
+              },
+              {
+                "tag": "cancel",
+                "attrs": [],
+                "children": [],
+                "repeats": false
+              }
+            ],
             "repeats": false
           }
         ]
@@ -54854,7 +55511,25 @@
                 "required": true
               }
             ],
-            "children": [],
+            "children": [
+              {
+                "tag": "group",
+                "attrs": [
+                  {
+                    "name": "jid",
+                    "kind": "group_jid",
+                    "required": true
+                  },
+                  {
+                    "name": "remove_orphaned_members",
+                    "kind": "optional",
+                    "required": false
+                  }
+                ],
+                "children": [],
+                "repeats": true
+              }
+            ],
             "repeats": false
           }
         ]
@@ -55633,7 +56308,30 @@
                 "required": true
               }
             ],
-            "children": [],
+            "children": [
+              {
+                "tag": "custom_payment_method",
+                "attrs": [
+                  {
+                    "name": "type",
+                    "kind": "string",
+                    "required": true
+                  },
+                  {
+                    "name": "update",
+                    "kind": "optional",
+                    "required": false
+                  },
+                  {
+                    "name": "flow",
+                    "kind": "optional",
+                    "required": false
+                  }
+                ],
+                "children": [],
+                "repeats": false
+              }
+            ],
             "repeats": false
           }
         ]
@@ -55936,7 +56634,45 @@
         "namespace": "w:profile:picture",
         "iqType": "get",
         "target": "s.whatsapp.net",
-        "children": []
+        "children": [
+          {
+            "tag": "picture",
+            "attrs": [
+              {
+                "name": "type",
+                "kind": "dynamic",
+                "required": true
+              },
+              {
+                "name": "id",
+                "kind": "optional",
+                "required": false
+              },
+              {
+                "name": "query",
+                "kind": "optional",
+                "required": false
+              },
+              {
+                "name": "invite",
+                "kind": "optional",
+                "required": false
+              },
+              {
+                "name": "persona_id",
+                "kind": "optional",
+                "required": false
+              },
+              {
+                "name": "common_gid",
+                "kind": "optional",
+                "required": false
+              }
+            ],
+            "children": [],
+            "repeats": false
+          }
+        ]
       },
       "response": {
         "parserName": "WASmaxProfilePictureGetRPC",
@@ -56812,6 +57548,12 @@
             "attrs": [],
             "children": [],
             "repeats": false
+          },
+          {
+            "tag": "only_if_suspended",
+            "attrs": [],
+            "children": [],
+            "repeats": false
           }
         ]
       },
@@ -57280,6 +58022,12 @@
           },
           {
             "tag": "payload_enc_certificates",
+            "attrs": [],
+            "children": [],
+            "repeats": false
+          },
+          {
+            "tag": "password_pem",
             "attrs": [],
             "children": [],
             "repeats": false

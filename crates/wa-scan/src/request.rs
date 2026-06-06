@@ -142,6 +142,24 @@ pub(crate) fn resolve_child_node(
         }];
     }
 
+    // Case 1b: an array of children — `[a, b]` or `[].concat(a, b)` produce a
+    // children list; resolve and flatten each element.
+    if let Expression::ArrayExpression(arr) = node {
+        let mut out = Vec::new();
+        for el in &arr.elements {
+            if let Some(e) = el.as_expression() {
+                out.extend(resolve_child_node(
+                    e,
+                    node_source,
+                    scope,
+                    module_source,
+                    aliases,
+                ));
+            }
+        }
+        return out;
+    }
+
     // Case 2: variable reference — try every initializer (re-parsing its slice).
     if let Some(name) = as_identifier(node) {
         if let Some(inits) = scope.vars.get(name) {
@@ -169,11 +187,15 @@ pub(crate) fn resolve_child_node(
     }
 
     // Case 4: smax composition/optional/repeated child helpers.
-    //   WASmaxChildren.REPEATED_CHILD(fn, list, …)  → repeating child template
-    //   WASmaxChildren.OPTIONAL_CHILD / HAS_OPTIONAL_CHILD(fn, val) → optional child
-    //   WASmax…Mixin.merge…Mixin(stanza, …)         → resolve the inner stanza
-    // For all of these the stanza/template lives in the FIRST argument; we resolve
-    // that locally (cross-module mixin fragments are a future iteration).
+    //   WASmaxChildren.REPEATED_CHILD(tmpl, list, …)        → repeating child template
+    //   WASmaxChildren.OPTIONAL_CHILD/HAS_OPTIONAL_CHILD(tmpl, val) → optional child
+    //   WASmax…Mixin.merge…Mixin(stanza, …)                 → the passed-in stanza
+    //   WASmaxMixins.optionalMerge(mergeFn, stanza, …)      → the stanza (2nd arg)
+    //   [].concat(a, b, …)                                  → flatten the lists
+    // The `tmpl` of REPEATED/OPTIONAL_CHILD is a stanza or a template *function*
+    // (resolved via its return); merge/optionalMerge/concat may carry the stanza in
+    // any argument, so we resolve them all. (Cross-module mixin *fragments* — the
+    // attrs/children a `merge…Mixin` adds via `mergeStanzas` — are Phase 2.)
     if let Some(call) = as_call(node)
         && let Some(method) = callee_method(call)
     {
@@ -181,18 +203,39 @@ pub(crate) fn resolve_child_node(
         let repeated = owner == Some("WASmaxChildren") && method == "REPEATED_CHILD";
         let optional = owner == Some("WASmaxChildren")
             && matches!(method, "OPTIONAL_CHILD" | "HAS_OPTIONAL_CHILD");
-        let is_merge = method.starts_with("merge") && method.ends_with("Mixin");
-        if (repeated || optional || is_merge)
-            && let Some(first) = call.arguments.first().and_then(arg_expr)
-        {
-            let mut r = resolve_child_node(first, node_source, scope, module_source, aliases);
-            if repeated {
-                for c in &mut r {
-                    c.repeats = true;
+        if repeated || optional {
+            if let Some(first) = call.arguments.first().and_then(arg_expr) {
+                let mut r = resolve_template_arg(first, node_source, scope, module_source, aliases);
+                if repeated {
+                    for c in &mut r {
+                        c.repeats = true;
+                    }
+                }
+                if !r.is_empty() {
+                    return r;
                 }
             }
-            if !r.is_empty() {
-                return r;
+        }
+        let is_merge = method.starts_with("merge") && method.ends_with("Mixin");
+        let is_optional_merge = owner == Some("WASmaxMixins") && method == "optionalMerge";
+        let is_concat = method == "concat";
+        if is_merge || is_optional_merge || is_concat {
+            // The stanza/children can be in any argument (concat lists, the 2nd-arg
+            // stanza of optionalMerge, the 1st-arg stanza of a merge); resolve all.
+            let mut out = Vec::new();
+            for a in &call.arguments {
+                if let Some(e) = arg_expr(a) {
+                    out.extend(resolve_child_node(
+                        e,
+                        node_source,
+                        scope,
+                        module_source,
+                        aliases,
+                    ));
+                }
+            }
+            if !out.is_empty() {
+                return out;
             }
         }
     }
@@ -212,6 +255,37 @@ pub(crate) fn resolve_child_node(
         }
     }
 
+    Vec::new()
+}
+
+/// Resolve a `REPEATED_CHILD`/`OPTIONAL_CHILD` template argument: an inline stanza,
+/// or a template *function* reference whose return builds the child (`REPEATED_CHILD(e, …)`
+/// where `function e(o){ return …smax("item", …) }`).
+fn resolve_template_arg(
+    arg: &Expression,
+    node_source: &str,
+    scope: &VarScope,
+    module_source: &str,
+    aliases: &AliasMap,
+) -> Vec<WapChildNode> {
+    // An inline stanza or otherwise directly-resolvable expression.
+    let direct = resolve_child_node(arg, node_source, scope, module_source, aliases);
+    if !direct.is_empty() {
+        return direct;
+    }
+    // A bare function reference — trace the function's return for the template.
+    if let Some(name) = as_identifier(arg)
+        && let Some(inits) = scope.vars.get(name)
+    {
+        for vi in inits {
+            if let Some((bs, be)) = vi.fn_body {
+                let r = resolve_function_return(bs, be, scope, module_source, aliases, 0);
+                if !r.is_empty() {
+                    return r;
+                }
+            }
+        }
+    }
     Vec::new()
 }
 

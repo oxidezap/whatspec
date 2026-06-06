@@ -25,7 +25,13 @@ use wa_oxc::{arg_expr, as_call, as_identifier, as_string_lit, assignment_target_
 
 /// Owner module strings whose aliases we resolve. Anything else is ignored so
 /// the map stays small and `.wap`-only modules produce nothing.
-const TRACKED_OWNERS: &[&str] = &["WASmaxJsx", "WAWap", "WASmaxAttrs", "WASmaxChildren"];
+const TRACKED_OWNERS: &[&str] = &[
+    "WASmaxJsx",
+    "WAWap",
+    "WASmaxAttrs",
+    "WASmaxChildren",
+    "WASmaxMixins",
+];
 
 /// Local variable name → owner module string (e.g. `n` → `"WASmaxJsx"`).
 #[derive(Default)]
