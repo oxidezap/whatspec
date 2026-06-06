@@ -195,6 +195,28 @@ fn emit_struct_reads(
 ) {
     let fields = flatten_same_node(fields);
     for f in &fields {
+        // ── discriminated union (`type=union`) → enum read ──
+        // Gated on the same `classify_union` that `collect_response_fields` uses, so a
+        // codegen-able union inits the `Option<Enum>` field collect derived, and an
+        // unsupported one is skipped by both (the rest of the struct stays typed).
+        if f.field_type == ParsedFieldType::Union {
+            let id = rust_ident(&f.name);
+            if !seen.insert(id.clone()) {
+                continue;
+            }
+            // `emit_union_read` handles its own (optional) `source_path` descent — a
+            // union is `Option<Enum>`, so an absent wrapper must yield `None`, not the
+            // required `?` descent `descend_from` would emit.
+            if let Some((union_lines, init)) =
+                crate::union::emit_union_read(f, node_var, prefix, indent)
+            {
+                lines.extend(union_lines);
+                inits.push(init);
+            } else {
+                seen.remove(&id);
+            }
+            continue;
+        }
         // ── attribute / content-leaf-via-method field ──
         if is_attr_field(f) && f.method != "hasAttr" {
             let id = rust_ident(&f.name);
@@ -952,7 +974,7 @@ mod tests {
         ]))
         .unwrap();
         // Struct field is Option<…>.
-        let (struct_fields, _) = collect_response_fields(&fields, "Foo");
+        let (struct_fields, _, _) = collect_response_fields(&fields, "Foo");
         let df = struct_fields
             .iter()
             .find(|f| f.name == "display_name")

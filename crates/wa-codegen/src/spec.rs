@@ -53,7 +53,7 @@ fn variant_tag_prefix(tags: &[String]) -> usize {
 /// codegen from emitting a parser that references non-existent fields (a shape
 /// `emit_response_parser` mishandles, e.g. a repeated child under a `source_path`).
 fn parser_is_valid(fields: &[wa_ir::ParsedField], response_type_name: &str, prefix: &str) -> bool {
-    let (check_fields, check_child_structs) = collect_response_fields(fields, prefix);
+    let (check_fields, check_child_structs, _) = collect_response_fields(fields, prefix);
     let names: Vec<&str> = check_fields.iter().map(|f| f.name.as_str()).collect();
     if names.iter().collect::<HashSet<_>>().len() != names.len() {
         return false;
@@ -184,12 +184,19 @@ fn emit_outcome_types(
     let mut info: Vec<(String, String)> = Vec::new();
     let mut seen_struct: HashSet<String> = HashSet::new();
     for (v, (vname, struct_name)) in op.response.variants.iter().zip(names) {
-        let (top, child_structs) = collect_response_fields(&v.fields, &struct_name);
+        let (top, child_structs, enums) = collect_response_fields(&v.fields, &struct_name);
         let mut seen_f = HashSet::new();
         let top: Vec<_> = top
             .into_iter()
             .filter(|f| seen_f.insert(f.name.clone()))
             .collect();
+        // A union nested in a variant's fields emits its enum inline (the module-level
+        // shared-types pass skips outcome-union ops).
+        for e in &enums {
+            if seen_struct.insert(e.name.clone()) {
+                out.extend(crate::fields::emit_enum_def(e));
+            }
+        }
         for cs in &child_structs {
             if !seen_struct.insert(cs.name.clone()) {
                 continue;
@@ -226,6 +233,19 @@ fn emit_outcome_types(
     out.push("}".to_string());
     out.push(String::new());
     Some(info)
+}
+
+/// Whether `op` actually generates an RPC outcome-union `enum` (vs falling back to the
+/// single-shape struct). Single source of truth shared with [`generate_spec`]: a
+/// fallback op still carries `response.variants` in the IR but emits the primary
+/// mirror's struct/child-types/enums, which the module-level pass must then collect.
+pub(crate) fn op_uses_outcome_union(op: &IqStanzaDef, child_prefix: &str) -> bool {
+    if op.response.variants.is_empty() {
+        return false;
+    }
+    let enum_name = format!("{child_prefix}Response");
+    let mut sink = Vec::new();
+    emit_outcome_types(op, child_prefix, &enum_name, "", &mut sink).is_some()
 }
 
 /// Emit the `parse_response` body for an outcome union: try each variant in order
@@ -428,7 +448,7 @@ pub(crate) fn generate_spec(op: &IqStanzaDef, ns_const: &str, spec_name: &str) -
         if is_confirmation {
             response_type_name = "()".to_string();
         } else {
-            let (mut top_fields, _) = collect_response_fields(&op.response.fields, child_prefix);
+            let (mut top_fields, _, _) = collect_response_fields(&op.response.fields, child_prefix);
             let mut seen = HashSet::new();
             top_fields.retain(|f| seen.insert(f.name.clone()));
             if top_fields.is_empty() {
@@ -459,7 +479,7 @@ pub(crate) fn generate_spec(op: &IqStanzaDef, ns_const: &str, spec_name: &str) -
     // for outcome unions, which generate their own per-variant try-each parser.
     let mut can_generate = !effectively_confirmation && !use_union;
     if can_generate {
-        let (check_fields, check_child_structs) =
+        let (check_fields, check_child_structs, _) =
             collect_response_fields(&op.response.fields, child_prefix);
         let names: Vec<&str> = check_fields.iter().map(|f| f.name.as_str()).collect();
         if names.iter().collect::<HashSet<_>>().len() != names.len() {

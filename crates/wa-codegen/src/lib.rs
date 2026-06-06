@@ -12,6 +12,7 @@ mod mex_export;
 mod mex_ids;
 mod naming;
 mod spec;
+mod union;
 
 pub use abprops_export::generate_abprops;
 pub use appstate_export::generate_appstate_schemas;
@@ -23,9 +24,9 @@ use std::collections::HashSet;
 
 use wa_ir::{IqIr, IqStanzaDef};
 
-use fields::{RustChildStruct, collect_response_fields};
+use fields::{RustChildStruct, RustEnum, collect_response_fields, emit_enum_def};
 use naming::{rust_lit, snake_case};
-use spec::{generate_spec, spec_base_name};
+use spec::{generate_spec, op_uses_outcome_union, spec_base_name};
 
 /// Generate the single reference Rust file from the IQ IR: one `pub mod` per IQ
 /// namespace (the namespace const, shared child types, and one `IqSpec` impl per
@@ -158,14 +159,18 @@ fn namespace_body(namespace: &str, operations: &[&IqStanzaDef]) -> Vec<String> {
     // namespace can carry same-tagged children with incompatible shapes. Names are
     // unique per spec now, so the dedup only collapses byte-identical specs.
     let mut all_child_structs: Vec<RustChildStruct> = Vec::new();
+    let mut all_enums: Vec<RustEnum> = Vec::new();
     for (op, spec_name, _) in &resolved {
-        // Outcome-union ops emit their per-variant structs (and child structs) inline
-        // in `generate_spec`; the primary-mirror child structs would be unused here.
-        if op.response.fields.is_empty() || !op.response.variants.is_empty() {
+        let prefix = spec_name.trim_end_matches("Spec");
+        // A true outcome-union op emits its per-variant structs/enums inline in
+        // `generate_spec`; collecting the primary-mirror types here would be dead. But
+        // an op that CARRIES variants yet falls back to the single-shape struct (the
+        // outcome wasn't separable) emits from `response.fields` — so it still needs
+        // its child structs/enums at module level.
+        if op.response.fields.is_empty() || op_uses_outcome_union(op, prefix) {
             continue;
         }
-        let prefix = spec_name.trim_end_matches("Spec");
-        let (_, mut child_structs) = collect_response_fields(&op.response.fields, prefix);
+        let (_, mut child_structs, enums) = collect_response_fields(&op.response.fields, prefix);
         for cs in &mut child_structs {
             let mut seen = HashSet::new();
             cs.fields.retain(|f| seen.insert(f.name.clone()));
@@ -180,9 +185,15 @@ fn namespace_body(namespace: &str, operations: &[&IqStanzaDef]) -> Vec<String> {
                 _ => {}
             }
         }
+        for e in enums {
+            // Enum names are spec-prefixed; a collision means a byte-identical enum.
+            if !all_enums.iter().any(|x| x.name == e.name) {
+                all_enums.push(e);
+            }
+        }
     }
 
-    if !all_child_structs.is_empty() {
+    if !all_child_structs.is_empty() || !all_enums.is_empty() {
         lines.push(
             "// ─── Shared child types ──────────────────────────────────────────────────────"
                 .to_string(),
@@ -197,6 +208,9 @@ fn namespace_body(namespace: &str, operations: &[&IqStanzaDef]) -> Vec<String> {
             }
             lines.push("}".to_string());
             lines.push(String::new());
+        }
+        for e in &all_enums {
+            lines.extend(emit_enum_def(e));
         }
     }
 

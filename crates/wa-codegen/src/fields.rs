@@ -23,6 +23,47 @@ pub(crate) struct RustChildStruct {
     pub fields: Vec<RustField>,
 }
 
+/// A generated enum for a `type=union` response field (see [`crate::union`]).
+#[derive(Debug, Clone)]
+pub(crate) struct RustEnum {
+    pub name: String,
+    pub doc: String,
+    pub variants: Vec<RustEnumVariant>,
+}
+
+/// One alternative of a [`RustEnum`]: a unit variant (`fields` empty) or a
+/// struct variant carrying its inline fields.
+#[derive(Debug, Clone)]
+pub(crate) struct RustEnumVariant {
+    pub name: String,
+    pub fields: Vec<RustField>,
+}
+
+/// Emit a `pub enum` definition for a `type=union` response field — unit variants
+/// (markers) or struct variants carrying inline leaf fields. Field types reference
+/// the per-module imports (`Jid`, etc.), so the enum is emitted alongside the
+/// module's shared child structs.
+pub(crate) fn emit_enum_def(e: &RustEnum) -> Vec<String> {
+    let mut lines = Vec::new();
+    lines.push(format!("/// {}", e.doc));
+    lines.push("#[derive(Debug, Clone)]".to_string());
+    lines.push(format!("pub enum {} {{", e.name));
+    for v in &e.variants {
+        if v.fields.is_empty() {
+            lines.push(format!("    {},", v.name));
+        } else {
+            lines.push(format!("    {} {{", v.name));
+            for f in &v.fields {
+                lines.push(format!("        {}: {},", f.name, f.rust_type));
+            }
+            lines.push("    },".to_string());
+        }
+    }
+    lines.push("}".to_string());
+    lines.push(String::new());
+    lines
+}
+
 /// `f.tag ?? f.name`.
 fn tag_or_name(f: &ParsedField) -> &str {
     f.tag.as_deref().unwrap_or(&f.name)
@@ -180,10 +221,11 @@ fn weaken_attr_to_optional(f: &mut ParsedField) {
 pub(crate) fn collect_response_fields(
     fields: &[ParsedField],
     prefix: &str,
-) -> (Vec<RustField>, Vec<RustChildStruct>) {
+) -> (Vec<RustField>, Vec<RustChildStruct>, Vec<RustEnum>) {
     let flattened = &flatten_same_node(fields);
     let mut top_fields: Vec<RustField> = Vec::new();
     let mut child_structs: Vec<RustChildStruct> = Vec::new();
+    let mut enums: Vec<RustEnum> = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
 
     let mut add_field = |out: &mut Vec<RustField>, f: RustField| {
@@ -193,6 +235,15 @@ pub(crate) fn collect_response_fields(
     };
 
     for f in flattened {
+        // `type=union` field → a discriminated enum (when codegen-able); an
+        // unsupported union is skipped, exactly as `emit_response_parser` skips it.
+        if f.field_type == ParsedFieldType::Union {
+            if let Some((field, enum_def)) = crate::union::collect_union(f, prefix) {
+                add_field(&mut top_fields, field);
+                enums.push(enum_def);
+            }
+            continue;
+        }
         if is_child_field(f) {
             let kids = children_of(f);
             // `child("x").contentString()` → a single `x: String` field (named by
@@ -299,13 +350,22 @@ pub(crate) fn collect_response_fields(
                         },
                     );
                 }
-                let nested_owned: Vec<ParsedField> =
-                    nested_children.iter().map(|c| (*c).clone()).collect();
-                let (nested_top, nested_structs) = collect_response_fields(&nested_owned, prefix);
+                // Recurse over nested children AND any `type=union` fields the child
+                // carries (a union has `method == ""`, so it is neither attr nor child
+                // and would otherwise be dropped here — matching what `emit_struct_reads`
+                // passes down, which recurses over all kids).
+                let nested_owned: Vec<ParsedField> = kids
+                    .iter()
+                    .filter(|c| is_child_field(c) || c.field_type == ParsedFieldType::Union)
+                    .map(|c| (*c).clone())
+                    .collect();
+                let (nested_top, nested_structs, nested_enums) =
+                    collect_response_fields(&nested_owned, prefix);
                 for nf in nested_top {
                     add_field(&mut top_fields, nf);
                 }
                 child_structs.extend(nested_structs);
+                enums.extend(nested_enums);
             }
         } else if is_attr_field(f) && f.method != "hasAttr" {
             add_field(
@@ -319,5 +379,5 @@ pub(crate) fn collect_response_fields(
         }
     }
 
-    (top_fields, child_structs)
+    (top_fields, child_structs, enums)
 }
