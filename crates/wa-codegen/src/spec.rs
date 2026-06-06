@@ -5,7 +5,8 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 use wa_ir::{
-    AssertionKind, IqStanzaDef, IqTarget, IqType, ResponseVariant, WapAttrKind, WapChildNode,
+    AssertionKind, IqStanzaDef, IqTarget, IqType, ResponseVariant, ResponseVariantKind,
+    WapAttrKind, WapChildNode,
 };
 
 /// Two outcome variants are separable by a discriminator when both pin the SAME attr
@@ -294,6 +295,52 @@ fn emit_outcome_parse(
     lines
 }
 
+/// Discriminator guards the SUCCESS variant asserts on the response root
+/// (`type:"result"` and any other fixed attr/content pins). Emitted at the top of a
+/// single-shape FALLBACK parser — an op that carries `response.variants` but whose
+/// outcomes couldn't be separated into an enum, so it mirrors the success shape.
+/// Without the guard a non-success response (e.g. `<iq type="error">`) would decode
+/// to an all-default struct; the guard makes it fail the success-shaped parse instead.
+/// Empty for a pure single-shape op (no variants) — nothing to discriminate.
+fn emit_success_guards(op: &IqStanzaDef, indent: &str) -> Vec<String> {
+    let mut lines = Vec::new();
+    let Some(success) = op
+        .response
+        .variants
+        .iter()
+        .find(|v| v.kind == ResponseVariantKind::Success)
+    else {
+        return lines;
+    };
+    for a in &success.assertions {
+        match a.kind {
+            AssertionKind::Attr => {
+                if let (Some(name), Some(value)) = (&a.name, &a.value) {
+                    lines.push(format!(
+                        "{indent}if response.get_attr({}).map(|x| x.as_str()) != Some({}) {{ anyhow::bail!(\"not a success response: {} != {}\"); }}",
+                        rust_lit(name),
+                        rust_lit(value),
+                        rust_lit_inner(name),
+                        rust_lit_inner(value),
+                    ));
+                }
+            }
+            AssertionKind::Content => {
+                if let Some(value) = &a.value {
+                    lines.push(format!(
+                        "{indent}if response.content_str() != Some({}) {{ anyhow::bail!(\"not a success response: content != {}\"); }}",
+                        rust_lit(value),
+                        rust_lit_inner(value),
+                    ));
+                }
+            }
+            // Tag (the `<iq>` root) / FromServer are not success-vs-error discriminators.
+            AssertionKind::Tag | AssertionKind::FromServer => {}
+        }
+    }
+    lines
+}
+
 fn iq_type_str(t: IqType) -> &'static str {
     match t {
         IqType::Get => "get",
@@ -569,6 +616,10 @@ pub(crate) fn generate_spec(op: &IqStanzaDef, ns_const: &str, spec_name: &str) -
         lines.push(format!(
             "    fn parse_response(&self, {resp_param}: &wacore_binary::NodeRef<'_>) -> Result<Self::Response, anyhow::Error> {{"
         ));
+        // A single-shape FALLBACK (op had variants the outcome union couldn't separate)
+        // mirrors the success shape; guard it so a non-success response fails rather
+        // than decoding to all-defaults. A pure single-shape op adds nothing here.
+        lines.extend(emit_success_guards(op, "        "));
         lines.extend(emit_response_parser(
             &op.response.fields,
             &response_type_name,
@@ -763,6 +814,35 @@ mod tests {
     #[test]
     fn struct_init_bodies_ignores_name_not_followed_by_brace() {
         assert!(struct_init_bodies("let EntryItem = 1;", "EntryItem").is_empty());
+    }
+
+    #[test]
+    fn success_guards_discriminate_fallback_single_shape() {
+        // A success variant pinned to `type:"result"` produces a top-of-parser guard,
+        // so a single-shape fallback rejects a non-success (`type:"error"`) response.
+        let mut s = stanza("WASmaxOutThing", Some("getThing"));
+        s.response.variants = vec![ResponseVariant {
+            tag: "GetThingResponseSuccess".into(),
+            module_name: "WASmaxInThingGetThingResponseSuccess".into(),
+            kind: ResponseVariantKind::Success,
+            assertions: vec![wa_ir::ResponseAssertion {
+                kind: AssertionKind::Attr,
+                name: Some("type".into()),
+                value: Some("result".into()),
+            }],
+            fields: vec![],
+        }];
+        let guards = emit_success_guards(&s, "    ");
+        assert_eq!(guards.len(), 1);
+        assert!(
+            guards[0]
+                .contains("response.get_attr(\"type\").map(|x| x.as_str()) != Some(\"result\")")
+                && guards[0].contains("anyhow::bail!"),
+            "{}",
+            guards[0]
+        );
+        // A pure single-shape op (no variants) adds no guard.
+        assert!(emit_success_guards(&stanza("WAWebThing", Some("getThing")), "    ").is_empty());
     }
 
     #[test]
