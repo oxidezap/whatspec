@@ -66,6 +66,11 @@ fn require_owner(e: &Expression) -> Option<&'static str> {
 /// - `X` (identifier) → owner `X` was aliased to
 /// - `(X = o("Owner"))` → `Owner`
 pub(crate) fn resolve_owner(e: &Expression, aliases: &AliasMap) -> Option<&'static str> {
+    // Unwrap `(…)` — minified code writes inline aliases as `(n = o("X")).method()`,
+    // and the parenthesized assignment must be seen through.
+    if let Expression::ParenthesizedExpression(p) = e {
+        return resolve_owner(&p.expression, aliases);
+    }
     if let Some(owner) = require_owner(e) {
         return Some(owner);
     }
@@ -73,7 +78,7 @@ pub(crate) fn resolve_owner(e: &Expression, aliases: &AliasMap) -> Option<&'stat
         return aliases.owner_of(name);
     }
     if let Expression::AssignmentExpression(assign) = e {
-        return require_owner(&assign.right);
+        return resolve_owner(&assign.right, aliases);
     }
     None
 }

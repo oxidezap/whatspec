@@ -6,12 +6,12 @@
       "candidateModules": 206,
       "degradedResponses": 20,
       "dropsByReason": {
-        "iq builder substring present but no AST iq call": 15,
-        "namespace/type unresolved (dropped by guard)": 52
+        "iq builder substring present but no AST iq call": 5,
+        "namespace/type unresolved (dropped by guard)": 53
       },
-      "stanzas": 146,
-      "typedResponses": 126,
-      "unparseable": 67
+      "stanzas": 155,
+      "typedResponses": 135,
+      "unparseable": 58
     }
   },
   "domains": {
@@ -33,7 +33,7 @@
     "iq": {
       "file": "iq/index.json",
       "schema": "schema/iq.schema.json",
-      "sha256": "b07ae464e4ef42824e1b1879383ab579651536f624ef474dfd2e071424fdeeb1"
+      "sha256": "dea6ff01ba2be4fb12f2e393660959b5e4c42bd25fcb470454f12b46683723bf"
     },
     "mex": {
       "file": "mex/index.json",

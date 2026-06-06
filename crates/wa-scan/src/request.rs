@@ -216,13 +216,25 @@ pub(crate) fn resolve_child_node(
                 }
             }
         }
-        let is_merge = method.starts_with("merge") && method.ends_with("Mixin");
+        // `merge…Mixin` and the disjunction `merge…MixinGroup` both wrap a stanza.
+        let is_merge = method.starts_with("merge") && method.contains("Mixin");
         let is_optional_merge = owner == Some("WASmaxMixins") && method == "optionalMerge";
         let is_concat = method == "concat";
         if is_merge || is_optional_merge || is_concat {
             // The stanza/children can be in any argument (concat lists, the 2nd-arg
             // stanza of optionalMerge, the 1st-arg stanza of a merge); resolve all.
             let mut out = Vec::new();
+            // `recv.concat(extra)` returns the receiver's elements too, so resolve
+            // the receiver (e.g. `[a].concat(b)` must keep `a`).
+            if is_concat && let Some(obj) = callee_object(call) {
+                out.extend(resolve_child_node(
+                    obj,
+                    node_source,
+                    scope,
+                    module_source,
+                    aliases,
+                ));
+            }
             for a in &call.arguments {
                 if let Some(e) = arg_expr(a) {
                     out.extend(resolve_child_node(
@@ -268,12 +280,10 @@ fn resolve_template_arg(
     module_source: &str,
     aliases: &AliasMap,
 ) -> Vec<WapChildNode> {
-    // An inline stanza or otherwise directly-resolvable expression.
-    let direct = resolve_child_node(arg, node_source, scope, module_source, aliases);
-    if !direct.is_empty() {
-        return direct;
-    }
-    // A bare function reference — trace the function's return for the template.
+    // A template is usually a *function* reference: trace its return. Prefer the
+    // function initializer over any same-named non-function var — the flat scope
+    // conflates a template fn `e` with an unrelated `var e = smax(…)` in a sibling
+    // helper, and the function is the one passed as the template.
     if let Some(name) = as_identifier(arg)
         && let Some(inits) = scope.vars.get(name)
     {
@@ -286,7 +296,8 @@ fn resolve_template_arg(
             }
         }
     }
-    Vec::new()
+    // Otherwise an inline stanza or other directly-resolvable expression.
+    resolve_child_node(arg, node_source, scope, module_source, aliases)
 }
 
 /// `x.map(function(o){ return e.wap(...) })` → repeating child template(s).
@@ -445,6 +456,86 @@ mod tests {
         let ret2 = wa_oxc::parse_cjs(&alloc2, &owned);
         let expr = first_expression(&ret2.program).unwrap();
         resolve_child_node(expr, &owned, &scope, code, &aliases)
+    }
+
+    #[test]
+    fn inline_alias_merge_optionalmerge_chain() {
+        // Minified Groups-style builder: a `merge…MixinGroup` wrapping an inline-alias
+        // `(n = o("WASmaxMixins")).optionalMerge(…)` chain over a `<create>` whose
+        // children come from `[].concat(REPEATED_CHILD(fn,…), [HAS_OPTIONAL_CHILD(fn,…)])`.
+        // Exercises paren-unwrapped owner resolution + concat + template fn-refs.
+        let code = r#"
+            function e(o){ return o("WASmaxMixins").optionalMerge(o("P").mergePermMixin, o("WASmaxJsx").smax("participant", {jid:"x"}), a); }
+            function u(){ return o("WASmaxJsx").smax("locked", null); }
+            var X = o("WASmaxJsx").smax("iq", null,
+              o("Mod").mergeNamedSubjectFallbackMixinGroup(
+                (n=o("WASmaxMixins")).optionalMerge(o("A").mergeShareMixin,
+                  n.optionalMerge(o("B").mergeDedupMixin,
+                    o("WASmaxJsx").smax("create", null,
+                      [].concat((r=o("WASmaxChildren")).REPEATED_CHILD(e, a, 0, 19999), [r.HAS_OPTIONAL_CHILD(u, l)])
+                    ), A),
+                  F),
+              W));
+        "#;
+        let out = resolve(code, "X");
+        assert_eq!(out.len(), 1);
+        let create = out[0]
+            .children
+            .iter()
+            .find(|c| c.tag == "create")
+            .expect("create recovered through the merge/optionalMerge chain");
+        let tags: Vec<_> = create.children.iter().map(|c| c.tag.as_str()).collect();
+        assert!(
+            tags.contains(&"participant"),
+            "participant template: {tags:?}"
+        );
+        assert!(tags.contains(&"locked"), "locked template: {tags:?}");
+        assert!(
+            create
+                .children
+                .iter()
+                .find(|c| c.tag == "participant")
+                .unwrap()
+                .repeats,
+            "REPEATED_CHILD marks participant repeats"
+        );
+    }
+
+    #[test]
+    fn repeated_child_fn_ref_template_resolves() {
+        // `REPEATED_CHILD(fn, list, …)` where `fn` is a function reference whose
+        // return builds the child template (traced via resolve_function_return).
+        let code = r#"function tmpl(o){ return o("WASmaxJsx").smax("item", {id:"1"}); }"#;
+        let out = resolve(
+            code,
+            r#"o("WASmaxChildren").REPEATED_CHILD(tmpl, list, 0, 20)"#,
+        );
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].tag, "item");
+        assert!(out[0].repeats, "REPEATED_CHILD marks repeats");
+    }
+
+    #[test]
+    fn optional_merge_resolves_stanza_arg() {
+        // `WASmaxMixins.optionalMerge(mergeFn, stanza, …)` → the 2nd-arg stanza.
+        let out = resolve(
+            "",
+            r#"o("WASmaxMixins").optionalMerge(o("M").mergeFooMixin, o("WASmaxJsx").smax("query", {phash:"p"}), args)"#,
+        );
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].tag, "query");
+    }
+
+    #[test]
+    fn concat_includes_non_empty_receiver() {
+        // `[recv].concat(extra)` keeps both the receiver's and the arguments'
+        // children (the receiver is not dropped).
+        let out = resolve(
+            "",
+            r#"[o("WASmaxJsx").smax("a", {})].concat(o("WASmaxJsx").smax("b", {}))"#,
+        );
+        let tags: Vec<_> = out.iter().map(|c| c.tag.as_str()).collect();
+        assert_eq!(tags, ["a", "b"], "receiver `a` and argument `b` both kept");
     }
 
     #[test]

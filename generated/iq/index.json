@@ -1663,7 +1663,63 @@
         "namespace": "blocklist",
         "iqType": "set",
         "target": "s.whatsapp.net",
-        "children": []
+        "children": [
+          {
+            "tag": "item",
+            "attrs": [
+              {
+                "name": "dhash",
+                "kind": "optional",
+                "required": false
+              }
+            ],
+            "children": [
+              {
+                "tag": "biz_opt_out",
+                "attrs": [
+                  {
+                    "name": "reason",
+                    "kind": "optional",
+                    "required": false
+                  },
+                  {
+                    "name": "reason_description",
+                    "kind": "optional",
+                    "required": false
+                  },
+                  {
+                    "name": "entry_point",
+                    "kind": "optional",
+                    "required": false
+                  },
+                  {
+                    "name": "first_message",
+                    "kind": "optional",
+                    "required": false
+                  },
+                  {
+                    "name": "business_discovery_entry_point",
+                    "kind": "optional",
+                    "required": false
+                  },
+                  {
+                    "name": "business_discovery_timestamp",
+                    "kind": "optional",
+                    "required": false
+                  },
+                  {
+                    "name": "business_discovery_id",
+                    "kind": "optional",
+                    "required": false
+                  }
+                ],
+                "children": [],
+                "repeats": false
+              }
+            ],
+            "repeats": false
+          }
+        ]
       },
       "response": {
         "parserName": "WASmaxBlocklistsUpdateBlockListRPC",
@@ -7264,6 +7320,12 @@
             "repeats": false
           },
           {
+            "tag": "topic",
+            "attrs": [],
+            "children": [],
+            "repeats": false
+          },
+          {
             "tag": "topic_id",
             "attrs": [],
             "children": [],
@@ -7580,6 +7642,24 @@
         "iqType": "set",
         "target": "s.whatsapp.net",
         "children": [
+          {
+            "tag": "description",
+            "attrs": [],
+            "children": [],
+            "repeats": false
+          },
+          {
+            "tag": "debug_information_json",
+            "attrs": [],
+            "children": [],
+            "repeats": false
+          },
+          {
+            "tag": "device_log_handle",
+            "attrs": [],
+            "children": [],
+            "repeats": false
+          },
           {
             "tag": "media",
             "attrs": [
@@ -7988,6 +8068,23 @@
         "iqType": "set",
         "target": "s.whatsapp.net",
         "children": [
+          {
+            "tag": "media",
+            "attrs": [
+              {
+                "name": "id",
+                "kind": "string",
+                "required": true
+              },
+              {
+                "name": "type",
+                "kind": "string",
+                "required": true
+              }
+            ],
+            "children": [],
+            "repeats": false
+          },
           {
             "tag": "media_list",
             "attrs": [
@@ -8653,6 +8750,419 @@
       }
     },
     {
+      "moduleName": "WASmaxOutMdCompanionFinishRequest",
+      "namespace": "md",
+      "iqType": "set",
+      "target": "s.whatsapp.net",
+      "parserName": "WASmaxMdCompanionFinishRPC",
+      "exportedFunction": "makeCompanionFinishRequest",
+      "allExports": [
+        "makeCompanionFinishRequest"
+      ],
+      "request": {
+        "namespace": "md",
+        "iqType": "set",
+        "target": "s.whatsapp.net",
+        "children": [
+          {
+            "tag": "link_code_companion_reg",
+            "attrs": [
+              {
+                "name": "jid",
+                "kind": "user_jid",
+                "required": true
+              },
+              {
+                "name": "stage",
+                "kind": "const",
+                "value": "companion_finish",
+                "required": true
+              }
+            ],
+            "children": [
+              {
+                "tag": "link_code_pairing_wrapped_key_bundle",
+                "attrs": [],
+                "children": [],
+                "repeats": false
+              },
+              {
+                "tag": "companion_identity_public",
+                "attrs": [],
+                "children": [],
+                "repeats": false
+              },
+              {
+                "tag": "link_code_pairing_ref",
+                "attrs": [],
+                "children": [],
+                "repeats": false
+              }
+            ],
+            "repeats": false
+          }
+        ]
+      },
+      "response": {
+        "parserName": "WASmaxMdCompanionFinishRPC",
+        "assertions": [],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "type",
+            "wireName": "type",
+            "type": "string",
+            "required": true
+          }
+        ],
+        "variants": [
+          {
+            "tag": "CompanionFinishResponseSuccess",
+            "moduleName": "WASmaxInMdCompanionFinishResponseSuccess",
+            "kind": "success",
+            "assertions": [],
+            "fields": [
+              {
+                "method": "attrString",
+                "name": "type",
+                "wireName": "type",
+                "type": "string",
+                "required": true
+              }
+            ]
+          },
+          {
+            "tag": "CompanionFinishResponseError",
+            "moduleName": "WASmaxInMdCompanionFinishResponseError",
+            "kind": "error",
+            "assertions": [],
+            "fields": [
+              {
+                "method": "attrString",
+                "name": "type",
+                "wireName": "type",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "",
+                "name": "errorCompanionFinishErrors",
+                "type": "union",
+                "required": true,
+                "unionVariants": [
+                  {
+                    "name": "IQErrorInternalServerError",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorBadRequest",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  }
+                ],
+                "sourcePath": [
+                  "error"
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "moduleName": "WASmaxOutMdCompanionHelloRequest",
+      "namespace": "md",
+      "iqType": "set",
+      "target": "s.whatsapp.net",
+      "parserName": "WASmaxMdCompanionHelloRPC",
+      "exportedFunction": "makeCompanionHelloRequestLinkCodeCompanionRegLinkCodePairingNonce",
+      "allExports": [
+        "makeCompanionHelloRequestLinkCodeCompanionRegLinkCodePairingNonce",
+        "makeCompanionHelloRequest"
+      ],
+      "request": {
+        "namespace": "md",
+        "iqType": "set",
+        "target": "s.whatsapp.net",
+        "children": [
+          {
+            "tag": "link_code_companion_reg",
+            "attrs": [
+              {
+                "name": "jid",
+                "kind": "user_jid",
+                "required": true
+              },
+              {
+                "name": "stage",
+                "kind": "const",
+                "value": "companion_hello",
+                "required": true
+              },
+              {
+                "name": "should_show_push_notification",
+                "kind": "optional",
+                "required": false
+              }
+            ],
+            "children": [
+              {
+                "tag": "link_code_pairing_wrapped_companion_ephemeral_pub",
+                "attrs": [],
+                "children": [],
+                "repeats": false
+              },
+              {
+                "tag": "companion_server_auth_key_pub",
+                "attrs": [],
+                "children": [],
+                "repeats": false
+              },
+              {
+                "tag": "companion_platform_id",
+                "attrs": [],
+                "children": [],
+                "repeats": false
+              },
+              {
+                "tag": "companion_platform_display",
+                "attrs": [],
+                "children": [],
+                "repeats": false
+              },
+              {
+                "tag": "link_code_pairing_nonce",
+                "attrs": [],
+                "children": [],
+                "repeats": false
+              }
+            ],
+            "repeats": false
+          }
+        ]
+      },
+      "response": {
+        "parserName": "WASmaxMdCompanionHelloRPC",
+        "assertions": [],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "linkCodeCompanionRegStage",
+            "wireName": "stage",
+            "type": "string",
+            "required": true,
+            "sourcePath": [
+              "link_code_companion_reg"
+            ]
+          },
+          {
+            "method": "contentBytes",
+            "name": "linkCodeCompanionRegLinkCodePairingRefElementValue",
+            "type": "bytes",
+            "required": true,
+            "sourcePath": [
+              "link_code_companion_reg",
+              "link_code_pairing_ref"
+            ]
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "wireName": "type",
+            "type": "string",
+            "required": true
+          }
+        ],
+        "variants": [
+          {
+            "tag": "CompanionHelloResponseNotifyCompanion",
+            "moduleName": "WASmaxInMdCompanionHelloResponseNotifyCompanion",
+            "kind": "success",
+            "assertions": [],
+            "fields": [
+              {
+                "method": "attrString",
+                "name": "linkCodeCompanionRegStage",
+                "wireName": "stage",
+                "type": "string",
+                "required": true,
+                "sourcePath": [
+                  "link_code_companion_reg"
+                ]
+              },
+              {
+                "method": "contentBytes",
+                "name": "linkCodeCompanionRegLinkCodePairingRefElementValue",
+                "type": "bytes",
+                "required": true,
+                "sourcePath": [
+                  "link_code_companion_reg",
+                  "link_code_pairing_ref"
+                ]
+              },
+              {
+                "method": "attrString",
+                "name": "type",
+                "wireName": "type",
+                "type": "string",
+                "required": true
+              }
+            ]
+          },
+          {
+            "tag": "CompanionHelloResponseError",
+            "moduleName": "WASmaxInMdCompanionHelloResponseError",
+            "kind": "error",
+            "assertions": [],
+            "fields": [
+              {
+                "method": "attrString",
+                "name": "type",
+                "wireName": "type",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "",
+                "name": "errorIqMixinErrors",
+                "type": "union",
+                "required": true,
+                "unionVariants": [
+                  {
+                    "name": "IQErrorInternalServerError",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorBadRequest",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorFeatureNotAvailable",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorRateOverlimit",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorForbidden",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  }
+                ],
+                "sourcePath": [
+                  "error"
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "moduleName": "WASmaxOutMdSetCompanionNonceRequest",
       "namespace": "md",
       "iqType": "set",
@@ -8761,6 +9271,86 @@
       }
     },
     {
+      "moduleName": "WASmaxOutMdSetPasskeyPrologueRequest",
+      "namespace": "md",
+      "iqType": "set",
+      "target": "s.whatsapp.net",
+      "parserName": "WASmaxMdSetPasskeyPrologueRPC",
+      "exportedFunction": "makeSetPasskeyPrologueRequestPasskeyProloguePairingHandoffProof",
+      "allExports": [
+        "makeSetPasskeyPrologueRequestPasskeyProloguePairingHandoffProof",
+        "makeSetPasskeyPrologueRequest"
+      ],
+      "request": {
+        "namespace": "md",
+        "iqType": "set",
+        "target": "s.whatsapp.net",
+        "children": [
+          {
+            "tag": "passkey_prologue",
+            "attrs": [],
+            "children": [
+              {
+                "tag": "credential_id",
+                "attrs": [],
+                "children": [],
+                "repeats": false
+              },
+              {
+                "tag": "webauthn_assertion",
+                "attrs": [],
+                "children": [],
+                "repeats": false
+              },
+              {
+                "tag": "prologue_payload",
+                "attrs": [],
+                "children": [],
+                "repeats": false
+              },
+              {
+                "tag": "pairing_handoff_proof",
+                "attrs": [],
+                "children": [],
+                "repeats": false
+              }
+            ],
+            "repeats": false
+          }
+        ]
+      },
+      "response": {
+        "parserName": "WASmaxMdSetPasskeyPrologueRPC",
+        "assertions": [],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "type",
+            "wireName": "type",
+            "type": "string",
+            "required": true
+          }
+        ],
+        "variants": [
+          {
+            "tag": "SetPasskeyPrologueResponseSuccess",
+            "moduleName": "WASmaxInMdSetPasskeyPrologueResponseSuccess",
+            "kind": "success",
+            "assertions": [],
+            "fields": [
+              {
+                "method": "attrString",
+                "name": "type",
+                "wireName": "type",
+                "type": "string",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "moduleName": "WAWebUnpairDeviceJob",
       "namespace": "md",
       "iqType": "set",
@@ -8844,7 +9434,25 @@
         "namespace": "newsletter",
         "iqType": "get",
         "target": "s.whatsapp.net",
-        "children": []
+        "children": [
+          {
+            "tag": "message_updates",
+            "attrs": [
+              {
+                "name": "count",
+                "kind": "integer",
+                "required": true
+              },
+              {
+                "name": "since",
+                "kind": "optional",
+                "required": false
+              }
+            ],
+            "children": [],
+            "repeats": false
+          }
+        ]
       },
       "response": {
         "parserName": "WASmaxNewslettersGetNewsletterMessageUpdatesRPC",
@@ -16580,7 +17188,25 @@
         "namespace": "newsletter",
         "iqType": "get",
         "target": "s.whatsapp.net",
-        "children": []
+        "children": [
+          {
+            "tag": "status_updates",
+            "attrs": [
+              {
+                "name": "count",
+                "kind": "integer",
+                "required": true
+              },
+              {
+                "name": "since",
+                "kind": "optional",
+                "required": false
+              }
+            ],
+            "children": [],
+            "repeats": false
+          }
+        ]
       },
       "response": {
         "parserName": "WASmaxNewslettersGetNewsletterStatusUpdatesRPC",
@@ -19766,8 +20392,8 @@
               },
               {
                 "name": "dhash",
-                "kind": "dynamic",
-                "required": true
+                "kind": "optional",
+                "required": false
               },
               {
                 "name": "reason",
@@ -20467,7 +21093,14 @@
         "namespace": "privacy",
         "iqType": "get",
         "target": "s.whatsapp.net",
-        "children": []
+        "children": [
+          {
+            "tag": "privacy",
+            "attrs": [],
+            "children": [],
+            "repeats": false
+          }
+        ]
       },
       "response": {
         "parserName": "WASmaxPrivacyGetContactBlacklistRPC",
@@ -21469,6 +22102,326 @@
               {
                 "method": "attrString",
                 "name": "value",
+                "type": "string",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "moduleName": "WASmaxOutPrivatestatsSignCredentialRequest",
+      "namespace": "privatestats",
+      "iqType": "get",
+      "target": "s.whatsapp.net",
+      "parserName": "WASmaxPrivatestatsSignCredentialRPC",
+      "exportedFunction": "makeSignCredentialRequest",
+      "allExports": [
+        "makeSignCredentialRequest"
+      ],
+      "request": {
+        "namespace": "privatestats",
+        "iqType": "get",
+        "target": "s.whatsapp.net",
+        "children": [
+          {
+            "tag": "sign_credential",
+            "attrs": [
+              {
+                "name": "version",
+                "kind": "const",
+                "value": "2",
+                "required": true
+              }
+            ],
+            "children": [
+              {
+                "tag": "blinded_credential",
+                "attrs": [],
+                "children": [],
+                "repeats": false
+              },
+              {
+                "tag": "project_name",
+                "attrs": [],
+                "children": [],
+                "repeats": false
+              }
+            ],
+            "repeats": false
+          }
+        ]
+      },
+      "response": {
+        "parserName": "WASmaxPrivatestatsSignCredentialRPC",
+        "assertions": [],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "type",
+            "wireName": "type",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "attrInt",
+            "name": "signCredentialT",
+            "wireName": "t",
+            "type": "integer",
+            "required": true,
+            "sourcePath": [
+              "sign_credential"
+            ]
+          },
+          {
+            "method": "contentBytes",
+            "name": "signCredentialSignedCredentialElementValue",
+            "type": "bytes",
+            "required": true,
+            "sourcePath": [
+              "sign_credential",
+              "signed_credential"
+            ]
+          },
+          {
+            "method": "contentBytes",
+            "name": "signCredentialAcsPublicKeyElementValue",
+            "type": "bytes",
+            "required": true,
+            "sourcePath": [
+              "sign_credential",
+              "acs_public_key"
+            ]
+          },
+          {
+            "method": "contentBytes",
+            "name": "signCredentialDleqProofCElementValue",
+            "type": "bytes",
+            "required": true,
+            "sourcePath": [
+              "sign_credential",
+              "dleq_proof",
+              "c"
+            ]
+          },
+          {
+            "method": "contentBytes",
+            "name": "signCredentialDleqProofSElementValue",
+            "type": "bytes",
+            "required": true,
+            "sourcePath": [
+              "sign_credential",
+              "dleq_proof",
+              "s"
+            ]
+          },
+          {
+            "method": "contentString",
+            "name": "signCredentialProjectNameElementValue",
+            "type": "string",
+            "required": true,
+            "sourcePath": [
+              "sign_credential",
+              "project_name"
+            ]
+          }
+        ],
+        "variants": [
+          {
+            "tag": "SignCredentialResponseSuccess",
+            "moduleName": "WASmaxInPrivatestatsSignCredentialResponseSuccess",
+            "kind": "success",
+            "assertions": [],
+            "fields": [
+              {
+                "method": "attrString",
+                "name": "type",
+                "wireName": "type",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "attrInt",
+                "name": "signCredentialT",
+                "wireName": "t",
+                "type": "integer",
+                "required": true,
+                "sourcePath": [
+                  "sign_credential"
+                ]
+              },
+              {
+                "method": "contentBytes",
+                "name": "signCredentialSignedCredentialElementValue",
+                "type": "bytes",
+                "required": true,
+                "sourcePath": [
+                  "sign_credential",
+                  "signed_credential"
+                ]
+              },
+              {
+                "method": "contentBytes",
+                "name": "signCredentialAcsPublicKeyElementValue",
+                "type": "bytes",
+                "required": true,
+                "sourcePath": [
+                  "sign_credential",
+                  "acs_public_key"
+                ]
+              },
+              {
+                "method": "contentBytes",
+                "name": "signCredentialDleqProofCElementValue",
+                "type": "bytes",
+                "required": true,
+                "sourcePath": [
+                  "sign_credential",
+                  "dleq_proof",
+                  "c"
+                ]
+              },
+              {
+                "method": "contentBytes",
+                "name": "signCredentialDleqProofSElementValue",
+                "type": "bytes",
+                "required": true,
+                "sourcePath": [
+                  "sign_credential",
+                  "dleq_proof",
+                  "s"
+                ]
+              },
+              {
+                "method": "contentString",
+                "name": "signCredentialProjectNameElementValue",
+                "type": "string",
+                "required": true,
+                "sourcePath": [
+                  "sign_credential",
+                  "project_name"
+                ]
+              }
+            ]
+          },
+          {
+            "tag": "SignCredentialResponseErrorNoRetry",
+            "moduleName": "WASmaxInPrivatestatsSignCredentialResponseErrorNoRetry",
+            "kind": "error",
+            "assertions": [],
+            "fields": [
+              {
+                "method": "attrString",
+                "name": "type",
+                "wireName": "type",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "",
+                "name": "errorSignCredentialNoRetryError",
+                "type": "union",
+                "required": true,
+                "unionVariants": [
+                  {
+                    "name": "IQErrorBadRequest",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorFeatureNotImplemented",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorServiceUnavailable",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  }
+                ],
+                "sourcePath": [
+                  "error"
+                ]
+              }
+            ]
+          },
+          {
+            "tag": "SignCredentialResponseErrorRetry",
+            "moduleName": "WASmaxInPrivatestatsSignCredentialResponseErrorRetry",
+            "kind": "error",
+            "assertions": [],
+            "fields": [
+              {
+                "method": "child",
+                "name": "errorIQErrorInternalServerErrorMixin",
+                "type": "string",
+                "required": true,
+                "tag": "error",
+                "children": [
+                  {
+                    "method": "attrString",
+                    "name": "text",
+                    "wireName": "text",
+                    "type": "string",
+                    "required": true
+                  },
+                  {
+                    "method": "attrInt",
+                    "name": "code",
+                    "wireName": "code",
+                    "type": "integer",
+                    "required": true
+                  }
+                ],
+                "repeats": false
+              },
+              {
+                "method": "attrString",
+                "name": "type",
+                "wireName": "type",
                 "type": "string",
                 "required": true
               }
@@ -23922,7 +24875,26 @@
         "namespace": "urn:xmpp:whatsapp:account",
         "iqType": "set",
         "target": "s.whatsapp.net",
-        "children": []
+        "children": [
+          {
+            "tag": "accept_pay",
+            "attrs": [
+              {
+                "name": "version",
+                "kind": "const",
+                "value": "3",
+                "required": true
+              },
+              {
+                "name": "tos_version",
+                "kind": "integer",
+                "required": true
+              }
+            ],
+            "children": [],
+            "repeats": false
+          }
+        ]
       },
       "response": {
         "parserName": "WASmaxAccountSetPaymentsTOSv3RPC",
@@ -25474,7 +26446,14 @@
           {
             "tag": "participants",
             "attrs": [],
-            "children": [],
+            "children": [
+              {
+                "tag": "to",
+                "attrs": [],
+                "children": [],
+                "repeats": true
+              }
+            ],
             "repeats": false
           },
           {
@@ -26671,7 +27650,20 @@
                 "required": true
               }
             ],
-            "children": [],
+            "children": [
+              {
+                "tag": "product",
+                "attrs": [],
+                "children": [],
+                "repeats": true
+              },
+              {
+                "tag": "id",
+                "attrs": [],
+                "children": [],
+                "repeats": true
+              }
+            ],
             "repeats": false
           }
         ]
@@ -45086,7 +46078,162 @@
         "namespace": "w:g2",
         "iqType": "set",
         "target": "s.whatsapp.net",
-        "children": []
+        "children": [
+          {
+            "tag": "create",
+            "attrs": [],
+            "children": [
+              {
+                "tag": "participant",
+                "attrs": [
+                  {
+                    "name": "jid",
+                    "kind": "user_jid",
+                    "required": true
+                  },
+                  {
+                    "name": "phone_number",
+                    "kind": "optional",
+                    "required": false
+                  },
+                  {
+                    "name": "username",
+                    "kind": "optional",
+                    "required": false
+                  }
+                ],
+                "children": [],
+                "repeats": true
+              },
+              {
+                "tag": "description",
+                "attrs": [
+                  {
+                    "name": "id",
+                    "kind": "string",
+                    "required": true
+                  }
+                ],
+                "children": [],
+                "repeats": false
+              },
+              {
+                "tag": "body",
+                "attrs": [],
+                "children": [],
+                "repeats": false
+              },
+              {
+                "tag": "locked",
+                "attrs": [],
+                "children": [],
+                "repeats": false
+              },
+              {
+                "tag": "announcement",
+                "attrs": [],
+                "children": [],
+                "repeats": false
+              },
+              {
+                "tag": "parent",
+                "attrs": [],
+                "children": [],
+                "repeats": false
+              },
+              {
+                "tag": "no_frequently_forwarded",
+                "attrs": [],
+                "children": [],
+                "repeats": false
+              },
+              {
+                "tag": "ephemeral",
+                "attrs": [
+                  {
+                    "name": "expiration",
+                    "kind": "integer",
+                    "required": true
+                  },
+                  {
+                    "name": "trigger",
+                    "kind": "optional",
+                    "required": false
+                  }
+                ],
+                "children": [],
+                "repeats": false
+              },
+              {
+                "tag": "membership_approval_mode",
+                "attrs": [],
+                "children": [],
+                "repeats": false
+              },
+              {
+                "tag": "breakout",
+                "attrs": [],
+                "children": [],
+                "repeats": false
+              },
+              {
+                "tag": "created_as_lid",
+                "attrs": [],
+                "children": [],
+                "repeats": false
+              },
+              {
+                "tag": "addressing_mode_override",
+                "attrs": [
+                  {
+                    "name": "mode",
+                    "kind": "string",
+                    "required": true
+                  }
+                ],
+                "children": [],
+                "repeats": false
+              },
+              {
+                "tag": "linked_parent",
+                "attrs": [
+                  {
+                    "name": "jid",
+                    "kind": "group_jid",
+                    "required": true
+                  }
+                ],
+                "children": [],
+                "repeats": false
+              },
+              {
+                "tag": "hidden_group",
+                "attrs": [],
+                "children": [],
+                "repeats": false
+              },
+              {
+                "tag": "allow_non_admin_sub_group_creation",
+                "attrs": [],
+                "children": [],
+                "repeats": false
+              },
+              {
+                "tag": "create_general_chat",
+                "attrs": [],
+                "children": [],
+                "repeats": false
+              },
+              {
+                "tag": "capi",
+                "attrs": [],
+                "children": [],
+                "repeats": false
+              }
+            ],
+            "repeats": false
+          }
+        ]
       },
       "response": {
         "parserName": "WASmaxGroupsCreateRPC",
@@ -47339,7 +48486,14 @@
         "namespace": "w:g2",
         "iqType": "set",
         "target": "s.whatsapp.net",
-        "children": []
+        "children": [
+          {
+            "tag": "sub_group_suggestion",
+            "attrs": [],
+            "children": [],
+            "repeats": false
+          }
+        ]
       },
       "response": {
         "parserName": "WASmaxGroupsCreateSubGroupSuggestionRPC",
@@ -53331,6 +54485,12 @@
         "target": "s.whatsapp.net",
         "children": [
           {
+            "tag": "locked",
+            "attrs": [],
+            "children": [],
+            "repeats": false
+          },
+          {
             "tag": "announcement",
             "attrs": [],
             "children": [],
@@ -56640,8 +57800,8 @@
             "attrs": [
               {
                 "name": "type",
-                "kind": "dynamic",
-                "required": true
+                "kind": "optional",
+                "required": false
               },
               {
                 "name": "id",
@@ -57528,6 +58688,498 @@
       }
     },
     {
+      "moduleName": "WASmaxOutWaffleEncryptedPayloadRequestRequest",
+      "namespace": "waffle",
+      "iqType": "get",
+      "target": "s.whatsapp.net",
+      "parserName": "WASmaxWaffleEncryptedPayloadRequestRPC",
+      "exportedFunction": "makeEncryptedPayloadRequestRequest",
+      "allExports": [
+        "makeEncryptedPayloadRequestRequest"
+      ],
+      "request": {
+        "namespace": "waffle",
+        "iqType": "get",
+        "target": "s.whatsapp.net",
+        "children": [
+          {
+            "tag": "encryption_metadata",
+            "attrs": [],
+            "children": [],
+            "repeats": false
+          },
+          {
+            "tag": "timestamp",
+            "attrs": [],
+            "children": [],
+            "repeats": false
+          },
+          {
+            "tag": "fbid",
+            "attrs": [],
+            "children": [],
+            "repeats": false
+          },
+          {
+            "tag": "action",
+            "attrs": [],
+            "children": [],
+            "repeats": false
+          }
+        ]
+      },
+      "response": {
+        "parserName": "WASmaxWaffleEncryptedPayloadRequestRPC",
+        "assertions": [],
+        "fields": [
+          {
+            "method": "child",
+            "name": "encryptionMetadataRSAEncryptionMetadataMixin",
+            "type": "string",
+            "required": true,
+            "tag": "encryption_metadata",
+            "children": [
+              {
+                "method": "attrString",
+                "name": "version",
+                "wireName": "version",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "attrString",
+                "name": "algorithm",
+                "wireName": "algorithm",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "contentBytes",
+                "name": "encryptedKeyElementValue",
+                "type": "bytes",
+                "required": true,
+                "sourcePath": [
+                  "encrypted_key"
+                ]
+              },
+              {
+                "method": "contentBytes",
+                "name": "nonceElementValue",
+                "type": "bytes",
+                "required": true,
+                "sourcePath": [
+                  "nonce"
+                ]
+              },
+              {
+                "method": "contentBytes",
+                "name": "encryptedDataElementValue",
+                "type": "bytes",
+                "required": true,
+                "sourcePath": [
+                  "encrypted_data"
+                ]
+              },
+              {
+                "method": "contentBytes",
+                "name": "authTagElementValue",
+                "type": "bytes",
+                "required": true,
+                "sourcePath": [
+                  "auth_tag"
+                ]
+              }
+            ],
+            "repeats": false
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "wireName": "type",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "child",
+            "name": "wfDeleted",
+            "type": "string",
+            "required": false,
+            "tag": "wf_deleted",
+            "children": [
+              {
+                "method": "attrEnum",
+                "name": "elementValue",
+                "type": "enum",
+                "required": true
+              }
+            ],
+            "repeats": false
+          }
+        ],
+        "variants": [
+          {
+            "tag": "EncryptedPayloadRequestResponseSuccess",
+            "moduleName": "WASmaxInWaffleEncryptedPayloadRequestResponseSuccess",
+            "kind": "success",
+            "assertions": [],
+            "fields": [
+              {
+                "method": "child",
+                "name": "encryptionMetadataRSAEncryptionMetadataMixin",
+                "type": "string",
+                "required": true,
+                "tag": "encryption_metadata",
+                "children": [
+                  {
+                    "method": "attrString",
+                    "name": "version",
+                    "wireName": "version",
+                    "type": "string",
+                    "required": true
+                  },
+                  {
+                    "method": "attrString",
+                    "name": "algorithm",
+                    "wireName": "algorithm",
+                    "type": "string",
+                    "required": true
+                  },
+                  {
+                    "method": "contentBytes",
+                    "name": "encryptedKeyElementValue",
+                    "type": "bytes",
+                    "required": true,
+                    "sourcePath": [
+                      "encrypted_key"
+                    ]
+                  },
+                  {
+                    "method": "contentBytes",
+                    "name": "nonceElementValue",
+                    "type": "bytes",
+                    "required": true,
+                    "sourcePath": [
+                      "nonce"
+                    ]
+                  },
+                  {
+                    "method": "contentBytes",
+                    "name": "encryptedDataElementValue",
+                    "type": "bytes",
+                    "required": true,
+                    "sourcePath": [
+                      "encrypted_data"
+                    ]
+                  },
+                  {
+                    "method": "contentBytes",
+                    "name": "authTagElementValue",
+                    "type": "bytes",
+                    "required": true,
+                    "sourcePath": [
+                      "auth_tag"
+                    ]
+                  }
+                ],
+                "repeats": false
+              },
+              {
+                "method": "attrString",
+                "name": "type",
+                "wireName": "type",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "child",
+                "name": "wfDeleted",
+                "type": "string",
+                "required": false,
+                "tag": "wf_deleted",
+                "children": [
+                  {
+                    "method": "attrEnum",
+                    "name": "elementValue",
+                    "type": "enum",
+                    "required": true
+                  }
+                ],
+                "repeats": false
+              }
+            ]
+          },
+          {
+            "tag": "EncryptedPayloadRequestResponseError",
+            "moduleName": "WASmaxInWaffleEncryptedPayloadRequestResponseError",
+            "kind": "error",
+            "assertions": [],
+            "fields": [
+              {
+                "method": "attrString",
+                "name": "type",
+                "wireName": "type",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "",
+                "name": "errorEncryptedPayloadRequestErrors",
+                "type": "union",
+                "required": true,
+                "unionVariants": [
+                  {
+                    "name": "IQErrorBadRequest",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorRequestTimeout",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorPayloadEncDec",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorInternalServerError",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorServiceUnavailable",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorNotAuthorized",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorRateOverlimit",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorNotAllowed",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorConflict",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorWFNotFound",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorWFSuspended",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      },
+                      {
+                        "method": "maybeAttrEnum",
+                        "name": "ndc",
+                        "wireName": "ndc",
+                        "type": "enum",
+                        "required": false
+                      },
+                      {
+                        "method": "maybeAttrEnum",
+                        "name": "npr",
+                        "wireName": "npr",
+                        "type": "enum",
+                        "required": false
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorWFStateMismatch",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  }
+                ],
+                "sourcePath": [
+                  "error"
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "moduleName": "WASmaxOutWaffleForceDeleteStateRequest",
       "namespace": "waffle",
       "iqType": "get",
@@ -57998,6 +59650,931 @@
       }
     },
     {
+      "moduleName": "WASmaxOutWaffleGenerateAccessTokensRequest",
+      "namespace": "waffle",
+      "iqType": "get",
+      "target": "s.whatsapp.net",
+      "parserName": "WASmaxWaffleGenerateAccessTokensRPC",
+      "exportedFunction": "makeGenerateAccessTokensRequest",
+      "allExports": [
+        "makeGenerateAccessTokensRequest"
+      ],
+      "request": {
+        "namespace": "waffle",
+        "iqType": "get",
+        "target": "s.whatsapp.net",
+        "children": [
+          {
+            "tag": "encryption_metadata",
+            "attrs": [],
+            "children": [],
+            "repeats": false
+          },
+          {
+            "tag": "timestamp",
+            "attrs": [],
+            "children": [],
+            "repeats": false
+          },
+          {
+            "tag": "fbid",
+            "attrs": [],
+            "children": [],
+            "repeats": false
+          },
+          {
+            "tag": "id_sign",
+            "attrs": [],
+            "children": [],
+            "repeats": false
+          }
+        ]
+      },
+      "response": {
+        "parserName": "WASmaxWaffleGenerateAccessTokensRPC",
+        "assertions": [],
+        "fields": [
+          {
+            "method": "contentInt",
+            "name": "pingIntervalElementValue",
+            "type": "integer",
+            "required": true,
+            "sourcePath": [
+              "ping_interval"
+            ]
+          },
+          {
+            "method": "child",
+            "name": "encryptionMetadataRSAEncryptionMetadataMixin",
+            "type": "string",
+            "required": true,
+            "tag": "encryption_metadata",
+            "children": [
+              {
+                "method": "attrString",
+                "name": "version",
+                "wireName": "version",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "attrString",
+                "name": "algorithm",
+                "wireName": "algorithm",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "contentBytes",
+                "name": "encryptedKeyElementValue",
+                "type": "bytes",
+                "required": true,
+                "sourcePath": [
+                  "encrypted_key"
+                ]
+              },
+              {
+                "method": "contentBytes",
+                "name": "nonceElementValue",
+                "type": "bytes",
+                "required": true,
+                "sourcePath": [
+                  "nonce"
+                ]
+              },
+              {
+                "method": "contentBytes",
+                "name": "encryptedDataElementValue",
+                "type": "bytes",
+                "required": true,
+                "sourcePath": [
+                  "encrypted_data"
+                ]
+              },
+              {
+                "method": "contentBytes",
+                "name": "authTagElementValue",
+                "type": "bytes",
+                "required": true,
+                "sourcePath": [
+                  "auth_tag"
+                ]
+              }
+            ],
+            "repeats": false
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "wireName": "type",
+            "type": "string",
+            "required": true
+          }
+        ],
+        "variants": [
+          {
+            "tag": "GenerateAccessTokensResponseSuccess",
+            "moduleName": "WASmaxInWaffleGenerateAccessTokensResponseSuccess",
+            "kind": "success",
+            "assertions": [],
+            "fields": [
+              {
+                "method": "contentInt",
+                "name": "pingIntervalElementValue",
+                "type": "integer",
+                "required": true,
+                "sourcePath": [
+                  "ping_interval"
+                ]
+              },
+              {
+                "method": "child",
+                "name": "encryptionMetadataRSAEncryptionMetadataMixin",
+                "type": "string",
+                "required": true,
+                "tag": "encryption_metadata",
+                "children": [
+                  {
+                    "method": "attrString",
+                    "name": "version",
+                    "wireName": "version",
+                    "type": "string",
+                    "required": true
+                  },
+                  {
+                    "method": "attrString",
+                    "name": "algorithm",
+                    "wireName": "algorithm",
+                    "type": "string",
+                    "required": true
+                  },
+                  {
+                    "method": "contentBytes",
+                    "name": "encryptedKeyElementValue",
+                    "type": "bytes",
+                    "required": true,
+                    "sourcePath": [
+                      "encrypted_key"
+                    ]
+                  },
+                  {
+                    "method": "contentBytes",
+                    "name": "nonceElementValue",
+                    "type": "bytes",
+                    "required": true,
+                    "sourcePath": [
+                      "nonce"
+                    ]
+                  },
+                  {
+                    "method": "contentBytes",
+                    "name": "encryptedDataElementValue",
+                    "type": "bytes",
+                    "required": true,
+                    "sourcePath": [
+                      "encrypted_data"
+                    ]
+                  },
+                  {
+                    "method": "contentBytes",
+                    "name": "authTagElementValue",
+                    "type": "bytes",
+                    "required": true,
+                    "sourcePath": [
+                      "auth_tag"
+                    ]
+                  }
+                ],
+                "repeats": false
+              },
+              {
+                "method": "attrString",
+                "name": "type",
+                "wireName": "type",
+                "type": "string",
+                "required": true
+              }
+            ]
+          },
+          {
+            "tag": "GenerateAccessTokensResponseError",
+            "moduleName": "WASmaxInWaffleGenerateAccessTokensResponseError",
+            "kind": "error",
+            "assertions": [],
+            "fields": [
+              {
+                "method": "attrString",
+                "name": "type",
+                "wireName": "type",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "",
+                "name": "errorGenerateAccessTokensErrors",
+                "type": "union",
+                "required": true,
+                "unionVariants": [
+                  {
+                    "name": "IQErrorBadRequest",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorRequestTimeout",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorPayloadEncDec",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorInternalServerError",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorServiceUnavailable",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorNotAuthorized",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorRateOverlimit",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorNotAllowed",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorConflict",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorAlreadyExists",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorWFNotFound",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorWFStateMismatch",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorWFNotAuthorizedInvalidPassword",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  }
+                ],
+                "sourcePath": [
+                  "error"
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "moduleName": "WASmaxOutWaffleGenerateWAEntACUserRequest",
+      "namespace": "waffle",
+      "iqType": "get",
+      "target": "s.whatsapp.net",
+      "parserName": "WASmaxWaffleGenerateWAEntACUserRPC",
+      "exportedFunction": "makeGenerateWAEntACUserRequest",
+      "allExports": [
+        "makeGenerateWAEntACUserRequest"
+      ],
+      "request": {
+        "namespace": "waffle",
+        "iqType": "get",
+        "target": "s.whatsapp.net",
+        "children": [
+          {
+            "tag": "encryption_metadata",
+            "attrs": [],
+            "children": [],
+            "repeats": false
+          },
+          {
+            "tag": "timestamp",
+            "attrs": [],
+            "children": [],
+            "repeats": false
+          },
+          {
+            "tag": "disclosure",
+            "attrs": [
+              {
+                "name": "id",
+                "kind": "integer",
+                "required": true
+              },
+              {
+                "name": "version",
+                "kind": "string",
+                "required": true
+              },
+              {
+                "name": "lg",
+                "kind": "string",
+                "required": true
+              },
+              {
+                "name": "lc",
+                "kind": "string",
+                "required": true
+              }
+            ],
+            "children": [],
+            "repeats": false
+          }
+        ]
+      },
+      "response": {
+        "parserName": "WASmaxWaffleGenerateWAEntACUserRPC",
+        "assertions": [],
+        "fields": [
+          {
+            "method": "child",
+            "name": "encryptionMetadataRSAEncryptionMetadataMixin",
+            "type": "string",
+            "required": true,
+            "tag": "encryption_metadata",
+            "children": [
+              {
+                "method": "attrString",
+                "name": "version",
+                "wireName": "version",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "attrString",
+                "name": "algorithm",
+                "wireName": "algorithm",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "contentBytes",
+                "name": "encryptedKeyElementValue",
+                "type": "bytes",
+                "required": true,
+                "sourcePath": [
+                  "encrypted_key"
+                ]
+              },
+              {
+                "method": "contentBytes",
+                "name": "nonceElementValue",
+                "type": "bytes",
+                "required": true,
+                "sourcePath": [
+                  "nonce"
+                ]
+              },
+              {
+                "method": "contentBytes",
+                "name": "encryptedDataElementValue",
+                "type": "bytes",
+                "required": true,
+                "sourcePath": [
+                  "encrypted_data"
+                ]
+              },
+              {
+                "method": "contentBytes",
+                "name": "authTagElementValue",
+                "type": "bytes",
+                "required": true,
+                "sourcePath": [
+                  "auth_tag"
+                ]
+              }
+            ],
+            "repeats": false
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "wireName": "type",
+            "type": "string",
+            "required": true
+          }
+        ],
+        "variants": [
+          {
+            "tag": "GenerateWAEntACUserResponseSuccess",
+            "moduleName": "WASmaxInWaffleGenerateWAEntACUserResponseSuccess",
+            "kind": "success",
+            "assertions": [],
+            "fields": [
+              {
+                "method": "child",
+                "name": "encryptionMetadataRSAEncryptionMetadataMixin",
+                "type": "string",
+                "required": true,
+                "tag": "encryption_metadata",
+                "children": [
+                  {
+                    "method": "attrString",
+                    "name": "version",
+                    "wireName": "version",
+                    "type": "string",
+                    "required": true
+                  },
+                  {
+                    "method": "attrString",
+                    "name": "algorithm",
+                    "wireName": "algorithm",
+                    "type": "string",
+                    "required": true
+                  },
+                  {
+                    "method": "contentBytes",
+                    "name": "encryptedKeyElementValue",
+                    "type": "bytes",
+                    "required": true,
+                    "sourcePath": [
+                      "encrypted_key"
+                    ]
+                  },
+                  {
+                    "method": "contentBytes",
+                    "name": "nonceElementValue",
+                    "type": "bytes",
+                    "required": true,
+                    "sourcePath": [
+                      "nonce"
+                    ]
+                  },
+                  {
+                    "method": "contentBytes",
+                    "name": "encryptedDataElementValue",
+                    "type": "bytes",
+                    "required": true,
+                    "sourcePath": [
+                      "encrypted_data"
+                    ]
+                  },
+                  {
+                    "method": "contentBytes",
+                    "name": "authTagElementValue",
+                    "type": "bytes",
+                    "required": true,
+                    "sourcePath": [
+                      "auth_tag"
+                    ]
+                  }
+                ],
+                "repeats": false
+              },
+              {
+                "method": "attrString",
+                "name": "type",
+                "wireName": "type",
+                "type": "string",
+                "required": true
+              }
+            ]
+          },
+          {
+            "tag": "GenerateWAEntACUserResponseError",
+            "moduleName": "WASmaxInWaffleGenerateWAEntACUserResponseError",
+            "kind": "error",
+            "assertions": [],
+            "fields": [
+              {
+                "method": "attrString",
+                "name": "type",
+                "wireName": "type",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "",
+                "name": "errorGenerateWaEntAcUserErrors",
+                "type": "union",
+                "required": true,
+                "unionVariants": [
+                  {
+                    "name": "IQErrorBadRequest",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorRequestTimeout",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorPayloadEncDec",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorInternalServerError",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorServiceUnavailable",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorNotAuthorized",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorRateOverlimit",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorNotAllowed",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorConflict",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorAlreadyExists",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorWFJurisdictionGating",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  }
+                ],
+                "sourcePath": [
+                  "error"
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "moduleName": "WASmaxOutWaffleGetCertificateRequest",
       "namespace": "waffle",
       "iqType": "get",
@@ -58411,6 +60988,479 @@
       }
     },
     {
+      "moduleName": "WASmaxOutWaffleRefreshAccessTokensRequest",
+      "namespace": "waffle",
+      "iqType": "get",
+      "target": "s.whatsapp.net",
+      "parserName": "WASmaxWaffleRefreshAccessTokensRPC",
+      "exportedFunction": "makeRefreshAccessTokensRequest",
+      "allExports": [
+        "makeRefreshAccessTokensRequest"
+      ],
+      "request": {
+        "namespace": "waffle",
+        "iqType": "get",
+        "target": "s.whatsapp.net",
+        "children": [
+          {
+            "tag": "encryption_metadata",
+            "attrs": [],
+            "children": [],
+            "repeats": false
+          },
+          {
+            "tag": "timestamp",
+            "attrs": [],
+            "children": [],
+            "repeats": false
+          },
+          {
+            "tag": "fbid",
+            "attrs": [],
+            "children": [],
+            "repeats": false
+          }
+        ]
+      },
+      "response": {
+        "parserName": "WASmaxWaffleRefreshAccessTokensRPC",
+        "assertions": [],
+        "fields": [
+          {
+            "method": "child",
+            "name": "encryptionMetadataRSAEncryptionMetadataMixin",
+            "type": "string",
+            "required": true,
+            "tag": "encryption_metadata",
+            "children": [
+              {
+                "method": "attrString",
+                "name": "version",
+                "wireName": "version",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "attrString",
+                "name": "algorithm",
+                "wireName": "algorithm",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "contentBytes",
+                "name": "encryptedKeyElementValue",
+                "type": "bytes",
+                "required": true,
+                "sourcePath": [
+                  "encrypted_key"
+                ]
+              },
+              {
+                "method": "contentBytes",
+                "name": "nonceElementValue",
+                "type": "bytes",
+                "required": true,
+                "sourcePath": [
+                  "nonce"
+                ]
+              },
+              {
+                "method": "contentBytes",
+                "name": "encryptedDataElementValue",
+                "type": "bytes",
+                "required": true,
+                "sourcePath": [
+                  "encrypted_data"
+                ]
+              },
+              {
+                "method": "contentBytes",
+                "name": "authTagElementValue",
+                "type": "bytes",
+                "required": true,
+                "sourcePath": [
+                  "auth_tag"
+                ]
+              }
+            ],
+            "repeats": false
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "wireName": "type",
+            "type": "string",
+            "required": true
+          }
+        ],
+        "variants": [
+          {
+            "tag": "RefreshAccessTokensResponseSuccess",
+            "moduleName": "WASmaxInWaffleRefreshAccessTokensResponseSuccess",
+            "kind": "success",
+            "assertions": [],
+            "fields": [
+              {
+                "method": "child",
+                "name": "encryptionMetadataRSAEncryptionMetadataMixin",
+                "type": "string",
+                "required": true,
+                "tag": "encryption_metadata",
+                "children": [
+                  {
+                    "method": "attrString",
+                    "name": "version",
+                    "wireName": "version",
+                    "type": "string",
+                    "required": true
+                  },
+                  {
+                    "method": "attrString",
+                    "name": "algorithm",
+                    "wireName": "algorithm",
+                    "type": "string",
+                    "required": true
+                  },
+                  {
+                    "method": "contentBytes",
+                    "name": "encryptedKeyElementValue",
+                    "type": "bytes",
+                    "required": true,
+                    "sourcePath": [
+                      "encrypted_key"
+                    ]
+                  },
+                  {
+                    "method": "contentBytes",
+                    "name": "nonceElementValue",
+                    "type": "bytes",
+                    "required": true,
+                    "sourcePath": [
+                      "nonce"
+                    ]
+                  },
+                  {
+                    "method": "contentBytes",
+                    "name": "encryptedDataElementValue",
+                    "type": "bytes",
+                    "required": true,
+                    "sourcePath": [
+                      "encrypted_data"
+                    ]
+                  },
+                  {
+                    "method": "contentBytes",
+                    "name": "authTagElementValue",
+                    "type": "bytes",
+                    "required": true,
+                    "sourcePath": [
+                      "auth_tag"
+                    ]
+                  }
+                ],
+                "repeats": false
+              },
+              {
+                "method": "attrString",
+                "name": "type",
+                "wireName": "type",
+                "type": "string",
+                "required": true
+              }
+            ]
+          },
+          {
+            "tag": "RefreshAccessTokensResponseError",
+            "moduleName": "WASmaxInWaffleRefreshAccessTokensResponseError",
+            "kind": "error",
+            "assertions": [],
+            "fields": [
+              {
+                "method": "attrString",
+                "name": "type",
+                "wireName": "type",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "",
+                "name": "errorRefreshAccessTokensErrors",
+                "type": "union",
+                "required": true,
+                "unionVariants": [
+                  {
+                    "name": "IQErrorBadRequest",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorRequestTimeout",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorPayloadEncDec",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorInternalServerError",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorServiceUnavailable",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorNotAuthorized",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorRateOverlimit",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorNotAllowed",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorConflict",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorWFNotFound",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorWFSuspended",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      },
+                      {
+                        "method": "maybeAttrEnum",
+                        "name": "ndc",
+                        "wireName": "ndc",
+                        "type": "enum",
+                        "required": false
+                      },
+                      {
+                        "method": "maybeAttrEnum",
+                        "name": "npr",
+                        "wireName": "npr",
+                        "type": "enum",
+                        "required": false
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorWFStateMismatch",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorWFNotAuthorizedInvalidPassword",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  }
+                ],
+                "sourcePath": [
+                  "error"
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "moduleName": "WASmaxOutWaffleStateExistsRequest",
       "namespace": "waffle",
       "iqType": "get",
@@ -58655,6 +61705,358 @@
           }
         ]
       }
+    },
+    {
+      "moduleName": "WASmaxOutWaffleWFPingRequest",
+      "namespace": "waffle",
+      "iqType": "get",
+      "target": "s.whatsapp.net",
+      "parserName": "WASmaxWaffleWFPingRPC",
+      "exportedFunction": "makeWFPingRequest",
+      "allExports": [
+        "makeWFPingRequest"
+      ],
+      "request": {
+        "namespace": "waffle",
+        "iqType": "get",
+        "target": "s.whatsapp.net",
+        "children": [
+          {
+            "tag": "encryption_metadata",
+            "attrs": [],
+            "children": [],
+            "repeats": false
+          },
+          {
+            "tag": "timestamp",
+            "attrs": [],
+            "children": [],
+            "repeats": false
+          },
+          {
+            "tag": "fbid",
+            "attrs": [],
+            "children": [],
+            "repeats": false
+          }
+        ]
+      },
+      "response": {
+        "parserName": "WASmaxWaffleWFPingRPC",
+        "assertions": [],
+        "fields": [
+          {
+            "method": "contentInt",
+            "name": "pingIntervalElementValue",
+            "type": "integer",
+            "required": true,
+            "sourcePath": [
+              "ping_interval"
+            ]
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "wireName": "type",
+            "type": "string",
+            "required": true
+          }
+        ],
+        "variants": [
+          {
+            "tag": "WFPingResponseSuccess",
+            "moduleName": "WASmaxInWaffleWFPingResponseSuccess",
+            "kind": "success",
+            "assertions": [],
+            "fields": [
+              {
+                "method": "contentInt",
+                "name": "pingIntervalElementValue",
+                "type": "integer",
+                "required": true,
+                "sourcePath": [
+                  "ping_interval"
+                ]
+              },
+              {
+                "method": "attrString",
+                "name": "type",
+                "wireName": "type",
+                "type": "string",
+                "required": true
+              }
+            ]
+          },
+          {
+            "tag": "WFPingResponseError",
+            "moduleName": "WASmaxInWaffleWFPingResponseError",
+            "kind": "error",
+            "assertions": [],
+            "fields": [
+              {
+                "method": "attrString",
+                "name": "type",
+                "wireName": "type",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "",
+                "name": "errorWfPingErrors",
+                "type": "union",
+                "required": true,
+                "unionVariants": [
+                  {
+                    "name": "IQErrorBadRequest",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorRequestTimeout",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorPayloadEncDec",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorInternalServerError",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorServiceUnavailable",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorNotAuthorized",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorRateOverlimit",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorNotAllowed",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorConflict",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorWFNotFound",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorWFSuspended",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      },
+                      {
+                        "method": "maybeAttrEnum",
+                        "name": "ndc",
+                        "wireName": "ndc",
+                        "type": "enum",
+                        "required": false
+                      },
+                      {
+                        "method": "maybeAttrEnum",
+                        "name": "npr",
+                        "wireName": "npr",
+                        "type": "enum",
+                        "required": false
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorWFStateMismatch",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ]
+                  }
+                ],
+                "sourcePath": [
+                  "error"
+                ]
+              }
+            ]
+          }
+        ]
+      }
     }
   ],
   "unparseable": [
@@ -58759,18 +62161,6 @@
       "reason": "namespace/type unresolved (dropped by guard)"
     },
     {
-      "moduleName": "WASmaxOutMdCompanionFinishRequest",
-      "reason": "iq builder substring present but no AST iq call"
-    },
-    {
-      "moduleName": "WASmaxOutMdCompanionHelloRequest",
-      "reason": "iq builder substring present but no AST iq call"
-    },
-    {
-      "moduleName": "WASmaxOutMdSetPasskeyPrologueRequest",
-      "reason": "iq builder substring present but no AST iq call"
-    },
-    {
       "moduleName": "WASmaxOutMdSetRegResponseClientResponse",
       "reason": "iq builder substring present but no AST iq call"
     },
@@ -58805,10 +62195,6 @@
     {
       "moduleName": "WASmaxOutPrivacyBaseIQGetRequestMixin",
       "reason": "namespace/type unresolved (dropped by guard)"
-    },
-    {
-      "moduleName": "WASmaxOutPrivatestatsSignCredentialRequest",
-      "reason": "iq builder substring present but no AST iq call"
     },
     {
       "moduleName": "WASmaxOutProfilePictureBaseIQGetRequestMixin",
@@ -58864,7 +62250,7 @@
     },
     {
       "moduleName": "WASmaxOutSpamFRXMixin",
-      "reason": "iq builder substring present but no AST iq call"
+      "reason": "namespace/type unresolved (dropped by guard)"
     },
     {
       "moduleName": "WASmaxOutSpamIsKnownChatMixin",
@@ -58901,26 +62287,6 @@
     {
       "moduleName": "WASmaxOutWaffleBaseIQGetRequestMixin",
       "reason": "namespace/type unresolved (dropped by guard)"
-    },
-    {
-      "moduleName": "WASmaxOutWaffleEncryptedPayloadRequestRequest",
-      "reason": "iq builder substring present but no AST iq call"
-    },
-    {
-      "moduleName": "WASmaxOutWaffleGenerateAccessTokensRequest",
-      "reason": "iq builder substring present but no AST iq call"
-    },
-    {
-      "moduleName": "WASmaxOutWaffleGenerateWAEntACUserRequest",
-      "reason": "iq builder substring present but no AST iq call"
-    },
-    {
-      "moduleName": "WASmaxOutWaffleRefreshAccessTokensRequest",
-      "reason": "iq builder substring present but no AST iq call"
-    },
-    {
-      "moduleName": "WASmaxOutWaffleWFPingRequest",
-      "reason": "iq builder substring present but no AST iq call"
     },
     {
       "moduleName": "WAWebHandleStanzaCommon",
