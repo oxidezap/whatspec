@@ -93,10 +93,31 @@ pub(crate) fn emit_response_parser(
     indent: &str,
     prefix: &str,
 ) -> Vec<String> {
-    // lines[0] is reserved for the deferred `use` import, lines[1] is a blank.
+    // lines[0] is reserved for the deferred `use` import, lines[1] is a blank; the
+    // body reads off the `response` node and ends in `Ok(<ResponseType> { … })`.
     let mut lines: Vec<String> = vec![String::new(), String::new()];
+    lines.extend(emit_struct_parser(
+        fields,
+        "response",
+        response_type_name,
+        indent,
+        prefix,
+    ));
+    lines
+}
 
-    // Recursively emit the reads off `response`, mirroring `collect_response_fields`:
+/// Emit the reads for `fields` off `node_var` followed by `Ok(<struct_name> { … })`.
+/// Mirrors [`emit_response_parser`] but for an arbitrary node var and struct — reused
+/// to build a tag-discriminated union variant's per-arm parser (see [`crate::union`]).
+pub(crate) fn emit_struct_parser(
+    fields: &[ParsedField],
+    node_var: &str,
+    struct_name: &str,
+    indent: &str,
+    prefix: &str,
+) -> Vec<String> {
+    let mut lines: Vec<String> = Vec::new();
+    // Recursively emit the reads off `node_var`, mirroring `collect_response_fields`:
     // attrs/content leaves become fields, repeated children become `Vec<Item>` loops,
     // and a non-repeated child is descended and its fields flattened into the parent
     // (so the parser inits exactly the struct `collect_response_fields` derived).
@@ -105,7 +126,7 @@ pub(crate) fn emit_response_parser(
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     emit_struct_reads(
         fields,
-        "response",
+        node_var,
         prefix,
         indent,
         &mut lines,
@@ -114,14 +135,10 @@ pub(crate) fn emit_response_parser(
         &mut seen,
     );
 
-    lines.push(format!("{indent}Ok({response_type_name} {{"));
+    lines.push(format!("{indent}Ok({struct_name} {{"));
     lines.extend(init_fields);
     lines.push(format!("{indent}    ..Default::default()"));
     lines.push(format!("{indent}}})"));
-
-    // Parsing now goes through `NodeRef`'s own methods (`get_attr`, `content_str`,
-    // `get_optional_child`, …) and fully-qualified `anyhow!`, so no `use` is
-    // needed; the reserved lines[0]/lines[1] stay blank.
     lines
 }
 
@@ -301,7 +318,11 @@ fn emit_struct_reads(
                 .filter(|n| is_child_field(n) && repeats(n) && !children_of(n).is_empty())
                 .filter(|n| !dedup_attrs(children_of(n)).is_empty())
                 .collect();
-            if item_attrs.is_empty() && nested_repeats.is_empty() {
+            let union_kids: Vec<&ParsedField> = kids
+                .iter()
+                .filter(|n| n.field_type == ParsedFieldType::Union)
+                .collect();
+            if item_attrs.is_empty() && nested_repeats.is_empty() && union_kids.is_empty() {
                 seen.remove(&id);
                 continue;
             }
@@ -323,6 +344,17 @@ fn emit_struct_reads(
             ));
             for cf in &item_attrs {
                 lines.extend(emit_field_parse(cf, &loop_var, &inner));
+            }
+            // `type=union` columns on the Item: read each off the item node (prefixed by
+            // the Item struct so the generated enum/variant structs match collect).
+            let mut union_init: Vec<String> = Vec::new();
+            for uf in &union_kids {
+                if let Some((ulines, uinit)) =
+                    crate::union::emit_union_read(uf, &loop_var, &struct_name, &inner)
+                {
+                    lines.extend(ulines);
+                    union_init.push(uinit);
+                }
             }
             let mut nested_init: Vec<String> = Vec::new();
             for nf in &nested_repeats {
@@ -361,6 +393,7 @@ fn emit_struct_reads(
             for cf in &item_attrs {
                 lines.push(format!("{inner}    {},", rust_ident(&cf.name)));
             }
+            lines.extend(union_init);
             lines.extend(nested_init);
             lines.push(format!("{inner}    ..Default::default()"));
             lines.push(format!("{inner}}});"));
@@ -621,6 +654,12 @@ fn emit_variant_groups(
             if multi { format!("{f}_v{}", gi + 1) } else { f }
         };
         let disc = variant_discriminator(group);
+        // Deduped variant names: when the discriminator can't tell variants apart
+        // (e.g. six `<config>` alternatives that all lead with a dynamic `platform`
+        // attr → all named `Platform`), suffix collisions so the enum has distinct
+        // variants. Computed once and indexed by both the def and the match below so
+        // the arm always names the same variant the def declared.
+        let vnames = dedup_variant_names(group, disc.as_deref());
 
         // enum definition
         let mut def = vec![
@@ -628,7 +667,7 @@ fn emit_variant_groups(
             format!("pub enum {enum_name} {{"),
         ];
         for (vi, v) in group.variants.iter().enumerate() {
-            let vname = variant_name(v, disc.as_deref(), vi);
+            let vname = &vnames[vi];
             let payload: Vec<String> = v
                 .attrs
                 .iter()
@@ -667,10 +706,10 @@ fn emit_variant_groups(
         };
         build.push(format!("{inner_indent}match {matchee} {{"));
         for (vi, v) in group.variants.iter().enumerate() {
-            let vname = variant_name(v, disc.as_deref(), vi);
+            let vname = &vnames[vi];
             build.extend(variant_arm(
                 &enum_name,
-                &vname,
+                vname,
                 v,
                 var_name,
                 &format!("{inner_indent}    "),
@@ -731,6 +770,27 @@ fn variant_name(v: &wa_ir::WapVariant, disc: Option<&str>, idx: usize) -> String
         return pascal_case(&a.name);
     }
     format!("Variant{}", idx + 1)
+}
+
+/// Variant names for a whole group, deduped: two alternatives that resolve to the
+/// same [`variant_name`] (e.g. several `platform`-led `<config>` variants → all
+/// `Platform`) would otherwise collide into one enum variant with mismatched fields.
+/// The first keeps the base name; later collisions get a `2`/`3`/… suffix, stable in
+/// declaration order so the def and the match agree.
+fn dedup_variant_names(group: &wa_ir::WapVariantGroup, disc: Option<&str>) -> Vec<String> {
+    let mut used: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut out = Vec::with_capacity(group.variants.len());
+    for (vi, v) in group.variants.iter().enumerate() {
+        let base = variant_name(v, disc, vi);
+        let mut name = base.clone();
+        let mut n = 2;
+        while !used.insert(name.clone()) {
+            name = format!("{base}{n}");
+            n += 1;
+        }
+        out.push(name);
+    }
+    out
 }
 
 /// One `match` arm: destructure the variant's non-const attrs and apply each attr
@@ -915,6 +975,58 @@ mod tests {
         );
         assert!(
             code.contains("if let Some(__v) = &self.messages_v2 {"),
+            "{code}"
+        );
+    }
+
+    #[test]
+    fn same_named_variants_are_deduped() {
+        use wa_ir::{WapVariant, WapVariantGroup};
+        // Several `<config>` alternatives that all lead with a dynamic `platform` attr
+        // resolve to the same `variant_name` (`Platform`); they must become distinct
+        // enum variants (Platform / Platform2 / Platform3), and the build match must
+        // name the same deduped variants so the generated code compiles.
+        let mk = |extra: &str| WapVariant {
+            attrs: vec![
+                attr("platform", WapAttrKind::String, None),
+                attr(extra, WapAttrKind::String, None),
+            ],
+            children: vec![],
+        };
+        let node = WapChildNode {
+            tag: "config".into(),
+            attrs: vec![],
+            children: vec![],
+            repeats: false,
+            variant_groups: vec![WapVariantGroup {
+                optional: false,
+                variants: vec![mk("appid"), mk("voip"), mk("endpoint")],
+            }],
+        };
+        let (mut enums, mut fields) = (Vec::new(), Vec::new());
+        let mut ctx = VariantCtx {
+            spec_base: "Foo",
+            enum_defs: &mut enums,
+            fields: &mut fields,
+        };
+        let (lines, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
+        let enum_src = enums.join("\n");
+        // Three distinct variants, no duplicate `Platform`.
+        assert_eq!(
+            enum_src.matches("Platform").count(),
+            3,
+            "expected Platform/Platform2/Platform3:\n{enum_src}"
+        );
+        assert!(
+            enum_src.contains("Platform {")
+                && enum_src.contains("Platform2 {")
+                && enum_src.contains("Platform3 {"),
+            "{enum_src}"
+        );
+        // The match arms reference the same deduped names.
+        let code = lines.join("\n");
+        assert!(
+            code.contains("Platform2 {") && code.contains("Platform3 {"),
             "{code}"
         );
     }

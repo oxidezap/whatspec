@@ -30019,7 +30019,333 @@
         "namespace": "urn:xmpp:whatsapp:push",
         "iqType": "set",
         "target": "s.whatsapp.net",
-        "children": []
+        "children": [
+          {
+            "tag": "config",
+            "attrs": [],
+            "children": [],
+            "repeats": false,
+            "variantGroups": [
+              {
+                "variants": [
+                  {
+                    "attrs": [
+                      {
+                        "name": "platform",
+                        "kind": "const",
+                        "value": "fb",
+                        "required": true
+                      },
+                      {
+                        "name": "appid",
+                        "kind": "string",
+                        "required": true
+                      },
+                      {
+                        "name": "deviceid",
+                        "kind": "string",
+                        "required": true
+                      },
+                      {
+                        "name": "fbid",
+                        "kind": "optional",
+                        "required": false
+                      }
+                    ]
+                  },
+                  {
+                    "attrs": [
+                      {
+                        "name": "platform",
+                        "kind": "string",
+                        "required": true
+                      },
+                      {
+                        "name": "id",
+                        "kind": "string",
+                        "required": true
+                      },
+                      {
+                        "name": "appid",
+                        "kind": "optional",
+                        "required": false
+                      },
+                      {
+                        "name": "app_mute",
+                        "kind": "optional",
+                        "required": false
+                      },
+                      {
+                        "name": "pkey",
+                        "kind": "optional",
+                        "required": false
+                      },
+                      {
+                        "name": "voip_payload_type",
+                        "kind": "optional",
+                        "required": false
+                      },
+                      {
+                        "name": "num_acc",
+                        "kind": "optional",
+                        "required": false
+                      }
+                    ],
+                    "children": [
+                      {
+                        "tag": "item",
+                        "attrs": [
+                          {
+                            "name": "jid",
+                            "kind": "group_jid",
+                            "required": true
+                          },
+                          {
+                            "name": "mute",
+                            "kind": "integer",
+                            "required": true
+                          }
+                        ],
+                        "children": [],
+                        "repeats": true
+                      }
+                    ]
+                  },
+                  {
+                    "attrs": [
+                      {
+                        "name": "platform",
+                        "kind": "string",
+                        "required": true
+                      },
+                      {
+                        "name": "version",
+                        "kind": "optional",
+                        "required": false
+                      },
+                      {
+                        "name": "id",
+                        "kind": "optional",
+                        "required": false
+                      },
+                      {
+                        "name": "voip",
+                        "kind": "optional",
+                        "required": false
+                      },
+                      {
+                        "name": "preview",
+                        "kind": "string",
+                        "required": true
+                      },
+                      {
+                        "name": "default",
+                        "kind": "string",
+                        "required": true
+                      },
+                      {
+                        "name": "groups",
+                        "kind": "string",
+                        "required": true
+                      },
+                      {
+                        "name": "call",
+                        "kind": "string",
+                        "required": true
+                      },
+                      {
+                        "name": "status_sound",
+                        "kind": "optional",
+                        "required": false
+                      },
+                      {
+                        "name": "lg",
+                        "kind": "string",
+                        "required": true
+                      },
+                      {
+                        "name": "lc",
+                        "kind": "string",
+                        "required": true
+                      },
+                      {
+                        "name": "background_location",
+                        "kind": "optional",
+                        "required": false
+                      },
+                      {
+                        "name": "nse_ver",
+                        "kind": "optional",
+                        "required": false
+                      },
+                      {
+                        "name": "nse_call",
+                        "kind": "optional",
+                        "required": false
+                      },
+                      {
+                        "name": "nse_read",
+                        "kind": "optional",
+                        "required": false
+                      },
+                      {
+                        "name": "nse_retry",
+                        "kind": "optional",
+                        "required": false
+                      },
+                      {
+                        "name": "reg_push",
+                        "kind": "optional",
+                        "required": false
+                      },
+                      {
+                        "name": "pkey",
+                        "kind": "optional",
+                        "required": false
+                      },
+                      {
+                        "name": "voip_payload_type",
+                        "kind": "string",
+                        "required": true
+                      },
+                      {
+                        "name": "settings",
+                        "kind": "optional",
+                        "required": false
+                      },
+                      {
+                        "name": "app_mute",
+                        "kind": "optional",
+                        "required": false
+                      },
+                      {
+                        "name": "apple_watch_id",
+                        "kind": "optional",
+                        "required": false
+                      },
+                      {
+                        "name": "apple_watch_pkey",
+                        "kind": "optional",
+                        "required": false
+                      }
+                    ],
+                    "children": [
+                      {
+                        "tag": "item",
+                        "attrs": [
+                          {
+                            "name": "jid",
+                            "kind": "user_jid",
+                            "required": true
+                          },
+                          {
+                            "name": "mute",
+                            "kind": "optional",
+                            "required": false
+                          },
+                          {
+                            "name": "notify",
+                            "kind": "optional",
+                            "required": false
+                          },
+                          {
+                            "name": "call",
+                            "kind": "optional",
+                            "required": false
+                          }
+                        ],
+                        "children": [],
+                        "repeats": true
+                      }
+                    ]
+                  },
+                  {
+                    "attrs": [
+                      {
+                        "name": "platform",
+                        "kind": "const",
+                        "value": "wns",
+                        "required": true
+                      },
+                      {
+                        "name": "version",
+                        "kind": "optional",
+                        "required": false
+                      },
+                      {
+                        "name": "id",
+                        "kind": "string",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "attrs": [
+                      {
+                        "name": "platform",
+                        "kind": "const",
+                        "value": "ent",
+                        "required": true
+                      },
+                      {
+                        "name": "id",
+                        "kind": "string",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "attrs": [
+                      {
+                        "name": "platform",
+                        "kind": "const",
+                        "value": "web",
+                        "required": true
+                      },
+                      {
+                        "name": "endpoint",
+                        "kind": "string",
+                        "required": true
+                      },
+                      {
+                        "name": "auth",
+                        "kind": "string",
+                        "required": true
+                      },
+                      {
+                        "name": "p256dh",
+                        "kind": "string",
+                        "required": true
+                      },
+                      {
+                        "name": "lg",
+                        "kind": "optional",
+                        "required": false
+                      },
+                      {
+                        "name": "lc",
+                        "kind": "optional",
+                        "required": false
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "tag": "clear",
+            "attrs": [
+              {
+                "name": "platform",
+                "kind": "optional",
+                "required": false
+              }
+            ],
+            "children": [],
+            "repeats": false
+          }
+        ]
       },
       "response": {
         "parserName": "WASmaxPushConfigSetRPC",
@@ -40470,6 +40796,903 @@
           {
             "tag": "GetGroupInfoResponseServerError",
             "moduleName": "WASmaxInGroupsGetGroupInfoResponseServerError",
+            "kind": "error",
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
+            "fields": [
+              {
+                "method": "attrString",
+                "name": "type",
+                "wireName": "type",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "",
+                "name": "errorServerErrors",
+                "type": "union",
+                "required": true,
+                "unionVariants": [
+                  {
+                    "name": "IQErrorInternalServerError",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "error"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "text",
+                        "value": "internal-server-error"
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorServiceUnavailable",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "error"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "text",
+                        "value": "service-unavailable"
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorPartialServerError",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "error"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "text",
+                        "value": "partial-server-error"
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorFallbackServer",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "error"
+                      }
+                    ]
+                  }
+                ],
+                "sourcePath": [
+                  "error"
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "moduleName": "WASmaxOutGroupsGetGroupProfilePicturesRequest",
+      "namespace": "w:g2",
+      "iqType": "get",
+      "target": "s.whatsapp.net",
+      "parserName": "WASmaxGroupsGetGroupProfilePicturesRPC",
+      "exportedFunction": "makeGetGroupProfilePicturesRequest",
+      "allExports": [
+        "makeGetGroupProfilePicturesRequest"
+      ],
+      "request": {
+        "namespace": "w:g2",
+        "iqType": "get",
+        "target": "s.whatsapp.net",
+        "children": []
+      },
+      "response": {
+        "parserName": "WASmaxGroupsGetGroupProfilePicturesRPC",
+        "assertions": [],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "type",
+            "wireName": "type",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "child",
+            "name": "picturesPicture",
+            "type": "string",
+            "required": true,
+            "tag": "picture",
+            "children": [
+              {
+                "method": "",
+                "name": "parentOrSubGroupMixinGroup",
+                "type": "union",
+                "required": true,
+                "unionVariants": [
+                  {
+                    "name": "ParentGroup",
+                    "fields": [
+                      {
+                        "method": "attrJidWithType",
+                        "name": "parentGroupJid",
+                        "wireName": "parent_group_jid",
+                        "type": "jid",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "SubGroup",
+                    "fields": [
+                      {
+                        "method": "attrJidWithType",
+                        "name": "subGroupJid",
+                        "wireName": "sub_group_jid",
+                        "type": "jid",
+                        "required": true
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "method": "",
+                "name": "getGroupProfilePicturesSuccessOrGetGroupProfilePicturesPartialProfilePictureResponseMixinGroup",
+                "type": "union",
+                "required": true,
+                "unionVariants": [
+                  {
+                    "name": "GetGroupProfilePicturesSuccessProfilePictureResponse",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "id",
+                        "wireName": "id",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrEnum",
+                        "name": "type",
+                        "wireName": "type",
+                        "type": "enum",
+                        "required": true
+                      },
+                      {
+                        "method": "",
+                        "name": "profilePictureUrlOrBlobResponseMixinGroup",
+                        "type": "union",
+                        "required": false,
+                        "unionVariants": [
+                          {
+                            "name": "ProfilePictureUrlResponse",
+                            "fields": [
+                              {
+                                "method": "attrString",
+                                "name": "url",
+                                "wireName": "url",
+                                "type": "string",
+                                "required": true
+                              },
+                              {
+                                "method": "attrString",
+                                "name": "directPath",
+                                "wireName": "direct_path",
+                                "type": "string",
+                                "required": true
+                              }
+                            ],
+                            "assertions": [
+                              {
+                                "kind": "tag",
+                                "name": "picture"
+                              }
+                            ]
+                          },
+                          {
+                            "name": "ProfilePictureBlobResponse",
+                            "fields": [
+                              {
+                                "method": "contentBytes",
+                                "name": "elementValue",
+                                "type": "bytes",
+                                "required": true
+                              }
+                            ],
+                            "assertions": [
+                              {
+                                "kind": "tag",
+                                "name": "picture"
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "picture"
+                      }
+                    ]
+                  },
+                  {
+                    "name": "GetGroupProfilePicturesPartialProfilePictureResponse",
+                    "fields": [
+                      {
+                        "method": "",
+                        "name": "pictureDidNotChangeOrPictureNotFoundOrBadServerProfilePictureErrorOrBadLinkedGroupProfilePictureErrorMixinGroup",
+                        "type": "union",
+                        "required": false,
+                        "unionVariants": [
+                          {
+                            "name": "PictureDidNotChange",
+                            "fields": [
+                              {
+                                "method": "attrString",
+                                "name": "status",
+                                "wireName": "status",
+                                "type": "string",
+                                "required": true
+                              }
+                            ],
+                            "assertions": [
+                              {
+                                "kind": "tag",
+                                "name": "picture"
+                              },
+                              {
+                                "kind": "attr",
+                                "name": "status",
+                                "value": "304"
+                              }
+                            ]
+                          },
+                          {
+                            "name": "PictureNotFound",
+                            "fields": [
+                              {
+                                "method": "attrString",
+                                "name": "status",
+                                "wireName": "status",
+                                "type": "string",
+                                "required": true
+                              }
+                            ],
+                            "assertions": [
+                              {
+                                "kind": "tag",
+                                "name": "picture"
+                              },
+                              {
+                                "kind": "attr",
+                                "name": "status",
+                                "value": "204"
+                              }
+                            ]
+                          },
+                          {
+                            "name": "BadServerProfilePictureError",
+                            "fields": [
+                              {
+                                "method": "attrString",
+                                "name": "status",
+                                "wireName": "status",
+                                "type": "string",
+                                "required": true
+                              }
+                            ],
+                            "assertions": [
+                              {
+                                "kind": "tag",
+                                "name": "picture"
+                              },
+                              {
+                                "kind": "attr",
+                                "name": "status",
+                                "value": "500"
+                              }
+                            ]
+                          },
+                          {
+                            "name": "BadLinkedGroupProfilePictureError",
+                            "fields": [
+                              {
+                                "method": "attrString",
+                                "name": "status",
+                                "wireName": "status",
+                                "type": "string",
+                                "required": true
+                              }
+                            ],
+                            "assertions": [
+                              {
+                                "kind": "tag",
+                                "name": "picture"
+                              },
+                              {
+                                "kind": "attr",
+                                "name": "status",
+                                "value": "405"
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "picture"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ],
+            "repeats": true,
+            "sourcePath": [
+              "pictures"
+            ]
+          }
+        ],
+        "variants": [
+          {
+            "tag": "GetGroupProfilePicturesResponseSuccessGroupPictures",
+            "moduleName": "WASmaxInGroupsGetGroupProfilePicturesResponseSuccessGroupPictures",
+            "kind": "success",
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
+            "fields": [
+              {
+                "method": "attrString",
+                "name": "type",
+                "wireName": "type",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "child",
+                "name": "picturesPicture",
+                "type": "string",
+                "required": true,
+                "tag": "picture",
+                "children": [
+                  {
+                    "method": "",
+                    "name": "parentOrSubGroupMixinGroup",
+                    "type": "union",
+                    "required": true,
+                    "unionVariants": [
+                      {
+                        "name": "ParentGroup",
+                        "fields": [
+                          {
+                            "method": "attrJidWithType",
+                            "name": "parentGroupJid",
+                            "wireName": "parent_group_jid",
+                            "type": "jid",
+                            "required": true
+                          }
+                        ]
+                      },
+                      {
+                        "name": "SubGroup",
+                        "fields": [
+                          {
+                            "method": "attrJidWithType",
+                            "name": "subGroupJid",
+                            "wireName": "sub_group_jid",
+                            "type": "jid",
+                            "required": true
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "method": "",
+                    "name": "getGroupProfilePicturesSuccessOrGetGroupProfilePicturesPartialProfilePictureResponseMixinGroup",
+                    "type": "union",
+                    "required": true,
+                    "unionVariants": [
+                      {
+                        "name": "GetGroupProfilePicturesSuccessProfilePictureResponse",
+                        "fields": [
+                          {
+                            "method": "attrString",
+                            "name": "id",
+                            "wireName": "id",
+                            "type": "string",
+                            "required": true
+                          },
+                          {
+                            "method": "attrEnum",
+                            "name": "type",
+                            "wireName": "type",
+                            "type": "enum",
+                            "required": true
+                          },
+                          {
+                            "method": "",
+                            "name": "profilePictureUrlOrBlobResponseMixinGroup",
+                            "type": "union",
+                            "required": false,
+                            "unionVariants": [
+                              {
+                                "name": "ProfilePictureUrlResponse",
+                                "fields": [
+                                  {
+                                    "method": "attrString",
+                                    "name": "url",
+                                    "wireName": "url",
+                                    "type": "string",
+                                    "required": true
+                                  },
+                                  {
+                                    "method": "attrString",
+                                    "name": "directPath",
+                                    "wireName": "direct_path",
+                                    "type": "string",
+                                    "required": true
+                                  }
+                                ],
+                                "assertions": [
+                                  {
+                                    "kind": "tag",
+                                    "name": "picture"
+                                  }
+                                ]
+                              },
+                              {
+                                "name": "ProfilePictureBlobResponse",
+                                "fields": [
+                                  {
+                                    "method": "contentBytes",
+                                    "name": "elementValue",
+                                    "type": "bytes",
+                                    "required": true
+                                  }
+                                ],
+                                "assertions": [
+                                  {
+                                    "kind": "tag",
+                                    "name": "picture"
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ],
+                        "assertions": [
+                          {
+                            "kind": "tag",
+                            "name": "picture"
+                          }
+                        ]
+                      },
+                      {
+                        "name": "GetGroupProfilePicturesPartialProfilePictureResponse",
+                        "fields": [
+                          {
+                            "method": "",
+                            "name": "pictureDidNotChangeOrPictureNotFoundOrBadServerProfilePictureErrorOrBadLinkedGroupProfilePictureErrorMixinGroup",
+                            "type": "union",
+                            "required": false,
+                            "unionVariants": [
+                              {
+                                "name": "PictureDidNotChange",
+                                "fields": [
+                                  {
+                                    "method": "attrString",
+                                    "name": "status",
+                                    "wireName": "status",
+                                    "type": "string",
+                                    "required": true
+                                  }
+                                ],
+                                "assertions": [
+                                  {
+                                    "kind": "tag",
+                                    "name": "picture"
+                                  },
+                                  {
+                                    "kind": "attr",
+                                    "name": "status",
+                                    "value": "304"
+                                  }
+                                ]
+                              },
+                              {
+                                "name": "PictureNotFound",
+                                "fields": [
+                                  {
+                                    "method": "attrString",
+                                    "name": "status",
+                                    "wireName": "status",
+                                    "type": "string",
+                                    "required": true
+                                  }
+                                ],
+                                "assertions": [
+                                  {
+                                    "kind": "tag",
+                                    "name": "picture"
+                                  },
+                                  {
+                                    "kind": "attr",
+                                    "name": "status",
+                                    "value": "204"
+                                  }
+                                ]
+                              },
+                              {
+                                "name": "BadServerProfilePictureError",
+                                "fields": [
+                                  {
+                                    "method": "attrString",
+                                    "name": "status",
+                                    "wireName": "status",
+                                    "type": "string",
+                                    "required": true
+                                  }
+                                ],
+                                "assertions": [
+                                  {
+                                    "kind": "tag",
+                                    "name": "picture"
+                                  },
+                                  {
+                                    "kind": "attr",
+                                    "name": "status",
+                                    "value": "500"
+                                  }
+                                ]
+                              },
+                              {
+                                "name": "BadLinkedGroupProfilePictureError",
+                                "fields": [
+                                  {
+                                    "method": "attrString",
+                                    "name": "status",
+                                    "wireName": "status",
+                                    "type": "string",
+                                    "required": true
+                                  }
+                                ],
+                                "assertions": [
+                                  {
+                                    "kind": "tag",
+                                    "name": "picture"
+                                  },
+                                  {
+                                    "kind": "attr",
+                                    "name": "status",
+                                    "value": "405"
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ],
+                        "assertions": [
+                          {
+                            "kind": "tag",
+                            "name": "picture"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ],
+                "repeats": true,
+                "sourcePath": [
+                  "pictures"
+                ]
+              }
+            ]
+          },
+          {
+            "tag": "GetGroupProfilePicturesResponseClientError",
+            "moduleName": "WASmaxInGroupsGetGroupProfilePicturesResponseClientError",
+            "kind": "error",
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
+            "fields": [
+              {
+                "method": "attrString",
+                "name": "type",
+                "wireName": "type",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "",
+                "name": "errorGetGroupProfilePictureClientErrors",
+                "type": "union",
+                "required": true,
+                "unionVariants": [
+                  {
+                    "name": "IQErrorItemNotFound",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "error"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "text",
+                        "value": "item-not-found"
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorForbidden",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "error"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "text",
+                        "value": "forbidden"
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorNotAllowed",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "error"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "text",
+                        "value": "not-allowed"
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorBadRequest",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "error"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "text",
+                        "value": "bad-request"
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorRateOverlimit",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "error"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "text",
+                        "value": "rate-overlimit"
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorFallbackClient",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "error"
+                      }
+                    ]
+                  }
+                ],
+                "sourcePath": [
+                  "error"
+                ]
+              }
+            ]
+          },
+          {
+            "tag": "GetGroupProfilePicturesResponseServerError",
+            "moduleName": "WASmaxInGroupsGetGroupProfilePicturesResponseServerError",
             "kind": "error",
             "assertions": [
               {
@@ -70132,7 +71355,7 @@
       "namespace": "w:p",
       "iqType": "get",
       "target": "s.whatsapp.net",
-      "parserName": "unknown",
+      "parserName": "parseClientResponseServerResponse",
       "exportedFunction": "makeClientRequest",
       "allExports": [
         "makeClientRequest"
@@ -70144,9 +71367,41 @@
         "children": []
       },
       "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
+        "parserName": "parseClientResponseServerResponse",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "iq"
+          },
+          {
+            "kind": "attr",
+            "name": "type",
+            "value": "result"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrJidWithType",
+            "name": "from",
+            "wireName": "from",
+            "type": "jid",
+            "required": true
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "wireName": "type",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "attrInt",
+            "name": "t",
+            "wireName": "t",
+            "type": "integer",
+            "required": true
+          }
+        ]
       }
     },
     {
@@ -76148,103 +77403,99 @@
   "unparseable": [
     {
       "moduleName": "WASmaxOutAbPropsBaseIQGetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutAccountBaseIQSetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutBizAccessTokenBaseIQGetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutBizAccessTokenHackBaseIQGetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutBizCtwaAdAccountBaseIQGetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutBizCtwaAdAccountHackBaseIQGetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutBizCtwaNativeAdBaseIQSetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutBizCtwaNativeAdHackBaseIQSetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutBizLinkingBaseIQGetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutBizLinkingHackBaseIQGetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutBizMarketingMessageBaseIQGetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutBizMarketingMessageHackBaseIQGetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutBizSettingsBaseIQGetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutBizSettingsBaseIQSetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutBlocklistsUpdateBlockListReportBlockEntryPointMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutBotBaseIQGetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutBugReportingBaseIQSetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutBugReportingHackBaseIQSetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutGroupsBaseIQGetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutGroupsBaseIQSetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
-    },
-    {
-      "moduleName": "WASmaxOutGroupsGetGroupProfilePicturesRequest",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutGroupsSetSubjectChangeSubjectMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutInAppCommsBaseIQSetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutMdBaseIQGetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutMdBaseIQSetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutMdSetRegResponseClientResponse",
@@ -76264,75 +77515,75 @@
     },
     {
       "moduleName": "WASmaxOutNewslettersBaseIQGetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutNewslettersBaseIQSetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutPingsClientWellFormedToMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutPreKeysClientRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutPrivacyBaseIQGetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutProfilePictureBaseIQGetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutProfilePictureGetIQMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutProfilePictureServerDomainIQMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutPsaBaseIQGetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutPsaBaseIQSetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutPushConfigBaseIQSetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutPushConfigSetClearMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutPushConfigSetSetConfigMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutSmbMeteredMessagingAccountBaseIQGetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutSmbMeteredMessagingAccountHackBaseIQGetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutSpamBaseIQSetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutSpamBaseReportMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutSpamEntitySubjectMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutSpamFRXMixin",
@@ -76340,39 +77591,39 @@
     },
     {
       "moduleName": "WASmaxOutSpamIsKnownChatMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutStatsBaseIQSetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutSupportBaseIQSetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutSupportHackBaseIQSetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutSupportMessageFeedbackBaseIQSetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutSupportMessageFeedbackHackBaseIQSetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutUserNoticeBaseIQGetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutUserNoticeBaseIQSetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutWaffleBaseIQGetRequestMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WAWebHandleStanzaCommon",

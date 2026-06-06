@@ -22,13 +22,23 @@
 //!   told apart by which variant's required attrs are all present (first-success).
 //!   The separability check rejects a union whose earlier arm would shadow a later
 //!   one.
+//! * **Tag-discriminated** — variants share one node's tag but carry richer payloads
+//!   (nested children/unions). Each becomes a newtype enum arm over its own generated
+//!   struct; the parser tries them first-success, gated by each variant's pinned attr
+//!   values and required fields. The same separability check (signature subset + a
+//!   pinned-attr conflict) rejects shapes where an earlier arm would shadow a later.
 
 use std::collections::BTreeSet;
 
 use wa_ir::{AssertionKind, ParsedField, ParsedFieldType, ResponseAssertion, UnionVariant, wap};
 
-use crate::fields::{RustEnum, RustEnumVariant, RustField, is_attr_field, rust_field_type};
-use crate::naming::{pascal_case, rust_ident, rust_lit};
+use crate::emit::emit_struct_parser;
+use crate::fields::{
+    RustChildStruct, RustEnum, RustEnumVariant, RustField, collect_response_fields, is_attr_field,
+    rust_field_type,
+};
+use crate::naming::{pascal_case, rust_ident, rust_lit, rust_lit_inner};
+use crate::spec::parser_is_valid;
 
 /// The codegen-able shape of a `type=union` field.
 pub(crate) enum UnionShape {
@@ -43,6 +53,22 @@ pub(crate) enum UnionShape {
     /// Struct-variant enum read off the SAME node, chosen by first-success over the
     /// variants' required attrs.
     SameNode { arms: Vec<ValueArm> },
+    /// Newtype enum over per-variant structs, read off one node (all variants share the
+    /// node's tag). Variants may carry nested children/unions, so each becomes its own
+    /// generated struct; the parser tries them in first-success order, gated by each
+    /// variant's pinned attrs + its required fields. Separability is checked up front.
+    TagDiscriminated {
+        descend: Vec<String>,
+        arms: Vec<TagArm>,
+    },
+}
+
+/// A tag-discriminated arm: a variant whose payload is read by [`emit_struct_parser`]
+/// off the shared node, gated by `attr_values` (pinned discriminator attrs).
+pub(crate) struct TagArm {
+    pub variant: String,
+    pub attr_values: Vec<(String, String)>,
+    pub fields: Vec<ParsedField>,
 }
 
 /// A content-pinned arm: `content` selects unit variant `variant`.
@@ -86,7 +112,125 @@ pub(crate) fn classify_union(f: &ParsedField) -> Option<UnionShape> {
     if variants.len() < 2 {
         return None;
     }
-    classify_content(f, variants).or_else(|| classify_same_node(f, variants))
+    classify_content(f, variants)
+        .or_else(|| classify_same_node(f, variants))
+        .or_else(|| classify_tag_discriminated(f, variants))
+}
+
+/// Tag-discriminated: every variant shares the same tag (the node the union reads off)
+/// and carries fields — possibly nested children/unions. The variants are told apart
+/// by a first-success cascade (pinned attr values + required-field presence). Rejected
+/// (→ `None`, field dropped) unless EVERY variant's per-arm parser validates AND the
+/// variants are separable (no earlier arm's discriminator signature subsets a later
+/// one's without a conflicting pinned attr — which would shadow the later arm).
+fn classify_tag_discriminated(f: &ParsedField, variants: &[UnionVariant]) -> Option<UnionShape> {
+    let tag = tag_assert(&variants[0].assertions)?;
+    if !variants
+        .iter()
+        .all(|v| tag_assert(&v.assertions) == Some(tag))
+    {
+        return None;
+    }
+    if variants.iter().any(|v| v.fields.is_empty()) {
+        return None;
+    }
+    // Each variant's payload must be a parser the codegen can actually emit.
+    for v in variants {
+        if !parser_is_valid(&v.fields, "ProbeStruct", "ProbeStruct") {
+            return None;
+        }
+    }
+    // Separability: an earlier variant whose signature subsets a later one's (and isn't
+    // told apart by a conflicting pinned attr) would always match first and shadow it.
+    let sigs: Vec<BTreeSet<String>> = variants.iter().map(variant_signature).collect();
+    for i in 0..variants.len() {
+        for j in (i + 1)..variants.len() {
+            if sigs[i].is_subset(&sigs[j]) && !variants_conflict(&variants[i], &variants[j]) {
+                return None;
+            }
+        }
+    }
+    let descend = f
+        .source_path
+        .as_ref()
+        .filter(|s| !s.is_empty())
+        .cloned()
+        .unwrap_or_default();
+    let arms = variants
+        .iter()
+        .map(|v| TagArm {
+            variant: v.name.clone(),
+            attr_values: v
+                .assertions
+                .iter()
+                .filter(|a| a.kind == AssertionKind::Attr)
+                .filter_map(|a| Some((a.name.clone()?, a.value.clone()?)))
+                .collect(),
+            fields: v.fields.clone(),
+        })
+        .collect();
+    Some(UnionShape::TagDiscriminated { descend, arms })
+}
+
+/// The discriminator signature of a variant: pinned attr/content values plus the names
+/// of its fail-on-absent fields. A required nested union counts as one atom (its own
+/// `union_variants` aren't recursed — they don't tell THIS variant from a sibling).
+fn variant_signature(v: &UnionVariant) -> BTreeSet<String> {
+    let mut s = BTreeSet::new();
+    for a in &v.assertions {
+        match a.kind {
+            AssertionKind::Attr => {
+                if let (Some(n), Some(val)) = (&a.name, &a.value) {
+                    s.insert(format!("ATTRVAL:{n}={val}"));
+                }
+            }
+            AssertionKind::Content => {
+                if let Some(val) = &a.value {
+                    s.insert(format!("CONTENT:{val}"));
+                }
+            }
+            _ => {}
+        }
+    }
+    fn walk(fields: &[ParsedField], s: &mut BTreeSet<String>) {
+        for f in fields {
+            if f.field_type == ParsedFieldType::Union {
+                if f.required {
+                    s.insert(format!("NESTED:{}", f.name));
+                }
+                continue;
+            }
+            // A repeated child reads as a possibly-empty `Vec` (the parser never bails
+            // when it's absent), so neither it NOR its contents are fail-on-absent —
+            // they can't discriminate a variant. Excluding them keeps the separability
+            // gate from accepting a union whose first arm matches unconditionally and
+            // shadows a later one (e.g. newsletter views-count: required repeated
+            // `views_count` vs the deprecated `count` attr).
+            if f.repeats == Some(true) {
+                continue;
+            }
+            if f.required && (f.method == "child" || f.method.starts_with("attr")) {
+                s.insert(format!("REQ:{}", f.name));
+            }
+            if let Some(kids) = &f.children {
+                walk(kids, s);
+            }
+        }
+    }
+    walk(&v.fields, &mut s);
+    s
+}
+
+/// Two variants are told apart when both pin the SAME attr to DIFFERENT values
+/// (`type:"text"` vs `type:"media"`) — then neither shadows the other.
+fn variants_conflict(a: &UnionVariant, b: &UnionVariant) -> bool {
+    a.assertions.iter().any(|x| {
+        x.kind == AssertionKind::Attr
+            && x.value.is_some()
+            && b.assertions
+                .iter()
+                .any(|y| y.kind == AssertionKind::Attr && y.name == x.name && y.value != x.value)
+    })
 }
 
 /// Content: variants pinned to a child's text content. The descend chain is the
@@ -206,8 +350,24 @@ fn required_attrs(v: &UnionVariant) -> BTreeSet<String> {
         .collect()
 }
 
-/// Build the [`RustEnumVariant`] list for a shape (used by [`collect_union`]).
-fn enum_variants(shape: &UnionShape) -> Vec<RustEnumVariant> {
+/// The struct field (typed `Option<Enum>`), the enum definition(s), and any per-variant
+/// structs for a union field — or `None` when it isn't codegen-able. `Option` (never
+/// bare) keeps the parser resilient: an unrecognized variant decodes to `None`. A
+/// tag-discriminated union also returns a generated struct per variant (with the child
+/// item structs + nested enums those reach), all emitted at module level.
+pub(crate) fn collect_union(
+    f: &ParsedField,
+    prefix: &str,
+) -> Option<(RustField, Vec<RustEnum>, Vec<RustChildStruct>)> {
+    let shape = classify_union(f)?;
+    let name = enum_name(f, prefix);
+    let field = RustField {
+        name: rust_ident(&f.name),
+        rust_type: format!("Option<{name}>"),
+        is_vec: false,
+    };
+    let doc = format!("Discriminated union for response field `{}`.", f.name);
+
     let value_variant = |variant: &str, fields: &[ParsedField]| RustEnumVariant {
         name: pascal_case(variant),
         fields: fields
@@ -218,45 +378,75 @@ fn enum_variants(shape: &UnionShape) -> Vec<RustEnumVariant> {
                 is_vec: false,
             })
             .collect(),
+        tuple_type: None,
     };
-    match shape {
+
+    match &shape {
         UnionShape::Content { arms, fallback, .. } => {
-            let mut out: Vec<RustEnumVariant> = arms
+            let mut variants: Vec<RustEnumVariant> = arms
                 .iter()
                 .map(|a| RustEnumVariant {
                     name: pascal_case(&a.variant),
                     fields: Vec::new(),
+                    tuple_type: None,
                 })
                 .collect();
             if let Some(fb) = fallback {
-                out.push(value_variant(&fb.variant, &fb.fields));
+                variants.push(value_variant(&fb.variant, &fb.fields));
             }
-            out
+            let e = RustEnum {
+                name,
+                doc,
+                variants,
+            };
+            Some((field, vec![e], Vec::new()))
         }
-        UnionShape::SameNode { arms } => arms
-            .iter()
-            .map(|a| value_variant(&a.variant, &a.fields))
-            .collect(),
+        UnionShape::SameNode { arms } => {
+            let variants = arms
+                .iter()
+                .map(|a| value_variant(&a.variant, &a.fields))
+                .collect();
+            let e = RustEnum {
+                name,
+                doc,
+                variants,
+            };
+            Some((field, vec![e], Vec::new()))
+        }
+        UnionShape::TagDiscriminated { arms, .. } => {
+            // Each arm becomes a newtype variant over its own generated struct, which
+            // recursively collects its fields, child item structs, and nested enums.
+            let mut variants = Vec::new();
+            let mut enums = Vec::new();
+            let mut structs = Vec::new();
+            for a in arms {
+                let vname = pascal_case(&a.variant);
+                let struct_name = format!("{name}{vname}");
+                let (top, child_structs, nested_enums) =
+                    collect_response_fields(&a.fields, &struct_name);
+                structs.push(RustChildStruct {
+                    name: struct_name.clone(),
+                    fields: top,
+                });
+                structs.extend(child_structs);
+                enums.extend(nested_enums);
+                variants.push(RustEnumVariant {
+                    name: vname,
+                    fields: Vec::new(),
+                    tuple_type: Some(struct_name),
+                });
+            }
+            enums.insert(
+                0,
+                RustEnum {
+                    name,
+                    doc,
+                    variants,
+                },
+            );
+            Some((field, enums, structs))
+        }
     }
-}
-
-/// The struct field (typed `Option<Enum>`) and the enum definition for a union
-/// field, or `None` when the union isn't codegen-able. `Option` (never bare) keeps
-/// the parser resilient: an unrecognized variant decodes to `None`, not a hard error.
-pub(crate) fn collect_union(f: &ParsedField, prefix: &str) -> Option<(RustField, RustEnum)> {
-    let shape = classify_union(f)?;
-    let name = enum_name(f, prefix);
-    let field = RustField {
-        name: rust_ident(&f.name),
-        rust_type: format!("Option<{name}>"),
-        is_vec: false,
-    };
-    let enum_def = RustEnum {
-        name,
-        doc: format!("Discriminated union for response field `{}`.", f.name),
-        variants: enum_variants(&shape),
-    };
-    Some((field, enum_def))
 }
 
 /// Emit the `let <field> = …;` reads that decode a union off `node_var`, plus the
@@ -290,8 +480,98 @@ pub(crate) fn emit_union_read(
         UnionShape::SameNode { arms } => {
             emit_same_node(&name, &field, node_var, &arms, indent, &mut lines)
         }
+        UnionShape::TagDiscriminated { descend, arms } => emit_tag_discriminated(
+            &name, &field, node_var, &descend, &arms, prefix, indent, &mut lines,
+        ),
     }
     Some((lines, format!("{indent}    {field},")))
+}
+
+/// Emit a tag-discriminated union read: descend (optionally) to the shared node, then
+/// try each variant's per-arm parser in first-success order — the first whose pinned
+/// attrs match and whose required fields all read wins. Unmatched → `None`.
+#[allow(clippy::too_many_arguments)]
+fn emit_tag_discriminated(
+    enum_name: &str,
+    field: &str,
+    node_var: &str,
+    descend: &[String],
+    arms: &[TagArm],
+    prefix: &str,
+    indent: &str,
+    lines: &mut Vec<String>,
+) {
+    if descend.is_empty() {
+        lines.push(format!(
+            "{indent}let {field} = (|| -> Option<{enum_name}> {{"
+        ));
+        emit_tag_cascade(
+            enum_name,
+            node_var,
+            arms,
+            prefix,
+            &format!("{indent}    "),
+            lines,
+        );
+        lines.push(format!("{indent}}})();"));
+    } else {
+        let node = descend_opt_expr(node_var, descend);
+        lines.push(format!("{indent}let {field} = {node}.and_then(|n| {{"));
+        emit_tag_cascade(
+            enum_name,
+            "n",
+            arms,
+            prefix,
+            &format!("{indent}    "),
+            lines,
+        );
+        lines.push(format!("{indent}}});"));
+    }
+}
+
+/// The first-success cascade body (shared by the descend / no-descend wrappers): one
+/// per-arm closure that bails on a failed pinned-attr guard or a missing required
+/// field, then `return Some(Enum::Variant(struct))` on the first that parses.
+fn emit_tag_cascade(
+    enum_name: &str,
+    read_var: &str,
+    arms: &[TagArm],
+    _prefix: &str,
+    indent: &str,
+    lines: &mut Vec<String>,
+) {
+    let inner = format!("{indent}    ");
+    for a in arms {
+        let vname = pascal_case(&a.variant);
+        let struct_name = format!("{enum_name}{vname}");
+        lines.push(format!(
+            "{indent}let __r: Result<{struct_name}, anyhow::Error> = (|| -> Result<{struct_name}, anyhow::Error> {{"
+        ));
+        for (n, val) in &a.attr_values {
+            lines.push(format!(
+                "{inner}if {read_var}.get_attr({}).map(|x| x.as_str()).as_deref() != Some({}) {{ anyhow::bail!(\"{}: {} != {}\"); }}",
+                rust_lit(n),
+                rust_lit(val),
+                vname,
+                rust_lit_inner(n),
+                rust_lit_inner(val),
+            ));
+        }
+        // The per-variant struct is its OWN prefix, so child item structs match the
+        // names `collect_response_fields(&a.fields, &struct_name)` generated.
+        lines.extend(emit_struct_parser(
+            &a.fields,
+            read_var,
+            &struct_name,
+            &inner,
+            &struct_name,
+        ));
+        lines.push(format!("{indent}}})();"));
+        lines.push(format!(
+            "{indent}if let Ok(__v) = __r {{ return Some({enum_name}::{vname}(__v)); }}"
+        ));
+    }
+    lines.push(format!("{indent}None"));
 }
 
 /// Emit a content-discriminated union read: descend (optionally) to the content node,
@@ -516,7 +796,8 @@ mod tests {
     #[test]
     fn content_union_with_fallback_classifies_and_emits() {
         let f = member_mode_union();
-        let (field, enum_def) = collect_union(&f, "Spec").expect("classified");
+        let (field, enums, _structs) = collect_union(&f, "Spec").expect("classified");
+        let enum_def = &enums[0];
         assert_eq!(field.rust_type, "Option<SpecMemberAddModeMemberAddModes>");
         // Two unit arms + one struct fallback.
         assert_eq!(enum_def.variants.len(), 3);
@@ -574,7 +855,8 @@ mod tests {
     #[test]
     fn same_node_value_union_cascades_by_required_attr() {
         let f = subject_union();
-        let (field, enum_def) = collect_union(&f, "Spec").expect("classified");
+        let (field, enums, _structs) = collect_union(&f, "Spec").expect("classified");
+        let enum_def = &enums[0];
         assert!(field.rust_type.starts_with("Option<Spec"));
         assert_eq!(enum_def.variants.len(), 2);
         assert_eq!(enum_def.variants[0].fields[0].rust_type, "String");
@@ -620,26 +902,122 @@ mod tests {
     }
 
     #[test]
-    fn union_with_nested_union_field_is_rejected() {
-        // A variant whose payload contains another union (the participant shape) is
-        // not a simple leaf set → unsupported, so the field is dropped (not broken).
+    fn tag_discriminated_participant_union_recovers() {
+        // The participant shape: two variants share tag=participant; Admin has a
+        // required `type` (and a nested union) that NonAdmin lacks, so they're
+        // separable (Admin first, NonAdmin fallback). Recovered as a newtype enum
+        // over per-variant structs.
         let f = union_field(serde_json::json!({
             "method": "", "name": "groupInfoParticipantMixins", "type": "union",
             "required": true,
             "unionVariants": [
-                {"name": "Admin", "fields": [
-                    {"method": "attrEnum", "name": "type", "type": "enum", "required": true},
-                    {"method": "", "name": "inner", "type": "union", "required": true,
-                     "unionVariants": [{"name": "X", "fields": []}]}
+                {"name": "GroupInfoParticipantAdmin", "fields": [
+                    {"method": "attrEnum", "name": "type", "wireName": "type", "type": "enum", "required": true},
+                    {"method": "maybeAttrString", "name": "participantLabel", "wireName": "participant_label", "type": "string", "required": false}
                 ], "assertions": [{"kind": "tag", "name": "participant"}]},
-                {"name": "NonAdmin", "fields": [
-                    {"method": "maybeAttrString", "name": "label", "type": "string", "required": false}
+                {"name": "GroupInfoParticipantNonAdmin", "fields": [
+                    {"method": "maybeAttrString", "name": "participantLabel", "wireName": "participant_label", "type": "string", "required": false}
                 ], "assertions": [{"kind": "tag", "name": "participant"}]}
+            ]
+        }));
+        let (field, enums, structs) = collect_union(&f, "Spec").expect("classified");
+        assert!(field.rust_type.starts_with("Option<Spec"));
+        // Newtype variants over two generated structs.
+        let e = &enums[0];
+        assert_eq!(e.variants.len(), 2);
+        assert!(e.variants.iter().all(|v| v.tuple_type.is_some()));
+        assert!(
+            structs
+                .iter()
+                .any(|s| s.name.ends_with("GroupInfoParticipantAdmin"))
+        );
+        // The parser tries each arm; Admin's required `type` makes it fail-fast for a
+        // NonAdmin response.
+        let (lines, _) = emit_union_read(&f, "participant_item", "Spec", "").unwrap();
+        let code = lines.join("\n");
+        assert!(code.contains("::GroupInfoParticipantAdmin(__v)"), "{code}");
+        assert!(
+            code.contains("if let Ok(__v) = __r"),
+            "first-success cascade:\n{code}"
+        );
+    }
+
+    #[test]
+    fn tag_discriminated_attr_value_discriminator() {
+        // Newsletter text/media: same tag, told apart by a pinned `type` attr value.
+        let f = union_field(serde_json::json!({
+            "method": "", "name": "newsletterTextOrMediaMixinGroup", "type": "union",
+            "required": true,
+            "unionVariants": [
+                {"name": "NewsletterText", "fields": [
+                    {"method": "attrString", "name": "type", "wireName": "type", "type": "string", "required": true}
+                ], "assertions": [{"kind": "tag", "name": "message"}, {"kind": "attr", "name": "type", "value": "text"}]},
+                {"name": "NewsletterMedia", "fields": [
+                    {"method": "attrString", "name": "type", "wireName": "type", "type": "string", "required": true},
+                    {"method": "attrEnum", "name": "plaintextMediatype", "wireName": "mediatype", "type": "enum", "required": true}
+                ], "assertions": [{"kind": "tag", "name": "message"}, {"kind": "attr", "name": "type", "value": "media"}]}
+            ]
+        }));
+        let (lines, _) = emit_union_read(&f, "message_item", "Spec", "").unwrap();
+        let code = lines.join("\n");
+        // Each arm guards on its pinned type value (Cow-safe comparison).
+        assert!(
+            code.contains(
+                "message_item.get_attr(\"type\").map(|x| x.as_str()).as_deref() != Some(\"text\")"
+            ),
+            "{code}"
+        );
+        assert!(code.contains("Some(\"media\")"), "{code}");
+    }
+
+    #[test]
+    fn non_separable_tag_union_is_rejected() {
+        // userFetch shape: Error and ErrorFallback have IDENTICAL required sets and no
+        // pinned-attr conflict → ErrorFallback is unreachable → must drop, not misclassify.
+        let f = union_field(serde_json::json!({
+            "method": "", "name": "userFetch", "type": "union", "required": true,
+            "unionVariants": [
+                {"name": "Success", "fields": [
+                    {"method": "attrString", "name": "skeyId", "wireName": "skey_id", "type": "string", "required": true}
+                ], "assertions": [{"kind": "tag", "name": "user"}]},
+                {"name": "Error", "fields": [
+                    {"method": "attrString", "name": "errorText", "wireName": "error_text", "type": "string", "required": true},
+                    {"method": "attrInt", "name": "errorCode", "wireName": "error_code", "type": "integer", "required": true}
+                ], "assertions": [{"kind": "tag", "name": "user"}]},
+                {"name": "ErrorFallback", "fields": [
+                    {"method": "attrString", "name": "errorText", "wireName": "error_text", "type": "string", "required": true},
+                    {"method": "attrInt", "name": "errorCode", "wireName": "error_code", "type": "integer", "required": true}
+                ], "assertions": [{"kind": "tag", "name": "user"}]}
             ]
         }));
         assert!(
             classify_union(&f).is_none(),
-            "nested-union variant must be rejected"
+            "Error == ErrorFallback (no discriminator) must be rejected"
+        );
+    }
+
+    #[test]
+    fn required_repeated_child_is_not_a_discriminator() {
+        // views-count shape: the first arm's only required field is a REPEATED child,
+        // which the parser reads as a possibly-empty Vec (never bails) — so it matches
+        // unconditionally and shadows the later `count`-attr arm. Must be rejected, not
+        // emitted (which would drop the deprecated count).
+        let f = union_field(serde_json::json!({
+            "method": "", "name": "viewsCountViewsOrDeprecated", "type": "union", "required": true,
+            "unionVariants": [
+                {"name": "Views", "fields": [
+                    {"method": "child", "name": "viewsCount", "tag": "views_count", "type": "string",
+                     "required": true, "repeats": true,
+                     "children": [{"method": "attrInt", "name": "v", "wireName": "v", "type": "integer", "required": true}]}
+                ], "assertions": [{"kind": "tag", "name": "message"}]},
+                {"name": "Deprecated", "fields": [
+                    {"method": "attrInt", "name": "viewsCountCount", "wireName": "count", "type": "integer", "required": true}
+                ], "assertions": [{"kind": "tag", "name": "message"}]}
+            ]
+        }));
+        assert!(
+            classify_union(&f).is_none(),
+            "an arm whose only required field is a repeated child shadows later arms"
         );
     }
 }

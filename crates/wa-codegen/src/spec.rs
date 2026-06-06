@@ -12,7 +12,7 @@ use wa_ir::{
 /// Two outcome variants are separable by a discriminator when both pin the SAME attr
 /// to DIFFERENT literal values (`type:"result"` vs `type:"error"`): a response
 /// satisfying one fails the other's guard, so neither can shadow the other.
-fn assertions_conflict(a: &ResponseVariant, b: &ResponseVariant) -> bool {
+pub(crate) fn assertions_conflict(a: &ResponseVariant, b: &ResponseVariant) -> bool {
     a.assertions.iter().any(|x| {
         x.kind == AssertionKind::Attr
             && x.value.is_some()
@@ -53,7 +53,11 @@ fn variant_tag_prefix(tags: &[String]) -> usize {
 /// the structs `collect_response_fields` derives for `fields` — the guard that keeps
 /// codegen from emitting a parser that references non-existent fields (a shape
 /// `emit_response_parser` mishandles, e.g. a repeated child under a `source_path`).
-fn parser_is_valid(fields: &[wa_ir::ParsedField], response_type_name: &str, prefix: &str) -> bool {
+pub(crate) fn parser_is_valid(
+    fields: &[wa_ir::ParsedField],
+    response_type_name: &str,
+    prefix: &str,
+) -> bool {
     let (check_fields, check_child_structs, _) = collect_response_fields(fields, prefix);
     let names: Vec<&str> = check_fields.iter().map(|f| f.name.as_str()).collect();
     if names.iter().collect::<HashSet<_>>().len() != names.len() {
@@ -351,10 +355,13 @@ fn iq_type_str(t: IqType) -> &'static str {
 static LET_KEYWORD: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\blet (type|fn|loop|match|mod|pub|use|struct|impl|trait|enum)\b").unwrap()
 });
-// Captures struct-init field names, including raw identifiers (`r#type`) — without
-// the `r#` alternative the validator would think a `type`/`match` field (emitted as
-// `r#type,`) was never initialized and wrongly reject an otherwise-valid parser.
-static INIT_FIELD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(r#\w+|\w+),").unwrap());
+// Captures struct-init field KEYS, including raw identifiers (`r#type`). Matches the
+// identifier before `:` (explicit `key: value,`) OR `,` (field shorthand) — a nested
+// repeated grandchild is emitted as `tag: tag_items,`, where the old `,`-only pattern
+// captured the VALUE (`tag_items`) instead of the KEY (`tag`) and wrongly rejected an
+// otherwise-valid parser. The acceptance check is one-directional (required ⊆ inited),
+// so the extra value/`Default` matches the broader pattern admits are harmless.
+static INIT_FIELD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(r#\w+|\w+)\s*[:,]").unwrap());
 static LET_BINDING: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\blet\s+(mut\s+)?(\w+)\b").unwrap());
 
