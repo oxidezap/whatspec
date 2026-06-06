@@ -31,12 +31,15 @@ pub(crate) struct RustEnum {
     pub variants: Vec<RustEnumVariant>,
 }
 
-/// One alternative of a [`RustEnum`]: a unit variant (`fields` empty) or a
-/// struct variant carrying its inline fields.
+/// One alternative of a [`RustEnum`]. Exactly one shape applies: a newtype variant
+/// `Name(Type)` when `tuple_type` is set (a tag-discriminated arm wrapping a generated
+/// per-variant struct); otherwise a unit variant (`fields` empty) or an inline struct
+/// variant carrying `fields`.
 #[derive(Debug, Clone)]
 pub(crate) struct RustEnumVariant {
     pub name: String,
     pub fields: Vec<RustField>,
+    pub tuple_type: Option<String>,
 }
 
 /// Emit a `pub enum` definition for a `type=union` response field — unit variants
@@ -49,7 +52,9 @@ pub(crate) fn emit_enum_def(e: &RustEnum) -> Vec<String> {
     lines.push("#[derive(Debug, Clone)]".to_string());
     lines.push(format!("pub enum {} {{", e.name));
     for v in &e.variants {
-        if v.fields.is_empty() {
+        if let Some(ty) = &v.tuple_type {
+            lines.push(format!("    {}({}),", v.name, ty));
+        } else if v.fields.is_empty() {
             lines.push(format!("    {},", v.name));
         } else {
             lines.push(format!("    {} {{", v.name));
@@ -238,9 +243,10 @@ pub(crate) fn collect_response_fields(
         // `type=union` field → a discriminated enum (when codegen-able); an
         // unsupported union is skipped, exactly as `emit_response_parser` skips it.
         if f.field_type == ParsedFieldType::Union {
-            if let Some((field, enum_def)) = crate::union::collect_union(f, prefix) {
+            if let Some((field, enum_defs, structs)) = crate::union::collect_union(f, prefix) {
                 add_field(&mut top_fields, field);
-                enums.push(enum_def);
+                enums.extend(enum_defs);
+                child_structs.extend(structs);
             }
             continue;
         }
@@ -291,6 +297,21 @@ pub(crate) fn collect_response_fields(
                         rust_type: rust_field_type(cf).to_string(),
                         is_vec: false,
                     });
+                }
+
+                // A `type=union` child of this repeated item → an `Option<Enum>` column
+                // (prefixed by the Item struct so its enum/variant structs are unique).
+                for uf in kids
+                    .iter()
+                    .filter(|c| c.field_type == ParsedFieldType::Union)
+                {
+                    if let Some((field, union_enums, union_structs)) =
+                        crate::union::collect_union(uf, &struct_name)
+                    {
+                        struct_fields.push(field);
+                        enums.extend(union_enums);
+                        child_structs.extend(union_structs);
+                    }
                 }
 
                 for nf in &nested_children {

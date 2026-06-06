@@ -12,7 +12,7 @@ use wa_ir::{
 /// Two outcome variants are separable by a discriminator when both pin the SAME attr
 /// to DIFFERENT literal values (`type:"result"` vs `type:"error"`): a response
 /// satisfying one fails the other's guard, so neither can shadow the other.
-fn assertions_conflict(a: &ResponseVariant, b: &ResponseVariant) -> bool {
+pub(crate) fn assertions_conflict(a: &ResponseVariant, b: &ResponseVariant) -> bool {
     a.assertions.iter().any(|x| {
         x.kind == AssertionKind::Attr
             && x.value.is_some()
@@ -53,7 +53,11 @@ fn variant_tag_prefix(tags: &[String]) -> usize {
 /// the structs `collect_response_fields` derives for `fields` — the guard that keeps
 /// codegen from emitting a parser that references non-existent fields (a shape
 /// `emit_response_parser` mishandles, e.g. a repeated child under a `source_path`).
-fn parser_is_valid(fields: &[wa_ir::ParsedField], response_type_name: &str, prefix: &str) -> bool {
+pub(crate) fn parser_is_valid(
+    fields: &[wa_ir::ParsedField],
+    response_type_name: &str,
+    prefix: &str,
+) -> bool {
     let (check_fields, check_child_structs, _) = collect_response_fields(fields, prefix);
     let names: Vec<&str> = check_fields.iter().map(|f| f.name.as_str()).collect();
     if names.iter().collect::<HashSet<_>>().len() != names.len() {

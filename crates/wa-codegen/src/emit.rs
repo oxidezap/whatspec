@@ -93,10 +93,31 @@ pub(crate) fn emit_response_parser(
     indent: &str,
     prefix: &str,
 ) -> Vec<String> {
-    // lines[0] is reserved for the deferred `use` import, lines[1] is a blank.
+    // lines[0] is reserved for the deferred `use` import, lines[1] is a blank; the
+    // body reads off the `response` node and ends in `Ok(<ResponseType> { … })`.
     let mut lines: Vec<String> = vec![String::new(), String::new()];
+    lines.extend(emit_struct_parser(
+        fields,
+        "response",
+        response_type_name,
+        indent,
+        prefix,
+    ));
+    lines
+}
 
-    // Recursively emit the reads off `response`, mirroring `collect_response_fields`:
+/// Emit the reads for `fields` off `node_var` followed by `Ok(<struct_name> { … })`.
+/// Mirrors [`emit_response_parser`] but for an arbitrary node var and struct — reused
+/// to build a tag-discriminated union variant's per-arm parser (see [`crate::union`]).
+pub(crate) fn emit_struct_parser(
+    fields: &[ParsedField],
+    node_var: &str,
+    struct_name: &str,
+    indent: &str,
+    prefix: &str,
+) -> Vec<String> {
+    let mut lines: Vec<String> = Vec::new();
+    // Recursively emit the reads off `node_var`, mirroring `collect_response_fields`:
     // attrs/content leaves become fields, repeated children become `Vec<Item>` loops,
     // and a non-repeated child is descended and its fields flattened into the parent
     // (so the parser inits exactly the struct `collect_response_fields` derived).
@@ -105,7 +126,7 @@ pub(crate) fn emit_response_parser(
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     emit_struct_reads(
         fields,
-        "response",
+        node_var,
         prefix,
         indent,
         &mut lines,
@@ -114,14 +135,10 @@ pub(crate) fn emit_response_parser(
         &mut seen,
     );
 
-    lines.push(format!("{indent}Ok({response_type_name} {{"));
+    lines.push(format!("{indent}Ok({struct_name} {{"));
     lines.extend(init_fields);
     lines.push(format!("{indent}    ..Default::default()"));
     lines.push(format!("{indent}}})"));
-
-    // Parsing now goes through `NodeRef`'s own methods (`get_attr`, `content_str`,
-    // `get_optional_child`, …) and fully-qualified `anyhow!`, so no `use` is
-    // needed; the reserved lines[0]/lines[1] stay blank.
     lines
 }
 
@@ -301,7 +318,11 @@ fn emit_struct_reads(
                 .filter(|n| is_child_field(n) && repeats(n) && !children_of(n).is_empty())
                 .filter(|n| !dedup_attrs(children_of(n)).is_empty())
                 .collect();
-            if item_attrs.is_empty() && nested_repeats.is_empty() {
+            let union_kids: Vec<&ParsedField> = kids
+                .iter()
+                .filter(|n| n.field_type == ParsedFieldType::Union)
+                .collect();
+            if item_attrs.is_empty() && nested_repeats.is_empty() && union_kids.is_empty() {
                 seen.remove(&id);
                 continue;
             }
@@ -323,6 +344,17 @@ fn emit_struct_reads(
             ));
             for cf in &item_attrs {
                 lines.extend(emit_field_parse(cf, &loop_var, &inner));
+            }
+            // `type=union` columns on the Item: read each off the item node (prefixed by
+            // the Item struct so the generated enum/variant structs match collect).
+            let mut union_init: Vec<String> = Vec::new();
+            for uf in &union_kids {
+                if let Some((ulines, uinit)) =
+                    crate::union::emit_union_read(uf, &loop_var, &struct_name, &inner)
+                {
+                    lines.extend(ulines);
+                    union_init.push(uinit);
+                }
             }
             let mut nested_init: Vec<String> = Vec::new();
             for nf in &nested_repeats {
@@ -361,6 +393,7 @@ fn emit_struct_reads(
             for cf in &item_attrs {
                 lines.push(format!("{inner}    {},", rust_ident(&cf.name)));
             }
+            lines.extend(union_init);
             lines.extend(nested_init);
             lines.push(format!("{inner}    ..Default::default()"));
             lines.push(format!("{inner}}});"));
