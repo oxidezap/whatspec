@@ -1,0 +1,238 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "IrEnvelope",
+  "description": "Envelope that stamps a domain IR document with [`SCHEMA_VERSION`] at emit\ntime, without altering the inner document's shape.\n\n`#[serde(flatten)]` keeps the document's own fields (`waVersion`, `stanzas`,\n…) at the top level and merely adds `schemaVersion` alongside them — additive,\nso existing consumers that ignore unknown fields are unaffected.",
+  "type": "object",
+  "properties": {
+    "enums": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/WamEnum"
+      }
+    },
+    "events": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/WamEvent"
+      }
+    },
+    "schemaVersion": {
+      "description": "The IR contract version — see [`SCHEMA_VERSION`].",
+      "type": "string"
+    },
+    "waVersion": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "waVersion",
+    "events",
+    "enums"
+  ],
+  "$defs": {
+    "WamEnum": {
+      "description": "A WAM enum (`WAWebWamEnum…` module, `Object.freeze({KEY: int})`) referenced as a\nfield type.",
+      "type": "object",
+      "properties": {
+        "module": {
+          "description": "Defining module (the key referenced by [`WamFieldType::Enum`]).",
+          "type": "string"
+        },
+        "name": {
+          "description": "Exported name (e.g. `APP_LAUNCH_TYPE`).",
+          "type": "string"
+        },
+        "variants": {
+          "description": "Members in source order.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/WamEnumVariant"
+          }
+        }
+      },
+      "required": [
+        "name",
+        "module",
+        "variants"
+      ]
+    },
+    "WamEnumVariant": {
+      "description": "One member of a WAM enum (`KEY: value`); WAM enum values are always integers.",
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "value": {
+          "type": "integer",
+          "format": "int64"
+        }
+      },
+      "required": [
+        "key",
+        "value"
+      ]
+    },
+    "WamEvent": {
+      "description": "One WAM event definition.",
+      "type": "object",
+      "properties": {
+        "channel": {
+          "description": "Sampling channel / `wamChannel` (e.g. `regular`, `realtime`, `private`).",
+          "type": "string"
+        },
+        "code": {
+          "description": "Numeric event code (the wire id, e.g. `1094`).",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "consumers": {
+          "description": "WA Web modules that construct + `.commit()` this event — a hint for consumers\nabout where/when each metric is emitted. Sorted, deduped.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "fields": {
+          "description": "Fields in source order.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/WamField"
+          }
+        },
+        "module": {
+          "description": "The defining `WAWeb…WamEvent` module.",
+          "type": "string"
+        },
+        "name": {
+          "description": "Event name (the `defineEvents` key, e.g. `AppLaunch`).",
+          "type": "string"
+        },
+        "privateStatsId": {
+          "description": "`privateStatsIdInt` when set (the JS sentinel `-1` is normalized to `None`).",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64"
+        },
+        "weights": {
+          "description": "Sampling weights `[default, ring1, ring2]` (a ring is chosen by gating).",
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          }
+        }
+      },
+      "required": [
+        "name",
+        "code",
+        "module",
+        "channel",
+        "weights",
+        "fields"
+      ]
+    },
+    "WamField": {
+      "description": "One field of a WAM event: its `makeResult`-style camelCase name, its numeric wire\n`id`, and its [`WamFieldType`].",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "boolean"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "integer"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "number"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "timer"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "description": "A field typed by a WAM enum; `module` is the defining `WAWebWamEnum…` module\n(the unambiguous key into [`WamIr::enums`]).",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "enum"
+            },
+            "module": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "module"
+          ]
+        }
+      ],
+      "required": [
+        "name",
+        "id"
+      ]
+    }
+  }
+}
