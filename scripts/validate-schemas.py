@@ -22,6 +22,7 @@ DOMAINS = [
     ("appstate/index.json", "schema/appstate.schema.json"),
     ("abprops/index.json", "schema/abprops.schema.json"),
     ("enums/index.json", "schema/enums.schema.json"),
+    ("wam/index.json", "schema/wam.schema.json"),
 ]
 
 

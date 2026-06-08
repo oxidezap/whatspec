@@ -49,6 +49,11 @@
     "proto": {
       "file": "proto/WAProto.proto",
       "sha256": "6c96ba9bbc49c24e7dcf7e9ab982c29421c7b7789a7026017bcd4cd6a49f62bd"
+    },
+    "wam": {
+      "file": "wam/index.json",
+      "schema": "schema/wam.schema.json",
+      "sha256": "9050f36550b99597ec5cc7fcbbc4d6270c671667f7a01da802e74d305cfee2fc"
     }
   },
   "enumDefs": 245,
@@ -57,5 +62,6 @@
   "mexOperations": 127,
   "protoEntities": 246,
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1040944432"
+  "waVersion": "2.3000.1040944432",
+  "wamEvents": 425
 }

@@ -15,6 +15,7 @@ members = [
     "crates/wa-scan",
     "crates/wa-text",
     "crates/wa-transform",
+    "crates/wa-wam",
     "crates/whatspec",
 ]
 
@@ -52,3 +53,4 @@ wa-proto = { path = "crates/wa-proto" }
 wa-scan = { path = "crates/wa-scan" }
 wa-text = { path = "crates/wa-text" }
 wa-transform = { path = "crates/wa-transform" }
+wa-wam = { path = "crates/wa-wam" }

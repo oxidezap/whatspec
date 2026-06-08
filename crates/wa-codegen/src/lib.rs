@@ -13,12 +13,14 @@ mod mex_ids;
 mod naming;
 mod spec;
 mod union;
+mod wam;
 
 pub use abprops_export::generate_abprops;
 pub use appstate_export::generate_appstate_schemas;
 pub use enums_export::generate_enums;
 pub use mex_export::generate_mex_operations;
 pub use mex_ids::{MexIdRefresh, refresh_mex_ids};
+pub use wam::generate_wam;
 
 use std::collections::HashSet;
 

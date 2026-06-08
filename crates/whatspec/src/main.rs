@@ -176,14 +176,15 @@ fn update(args: &[String]) -> Result<()> {
 
     eprintln!(
         "wrote artifacts to {}: {} iq modules, {} proto entities, {} mex ops, {} appstate actions, \
-         {} abprops, {} enums",
+         {} abprops, {} enums, {} wam events",
         opts.out.display(),
         counts.iq_modules,
         counts.proto_entities,
         counts.mex_ops,
         counts.appstate_actions,
         counts.abprops_configs,
-        counts.enum_defs
+        counts.enum_defs,
+        counts.wam_events
     );
     Ok(())
 }
@@ -288,6 +289,7 @@ fn diff(args: &[String]) -> Result<()> {
         "appstateActions",
         "abPropsConfigs",
         "enumDefs",
+        "wamEvents",
     ] {
         print_count_delta(key, json_u64(&mo, key), json_u64(&mn, key));
     }
@@ -447,6 +449,7 @@ struct Counts {
     appstate_actions: usize,
     abprops_configs: usize,
     enum_defs: usize,
+    wam_events: usize,
     /// Stanza-level IQ coverage (more sensitive than the namespace/module count)
     /// — carried so the floor guard can regress on a stanza-count drop, matching
     /// `manifest.diagnostics.iq.{stanzas,typedResponses}`.
@@ -665,7 +668,7 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
     // The four extractors are independent and read-only over the shared inputs;
     // each returns `Result` so a failure surfaces with context instead of a
     // silent empty artifact or a bare panic.
-    let (iq, proto, mex, appstate, abprops, enums) = std::thread::scope(|s| {
+    let (iq, proto, mex, appstate, abprops, enums, wam) = std::thread::scope(|s| {
         let iq = s.spawn(|| -> Result<_> {
             let mut a = Vec::new();
             let c = push_iq(&mut a, wa_version, source, &module_defs)?;
@@ -696,6 +699,11 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
             let c = push_enums(&mut a, wa_version, source, &module_defs)?;
             Ok((a, c))
         });
+        let wam = s.spawn(|| -> Result<_> {
+            let mut a = Vec::new();
+            let c = push_wam(&mut a, wa_version, source, &module_defs)?;
+            Ok((a, c))
+        });
         (
             iq.join().expect("iq extractor panicked"),
             proto.join().expect("proto extractor panicked"),
@@ -703,6 +711,7 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
             appstate.join().expect("appstate extractor panicked"),
             abprops.join().expect("abprops extractor panicked"),
             enums.join().expect("enums extractor panicked"),
+            wam.join().expect("wam extractor panicked"),
         )
     });
     let (iq_arts, (iq_count, iq_diag)) = iq.context("iq codegen")?;
@@ -711,6 +720,7 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
     let (appstate_arts, appstate_count) = appstate.context("appstate extraction")?;
     let (abprops_arts, abprops_count) = abprops.context("abprops extraction")?;
     let (enums_arts, enums_count) = enums.context("enums extraction")?;
+    let (wam_arts, wam_count) = wam.context("wam extraction")?;
 
     // Fail loud if any domain extracted nothing — a real WA bundle always yields
     // all of these, so a zero means the bundle is incomplete or that extractor
@@ -721,6 +731,7 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
         ("appstate actions", appstate_count),
         ("abprops configs", abprops_count),
         ("enum defs", enums_count),
+        ("wam events", wam_count),
     ] {
         if n == 0 {
             anyhow::bail!(
@@ -738,6 +749,7 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
     artifacts.extend(appstate_arts);
     artifacts.extend(abprops_arts);
     artifacts.extend(enums_arts);
+    artifacts.extend(wam_arts);
 
     // JSON Schema of the IR contract (one per domain), for cross-language
     // consumers to validate the `index.json` files and auto-generate IR types.
@@ -755,6 +767,7 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
         appstate_actions: appstate_count,
         abprops_configs: abprops_count,
         enum_defs: enums_count,
+        wam_events: wam_count,
         iq_stanzas: iq_diag.stanzas,
         iq_typed_responses: iq_diag.typed_responses,
     };
@@ -776,6 +789,7 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
             "schema/abprops.schema.json",
         ),
         ("enums", "enums/index.json", "schema/enums.schema.json"),
+        ("wam", "wam/index.json", "schema/wam.schema.json"),
     ];
     let domains: serde_json::Map<String, serde_json::Value> =
         neutral
@@ -813,6 +827,7 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
         "appstateActions": counts.appstate_actions,
         "abPropsConfigs": counts.abprops_configs,
         "enumDefs": counts.enum_defs,
+        "wamEvents": counts.wam_events,
         "domains": domains,
         "diagnostics": {
             "iq": {
@@ -860,6 +875,7 @@ fn check_floor(out: &Path, counts: &Counts) -> Result<Vec<String>> {
         ("appstateActions", counts.appstate_actions),
         ("abPropsConfigs", counts.abprops_configs),
         ("enumDefs", counts.enum_defs),
+        ("wamEvents", counts.wam_events),
     ];
     let mut regressions = Vec::new();
     for (key, new) in checks {
@@ -1094,6 +1110,27 @@ fn push_enums(
     Ok(count)
 }
 
+fn push_wam(
+    artifacts: &mut Vec<Artifact>,
+    wa_version: &str,
+    source: &str,
+    module_defs: &[wa_transform::ModuleDefinition],
+) -> Result<usize> {
+    let ir = wa_wam::extract_wam_from_modules(source, module_defs, wa_version);
+    let count = ir.events.len();
+    eprintln!("wam: {count} events, {} enums", ir.enums.len());
+    artifacts.push(Artifact {
+        rel_path: PathBuf::from("wam/index.json"),
+        content: serde_json::to_string_pretty(&wa_ir::IrEnvelope::new(&ir))? + "\n",
+    });
+    // Reference Rust catalog: typed event emitters + enums + a stable WAM codec.
+    artifacts.push(Artifact {
+        rel_path: PathBuf::from("wam/wam.rs"),
+        content: wa_codegen::generate_wam(&ir),
+    });
+    Ok(count)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1212,6 +1249,7 @@ mod tests {
             appstate_actions: 10,
             abprops_configs: 0,
             enum_defs: 0,
+            wam_events: 0,
             iq_stanzas: 0,
             iq_typed_responses: 0,
         };

@@ -21,7 +21,7 @@ const RAW_INELIGIBLE: &[&str] = &["self", "Self", "crate", "super"];
 /// digit-led, and keyword-safe. The four `RAW_INELIGIBLE` words get a trailing
 /// `_`; other reserved words get the `r#` prefix. Idempotent for already-valid
 /// identifiers, so it's a no-op on the normal (alphanumeric) bundle names.
-fn ensure_ident(s: &str) -> String {
+pub(crate) fn ensure_ident(s: &str) -> String {
     let base = if s.is_empty() {
         "_".to_string()
     } else if s.starts_with(|c: char| c.is_ascii_digit()) {
