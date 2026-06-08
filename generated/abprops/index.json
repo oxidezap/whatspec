@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1040944432",
+  "waVersion": "2.3000.1041023899",
   "configs": [
     {
       "module": "WAWebABPropsConfigs",
@@ -2202,6 +2202,13 @@
       "module": "WAWebABPropsConfigs",
       "name": "channel_views_vpv_definition_enabled",
       "code": 23616,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "channel_web_embedding_enabled",
+      "code": 31664,
       "valueType": "bool",
       "default": false
     },
@@ -8834,6 +8841,13 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "status_likes_sending_enabled",
+      "code": 31665,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "status_mentions_group_mention_receiver",
       "code": 12254,
       "valueType": "bool",
@@ -8872,13 +8886,6 @@
     },
     {
       "module": "WAWebABPropsConfigs",
-      "name": "status_ranking_poster_side_gating_enabled",
-      "code": 9453,
-      "valueType": "bool",
-      "default": false
-    },
-    {
-      "module": "WAWebABPropsConfigs",
       "name": "status_reaction_emojis",
       "code": 1852,
       "valueType": "string",
@@ -8898,6 +8905,13 @@
       "code": 175,
       "valueType": "int",
       "default": 30
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "status_web_ranking",
+      "code": 31666,
+      "valueType": "bool",
+      "default": false
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -9625,6 +9639,14 @@
       "code": 29923,
       "valueType": "bool",
       "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "wa_catalog_graphql_use_lid_enabled",
+      "code": 30797,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
     },
     {
       "module": "WAWebABPropsConfigs",

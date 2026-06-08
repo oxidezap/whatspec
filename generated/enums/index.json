@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1040944432",
+  "waVersion": "2.3000.1041023899",
   "enums": [
     {
       "name": "DGWAuth",
@@ -8008,6 +8008,10 @@
         {
           "name": "UnknownMessageKey",
           "value": 4
+        },
+        {
+          "name": "RootSecretDistribute",
+          "value": 5
         }
       ]
     },

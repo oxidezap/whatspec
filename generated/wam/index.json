@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1040944432",
+  "waVersion": "2.3000.1041023899",
   "events": [
     {
       "name": "GroupCreateC",
@@ -4440,6 +4440,11 @@
           "kind": "timer"
         },
         {
+          "name": "foaSourceSurface",
+          "id": 3009,
+          "kind": "integer"
+        },
+        {
           "name": "fpp1",
           "id": 2529,
           "kind": "integer"
@@ -5481,6 +5486,11 @@
         {
           "name": "isTelecomFallbackPath",
           "id": 2614,
+          "kind": "boolean"
+        },
+        {
+          "name": "isTransferRejoin",
+          "id": 3006,
           "kind": "boolean"
         },
         {
@@ -13619,9 +13629,9 @@
           "kind": "integer"
         },
         {
-          "name": "wearableCallPovDuration",
-          "id": 3003,
-          "kind": "integer"
+          "name": "wearableCallHaveUsedPov",
+          "id": 3008,
+          "kind": "boolean"
         },
         {
           "name": "wearableDeviceTypes",
@@ -25516,6 +25526,11 @@
           "kind": "boolean"
         },
         {
+          "name": "isTransferRejoin",
+          "id": 56,
+          "kind": "boolean"
+        },
+        {
           "name": "isUpgradedGroupCallBeforeConnected",
           "id": 47,
           "kind": "boolean"
@@ -32181,6 +32196,80 @@
         "WAWebBugnubScreenshotUpload.react",
         "WAWebBugnubV2Popup.react",
         "WAWebSendFeedbackModal.react"
+      ]
+    },
+    {
+      "name": "CallLinkActionEvent",
+      "code": 3852,
+      "module": "WAWebCallLinkActionEventWamEvent",
+      "channel": "regular",
+      "weights": [
+        1,
+        1,
+        1
+      ],
+      "fields": [
+        {
+          "name": "appSessionId",
+          "id": 5,
+          "kind": "string"
+        },
+        {
+          "name": "callLinkAction",
+          "id": 1,
+          "kind": "enum",
+          "module": "WAWebWamEnumCallLinkAction"
+        },
+        {
+          "name": "callLinkActionEntryPoint",
+          "id": 2,
+          "kind": "enum",
+          "module": "WAWebWamEnumCallLinkActionEntryPoint"
+        },
+        {
+          "name": "callLinkMedia",
+          "id": 3,
+          "kind": "enum",
+          "module": "WAWebWamEnumCallLinkMedia"
+        },
+        {
+          "name": "callLinkShareChatType",
+          "id": 6,
+          "kind": "enum",
+          "module": "WAWebWamEnumCallLinkShareChatType"
+        },
+        {
+          "name": "callLinkSharedApp",
+          "id": 4,
+          "kind": "string"
+        },
+        {
+          "name": "callLinkType",
+          "id": 7,
+          "kind": "enum",
+          "module": "WAWebWamEnumCallLinkType"
+        },
+        {
+          "name": "isWaitingRoomEnabled",
+          "id": 10,
+          "kind": "boolean"
+        },
+        {
+          "name": "userJourneyEventMs",
+          "id": 8,
+          "kind": "integer"
+        },
+        {
+          "name": "userJourneyFunnelId",
+          "id": 9,
+          "kind": "string"
+        }
+      ],
+      "consumers": [
+        "WAWebEventsCreateEventModalFlow.react",
+        "WAWebVoipCallLinkSharePanel.react",
+        "WAWebVoipCallParticipantsDrawer.react",
+        "WAWebVoipCreateCallLinksPopup.react"
       ]
     },
     {
@@ -41916,6 +42005,21 @@
           "kind": "integer"
         },
         {
+          "name": "bizAiSuggestedRepliesSeen",
+          "id": 52,
+          "kind": "integer"
+        },
+        {
+          "name": "bizAiSuggestedRepliesSentWithEdits",
+          "id": 53,
+          "kind": "integer"
+        },
+        {
+          "name": "bizAiSuggestedRepliesSentWithoutEdits",
+          "id": 54,
+          "kind": "integer"
+        },
+        {
           "name": "bizCatalogType",
           "id": 2,
           "kind": "enum",
@@ -46927,6 +47031,17 @@
           "module": "WAWebWamEnumSmbPerCustomerDataSharingControlEntryPoint"
         },
         {
+          "name": "smbPerCustomerDataSharingControlGlobalDataSharingEntryPoint",
+          "id": 6,
+          "kind": "enum",
+          "module": "WAWebWamEnumSmbDataSharingConsentScreenEntryPoint"
+        },
+        {
+          "name": "smbPerCustomerDataSharingControlOptInCustomerCount",
+          "id": 7,
+          "kind": "integer"
+        },
+        {
           "name": "smbPerCustomerDataSharingControlVersion",
           "id": 5,
           "kind": "integer"
@@ -51338,6 +51453,220 @@
         {
           "key": "CALL_INFO_CALL_LINK_MINI_CONTACT_SHEET",
           "value": 87
+        }
+      ]
+    },
+    {
+      "name": "CALL_LINK_ACTION",
+      "module": "WAWebWamEnumCallLinkAction",
+      "variants": [
+        {
+          "key": "COPY",
+          "value": 1
+        },
+        {
+          "key": "SHARE",
+          "value": 2
+        },
+        {
+          "key": "SHARE_VIA_WHATSAPP",
+          "value": 3
+        },
+        {
+          "key": "ADD_TO_CALENDAR",
+          "value": 4
+        },
+        {
+          "key": "CREATE_CALL_LINK",
+          "value": 5
+        },
+        {
+          "key": "EDIT_CALL_LINK",
+          "value": 6
+        },
+        {
+          "key": "DELETE_CALL_LINK",
+          "value": 7
+        },
+        {
+          "key": "SHARE_CALL_LINK_CHAT",
+          "value": 8
+        },
+        {
+          "key": "SHARE_CALL_LINK_CALENDAR",
+          "value": 9
+        },
+        {
+          "key": "SHARE_CALL_LINK_COPY",
+          "value": 10
+        },
+        {
+          "key": "SHARE_CALL_LINK_SHARE_SHEET",
+          "value": 11
+        },
+        {
+          "key": "TOGGLE_WAITING_ROOM",
+          "value": 12
+        }
+      ]
+    },
+    {
+      "name": "CALL_LINK_ACTION_ENTRY_POINT",
+      "module": "WAWebWamEnumCallLinkActionEntryPoint",
+      "variants": [
+        {
+          "key": "LINK_CREATION",
+          "value": 1
+        },
+        {
+          "key": "CALL_LOG_INFO",
+          "value": 2
+        },
+        {
+          "key": "CONTACT_PICKER",
+          "value": 3
+        },
+        {
+          "key": "BOTTOM_SHEET_LOBBY",
+          "value": 4
+        },
+        {
+          "key": "BOTTOM_SHEET_CALL",
+          "value": 5
+        },
+        {
+          "key": "LINK_CREATION_IN_CHAT",
+          "value": 6
+        },
+        {
+          "key": "EVENT_CREATION",
+          "value": 7
+        },
+        {
+          "key": "EVENT_CREATION_IN_CHAT",
+          "value": 8
+        },
+        {
+          "key": "CHAT_THREAD",
+          "value": 9
+        },
+        {
+          "key": "EVENT_DETAILS_SHEET",
+          "value": 10
+        },
+        {
+          "key": "EVENT_CREATION_CHAT_ATTACHMENT",
+          "value": 11
+        },
+        {
+          "key": "EVENT_EDIT_FROM_CHAT_BUBBLE",
+          "value": 12
+        },
+        {
+          "key": "SCHEDULE_CALL_CALLS_TAB",
+          "value": 13
+        },
+        {
+          "key": "SCHEDULE_CALL_CHAT_HEADER",
+          "value": 14
+        },
+        {
+          "key": "SCHEDULE_CALL_LIST_PAGE_CREATE",
+          "value": 15
+        },
+        {
+          "key": "SCHEDULE_CALL_LIST_PAGE_EDIT",
+          "value": 16
+        },
+        {
+          "key": "SCHEDULE_CALL_EMPTY_PAGE",
+          "value": 17
+        },
+        {
+          "key": "EVENT_EDIT_FROM_CONTACT_DETAILS",
+          "value": 18
+        },
+        {
+          "key": "EVENT_EDIT_FROM_CONTACT_DETAILS_ALL_EVENTS",
+          "value": 19
+        },
+        {
+          "key": "SEND_CALL_LINK_CHAT_HEADER",
+          "value": 20
+        },
+        {
+          "key": "SEND_CALL_LINK_CALLS_TAB",
+          "value": 21
+        },
+        {
+          "key": "SCHEDULE_CALL_CALLS_TAB_H_SCROLL",
+          "value": 22
+        },
+        {
+          "key": "SEND_CALL_LINK_CALLS_TAB_H_SCROLL",
+          "value": 23
+        },
+        {
+          "key": "IN_CALL_PARTICIPANT_LIST",
+          "value": 24
+        }
+      ]
+    },
+    {
+      "name": "CALL_LINK_MEDIA",
+      "module": "WAWebWamEnumCallLinkMedia",
+      "variants": [
+        {
+          "key": "VOICE",
+          "value": 1
+        },
+        {
+          "key": "VIDEO",
+          "value": 2
+        }
+      ]
+    },
+    {
+      "name": "CALL_LINK_SHARE_CHAT_TYPE",
+      "module": "WAWebWamEnumCallLinkShareChatType",
+      "variants": [
+        {
+          "key": "INDIVIDUAL",
+          "value": 1
+        },
+        {
+          "key": "BUSINESS",
+          "value": 2
+        },
+        {
+          "key": "GROUP_LARGE",
+          "value": 3
+        },
+        {
+          "key": "GROUP_3P",
+          "value": 4
+        },
+        {
+          "key": "GROUP_8P",
+          "value": 5
+        },
+        {
+          "key": "GROUP_32P",
+          "value": 6
+        }
+      ]
+    },
+    {
+      "name": "CALL_LINK_TYPE",
+      "module": "WAWebWamEnumCallLinkType",
+      "variants": [
+        {
+          "key": "STANDARD",
+          "value": 1
+        },
+        {
+          "key": "EVENT",
+          "value": 2
         }
       ]
     },
@@ -58536,6 +58865,18 @@
         {
           "key": "DEEP_LINK_SILVERSTONE",
           "value": 248
+        },
+        {
+          "key": "DEEP_LINK_IMAGINE",
+          "value": 249
+        },
+        {
+          "key": "DEEP_LINK_META_AI_INCOGNITO",
+          "value": 250
+        },
+        {
+          "key": "DEEP_LINK_CHANGE_NUMBER",
+          "value": 251
         }
       ]
     },
@@ -60128,6 +60469,10 @@
         {
           "key": "REVOKE_STANZA_PROTOBUF_MISMATCH",
           "value": 115
+        },
+        {
+          "key": "WASS_INVALID_ATTESTATION",
+          "value": 116
         }
       ]
     },
@@ -63456,6 +63801,10 @@
         {
           "key": "IMAGINE_ONBOARDING_CHOOSE_DIFFERENT_PHOTO",
           "value": 98
+        },
+        {
+          "key": "ATTACHMENT_TRAY_OPEN_CLICK",
+          "value": 99
         }
       ]
     },
@@ -63554,6 +63903,14 @@
         {
           "key": "FORWARD",
           "value": 22
+        },
+        {
+          "key": "DEEP_LINK",
+          "value": 23
+        },
+        {
+          "key": "AI_TAB",
+          "value": 24
         }
       ]
     },
@@ -63648,6 +64005,10 @@
         {
           "key": "STATUS",
           "value": 7
+        },
+        {
+          "key": "AR_SURFACE",
+          "value": 8
         }
       ]
     },
@@ -66574,6 +66935,22 @@
         {
           "key": "SMB_RECREATE_AD_CHATLIST_QP",
           "value": 104
+        },
+        {
+          "key": "SMB_BIZ_PROFILE_BANNER",
+          "value": 105
+        },
+        {
+          "key": "SMB_RECREATE_AD_BIZHOME_QP",
+          "value": 106
+        },
+        {
+          "key": "SMB_RECREATE_PERFORMING_AD_BIZHOME_QP",
+          "value": 107
+        },
+        {
+          "key": "SMB_RECREATE_PERFORMING_AD_CHATLIST_QP",
+          "value": 108
         }
       ]
     },
@@ -83680,6 +84057,18 @@
         {
           "key": "SYNCD_MUTATION",
           "value": 4
+        },
+        {
+          "key": "NEW_ORDER",
+          "value": 5
+        },
+        {
+          "key": "LABEL_CHAT",
+          "value": 6
+        },
+        {
+          "key": "SMB_DATA_SHARING_CONSENT_SCREEN",
+          "value": 7
         }
       ]
     },
@@ -88164,6 +88553,10 @@
         {
           "key": "SMART_QUICK_REPLY_SETUP",
           "value": 310
+        },
+        {
+          "key": "GEN_AI_AGENT_SMART_COMPOSER_META_ONE_SHEET",
+          "value": 311
         }
       ]
     },
@@ -93544,6 +93937,10 @@
         {
           "key": "NOT_APPLICABLE",
           "value": 7
+        },
+        {
+          "key": "CLOUD_STORAGE",
+          "value": 8
         }
       ]
     },

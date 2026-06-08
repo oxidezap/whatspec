@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1040944432",
+  "waVersion": "2.3000.1041023899",
   "operations": {
     "ACSServerProviderConfig": {
       "originalName": "WAWebACSServerProviderConfigQuery",
@@ -970,7 +970,7 @@
     },
     "CreateReportAppeal": {
       "originalName": "WAWebMexCreateReportAppealJobMutation",
-      "docId": "27283301737925761",
+      "docId": "27103316329328467",
       "operationKind": "mutation",
       "variables": [
         "reason",
@@ -989,6 +989,12 @@
             "report_id": "string",
             "state": "string"
           },
+          "appeal_reason_options": [
+            {
+              "label": "string",
+              "reason": "string"
+            }
+          ],
           "channel_jid": "string",
           "channel_name": "string",
           "creation_time": "number",
@@ -2431,7 +2437,7 @@
     },
     "FetchNewsletterReports": {
       "originalName": "WAWebMexFetchNewsletterReportsJobQuery",
-      "docId": "27717296871209353",
+      "docId": "35936238352686172",
       "operationKind": "query",
       "variables": [
         "locale"
@@ -2450,6 +2456,12 @@
                 "report_id": "string",
                 "state": "string"
               },
+              "appeal_reason_options": [
+                {
+                  "label": "string",
+                  "reason": "string"
+                }
+              ],
               "channel_jid": "string",
               "channel_name": "string",
               "creation_time": "number",
