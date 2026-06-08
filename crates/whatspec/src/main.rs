@@ -873,6 +873,7 @@ fn check_floor(out: &Path, counts: &Counts) -> Result<Vec<String>> {
         ("appstateActions", counts.appstate_actions),
         ("abPropsConfigs", counts.abprops_configs),
         ("enumDefs", counts.enum_defs),
+        ("wamEvents", counts.wam_events),
     ];
     let mut regressions = Vec::new();
     for (key, new) in checks {

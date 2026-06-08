@@ -178,13 +178,16 @@ fn emit_event(
         "private" => "WamChannel::Private",
         _ => "WamChannel::Regular",
     };
-    // The effective sample weight is the default (ring selection is a host concern).
-    let weight = ev.weights.first().copied().unwrap_or(1);
+    // The web client's effective default weight is the literal `1` (the runtime reads
+    // weights[1]/weights[2] only when a sampling-ring gate is on — `weights[0]` is
+    // never read). So `emit` uses 1; the raw ring weights are exposed for a host that
+    // implements ring selection.
+    let raw_weights: Vec<String> = ev.weights.iter().map(|w| w.to_string()).collect();
 
     out.push_str(&format!("impl WamEventDef for {struct_name} {{\n"));
     out.push_str(&format!("    const CODE: u16 = {};\n", ev.code));
     out.push_str(&format!("    const CHANNEL: WamChannel = {channel};\n"));
-    out.push_str(&format!("    const WEIGHT: i64 = {weight};\n"));
+    out.push_str("    const WEIGHT: i64 = 1;\n");
     out.push_str("    fn wam_fields(&self) -> Vec<(u16, WamWire)> {\n");
     out.push_str("        let mut __f: Vec<(u16, WamWire)> = Vec::new();\n");
     for (id, f) in &idents {
@@ -192,10 +195,15 @@ fn emit_event(
             "        if let Some(v) = {} {{ __f.push(({}, {})); }}\n",
             field_access(id, &f.field_type),
             f.id,
-            field_wire(&f.field_type),
+            field_wire(&f.field_type, enum_name),
         ));
     }
     out.push_str("        __f\n    }\n}\n\n");
+    // Raw sampling weights `[default, ring1, ring2]` for a host that selects a ring.
+    out.push_str(&format!(
+        "impl {struct_name} {{\n    pub const SAMPLE_WEIGHTS: &'static [u32] = &[{}];\n}}\n\n",
+        raw_weights.join(", ")
+    ));
 }
 
 /// Rust field type for a schema field.
@@ -223,13 +231,19 @@ fn field_access(id: &str, ty: &WamFieldType) -> String {
 }
 
 /// The `WamWire::…(v)` conversion in the `wam_fields` push (where `v` is the field).
-fn field_wire(ty: &WamFieldType) -> &'static str {
+/// Stays consistent with [`field_rust_type`]: an enum whose module didn't resolve
+/// degrades to a plain `i64` field, so it must NOT call `as_wam_int`.
+fn field_wire(ty: &WamFieldType, enum_name: &HashMap<&str, String>) -> &'static str {
     match ty {
         WamFieldType::Boolean => "WamWire::Bool(v)",
         WamFieldType::Integer | WamFieldType::Timer => "WamWire::Int(v)",
         WamFieldType::Number => "WamWire::Float(v)",
         WamFieldType::String => "WamWire::Str(v.clone())",
-        WamFieldType::Enum { .. } => "WamWire::Int(v.as_wam_int())",
+        WamFieldType::Enum { module } if enum_name.contains_key(module.as_str()) => {
+            "WamWire::Int(v.as_wam_int())"
+        }
+        // Unresolved enum → the field is `Option<i64>`, so pass the int through.
+        WamFieldType::Enum { .. } => "WamWire::Int(v)",
     }
 }
 
@@ -349,6 +363,29 @@ impl WamBuffer {
     /// A buffer-level global attribute (e.g. timestamp, sequence) applied to events.
     pub fn write_global_attribute(&mut self, id: u16, v: &WamWire) {
         self.write_value(M_GLOBAL, id, v);
+    }
+
+    /// Field id of the event timestamp global (the web client sets this per event).
+    pub const TIMESTAMP_FIELD: u16 = 47;
+    /// Field id of the per-event sequence-number global.
+    pub const SEQUENCE_FIELD: u16 = 3433;
+    /// Field id of the private-stats-id global (only on the `private` channel).
+    pub const PRIVATE_STATS_FIELD: u16 = 6005;
+
+    /// Set the event timestamp global (the web client writes the commit time here, in
+    /// seconds). Call before the event whose time it stamps, mirroring the client.
+    pub fn write_timestamp(&mut self, unix_seconds: i64) {
+        self.write_global_attribute(Self::TIMESTAMP_FIELD, &WamWire::Int(unix_seconds));
+    }
+
+    /// Set the per-event sequence-number global.
+    pub fn write_sequence(&mut self, seq: i64) {
+        self.write_global_attribute(Self::SEQUENCE_FIELD, &WamWire::Int(seq));
+    }
+
+    /// Set the private-stats-id global (written as a string, `private` channel only).
+    pub fn write_private_stats_id(&mut self, id: &str) {
+        self.write_global_attribute(Self::PRIVATE_STATS_FIELD, &WamWire::Str(id.to_string()));
     }
 
     /// Begin an event record: its code + `weight` (callers pass the negated sample
