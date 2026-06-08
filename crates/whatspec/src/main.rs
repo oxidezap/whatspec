@@ -176,14 +176,15 @@ fn update(args: &[String]) -> Result<()> {
 
     eprintln!(
         "wrote artifacts to {}: {} iq modules, {} proto entities, {} mex ops, {} appstate actions, \
-         {} abprops, {} enums",
+         {} abprops, {} enums, {} wam events",
         opts.out.display(),
         counts.iq_modules,
         counts.proto_entities,
         counts.mex_ops,
         counts.appstate_actions,
         counts.abprops_configs,
-        counts.enum_defs
+        counts.enum_defs,
+        counts.wam_events
     );
     Ok(())
 }
@@ -288,6 +289,7 @@ fn diff(args: &[String]) -> Result<()> {
         "appstateActions",
         "abPropsConfigs",
         "enumDefs",
+        "wamEvents",
     ] {
         print_count_delta(key, json_u64(&mo, key), json_u64(&mn, key));
     }
