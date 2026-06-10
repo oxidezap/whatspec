@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1041023899",
+  "waVersion": "2.3000.1041193846",
   "configs": [
     {
       "module": "WAWebABPropsConfigs",
@@ -393,6 +393,13 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "ai_group_call_add_in_call_lgc_enabled",
+      "code": 31717,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "ai_group_call_max_version_by_country",
       "code": 24656,
       "valueType": "int",
@@ -404,6 +411,20 @@
       "code": 24655,
       "valueType": "int",
       "default": 0
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "ai_group_call_start_call_ahgc_enabled",
+      "code": 31716,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "ai_group_call_start_call_lgc_enabled",
+      "code": 31713,
+      "valueType": "bool",
+      "default": false
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -7165,6 +7186,13 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "peer_message_lid_migration_outgoing",
+      "code": 24184,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "pending_group_requests_persistent_banner",
       "code": 20545,
       "valueType": "bool",
@@ -8671,6 +8699,13 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "smb_web_show_quick_reply_option_in_composer",
+      "code": 31700,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "smba_bb_genai_composer_min_words",
       "code": 21447,
       "valueType": "int",
@@ -9933,6 +9968,14 @@
       "code": 25660,
       "valueType": "bool",
       "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "wa_web_biz_broadcast_collection_based_campaigns_enabled",
+      "code": 31682,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -12651,6 +12694,20 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "web_status_ranking",
+      "code": 31683,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "web_status_ranking_enabled",
+      "code": 31684,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "web_sticker_suggestions_enable",
       "code": 4726,
       "valueType": "bool",
@@ -13148,6 +13205,13 @@
     },
     {
       "module": "WAWebHybridABPropsConfigs",
+      "name": "ai_group_call_add_in_call_lgc_enabled",
+      "code": 31717,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebHybridABPropsConfigs",
       "name": "ai_group_call_max_version_by_country",
       "code": 24656,
       "valueType": "int",
@@ -13159,6 +13223,13 @@
       "code": 24655,
       "valueType": "int",
       "default": 0
+    },
+    {
+      "module": "WAWebHybridABPropsConfigs",
+      "name": "ai_group_call_start_call_ahgc_enabled",
+      "code": 31716,
+      "valueType": "bool",
+      "default": false
     },
     {
       "module": "WAWebHybridABPropsConfigs",

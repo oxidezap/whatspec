@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1041023899",
+  "waVersion": "2.3000.1041193846",
   "enums": [
     {
       "name": "DGWAuth",
@@ -8888,6 +8888,21 @@
     {
       "name": "AppState_v2622",
       "module": "WAWebWindowsHybridBridgeNativeAppState.v2622",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "Normal",
+          "value": "normal"
+        },
+        {
+          "name": "MinimizedToTray",
+          "value": "minimizedToTray"
+        }
+      ]
+    },
+    {
+      "name": "AppState_v2623",
+      "module": "WAWebWindowsHybridBridgeNativeAppState.v2623",
       "valueKind": "string",
       "variants": [
         {

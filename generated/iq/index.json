@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1041023899",
+  "waVersion": "2.3000.1041193846",
   "stanzas": [
     {
       "moduleName": "WASmaxOutAbPropsGetExperimentConfigRequest",
@@ -31315,6 +31315,16 @@
                 "sourcePath": [
                   "smb_data_sharing_with_meta_consent"
                 ]
+              },
+              {
+                "method": "maybeAttrInt",
+                "name": "version",
+                "wireName": "version",
+                "type": "integer",
+                "required": false,
+                "sourcePath": [
+                  "smb_data_sharing_with_meta_consent"
+                ]
               }
             ],
             "repeats": false
@@ -31357,6 +31367,16 @@
                     "wireName": "value",
                     "type": "enum",
                     "required": true,
+                    "sourcePath": [
+                      "smb_data_sharing_with_meta_consent"
+                    ]
+                  },
+                  {
+                    "method": "maybeAttrInt",
+                    "name": "version",
+                    "wireName": "version",
+                    "type": "integer",
+                    "required": false,
                     "sourcePath": [
                       "smb_data_sharing_with_meta_consent"
                     ]
@@ -32445,6 +32465,16 @@
                 "sourcePath": [
                   "smb_data_sharing_with_meta_consent"
                 ]
+              },
+              {
+                "method": "maybeAttrInt",
+                "name": "version",
+                "wireName": "version",
+                "type": "integer",
+                "required": false,
+                "sourcePath": [
+                  "smb_data_sharing_with_meta_consent"
+                ]
               }
             ],
             "repeats": false
@@ -32487,6 +32517,16 @@
                     "wireName": "value",
                     "type": "enum",
                     "required": true,
+                    "sourcePath": [
+                      "smb_data_sharing_with_meta_consent"
+                    ]
+                  },
+                  {
+                    "method": "maybeAttrInt",
+                    "name": "version",
+                    "wireName": "version",
+                    "type": "integer",
+                    "required": false,
                     "sourcePath": [
                       "smb_data_sharing_with_meta_consent"
                     ]
@@ -42324,6 +42364,12 @@
                 "repeats": false
               },
               {
+                "method": "",
+                "name": "hasGroupJoinContext",
+                "type": "bool",
+                "required": true
+              },
+              {
                 "method": "child",
                 "name": "participant",
                 "type": "string",
@@ -43370,6 +43416,12 @@
                       }
                     ],
                     "repeats": false
+                  },
+                  {
+                    "method": "",
+                    "name": "hasGroupJoinContext",
+                    "type": "bool",
+                    "required": true
                   },
                   {
                     "method": "child",
@@ -53754,21 +53806,21 @@
                                 "required": true
                               },
                               {
-                                "method": "attrString",
+                                "method": "maybeAttrString",
                                 "name": "addRequestCode",
                                 "wireName": "code",
                                 "type": "string",
-                                "required": true,
+                                "required": false,
                                 "sourcePath": [
                                   "add_request"
                                 ]
                               },
                               {
-                                "method": "attrInt",
+                                "method": "maybeAttrInt",
                                 "name": "addRequestExpiration",
                                 "wireName": "expiration",
                                 "type": "integer",
-                                "required": true,
+                                "required": false,
                                 "sourcePath": [
                                   "add_request"
                                 ]
@@ -54097,21 +54149,21 @@
                                 "required": true
                               },
                               {
-                                "method": "attrString",
+                                "method": "maybeAttrString",
                                 "name": "addRequestCode",
                                 "wireName": "code",
                                 "type": "string",
-                                "required": true,
+                                "required": false,
                                 "sourcePath": [
                                   "add_request"
                                 ]
                               },
                               {
-                                "method": "attrInt",
+                                "method": "maybeAttrInt",
                                 "name": "addRequestExpiration",
                                 "wireName": "expiration",
                                 "type": "integer",
-                                "required": true,
+                                "required": false,
                                 "sourcePath": [
                                   "add_request"
                                 ]
@@ -54406,21 +54458,21 @@
                                     "required": true
                                   },
                                   {
-                                    "method": "attrString",
+                                    "method": "maybeAttrString",
                                     "name": "addRequestCode",
                                     "wireName": "code",
                                     "type": "string",
-                                    "required": true,
+                                    "required": false,
                                     "sourcePath": [
                                       "add_request"
                                     ]
                                   },
                                   {
-                                    "method": "attrInt",
+                                    "method": "maybeAttrInt",
                                     "name": "addRequestExpiration",
                                     "wireName": "expiration",
                                     "type": "integer",
-                                    "required": true,
+                                    "required": false,
                                     "sourcePath": [
                                       "add_request"
                                     ]
@@ -54749,21 +54801,21 @@
                                     "required": true
                                   },
                                   {
-                                    "method": "attrString",
+                                    "method": "maybeAttrString",
                                     "name": "addRequestCode",
                                     "wireName": "code",
                                     "type": "string",
-                                    "required": true,
+                                    "required": false,
                                     "sourcePath": [
                                       "add_request"
                                     ]
                                   },
                                   {
-                                    "method": "attrInt",
+                                    "method": "maybeAttrInt",
                                     "name": "addRequestExpiration",
                                     "wireName": "expiration",
                                     "type": "integer",
-                                    "required": true,
+                                    "required": false,
                                     "sourcePath": [
                                       "add_request"
                                     ]
@@ -56988,21 +57040,21 @@
                                 "required": true
                               },
                               {
-                                "method": "attrString",
+                                "method": "maybeAttrString",
                                 "name": "addRequestCode",
                                 "wireName": "code",
                                 "type": "string",
-                                "required": true,
+                                "required": false,
                                 "sourcePath": [
                                   "add_request"
                                 ]
                               },
                               {
-                                "method": "attrInt",
+                                "method": "maybeAttrInt",
                                 "name": "addRequestExpiration",
                                 "wireName": "expiration",
                                 "type": "integer",
-                                "required": true,
+                                "required": false,
                                 "sourcePath": [
                                   "add_request"
                                 ]
@@ -57278,21 +57330,21 @@
                                 "required": true
                               },
                               {
-                                "method": "attrString",
+                                "method": "maybeAttrString",
                                 "name": "addRequestCode",
                                 "wireName": "code",
                                 "type": "string",
-                                "required": true,
+                                "required": false,
                                 "sourcePath": [
                                   "add_request"
                                 ]
                               },
                               {
-                                "method": "attrInt",
+                                "method": "maybeAttrInt",
                                 "name": "addRequestExpiration",
                                 "wireName": "expiration",
                                 "type": "integer",
-                                "required": true,
+                                "required": false,
                                 "sourcePath": [
                                   "add_request"
                                 ]
@@ -58143,21 +58195,21 @@
                                     "required": true
                                   },
                                   {
-                                    "method": "attrString",
+                                    "method": "maybeAttrString",
                                     "name": "addRequestCode",
                                     "wireName": "code",
                                     "type": "string",
-                                    "required": true,
+                                    "required": false,
                                     "sourcePath": [
                                       "add_request"
                                     ]
                                   },
                                   {
-                                    "method": "attrInt",
+                                    "method": "maybeAttrInt",
                                     "name": "addRequestExpiration",
                                     "wireName": "expiration",
                                     "type": "integer",
-                                    "required": true,
+                                    "required": false,
                                     "sourcePath": [
                                       "add_request"
                                     ]
@@ -58433,21 +58485,21 @@
                                     "required": true
                                   },
                                   {
-                                    "method": "attrString",
+                                    "method": "maybeAttrString",
                                     "name": "addRequestCode",
                                     "wireName": "code",
                                     "type": "string",
-                                    "required": true,
+                                    "required": false,
                                     "sourcePath": [
                                       "add_request"
                                     ]
                                   },
                                   {
-                                    "method": "attrInt",
+                                    "method": "maybeAttrInt",
                                     "name": "addRequestExpiration",
                                     "wireName": "expiration",
                                     "type": "integer",
-                                    "required": true,
+                                    "required": false,
                                     "sourcePath": [
                                       "add_request"
                                     ]

@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1041023899",
+  "waVersion": "2.3000.1041193846",
   "events": [
     {
       "name": "GroupCreateC",
@@ -2959,13 +2959,58 @@
           "kind": "number"
         },
         {
+          "name": "callRxAutomosNoiseP5",
+          "id": 3012,
+          "kind": "number"
+        },
+        {
+          "name": "callRxAutomosNoiseP50",
+          "id": 3013,
+          "kind": "number"
+        },
+        {
+          "name": "callRxAutomosNoiseP95",
+          "id": 3014,
+          "kind": "number"
+        },
+        {
           "name": "callRxAutomosOverallAvg",
           "id": 2578,
           "kind": "number"
         },
         {
+          "name": "callRxAutomosOverallP5",
+          "id": 3015,
+          "kind": "number"
+        },
+        {
+          "name": "callRxAutomosOverallP50",
+          "id": 3016,
+          "kind": "number"
+        },
+        {
+          "name": "callRxAutomosOverallP95",
+          "id": 3017,
+          "kind": "number"
+        },
+        {
           "name": "callRxAutomosSpeechAvg",
           "id": 2579,
+          "kind": "number"
+        },
+        {
+          "name": "callRxAutomosSpeechP5",
+          "id": 3018,
+          "kind": "number"
+        },
+        {
+          "name": "callRxAutomosSpeechP50",
+          "id": 3019,
+          "kind": "number"
+        },
+        {
+          "name": "callRxAutomosSpeechP95",
+          "id": 3020,
           "kind": "number"
         },
         {
@@ -3261,13 +3306,58 @@
           "kind": "number"
         },
         {
+          "name": "callTxAutomosNoiseP5",
+          "id": 3021,
+          "kind": "number"
+        },
+        {
+          "name": "callTxAutomosNoiseP50",
+          "id": 3022,
+          "kind": "number"
+        },
+        {
+          "name": "callTxAutomosNoiseP95",
+          "id": 3023,
+          "kind": "number"
+        },
+        {
           "name": "callTxAutomosOverallAvg",
           "id": 2557,
           "kind": "number"
         },
         {
+          "name": "callTxAutomosOverallP5",
+          "id": 3024,
+          "kind": "number"
+        },
+        {
+          "name": "callTxAutomosOverallP50",
+          "id": 3025,
+          "kind": "number"
+        },
+        {
+          "name": "callTxAutomosOverallP95",
+          "id": 3026,
+          "kind": "number"
+        },
+        {
           "name": "callTxAutomosSpeechAvg",
           "id": 2558,
+          "kind": "number"
+        },
+        {
+          "name": "callTxAutomosSpeechP5",
+          "id": 3027,
+          "kind": "number"
+        },
+        {
+          "name": "callTxAutomosSpeechP50",
+          "id": 3028,
+          "kind": "number"
+        },
+        {
+          "name": "callTxAutomosSpeechP95",
+          "id": 3029,
           "kind": "number"
         },
         {
@@ -11483,6 +11573,11 @@
           "kind": "number"
         },
         {
+          "name": "videoCompositeBrightnessAvg",
+          "id": 3030,
+          "kind": "number"
+        },
+        {
           "name": "videoDecAvgFps",
           "id": 207,
           "kind": "number"
@@ -12301,6 +12396,11 @@
           "name": "videoNumAvSyncDiscardFrames",
           "id": 1010,
           "kind": "integer"
+        },
+        {
+          "name": "videoOverexposureAvg",
+          "id": 3031,
+          "kind": "number"
         },
         {
           "name": "videoPeerState",
@@ -14625,7 +14725,8 @@
       "consumers": [
         "WAWebCrashlog",
         "WAWebWindowsHybridBridgeWam",
-        "WAWebWindowsHybridBridgeWam.v2622"
+        "WAWebWindowsHybridBridgeWam.v2622",
+        "WAWebWindowsHybridBridgeWam.v2623"
       ]
     },
     {
@@ -18039,7 +18140,8 @@
       "consumers": [
         "WAWebWamMemoryStat",
         "WAWebWindowsHybridBridgeWam",
-        "WAWebWindowsHybridBridgeWam.v2622"
+        "WAWebWindowsHybridBridgeWam.v2622",
+        "WAWebWindowsHybridBridgeWam.v2623"
       ]
     },
     {
@@ -28417,7 +28519,7 @@
       ],
       "fields": [],
       "consumers": [
-        "WAWebWamUtils"
+        "WAWebForceFlushWamBuffers"
       ]
     },
     {
@@ -37758,6 +37860,11 @@
         {
           "name": "isGroupHistoryToggledOn",
           "id": 22,
+          "kind": "boolean"
+        },
+        {
+          "name": "isTeeBotNoticeOnly",
+          "id": 30,
           "kind": "boolean"
         },
         {
@@ -56275,6 +56382,10 @@
         {
           "key": "GROUP_MEMBER",
           "value": 8
+        },
+        {
+          "key": "CHAT_LIST_GLOBAL_SEARCH",
+          "value": 9
         }
       ]
     },
@@ -74807,6 +74918,10 @@
         {
           "key": "ADMIN_GROUP_JOIN_REQUEST",
           "value": 62
+        },
+        {
+          "key": "CHANNEL_STATUS_QUESTION_ANSWER_POST_RESHARE",
+          "value": 63
         }
       ]
     },

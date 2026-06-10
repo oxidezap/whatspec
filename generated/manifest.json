@@ -1,5 +1,5 @@
 {
-  "abPropsConfigs": 2114,
+  "abPropsConfigs": 2124,
   "appstateActions": 65,
   "diagnostics": {
     "iq": {
@@ -24,44 +24,44 @@
     "abprops": {
       "file": "abprops/index.json",
       "schema": "schema/abprops.schema.json",
-      "sha256": "10f1606fa00aaba934402760ce719aa3264609eb33a7a13439798d623cd5e8f7"
+      "sha256": "a1c885c3b1f2c2d672388441c0944eace9ab87d97925692c33c0103fb39c5ce5"
     },
     "appstate": {
       "file": "appstate/index.json",
       "schema": "schema/appstate.schema.json",
-      "sha256": "af4342e2e48501df53e671dc9fd3e7fd7f7e571288a2c7a8f99160d3662f1dc4"
+      "sha256": "075da27a55d6504fd52a70235b19a842dc06b89015375cec0d150aa842bfdabd"
     },
     "enums": {
       "file": "enums/index.json",
       "schema": "schema/enums.schema.json",
-      "sha256": "7f185c2442f7585afb1e897e10759e91c34821ddf3e787105f3a6687f757750c"
+      "sha256": "84e9728abd57c49c256701eaa80c37ad4faf2b9e16d894f73fd5ae0d8f2bb693"
     },
     "iq": {
       "file": "iq/index.json",
       "schema": "schema/iq.schema.json",
-      "sha256": "3c0b7991f45650c6cf58fd1a7acdf2e0679935c36e66afd4b7bc01db1b604b7f"
+      "sha256": "17fa4d41d6077108783ad6308b63dc4fe73bf217d4f6659c3ae5f2b6f96a2479"
     },
     "mex": {
       "file": "mex/index.json",
       "schema": "schema/mex.schema.json",
-      "sha256": "df89f8d54b070751b60362cb17d0d1695749b7fbca66bfa7f0cd6b340917ef4c"
+      "sha256": "488a479a9b5adc68cb47ee2401fd4b562e5bd86c25ee447ef12dd4e354767d6b"
     },
     "proto": {
       "file": "proto/WAProto.proto",
-      "sha256": "3b48cdc989bd083179373d05b0f7ef7297330b4b4aefcdee21de5d6a1988b10f"
+      "sha256": "0ae433a6309b52fc160122e212b7f5201ecdd0ef060e0e4dcc79a790ba7d381e"
     },
     "wam": {
       "file": "wam/index.json",
       "schema": "schema/wam.schema.json",
-      "sha256": "07d71de386cc85bb718bc2db93342387050ace8de67af422fd3efa8300f60e1b"
+      "sha256": "eef20df3f7f9f427304ca52efa45c5bdbb154a057f6408fb447ed7b6303505d8"
     }
   },
-  "enumDefs": 245,
+  "enumDefs": 246,
   "generatorVersion": "0.1.0",
   "iqModules": 33,
   "mexOperations": 127,
   "protoEntities": 246,
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1041023899",
+  "waVersion": "2.3000.1041193846",
   "wamEvents": 426
 }

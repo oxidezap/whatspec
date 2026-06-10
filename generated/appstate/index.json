@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1041023899",
+  "waVersion": "2.3000.1041193846",
   "collections": [
     "regular",
     "regular_low",
@@ -178,11 +178,9 @@
       "version": 7,
       "scope": "account",
       "baseClass": "AccountSyncdActionBase",
-      "valueField": "avatarUpdatedAction",
-      "valueProtoType": "SyncActionValue.AvatarUpdatedAction",
-      "valueEnumFields": {
-        "eventType": "AvatarUpdatedAction.AvatarEventType"
-      },
+      "valueField": null,
+      "valueProtoType": null,
+      "valueEnumFields": null,
       "chatJidIndex": null,
       "indexParts": [
         {
