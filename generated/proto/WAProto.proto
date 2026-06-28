@@ -1,7 +1,7 @@
 syntax = "proto2";
 package whatsapp;
 
-/// WhatsApp Version: 2.3000.1041193846
+/// WhatsApp Version: 2.3000.1042263421
 
 message ADVDeviceIdentity {
   optional uint32 rawId = 1;
@@ -1970,6 +1970,32 @@ message Conversation {
   }
 }
 
+message CreateBackupInput {
+  required string recoveryCode = 1;
+  required uint64 userId = 2;
+}
+
+message CreateBackupOutput {
+  optional DeviceOutput device = 1;
+  optional VirtualDeviceOutput virtualDevice = 2;
+  optional Epoch0Output epoch0 = 3;
+  optional bytes mailboxRootKey = 4;
+  optional string error = 5;
+}
+
+message DecryptMessageInput {
+  required bytes epochRootKey = 1;
+  required bytes epochAnonId = 2;
+  required string threadId = 3;
+  required int32 encryptionVersion = 4;
+  required bytes ciphertext = 5;
+}
+
+message DecryptMessageOutput {
+  optional bytes plaintextPayload = 1;
+  optional string error = 2;
+}
+
 message DeviceCapabilities {
   optional ChatLockSupportLevel chatLockSupportLevel = 1;
   optional LIDMigration lidMigration = 2;
@@ -2027,6 +2053,18 @@ message DeviceListMetadata {
   optional bytes recipientKeyHash = 8;
   optional uint64 recipientTimestamp = 9;
   repeated uint32 recipientKeyIndexes = 10 [packed = true];
+}
+
+message DeviceOutput {
+  required bytes publicKey = 1;
+  required bytes epochAuthPublicKey = 2;
+  required bytes epochAuthPublicKeySig = 3;
+  required bytes epochStoragePublicKey = 4;
+  required bytes epochStoragePublicKeySig = 5;
+  repeated int32 supportedEncryptionVersions = 6;
+  required bytes encryptionVersionSignature = 7;
+  required int32 clientVersion = 8;
+  required bytes ocmfClientState = 9;
 }
 
 message DeviceProps {
@@ -2149,14 +2187,59 @@ message EmbeddedMusic {
   optional int64 overlapDurationInMs = 14;
 }
 
+message EncryptMessageInput {
+  required bytes epochRootKey = 1;
+  required bytes mailboxRootKey = 2;
+  required bytes orfClientState = 3;
+  required bytes epochAnonId = 4;
+  required uint64 epochId = 5;
+  required string threadId = 6;
+  required uint64 waCanonicalUserFbid = 7;
+  required uint64 timestampMs = 8;
+  required uint64 backupId = 9;
+  required bytes plaintextPayload = 10;
+  required string stanzaId = 11;
+}
+
+message EncryptMessageOutput {
+  optional bytes encryptedProtobuf = 1;
+  optional bytes orfThreadId = 2;
+  optional string valueSecretRef = 3;
+  optional uint64 offlineThreadingId = 4;
+  optional uint64 timestampMs = 5;
+  optional bytes messageKey = 6;
+  optional string error = 7;
+}
+
 message EncryptedPairingRequest {
   optional bytes encryptedPayload = 1;
   optional bytes iv = 2;
 }
 
+message EncryptedSecretValuesOutput {
+  required bytes encryptedDevicePrivateKey = 1;
+  required bytes encryptedObliviousValidationTokenBlob = 2;
+  required bytes encryptedEpochStoragePrivateKey = 3;
+  required bytes encryptedOcmfClientState = 4;
+  optional bytes encryptedOrfClientStateV2 = 5;
+  required bytes encryptedMailboxRootKeyBlob = 6;
+  required bytes encryptedEpochAnonId = 7;
+  required bytes encryptedEpochRootKey = 8;
+}
+
 message EphemeralSetting {
   optional sfixed32 duration = 1;
   optional sfixed64 timestamp = 2;
+}
+
+message Epoch0Output {
+  required uint64 epochFbid = 1;
+  required bytes epochAnonId = 2;
+  required bytes epochData = 3;
+  required bytes wrappedRootKeyForSelf = 4;
+  required bytes epochSignature = 5;
+  required bytes epochRootKeyFingerprint = 6;
+  optional bytes epochRootKey = 7;
 }
 
 message EventAdditionalMetadata {
@@ -2532,6 +2615,14 @@ message LIDMigrationMappingSyncMessage {
 message LIDMigrationMappingSyncPayload {
   repeated LIDMigrationMapping pnToLidMappings = 1;
   optional uint64 chatDbMigrationTimestamp = 2;
+}
+
+message LabyrinthWaCommand {
+  oneof commandInput {
+    CreateBackupInput createBackupInput = 1;
+    EncryptMessageInput encryptMessageInput = 2;
+    DecryptMessageInput decryptMessageInput = 3;
+  }
 }
 
 message LegacyMessage {
@@ -4724,6 +4815,8 @@ enum MutationProps {
   THREAD_PIN_ACTION = 85;
   AUTO_ORGANIZE_BUSINESS_CHAT_SETTING = 86;
   BIZ_AI_SETTINGS_NUDGE_ACTION = 87;
+  COEX_V2_VERSION_ACTION = 88;
+  WASA_ROOT_SECRET_ACTION = 89;
   SHARE_OWN_PN = 10001;
   BUSINESS_BROADCAST_ACTION = 10002;
   AI_THREAD_DELETE_ACTION = 10003;
@@ -5424,9 +5517,11 @@ message SyncActionValue {
   optional ThreadPinAction threadPinAction = 85;
   optional AutoOrganizeBusinessChatSetting autoOrganizeBusinessChatSetting = 86;
   optional BizAISettingsNudgeAction bizAiSettingsNudgeAction = 87;
+  optional CoexV2VersionAction coexV2VersionAction = 88;
+  optional WASARootSecretAction wasaRootSecretAction = 89;
   message AgentAction {
     optional string name = 1;
-    optional int32 deviceID = 2;
+    optional int32 deviceId = 2;
     optional bool isDeleted = 3;
   }
 
@@ -5524,7 +5619,7 @@ message SyncActionValue {
   }
 
   message ChatAssignmentAction {
-    optional string deviceAgentID = 1;
+    optional string deviceAgentId = 1;
   }
 
   message ChatAssignmentOpenedStatusAction {
@@ -5533,6 +5628,10 @@ message SyncActionValue {
 
   message ClearChatAction {
     optional SyncActionValue.SyncActionMessageRange messageRange = 1;
+  }
+
+  message CoexV2VersionAction {
+    optional uint64 version = 1;
   }
 
   message ContactAction {
@@ -5942,8 +6041,8 @@ message SyncActionValue {
   message StatusPrivacyAction {
     optional StatusDistributionMode mode = 1;
     repeated string userJid = 2;
-    optional bool shareToFB = 3;
-    optional bool shareToIG = 4;
+    optional bool shareToFb = 3;
+    optional bool shareToIg = 4;
     repeated CustomList customLists = 5;
     repeated StatusDistributionMode modes = 6;
     message CustomList {
@@ -6043,6 +6142,15 @@ message SyncActionValue {
     enum ChatStartMode {
       LID = 1;
       PN = 2;
+    }
+  }
+
+  message WASARootSecretAction {
+    repeated RootSecretEntry secrets = 1;
+    message RootSecretEntry {
+      optional string id = 1;
+      optional bytes rootSecret = 2;
+      optional int64 epoch = 3;
     }
   }
 
@@ -6228,6 +6336,16 @@ message VerifiedNameCertificate {
     repeated LocalizedName localizedNames = 8;
     optional uint64 issueTime = 10;
   }
+}
+
+message VirtualDeviceOutput {
+  required bytes vdId = 1;
+  required bytes vdPublicKey = 2;
+  required bytes vdEpochStoragePublicKey = 3;
+  required bytes vdEpochStoragePublicKeySig = 4;
+  required bytes ocmfRotationToken = 5;
+  required bytes deviceEpochHmac = 6;
+  required EncryptedSecretValuesOutput encryptedSecretValues = 7;
 }
 
 message WallpaperSettings {

@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1041193846",
+  "waVersion": "2.3000.1042263421",
   "enums": [
     {
       "name": "DGWAuth",
@@ -50,6 +50,10 @@
         {
           "name": "GUEST",
           "value": "19:0"
+        },
+        {
+          "name": "DEV_HUB",
+          "value": "22:0"
         }
       ]
     },
@@ -3359,6 +3363,60 @@
       ]
     },
     {
+      "name": "HatchDecodeReason",
+      "module": "WAWebHatchDecodeError",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "PARSE_FAILURE",
+          "value": "hatch_metadata_parse_failure"
+        },
+        {
+          "name": "INVALID_VERSION",
+          "value": "hatch_metadata_invalid_version"
+        },
+        {
+          "name": "INVALID_PAYLOAD",
+          "value": "hatch_metadata_invalid_payload"
+        },
+        {
+          "name": "INVALID_OP_KEY",
+          "value": "hatch_metadata_invalid_op_key"
+        },
+        {
+          "name": "INVALID_STATUS",
+          "value": "hatch_metadata_invalid_status"
+        }
+      ]
+    },
+    {
+      "name": "HatchMetadataSyncValidationCode",
+      "module": "WAWebHatchMetadataSyncValidationError",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "UNEXPECTED_SENDER",
+          "value": "hatch_metadata_unexpected_sender"
+        },
+        {
+          "name": "EMPTY_PAYLOAD",
+          "value": "hatch_metadata_empty_payload"
+        },
+        {
+          "name": "UNHANDLED_CONTROL",
+          "value": "hatch_metadata_unhandled_control"
+        },
+        {
+          "name": "DECODE_FAILURE",
+          "value": "hatch_metadata_decode_failure"
+        },
+        {
+          "name": "UNEXPECTED_DECODE_FAILURE",
+          "value": "hatch_metadata_unexpected_decode_failure"
+        }
+      ]
+    },
+    {
       "name": "HeadingLevel",
       "module": "WAWebHeadingFormatMutator",
       "valueKind": "int",
@@ -3638,7 +3696,7 @@
           "value": "lid_migration_split_thread_mismatch"
         },
         {
-          "name": "LidMigrationNoLidAvailiable",
+          "name": "LidMigrationNoLidAvailable",
           "value": "lid_migration_no_lid_available"
         },
         {
@@ -4229,10 +4287,6 @@
         {
           "name": "MetaAI",
           "value": "metaAI"
-        },
-        {
-          "name": "Updates",
-          "value": "updates"
         },
         {
           "name": "MeTab",
@@ -7280,6 +7334,10 @@
           "value": "signal-storage"
         },
         {
+          "name": "GuestEventsStorage",
+          "value": "guest-events-storage"
+        },
+        {
           "name": "WorkerStorage",
           "value": "worker-storage"
         },
@@ -7810,6 +7868,10 @@
           "value": "cleanupGroupHistoryReportingTokenTable"
         },
         {
+          "name": "CLEANUP_SCHEDULED_MSG_REVEAL_KEYS",
+          "value": "cleanupScheduledMsgRevealKeys"
+        },
+        {
           "name": "CLEANUP_3PD_SIGNALS_TABLE",
           "value": "cleanup3PDSignalsTable"
         },
@@ -7840,6 +7902,10 @@
         {
           "name": "MIGRATE_META_AI_MESSAGES_TO_HISTORICAL_THREAD",
           "value": "migrateMetaAIMessagesToHistoricalThread"
+        },
+        {
+          "name": "CLEAN_META_AI_BOT_SESSION",
+          "value": "cleanMetaAIBotSession"
         },
         {
           "name": "CLEAN_WEBTP_SHARED_SESSIONS",
@@ -8146,6 +8212,10 @@
         {
           "name": "VOIP_WINDOW_DRAG",
           "value": "voip_window_drag"
+        },
+        {
+          "name": "VOIP_WINDOW_CLOSE_ATTEMPT",
+          "value": "voip_window_close_attempt"
         },
         {
           "name": "VOIP_WINDOW_MOVE_TO_POPOUT",
@@ -8642,6 +8712,21 @@
       ]
     },
     {
+      "name": "VideoEncoderType",
+      "module": "WAWebVoipVideoEncoderType",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "WEBCODECS_H264",
+          "value": "webcodecs_h264"
+        },
+        {
+          "name": "OPENH264",
+          "value": "openh264"
+        }
+      ]
+    },
+    {
       "name": "WAWebVoipVideoRendererThreadingMode",
       "module": "WAWebVoipVideoRendererInterface",
       "valueKind": "int",
@@ -8903,6 +8988,36 @@
     {
       "name": "AppState_v2623",
       "module": "WAWebWindowsHybridBridgeNativeAppState.v2623",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "Normal",
+          "value": "normal"
+        },
+        {
+          "name": "MinimizedToTray",
+          "value": "minimizedToTray"
+        }
+      ]
+    },
+    {
+      "name": "AppState_v2624",
+      "module": "WAWebWindowsHybridBridgeNativeAppState.v2624",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "Normal",
+          "value": "normal"
+        },
+        {
+          "name": "MinimizedToTray",
+          "value": "minimizedToTray"
+        }
+      ]
+    },
+    {
+      "name": "AppState_v2625",
+      "module": "WAWebWindowsHybridBridgeNativeAppState.v2625",
       "valueKind": "string",
       "variants": [
         {

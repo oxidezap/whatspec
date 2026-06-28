@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1041193846",
+  "waVersion": "2.3000.1042263421",
   "stanzas": [
     {
       "moduleName": "WASmaxOutAbPropsGetExperimentConfigRequest",
@@ -23007,6 +23007,497 @@
       }
     },
     {
+      "moduleName": "WASmaxOutNewslettersStatusMyAddOnsRequest",
+      "namespace": "newsletter",
+      "iqType": "get",
+      "target": "s.whatsapp.net",
+      "parserName": "WASmaxNewslettersStatusMyAddOnsRPC",
+      "exportedFunction": "makeStatusMyAddOnsRequest",
+      "allExports": [
+        "makeStatusMyAddOnsRequest"
+      ],
+      "request": {
+        "namespace": "newsletter",
+        "iqType": "get",
+        "target": "s.whatsapp.net",
+        "children": [
+          {
+            "tag": "my_addons",
+            "attrs": [
+              {
+                "name": "type",
+                "kind": "const",
+                "value": "status",
+                "required": true
+              },
+              {
+                "name": "limit",
+                "kind": "integer",
+                "required": true
+              },
+              {
+                "name": "jid",
+                "kind": "optional",
+                "required": false
+              }
+            ],
+            "children": [],
+            "repeats": false
+          }
+        ]
+      },
+      "response": {
+        "parserName": "WASmaxNewslettersStatusMyAddOnsRPC",
+        "assertions": [],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "myAddonsType",
+            "wireName": "type",
+            "type": "string",
+            "required": true,
+            "sourcePath": [
+              "my_addons"
+            ]
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "wireName": "type",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "child",
+            "name": "myAddonsStatuses",
+            "type": "string",
+            "required": true,
+            "tag": "statuses",
+            "children": [
+              {
+                "method": "attrJidWithType",
+                "name": "jid",
+                "wireName": "jid",
+                "type": "jid",
+                "required": true
+              },
+              {
+                "method": "child",
+                "name": "status",
+                "type": "string",
+                "required": true,
+                "tag": "status",
+                "children": [
+                  {
+                    "method": "attrInt",
+                    "name": "serverId",
+                    "wireName": "server_id",
+                    "type": "integer",
+                    "required": true
+                  },
+                  {
+                    "method": "",
+                    "name": "statusNewsletterMyReactionMixin",
+                    "type": "string",
+                    "required": false,
+                    "children": [
+                      {
+                        "method": "attrString",
+                        "name": "reactionCode",
+                        "wireName": "code",
+                        "type": "string",
+                        "required": true,
+                        "sourcePath": [
+                          "reaction"
+                        ]
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "reactionT",
+                        "wireName": "t",
+                        "type": "integer",
+                        "required": true,
+                        "sourcePath": [
+                          "reaction"
+                        ]
+                      }
+                    ],
+                    "sameNode": true
+                  }
+                ],
+                "repeats": true
+              }
+            ],
+            "repeats": true,
+            "sourcePath": [
+              "my_addons"
+            ]
+          }
+        ],
+        "variants": [
+          {
+            "tag": "StatusMyAddOnsResponseSuccess",
+            "moduleName": "WASmaxInNewslettersStatusMyAddOnsResponseSuccess",
+            "kind": "success",
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
+            "fields": [
+              {
+                "method": "attrString",
+                "name": "myAddonsType",
+                "wireName": "type",
+                "type": "string",
+                "required": true,
+                "sourcePath": [
+                  "my_addons"
+                ]
+              },
+              {
+                "method": "attrString",
+                "name": "type",
+                "wireName": "type",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "child",
+                "name": "myAddonsStatuses",
+                "type": "string",
+                "required": true,
+                "tag": "statuses",
+                "children": [
+                  {
+                    "method": "attrJidWithType",
+                    "name": "jid",
+                    "wireName": "jid",
+                    "type": "jid",
+                    "required": true
+                  },
+                  {
+                    "method": "child",
+                    "name": "status",
+                    "type": "string",
+                    "required": true,
+                    "tag": "status",
+                    "children": [
+                      {
+                        "method": "attrInt",
+                        "name": "serverId",
+                        "wireName": "server_id",
+                        "type": "integer",
+                        "required": true
+                      },
+                      {
+                        "method": "",
+                        "name": "statusNewsletterMyReactionMixin",
+                        "type": "string",
+                        "required": false,
+                        "children": [
+                          {
+                            "method": "attrString",
+                            "name": "reactionCode",
+                            "wireName": "code",
+                            "type": "string",
+                            "required": true,
+                            "sourcePath": [
+                              "reaction"
+                            ]
+                          },
+                          {
+                            "method": "attrInt",
+                            "name": "reactionT",
+                            "wireName": "t",
+                            "type": "integer",
+                            "required": true,
+                            "sourcePath": [
+                              "reaction"
+                            ]
+                          }
+                        ],
+                        "sameNode": true
+                      }
+                    ],
+                    "repeats": true
+                  }
+                ],
+                "repeats": true,
+                "sourcePath": [
+                  "my_addons"
+                ]
+              }
+            ]
+          },
+          {
+            "tag": "StatusMyAddOnsResponseClientError",
+            "moduleName": "WASmaxInNewslettersStatusMyAddOnsResponseClientError",
+            "kind": "error",
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              }
+            ],
+            "fields": [
+              {
+                "method": "",
+                "name": "statusMyAddonsClientErrors",
+                "type": "union",
+                "required": true,
+                "unionVariants": [
+                  {
+                    "name": "BadRequestIQErrorResponse",
+                    "fields": [
+                      {
+                        "method": "child",
+                        "name": "errorIQErrorBadRequestMixin",
+                        "type": "string",
+                        "required": true,
+                        "tag": "error",
+                        "children": [
+                          {
+                            "method": "attrString",
+                            "name": "text",
+                            "wireName": "text",
+                            "type": "string",
+                            "required": true
+                          },
+                          {
+                            "method": "attrInt",
+                            "name": "code",
+                            "wireName": "code",
+                            "type": "integer",
+                            "required": true
+                          }
+                        ],
+                        "repeats": false
+                      },
+                      {
+                        "method": "attrString",
+                        "name": "type",
+                        "wireName": "type",
+                        "type": "string",
+                        "required": true
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "iq"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "type",
+                        "value": "error"
+                      }
+                    ]
+                  },
+                  {
+                    "name": "UnauthorizedIQErrorResponse",
+                    "fields": [
+                      {
+                        "method": "child",
+                        "name": "errorIQErrorNotAuthorizedMixin",
+                        "type": "string",
+                        "required": true,
+                        "tag": "error",
+                        "children": [
+                          {
+                            "method": "attrString",
+                            "name": "text",
+                            "wireName": "text",
+                            "type": "string",
+                            "required": true
+                          },
+                          {
+                            "method": "attrInt",
+                            "name": "code",
+                            "wireName": "code",
+                            "type": "integer",
+                            "required": true
+                          }
+                        ],
+                        "repeats": false
+                      },
+                      {
+                        "method": "attrString",
+                        "name": "type",
+                        "wireName": "type",
+                        "type": "string",
+                        "required": true
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "iq"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "type",
+                        "value": "error"
+                      }
+                    ]
+                  },
+                  {
+                    "name": "ItemNotFoundIQErrorResponse",
+                    "fields": [
+                      {
+                        "method": "child",
+                        "name": "errorIQErrorItemNotFoundMixin",
+                        "type": "string",
+                        "required": true,
+                        "tag": "error",
+                        "children": [
+                          {
+                            "method": "attrString",
+                            "name": "text",
+                            "wireName": "text",
+                            "type": "string",
+                            "required": true
+                          },
+                          {
+                            "method": "attrInt",
+                            "name": "code",
+                            "wireName": "code",
+                            "type": "integer",
+                            "required": true
+                          }
+                        ],
+                        "repeats": false
+                      },
+                      {
+                        "method": "attrString",
+                        "name": "type",
+                        "wireName": "type",
+                        "type": "string",
+                        "required": true
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "iq"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "type",
+                        "value": "error"
+                      }
+                    ]
+                  },
+                  {
+                    "name": "RateLimitedIQErrorResponse",
+                    "fields": [
+                      {
+                        "method": "child",
+                        "name": "errorIQErrorRateOverlimitMixin",
+                        "type": "string",
+                        "required": true,
+                        "tag": "error",
+                        "children": [
+                          {
+                            "method": "attrString",
+                            "name": "text",
+                            "wireName": "text",
+                            "type": "string",
+                            "required": true
+                          },
+                          {
+                            "method": "attrInt",
+                            "name": "code",
+                            "wireName": "code",
+                            "type": "integer",
+                            "required": true
+                          }
+                        ],
+                        "repeats": false
+                      },
+                      {
+                        "method": "attrString",
+                        "name": "type",
+                        "wireName": "type",
+                        "type": "string",
+                        "required": true
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "iq"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "type",
+                        "value": "error"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "tag": "StatusMyAddOnsResponseServerError",
+            "moduleName": "WASmaxInNewslettersStatusMyAddOnsResponseServerError",
+            "kind": "error",
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
+            "fields": [
+              {
+                "method": "child",
+                "name": "errorIQErrorInternalServerErrorMixin",
+                "type": "string",
+                "required": true,
+                "tag": "error",
+                "children": [
+                  {
+                    "method": "attrString",
+                    "name": "text",
+                    "wireName": "text",
+                    "type": "string",
+                    "required": true
+                  },
+                  {
+                    "method": "attrInt",
+                    "name": "code",
+                    "wireName": "code",
+                    "type": "integer",
+                    "required": true
+                  }
+                ],
+                "repeats": false
+              },
+              {
+                "method": "attrString",
+                "name": "type",
+                "wireName": "type",
+                "type": "string",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "moduleName": "WASmaxOutNewslettersNewsletterIQGetRequestMixin",
       "namespace": "newsletter",
       "iqType": "get",
@@ -33102,89 +33593,6 @@
       }
     },
     {
-      "moduleName": "WAWebVerifyPostcodeJob",
-      "namespace": "w:biz:catalog",
-      "iqType": "get",
-      "target": "s.whatsapp.net",
-      "parserName": "productResponse",
-      "exportedFunction": "VerifyPostcode",
-      "allExports": [
-        "VerifyPostcode"
-      ],
-      "request": {
-        "namespace": "w:biz:catalog",
-        "iqType": "get",
-        "target": "s.whatsapp.net",
-        "children": [
-          {
-            "tag": "verify_postcode",
-            "attrs": [
-              {
-                "name": "biz_jid",
-                "kind": "user_jid",
-                "required": true
-              }
-            ],
-            "children": [
-              {
-                "tag": "direct_connection_encrypted_info",
-                "attrs": [],
-                "children": [],
-                "repeats": false
-              }
-            ],
-            "repeats": false
-          }
-        ]
-      },
-      "response": {
-        "parserName": "productResponse",
-        "assertions": [
-          {
-            "kind": "tag",
-            "name": "iq"
-          },
-          {
-            "kind": "from_server"
-          }
-        ],
-        "fields": [
-          {
-            "method": "child",
-            "name": "result_code",
-            "type": "string",
-            "required": true,
-            "tag": "result_code",
-            "children": [
-              {
-                "method": "contentString",
-                "name": "content",
-                "type": "string",
-                "required": true
-              }
-            ],
-            "contentType": "string"
-          },
-          {
-            "method": "maybeChild",
-            "name": "encrypted_location_name",
-            "type": "string",
-            "required": false,
-            "tag": "encrypted_location_name",
-            "children": [
-              {
-                "method": "contentString",
-                "name": "content",
-                "type": "string",
-                "required": true
-              }
-            ],
-            "contentType": "string"
-          }
-        ]
-      }
-    },
-    {
       "moduleName": "WASmaxOutBizMsgUserFeedbackUpdatePreferenceRequest",
       "namespace": "w:biz:msg_feedback",
       "iqType": "set",
@@ -35177,6 +35585,20 @@
                                     "required": false
                                   },
                                   {
+                                    "method": "maybeAttrInt",
+                                    "name": "joinTime",
+                                    "wireName": "join_time",
+                                    "type": "integer",
+                                    "required": false
+                                  },
+                                  {
+                                    "method": "maybeAttrEnum",
+                                    "name": "groupHistorySent",
+                                    "wireName": "group_history_sent",
+                                    "type": "enum",
+                                    "required": false
+                                  },
+                                  {
                                     "method": "",
                                     "name": "participantMixins",
                                     "type": "union",
@@ -35452,6 +35874,20 @@
                                     "name": "participantLabelMtime",
                                     "wireName": "participant_label_mtime",
                                     "type": "integer",
+                                    "required": false
+                                  },
+                                  {
+                                    "method": "maybeAttrInt",
+                                    "name": "joinTime",
+                                    "wireName": "join_time",
+                                    "type": "integer",
+                                    "required": false
+                                  },
+                                  {
+                                    "method": "maybeAttrEnum",
+                                    "name": "groupHistorySent",
+                                    "wireName": "group_history_sent",
+                                    "type": "enum",
                                     "required": false
                                   },
                                   {
@@ -36753,6 +37189,20 @@
                                         "required": false
                                       },
                                       {
+                                        "method": "maybeAttrInt",
+                                        "name": "joinTime",
+                                        "wireName": "join_time",
+                                        "type": "integer",
+                                        "required": false
+                                      },
+                                      {
+                                        "method": "maybeAttrEnum",
+                                        "name": "groupHistorySent",
+                                        "wireName": "group_history_sent",
+                                        "type": "enum",
+                                        "required": false
+                                      },
+                                      {
                                         "method": "",
                                         "name": "participantMixins",
                                         "type": "union",
@@ -37028,6 +37478,20 @@
                                         "name": "participantLabelMtime",
                                         "wireName": "participant_label_mtime",
                                         "type": "integer",
+                                        "required": false
+                                      },
+                                      {
+                                        "method": "maybeAttrInt",
+                                        "name": "joinTime",
+                                        "wireName": "join_time",
+                                        "type": "integer",
+                                        "required": false
+                                      },
+                                      {
+                                        "method": "maybeAttrEnum",
+                                        "name": "groupHistorySent",
+                                        "wireName": "group_history_sent",
+                                        "type": "enum",
                                         "required": false
                                       },
                                       {
@@ -38578,6 +39042,20 @@
                             "required": false
                           },
                           {
+                            "method": "maybeAttrInt",
+                            "name": "joinTime",
+                            "wireName": "join_time",
+                            "type": "integer",
+                            "required": false
+                          },
+                          {
+                            "method": "maybeAttrEnum",
+                            "name": "groupHistorySent",
+                            "wireName": "group_history_sent",
+                            "type": "enum",
+                            "required": false
+                          },
+                          {
                             "method": "",
                             "name": "participantMixins",
                             "type": "union",
@@ -38853,6 +39331,20 @@
                             "name": "participantLabelMtime",
                             "wireName": "participant_label_mtime",
                             "type": "integer",
+                            "required": false
+                          },
+                          {
+                            "method": "maybeAttrInt",
+                            "name": "joinTime",
+                            "wireName": "join_time",
+                            "type": "integer",
+                            "required": false
+                          },
+                          {
+                            "method": "maybeAttrEnum",
+                            "name": "groupHistorySent",
+                            "wireName": "group_history_sent",
+                            "type": "enum",
                             "required": false
                           },
                           {
@@ -40035,6 +40527,20 @@
                                 "required": false
                               },
                               {
+                                "method": "maybeAttrInt",
+                                "name": "joinTime",
+                                "wireName": "join_time",
+                                "type": "integer",
+                                "required": false
+                              },
+                              {
+                                "method": "maybeAttrEnum",
+                                "name": "groupHistorySent",
+                                "wireName": "group_history_sent",
+                                "type": "enum",
+                                "required": false
+                              },
+                              {
                                 "method": "",
                                 "name": "participantMixins",
                                 "type": "union",
@@ -40310,6 +40816,20 @@
                                 "name": "participantLabelMtime",
                                 "wireName": "participant_label_mtime",
                                 "type": "integer",
+                                "required": false
+                              },
+                              {
+                                "method": "maybeAttrInt",
+                                "name": "joinTime",
+                                "wireName": "join_time",
+                                "type": "integer",
+                                "required": false
+                              },
+                              {
+                                "method": "maybeAttrEnum",
+                                "name": "groupHistorySent",
+                                "wireName": "group_history_sent",
+                                "type": "enum",
                                 "required": false
                               },
                               {
@@ -42407,6 +42927,20 @@
                             "required": false
                           },
                           {
+                            "method": "maybeAttrInt",
+                            "name": "joinTime",
+                            "wireName": "join_time",
+                            "type": "integer",
+                            "required": false
+                          },
+                          {
+                            "method": "maybeAttrEnum",
+                            "name": "groupHistorySent",
+                            "wireName": "group_history_sent",
+                            "type": "enum",
+                            "required": false
+                          },
+                          {
                             "method": "",
                             "name": "participantMixins",
                             "type": "union",
@@ -42682,6 +43216,20 @@
                             "name": "participantLabelMtime",
                             "wireName": "participant_label_mtime",
                             "type": "integer",
+                            "required": false
+                          },
+                          {
+                            "method": "maybeAttrInt",
+                            "name": "joinTime",
+                            "wireName": "join_time",
+                            "type": "integer",
+                            "required": false
+                          },
+                          {
+                            "method": "maybeAttrEnum",
+                            "name": "groupHistorySent",
+                            "wireName": "group_history_sent",
+                            "type": "enum",
                             "required": false
                           },
                           {
@@ -43461,6 +44009,20 @@
                                 "required": false
                               },
                               {
+                                "method": "maybeAttrInt",
+                                "name": "joinTime",
+                                "wireName": "join_time",
+                                "type": "integer",
+                                "required": false
+                              },
+                              {
+                                "method": "maybeAttrEnum",
+                                "name": "groupHistorySent",
+                                "wireName": "group_history_sent",
+                                "type": "enum",
+                                "required": false
+                              },
+                              {
                                 "method": "",
                                 "name": "participantMixins",
                                 "type": "union",
@@ -43736,6 +44298,20 @@
                                 "name": "participantLabelMtime",
                                 "wireName": "participant_label_mtime",
                                 "type": "integer",
+                                "required": false
+                              },
+                              {
+                                "method": "maybeAttrInt",
+                                "name": "joinTime",
+                                "wireName": "join_time",
+                                "type": "integer",
+                                "required": false
+                              },
+                              {
+                                "method": "maybeAttrEnum",
+                                "name": "groupHistorySent",
+                                "wireName": "group_history_sent",
+                                "type": "enum",
                                 "required": false
                               },
                               {
@@ -45067,6 +45643,20 @@
                             "required": false
                           },
                           {
+                            "method": "maybeAttrInt",
+                            "name": "joinTime",
+                            "wireName": "join_time",
+                            "type": "integer",
+                            "required": false
+                          },
+                          {
+                            "method": "maybeAttrEnum",
+                            "name": "groupHistorySent",
+                            "wireName": "group_history_sent",
+                            "type": "enum",
+                            "required": false
+                          },
+                          {
                             "method": "",
                             "name": "participantMixins",
                             "type": "union",
@@ -45342,6 +45932,20 @@
                             "name": "participantLabelMtime",
                             "wireName": "participant_label_mtime",
                             "type": "integer",
+                            "required": false
+                          },
+                          {
+                            "method": "maybeAttrInt",
+                            "name": "joinTime",
+                            "wireName": "join_time",
+                            "type": "integer",
+                            "required": false
+                          },
+                          {
+                            "method": "maybeAttrEnum",
+                            "name": "groupHistorySent",
+                            "wireName": "group_history_sent",
+                            "type": "enum",
                             "required": false
                           },
                           {
@@ -46192,6 +46796,20 @@
                                 "required": false
                               },
                               {
+                                "method": "maybeAttrInt",
+                                "name": "joinTime",
+                                "wireName": "join_time",
+                                "type": "integer",
+                                "required": false
+                              },
+                              {
+                                "method": "maybeAttrEnum",
+                                "name": "groupHistorySent",
+                                "wireName": "group_history_sent",
+                                "type": "enum",
+                                "required": false
+                              },
+                              {
                                 "method": "",
                                 "name": "participantMixins",
                                 "type": "union",
@@ -46467,6 +47085,20 @@
                                 "name": "participantLabelMtime",
                                 "wireName": "participant_label_mtime",
                                 "type": "integer",
+                                "required": false
+                              },
+                              {
+                                "method": "maybeAttrInt",
+                                "name": "joinTime",
+                                "wireName": "join_time",
+                                "type": "integer",
+                                "required": false
+                              },
+                              {
+                                "method": "maybeAttrEnum",
+                                "name": "groupHistorySent",
+                                "wireName": "group_history_sent",
+                                "type": "enum",
                                 "required": false
                               },
                               {
@@ -49270,6 +49902,20 @@
                                     "required": false
                                   },
                                   {
+                                    "method": "maybeAttrInt",
+                                    "name": "joinTime",
+                                    "wireName": "join_time",
+                                    "type": "integer",
+                                    "required": false
+                                  },
+                                  {
+                                    "method": "maybeAttrEnum",
+                                    "name": "groupHistorySent",
+                                    "wireName": "group_history_sent",
+                                    "type": "enum",
+                                    "required": false
+                                  },
+                                  {
                                     "method": "",
                                     "name": "participantMixins",
                                     "type": "union",
@@ -49545,6 +50191,20 @@
                                     "name": "participantLabelMtime",
                                     "wireName": "participant_label_mtime",
                                     "type": "integer",
+                                    "required": false
+                                  },
+                                  {
+                                    "method": "maybeAttrInt",
+                                    "name": "joinTime",
+                                    "wireName": "join_time",
+                                    "type": "integer",
+                                    "required": false
+                                  },
+                                  {
+                                    "method": "maybeAttrEnum",
+                                    "name": "groupHistorySent",
+                                    "wireName": "group_history_sent",
+                                    "type": "enum",
                                     "required": false
                                   },
                                   {
@@ -50786,6 +51446,20 @@
                                         "required": false
                                       },
                                       {
+                                        "method": "maybeAttrInt",
+                                        "name": "joinTime",
+                                        "wireName": "join_time",
+                                        "type": "integer",
+                                        "required": false
+                                      },
+                                      {
+                                        "method": "maybeAttrEnum",
+                                        "name": "groupHistorySent",
+                                        "wireName": "group_history_sent",
+                                        "type": "enum",
+                                        "required": false
+                                      },
+                                      {
                                         "method": "",
                                         "name": "participantMixins",
                                         "type": "union",
@@ -51061,6 +51735,20 @@
                                         "name": "participantLabelMtime",
                                         "wireName": "participant_label_mtime",
                                         "type": "integer",
+                                        "required": false
+                                      },
+                                      {
+                                        "method": "maybeAttrInt",
+                                        "name": "joinTime",
+                                        "wireName": "join_time",
+                                        "type": "integer",
+                                        "required": false
+                                      },
+                                      {
+                                        "method": "maybeAttrEnum",
+                                        "name": "groupHistorySent",
+                                        "wireName": "group_history_sent",
+                                        "type": "enum",
                                         "required": false
                                       },
                                       {
@@ -53679,6 +54367,13 @@
                         "required": true
                       },
                       {
+                        "method": "maybeAttrInt",
+                        "name": "joinTime",
+                        "wireName": "join_time",
+                        "type": "integer",
+                        "required": false
+                      },
+                      {
                         "method": "",
                         "name": "phoneNumberMixin",
                         "type": "string",
@@ -54329,6 +55024,13 @@
                             "wireName": "jid",
                             "type": "jid",
                             "required": true
+                          },
+                          {
+                            "method": "maybeAttrInt",
+                            "name": "joinTime",
+                            "wireName": "join_time",
+                            "type": "integer",
+                            "required": false
                           },
                           {
                             "method": "",
@@ -57265,6 +57967,13 @@
                                 "required": false
                               },
                               {
+                                "method": "maybeAttrInt",
+                                "name": "joinTime",
+                                "wireName": "join_time",
+                                "type": "integer",
+                                "required": false
+                              },
+                              {
                                 "method": "",
                                 "name": "participantNotAddressableMixin",
                                 "type": "string",
@@ -58417,6 +59126,13 @@
                                     "name": "type",
                                     "wireName": "type",
                                     "type": "enum",
+                                    "required": false
+                                  },
+                                  {
+                                    "method": "maybeAttrInt",
+                                    "name": "joinTime",
+                                    "wireName": "join_time",
+                                    "type": "integer",
                                     "required": false
                                   },
                                   {

@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1041193846",
+  "waVersion": "2.3000.1042263421",
   "operations": {
     "ACSServerProviderConfig": {
       "originalName": "WAWebACSServerProviderConfigQuery",
@@ -78,7 +78,7 @@
     },
     "AiAgentAutoReplyControl": {
       "originalName": "WAWebAiAgentAutoReplyControlMutation",
-      "docId": "24541201322134132",
+      "docId": "27338647792432014",
       "operationKind": "mutation",
       "variables": [
         "consumer_lid",
@@ -92,7 +92,8 @@
       },
       "response": {
         "xfb_whatsapp_smb_maiba_status_update": {
-          "success": "string"
+          "success": "string",
+          "update_timestamp_ms": "number"
         }
       }
     },
@@ -866,6 +867,27 @@
         }
       }
     },
+    "CreateLabyrinthBackup": {
+      "originalName": "WAWebMexCreateLabyrinthBackupJobMutation",
+      "docId": "27207738338837013",
+      "operationKind": "mutation",
+      "variables": [
+        "input"
+      ],
+      "variablesShape": {
+        "input": "string"
+      },
+      "response": {
+        "xwa2_labyrinth_create_backup": {
+          "__typename": "string",
+          "backup_id": "string",
+          "device_id": "string",
+          "epoch_id": "string",
+          "message": "string",
+          "status": "string"
+        }
+      }
+    },
     "CreateMarketingCampaignAction": {
       "originalName": "WAWebCreateMarketingCampaignActionMutation",
       "docId": "26304826652483067",
@@ -1058,6 +1080,48 @@
             "custom_label": "string"
           }
         ]
+      }
+    },
+    "DebugLabyrinthInboxSnapshot": {
+      "originalName": "WAWebDebugLabyrinthInboxSnapshotQuery",
+      "docId": "27702565322674924",
+      "operationKind": "query",
+      "variables": [
+        "messageFirst",
+        "threadFirst"
+      ],
+      "variablesShape": {
+        "messageFirst": "string",
+        "threadFirst": "string"
+      },
+      "response": {
+        "get_wa_mailbox": {
+          "__typename": "string",
+          "id": "string",
+          "threads": {
+            "__typename": "string",
+            "nodes": [
+              {
+                "__typename": "string",
+                "id": "string",
+                "messages": {
+                  "__typename": "string",
+                  "edges": [
+                    {
+                      "__typename": "string",
+                      "node": {
+                        "__typename": "string",
+                        "encrypted_payload": "string",
+                        "encryption_version": "number",
+                        "id": "string"
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
       }
     },
     "DeleteNewsletter": {
@@ -1677,14 +1741,8 @@
     },
     "FetchNativeAdsMvpEligibility": {
       "originalName": "WAWebFetchNativeAdsMvpEligibilityQuery",
-      "docId": "34778300218423824",
+      "docId": "26673846358955912",
       "operationKind": "query",
-      "variables": [
-        "phone_number"
-      ],
-      "variablesShape": {
-        "phone_number": "number"
-      },
       "response": {
         "wa_smb_native_ads_web_info": {
           "is_page_asset_linked": "boolean",
@@ -2070,7 +2128,7 @@
     },
     "FetchNewsletterEnforcements": {
       "originalName": "WAWebMexFetchNewsletterEnforcementsJobQuery",
-      "docId": "27144556038512360",
+      "docId": "36570925279217516",
       "operationKind": "query",
       "variables": [
         "locale",
@@ -2082,6 +2140,37 @@
       },
       "response": {
         "xwa2_channel_enforcements": {
+          "admin_profiles": [
+            {
+              "appeal_creation_time": "number",
+              "appeal_reason_options": [
+                {
+                  "label": "string",
+                  "reason": "string"
+                }
+              ],
+              "appeal_state": "string",
+              "enforcement_creation_time": "number",
+              "enforcement_extra_data": {
+                "ip_violation_report_data": {
+                  "appeal_form_url": "string",
+                  "report_fbid": "string",
+                  "reporter_email": "string",
+                  "reporter_name": "string"
+                }
+              },
+              "enforcement_id": "string",
+              "enforcement_policy_information": {
+                "admin_disclaimer": "string",
+                "explanation": "string",
+                "headline": "string",
+                "overview": "string",
+                "subtitle": "string"
+              },
+              "enforcement_source": "string",
+              "enforcement_violation_category": "string"
+            }
+          ],
           "geosuspensions": [
             {
               "base_enforcement_data": {
@@ -4251,7 +4340,7 @@
     },
     "ReportProduct": {
       "originalName": "WAWebReportProductJobMutation",
-      "docId": "WAWebReportProductJobMutation",
+      "docId": "27419506181072609",
       "operationKind": "mutation",
       "variables": [
         "input"
@@ -4286,33 +4375,6 @@
       },
       "response": {
         "xwa2_request_client_logs_for_bug": "string"
-      }
-    },
-    "RequestOTE": {
-      "originalName": "WAWebMexRequestOTEJobMutation",
-      "docId": "35108428002105570",
-      "operationKind": "mutation",
-      "variables": [
-        "input"
-      ],
-      "variablesShape": {
-        "input": {
-          "reason_text": "string",
-          "selected_reason": "string",
-          "type": "string"
-        }
-      },
-      "response": {
-        "xwa2_ncm_request_ote": {
-          "capping_status": "string",
-          "cycle_end_timestamp": "number",
-          "cycle_start_timestamp": "number",
-          "mv_status": "string",
-          "ote_status": "string",
-          "server_sent_timestamp": "number",
-          "total_quota": "string",
-          "used_quota": "string"
-        }
       }
     },
     "ResolveAccountTypeAndAdPage": {
@@ -4605,6 +4667,38 @@
       "response": {
         "xwa2_update_text_status": {
           "result": "string"
+        }
+      }
+    },
+    "UploadLabyrinthMessages": {
+      "originalName": "WAWebMexUploadLabyrinthMessagesJobMutation",
+      "docId": "27746955431579348",
+      "operationKind": "mutation",
+      "variables": [
+        "input"
+      ],
+      "variablesShape": {
+        "input": {
+          "device_id": "string",
+          "epoch_id": "string",
+          "family_device_id": "string",
+          "messages": [
+            "string"
+          ]
+        }
+      },
+      "response": {
+        "xwa2_labyrinth_upload_messages": {
+          "__typename": "string",
+          "message": "string",
+          "results": [
+            {
+              "error": "string",
+              "offline_threading_id": "string",
+              "success": "string"
+            }
+          ],
+          "status": "string"
         }
       }
     },

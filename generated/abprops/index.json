@@ -1,7 +1,14 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1041193846",
+  "waVersion": "2.3000.1042263421",
   "configs": [
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "a2ui_supported_elements",
+      "code": 32276,
+      "valueType": "string",
+      "default": "info_card, list_card"
+    },
     {
       "module": "WAWebABPropsConfigs",
       "name": "acp_removal",
@@ -173,6 +180,36 @@
       "code": 25119,
       "valueType": "bool",
       "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "ai_bot_integration_history_sync_enabled",
+      "code": 25269,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "ai_bot_integration_history_sync_pre_chatd_enabled",
+      "code": 25469,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "ai_chat_meta_ai_banner_m2_enabled",
+      "code": 18784,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "ai_chat_meta_ai_glasses_banner_enabled",
+      "code": 20405,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -393,6 +430,13 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "ai_group_call_add_in_call_ahgc_enabled",
+      "code": 24654,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "ai_group_call_add_in_call_lgc_enabled",
       "code": 31717,
       "valueType": "bool",
@@ -414,6 +458,13 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "ai_group_call_meta_ai_animation_version",
+      "code": 32245,
+      "valueType": "int",
+      "default": 0
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "ai_group_call_start_call_ahgc_enabled",
       "code": 31716,
       "valueType": "bool",
@@ -425,6 +476,27 @@
       "code": 31713,
       "valueType": "bool",
       "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "ai_group_call_start_call_logging_enabled",
+      "code": 32527,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "ai_group_call_start_call_notice_id",
+      "code": 31736,
+      "valueType": "string",
+      "default": ""
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "ai_group_call_version",
+      "code": 24652,
+      "valueType": "int",
+      "default": 0
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -463,6 +535,13 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "ai_groups_open_enabled",
+      "code": 22165,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "ai_hatch_commands_enabled",
       "code": 27660,
       "valueType": "bool",
@@ -474,6 +553,14 @@
       "code": 27873,
       "valueType": "int",
       "default": 20
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "ai_hatch_encrypted_media_enabled",
+      "code": 32496,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -529,8 +616,7 @@
       "name": "ai_hatch_secret_encrypted_message_enabled",
       "code": 31040,
       "valueType": "bool",
-      "default": false,
-      "altDefault": true
+      "default": false
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -579,6 +665,13 @@
       "module": "WAWebABPropsConfigs",
       "name": "ai_maiba_wass_migration_sending",
       "code": 27084,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "ai_meta_ai_prekey_cleanup_enabled",
+      "code": 31941,
       "valueType": "bool",
       "default": false
     },
@@ -905,6 +998,13 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "ai_search_experience_enabled",
+      "code": 8025,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "ai_search_experience_web_enabled",
       "code": 18740,
       "valueType": "bool",
@@ -917,6 +1017,20 @@
       "code": 8076,
       "valueType": "int",
       "default": 5
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "ai_search_meta_ai_send_button_enabled",
+      "code": 20603,
+      "valueType": "bool",
+      "default": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "ai_search_null_state_convo_starter_suggestions_update_interval",
+      "code": 17623,
+      "valueType": "int",
+      "default": 86400
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -943,6 +1057,13 @@
       "module": "WAWebABPropsConfigs",
       "name": "ai_session_transparency_meta_ai_enabled",
       "code": 23188,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "ai_simplified_profile_page_enabled",
+      "code": 17104,
       "valueType": "bool",
       "default": false
     },
@@ -980,6 +1101,13 @@
       "code": 17285,
       "valueType": "bool",
       "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "ai_unified_response_forwarding_sender_web_timestamp",
+      "code": 32008,
+      "valueType": "int",
+      "default": 1781582400
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -1139,8 +1267,8 @@
     },
     {
       "module": "WAWebABPropsConfigs",
-      "name": "always_backfill_to_coex_companion",
-      "code": 28124,
+      "name": "allow_backfill_with_v0_to_v1_primary_version_transition",
+      "code": 32186,
       "valueType": "bool",
       "default": false
     },
@@ -1417,6 +1545,182 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "bb_chat_list_banner_1",
+      "code": 32208,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "bb_chat_list_banner_10",
+      "code": 32217,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "bb_chat_list_banner_2",
+      "code": 32209,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "bb_chat_list_banner_3",
+      "code": 32210,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "bb_chat_list_banner_4",
+      "code": 32211,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "bb_chat_list_banner_5",
+      "code": 32212,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "bb_chat_list_banner_6",
+      "code": 32213,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "bb_chat_list_banner_7",
+      "code": 32214,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "bb_chat_list_banner_8",
+      "code": 32215,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "bb_chat_list_banner_9",
+      "code": 32216,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "bb_chat_list_banner_v1",
+      "code": 32373,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "bb_chat_list_banner_v2",
+      "code": 32374,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "bb_chat_list_mab_1",
+      "code": 31965,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "bb_chat_list_mab_10",
+      "code": 31966,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "bb_chat_list_mab_2",
+      "code": 31961,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "bb_chat_list_mab_3",
+      "code": 31960,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "bb_chat_list_mab_4",
+      "code": 31964,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "bb_chat_list_mab_5",
+      "code": 31962,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "bb_chat_list_mab_6",
+      "code": 31967,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "bb_chat_list_mab_7",
+      "code": 31969,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "bb_chat_list_mab_8",
+      "code": 31963,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "bb_chat_list_mab_9",
+      "code": 31968,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "biz_ai_agent_3p_store_links_enabled",
       "code": 24114,
       "valueType": "int",
@@ -1462,6 +1766,14 @@
       "module": "WAWebABPropsConfigs",
       "name": "biz_ai_in_thread_unmute_v2",
       "code": 15523,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "biz_ai_large_screens_gate_fetch_enabled",
+      "code": 31880,
       "valueType": "bool",
       "default": false,
       "altDefault": true
@@ -1528,6 +1840,13 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "biz_ai_web_onboarding_handoff_killswitch",
+      "code": 32263,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "biz_vpv_dimensions_logging_enabled",
       "code": 30266,
       "valueType": "bool",
@@ -1544,6 +1863,13 @@
       "module": "WAWebABPropsConfigs",
       "name": "blocklist_system_msg_on_full_refetch",
       "code": 28070,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "bloks_a2ui_steps_enabled",
+      "code": 32251,
       "valueType": "bool",
       "default": false
     },
@@ -1712,6 +2038,13 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "bot_profile_sync_migration_enabled",
+      "code": 17485,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "br_enable_payment_logos_on_bubble",
       "code": 8160,
       "valueType": "bool",
@@ -1783,6 +2116,20 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "bug_reporting_abprops_uploaded_on_submissoin",
+      "code": 24850,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "bug_reporting_async_attachments_enabled",
+      "code": 23978,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "bug_reporting_attach_pathfinder_pre_bug_creation",
       "code": 26311,
       "valueType": "bool",
@@ -1801,6 +2148,20 @@
       "module": "WAWebABPropsConfigs",
       "name": "bug_reporting_not_shipped_yet_enabled",
       "code": 29458,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "bug_reporting_pre_uploaded_attachments_on_bug_creation_enabled",
+      "code": 24422,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "bug_reporting_rid_in_flytrap",
+      "code": 24421,
       "valueType": "bool",
       "default": false
     },
@@ -1891,6 +2252,43 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "call_info_use_typed_jid",
+      "code": 29027,
+      "valueType": "int",
+      "default": 0
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "call_offer_failed_soft_landing_screen_version",
+      "code": 10559,
+      "valueType": "int",
+      "default": 0,
+      "altDefault": 1
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "call_screen_share_dual_stream_app_update_dialog_enabled",
+      "code": 31922,
+      "valueType": "bool",
+      "default": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "callee_accept_timeout_ms",
+      "code": 6007,
+      "valueType": "int",
+      "default": 30000
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "calling_32p_version",
+      "code": 7709,
+      "valueType": "int",
+      "default": 0,
+      "altDefault": 3
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "calling_audio_share_version",
       "code": 6598,
       "valueType": "int",
@@ -1926,6 +2324,13 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "calling_rust_migration_incoming_ack_stanza_bitmap",
+      "code": 28434,
+      "valueType": "int",
+      "default": 0
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "calling_rust_migration_incoming_stanza_bitmap",
       "code": 26876,
       "valueType": "int",
@@ -1937,6 +2342,13 @@
       "code": 30350,
       "valueType": "int",
       "default": 2
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "calling_ux_logging_bitmap",
+      "code": 8175,
+      "valueType": "int",
+      "default": 0
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -1958,6 +2370,28 @@
       "code": 17698,
       "valueType": "bool",
       "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "camera_error_banners_version",
+      "code": 10584,
+      "valueType": "int",
+      "default": 0,
+      "altDefault": 1
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "camera_health_check_delay",
+      "code": 8739,
+      "valueType": "int",
+      "default": 5000
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "camera_health_check_period",
+      "code": 8740,
+      "valueType": "int",
+      "default": 2000
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -2578,6 +3012,22 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "channels_message_pin_admin_enabled",
+      "code": 29516,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "channels_message_pin_follower_enabled",
+      "code": 29517,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "channels_multi_admin_max_admin_count",
       "code": 6461,
       "valueType": "int",
@@ -3056,6 +3506,13 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "channels_view_counts_sender_admin_exclusion_mode",
+      "code": 31729,
+      "valueType": "int",
+      "default": 0
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "channels_view_counts_vpv_logging_enabled",
       "code": 12295,
       "valueType": "bool",
@@ -3102,6 +3559,14 @@
       "module": "WAWebABPropsConfigs",
       "name": "coex_calling_enabled",
       "code": 18047,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "coex_calling_enabled_business",
+      "code": 23933,
       "valueType": "bool",
       "default": false,
       "altDefault": true
@@ -3244,6 +3709,20 @@
       "valueType": "bool",
       "default": false,
       "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "ctwa_1pd_longest_call_enabled",
+      "code": 32108,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "ctwa_3pd_aggregated_call_logging_allowed",
+      "code": 32379,
+      "valueType": "bool",
+      "default": false
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -3434,6 +3913,13 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "ctwa_longest_call_duration",
+      "code": 32100,
+      "valueType": "int",
+      "default": 120
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "ctwa_mm_biz_ai_disclosure_update_enabled",
       "code": 10379,
       "valueType": "bool",
@@ -3458,6 +3944,13 @@
       "module": "WAWebABPropsConfigs",
       "name": "ctwa_native_ads_creation_web_targeting_modal_hawk_tool_enabled",
       "code": 20731,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "ctwa_native_ads_detailed_targeting",
+      "code": 32487,
       "valueType": "bool",
       "default": false
     },
@@ -3579,6 +4072,14 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "ctwa_web_native_ads_budget_recommendation_enabled",
+      "code": 32511,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "ctwa_web_native_ads_mvp_qe1_enabled",
       "code": 24668,
       "valueType": "bool",
@@ -3597,6 +4098,14 @@
       "code": 24669,
       "valueType": "bool",
       "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "ctwa_web_native_ads_sabr_enabled",
+      "code": 32007,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -3641,6 +4150,13 @@
       "code": 5990,
       "valueType": "int",
       "default": 604800
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "dau_fix_delay_presence_on_focus",
+      "code": 18189,
+      "valueType": "bool",
+      "default": false
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -3699,6 +4215,20 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "defense_mode_quarantine_bulk_unblock_limit",
+      "code": 21921,
+      "valueType": "int",
+      "default": 50
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "defense_mode_quarantine_message_expiration_window",
+      "code": 21918,
+      "valueType": "int",
+      "default": 1210000
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "desktop_upsell_intro_panel_illustration_variant",
       "code": 19518,
       "valueType": "int",
@@ -3734,17 +4264,10 @@
     },
     {
       "module": "WAWebABPropsConfigs",
-      "name": "device_sync_on_stale_chat_open",
-      "code": 30820,
+      "name": "device_switching_enabled",
+      "code": 3205,
       "valueType": "bool",
       "default": false
-    },
-    {
-      "module": "WAWebABPropsConfigs",
-      "name": "device_sync_on_stale_chat_open_threshold_seconds",
-      "code": 30821,
-      "valueType": "int",
-      "default": 43200
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -3946,6 +4469,13 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "early_bot_connect_event_bitmap",
+      "code": 14200,
+      "valueType": "int",
+      "default": 0
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "educational_dialogs_button_enabled",
       "code": 14676,
       "valueType": "bool",
@@ -3974,6 +4504,14 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "enable_3p_contacts_share_hybrid",
+      "code": 20849,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "enable_agm_flow_cta",
       "code": 22006,
       "valueType": "bool",
@@ -3983,6 +4521,13 @@
       "module": "WAWebABPropsConfigs",
       "name": "enable_audio_device_async_start",
       "code": 13231,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "enable_auto_add_call_link_creator",
+      "code": 15184,
       "valueType": "bool",
       "default": false
     },
@@ -4004,6 +4549,34 @@
       "module": "WAWebABPropsConfigs",
       "name": "enable_busy_reason_fs",
       "code": 9674,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "enable_cached_media_manager",
+      "code": 4812,
+      "valueType": "bool",
+      "default": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "enable_call_control_m5",
+      "code": 8524,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "enable_call_link_call_log_aggregation",
+      "code": 16523,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "enable_call_links_push_notification",
+      "code": 13679,
       "valueType": "bool",
       "default": false
     },
@@ -4120,11 +4693,25 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "enable_events_v2_on_companion",
+      "code": 30964,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "enable_fmx_logging",
       "code": 19893,
       "valueType": "bool",
       "default": false,
       "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "enable_force_voip_logging",
+      "code": 7300,
+      "valueType": "bool",
+      "default": false
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -4135,11 +4722,32 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "enable_grid_layout_tile_unification",
+      "code": 18066,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "enable_group_create_or_add_rate_limiting_error_ux",
       "code": 12020,
       "valueType": "bool",
       "default": false,
       "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "enable_hybrid_call_links_creation",
+      "code": 15502,
+      "valueType": "bool",
+      "default": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "enable_hybrid_call_links_join",
+      "code": 15501,
+      "valueType": "bool",
+      "default": true
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -4169,6 +4777,20 @@
       "valueType": "bool",
       "default": false,
       "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "enable_lazy_loading_of_call_view_elements",
+      "code": 5053,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "enable_lid_call_link",
+      "code": 8180,
+      "valueType": "bool",
+      "default": false
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -4217,6 +4839,14 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "enable_new_ongoing_call_cell_ui",
+      "code": 11426,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "enable_new_user_action_stanza_for_raise_hand_sender",
       "code": 18489,
       "valueType": "bool",
@@ -4228,6 +4858,14 @@
       "code": 26435,
       "valueType": "bool",
       "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "enable_orbit_sso_bridge",
+      "code": 32299,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -4342,10 +4980,33 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "enable_syncd_coex_v2",
+      "code": 31810,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "enable_syncd_debug_data_in_patch",
       "code": 6614,
       "valueType": "bool",
       "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "enable_tooltip_for_media_hub",
+      "code": 21535,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "enable_turn_on_call_notification_reminders",
+      "code": 5360,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -4370,6 +5031,42 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "enable_uwp_device_switch_banner",
+      "code": 10416,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "enable_uwp_screen_share_teaching_tip",
+      "code": 6264,
+      "valueType": "bool",
+      "default": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "enable_uwp_share_any_window",
+      "code": 4801,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "enable_uwp_swap_video_stream",
+      "code": 10241,
+      "valueType": "bool",
+      "default": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "enable_video_metrics_fix",
+      "code": 20520,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "enable_waiting_room_admin_ui",
       "code": 21676,
       "valueType": "bool",
@@ -4379,6 +5076,13 @@
       "module": "WAWebABPropsConfigs",
       "name": "enable_waiting_room_logging",
       "code": 24991,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "enable_waiting_room_ui",
+      "code": 19819,
       "valueType": "bool",
       "default": false
     },
@@ -4521,6 +5225,22 @@
       "module": "WAWebABPropsConfigs",
       "name": "enable_wefr_client_expo_pulse",
       "code": 10230,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "enable_windows_hybrid_jumplist_contacts",
+      "code": 21057,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "enable_windows_jumplist_hybrid",
+      "code": 20899,
       "valueType": "bool",
       "default": false,
       "altDefault": true
@@ -4847,6 +5567,13 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "genai_early_audio_pre_buf_size",
+      "code": 15306,
+      "valueType": "int",
+      "default": 100
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "gif_max_play_duration",
       "code": 3684,
       "valueType": "int",
@@ -4931,6 +5658,13 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "group_create_add_using_lid_jids",
+      "code": 16192,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "group_description_length",
       "code": 14778,
       "valueType": "int",
@@ -4969,6 +5703,13 @@
       "module": "WAWebABPropsConfigs",
       "name": "group_history_message_count_limit",
       "code": 18405,
+      "valueType": "int",
+      "default": 100
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "group_history_message_count_receiver_upper_limit",
+      "code": 19811,
       "valueType": "int",
       "default": 100
     },
@@ -5038,6 +5779,20 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "group_history_receiver_floating_banner",
+      "code": 21568,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "group_history_reporting",
+      "code": 22329,
+      "valueType": "bool",
+      "default": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "group_history_send",
       "code": 15313,
       "valueType": "bool",
@@ -5066,8 +5821,22 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "group_history_settings_query",
+      "code": 22230,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "group_history_settings_toggle_ui",
       "code": 21481,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "group_history_support_history_sync_receiver_pre_chat",
+      "code": 20658,
       "valueType": "bool",
       "default": false
     },
@@ -5108,6 +5877,13 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "group_member_updates_past_participant_migration_enabled",
+      "code": 31614,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "group_member_updates_username_description_enabled",
       "code": 28087,
       "valueType": "bool",
@@ -5116,8 +5892,22 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "group_member_updates_usernames_db_enabled",
+      "code": 24586,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "group_member_updates_usernames_enabled",
       "code": 24617,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "group_member_updates_usernames_ui_enabled",
+      "code": 24585,
       "valueType": "bool",
       "default": false
     },
@@ -5175,6 +5965,20 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "group_username_updates_as_member_updates_enabled",
+      "code": 24477,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "hand_raise_receiver_enabled",
+      "code": 13540,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "harmful_file_dialog_logging",
       "code": 15020,
       "valueType": "bool",
@@ -5185,6 +5989,14 @@
       "module": "WAWebABPropsConfigs",
       "name": "hash_identity_keys_for_qr_code_device_verification",
       "code": 9211,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "hatch_pairing_from_companion_enabled",
+      "code": 32497,
       "valueType": "bool",
       "default": false,
       "altDefault": true
@@ -5222,6 +6034,13 @@
       "module": "WAWebABPropsConfigs",
       "name": "hide_auto_quotes_on_web",
       "code": 20892,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "hide_silent_system_message_enabled",
+      "code": 24268,
       "valueType": "bool",
       "default": false
     },
@@ -5288,6 +6107,20 @@
       "code": 27979,
       "valueType": "bool",
       "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "hsm_tag_in_history_sync_deserialization_enabled",
+      "code": 25804,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "hybrid_educational_dialog_start_at",
+      "code": 14675,
+      "valueType": "string",
+      "default": " "
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -5383,6 +6216,21 @@
       "code": 8542,
       "valueType": "int",
       "default": 43200
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "in_app_bug_reporting_description_good_quality_chars",
+      "code": 22361,
+      "valueType": "int",
+      "default": 50
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "in_app_bug_reporting_show_quality_hints_v1",
+      "code": 22363,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -5656,6 +6504,22 @@
       "module": "WAWebABPropsConfigs",
       "name": "is_spoiler_rich_format_sender_enabled",
       "code": 24210,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "joinable_client_poll_interval_min",
+      "code": 522,
+      "valueType": "int",
+      "default": 0,
+      "altDefault": 5
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "kaleidoscope_thumbnail_validation",
+      "code": 18114,
       "valueType": "bool",
       "default": false,
       "altDefault": true
@@ -5941,6 +6805,13 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "may_have_messages_enabled",
+      "code": 25303,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "md_app_state_gate_D34336913",
       "code": 1379,
       "valueType": "bool",
@@ -6042,6 +6913,14 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "member_name_tag_sender_enabled",
+      "code": 13524,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "member_name_tag_web_receiver_enabled",
       "code": 22655,
       "valueType": "bool",
@@ -6062,6 +6941,13 @@
       "code": 8783,
       "valueType": "bool",
       "default": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "message_capping_upsell_version",
+      "code": 19781,
+      "valueType": "int",
+      "default": 0
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -6105,6 +6991,13 @@
       "code": 22815,
       "valueType": "int",
       "default": 50
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "message_partial_selection_m2",
+      "code": 32142,
+      "valueType": "bool",
+      "default": false
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -6317,6 +7210,13 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "mm_signal_sharing_collection_window_logging_enabled",
+      "code": 18126,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "mm_signal_sharing_verification_new_signal_type_origin",
       "code": 26784,
       "valueType": "bool",
@@ -6339,8 +7239,23 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "mm_template_message_telemetry_is_first_mm_enabled",
+      "code": 32482,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "mm_user_controls_entry_points_update_m1_icon",
       "code": 20388,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "mm_user_controls_entry_points_update_m1_menu",
+      "code": 20381,
       "valueType": "bool",
       "default": false,
       "altDefault": true
@@ -6390,10 +7305,24 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "native_flow_response_message_params_json_max_size",
+      "code": 32367,
+      "valueType": "int",
+      "default": 262144
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "native_lib_sandboxing_enable_libwebp",
       "code": 26414,
       "valueType": "bool",
       "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "new_chat_msg_capping_first_warning_threshold_percentage",
+      "code": 18967,
+      "valueType": "int",
+      "default": 50
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -6550,6 +7479,13 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "noise_pq_mode",
+      "code": 20161,
+      "valueType": "int",
+      "default": 0
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "non_wa_contact_invite_cta_enabled",
       "code": 27217,
       "valueType": "int",
@@ -6612,6 +7548,13 @@
       "valueType": "bool",
       "default": false,
       "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "optimized_delivery_signal_collection_on_companions_enabled",
+      "code": 15884,
+      "valueType": "bool",
+      "default": false
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -6775,6 +7718,13 @@
       "valueType": "bool",
       "default": false,
       "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "p2p_pills_allowlist",
+      "code": 29554,
+      "valueType": "string",
+      "default": "[{ \"business_id\": \"34666845417\", \"pills\": [\"CHAT\", \"PROFILE\", \"BOOK_APPOINTMENT\", \"CATALOG\", \"BESTSELLERS\", \"OFFERS\", \"ABOUT_US\"] }]"
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -7175,7 +8125,7 @@
       "name": "payments_upr_bubble_countries",
       "code": 29342,
       "valueType": "string",
-      "default": ""
+      "default": "MX"
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -7183,6 +8133,78 @@
       "code": 30647,
       "valueType": "string",
       "default": ""
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "payments_upr_egypt_enabled",
+      "code": 31870,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "payments_upr_hongkong_enabled",
+      "code": 31868,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "payments_upr_id_enabled",
+      "code": 32170,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "payments_upr_mexico_wallet_enabled",
+      "code": 32043,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "payments_upr_multiple_key_copy_enabled",
+      "code": 32124,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "payments_upr_mx_enabled",
+      "code": 32169,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "payments_upr_taiwan_enabled",
+      "code": 31869,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "payments_upr_turkey_enabled",
+      "code": 31848,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "payments_upr_uae_enabled",
+      "code": 31860,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -7210,6 +8232,22 @@
       "module": "WAWebABPropsConfigs",
       "name": "phone_number_sharing_flow",
       "code": 15653,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "pinned_messages_infinite_receiver_enabled",
+      "code": 31886,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "pinned_messages_infinite_sender_enabled",
+      "code": 31887,
       "valueType": "bool",
       "default": false,
       "altDefault": true
@@ -7337,6 +8375,13 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "poll_add_option_enabled",
+      "code": 24517,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "poll_add_option_receiving_enabled",
       "code": 25758,
       "valueType": "int",
@@ -7351,6 +8396,13 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "poll_creator_edit_enabled",
+      "code": 24887,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "poll_creator_edit_receiving_version",
       "code": 24886,
       "valueType": "int",
@@ -7358,8 +8410,22 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "poll_end_time_enabled",
+      "code": 24405,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "poll_end_time_receiving_enabled",
       "code": 24884,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "poll_hide_voters_enabled",
+      "code": 24518,
       "valueType": "bool",
       "default": false
     },
@@ -7411,16 +8477,14 @@
       "name": "poll_tc_receiving_enabled",
       "code": 31592,
       "valueType": "bool",
-      "default": false,
-      "altDefault": true
+      "default": false
     },
     {
       "module": "WAWebABPropsConfigs",
       "name": "poll_tc_sending_enabled",
       "code": 31593,
       "valueType": "bool",
-      "default": false,
-      "altDefault": true
+      "default": false
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -7668,6 +8732,13 @@
       "valueType": "bool",
       "default": false,
       "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "reactions_receiver_enabled",
+      "code": 13542,
+      "valueType": "bool",
+      "default": false
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -8035,6 +9106,13 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "security_fixes_bitmap",
+      "code": 3094,
+      "valueType": "int",
+      "default": 0
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "seller_orders_management_revamp",
       "code": 5190,
       "valueType": "bool",
@@ -8063,13 +9141,6 @@
     },
     {
       "module": "WAWebABPropsConfigs",
-      "name": "sender_secret_encrypted_message_remove_message_secret",
-      "code": 27913,
-      "valueType": "bool",
-      "default": false
-    },
-    {
-      "module": "WAWebABPropsConfigs",
       "name": "server_driven_copy_m2",
       "code": 30492,
       "valueType": "bool",
@@ -8091,6 +9162,14 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "sfu_secondary_remote_bwe_impl",
+      "code": 11472,
+      "valueType": "int",
+      "default": 0,
+      "altDefault": 8
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "share_own_pn_sync",
       "code": 3070,
       "valueType": "bool",
@@ -8103,6 +9182,13 @@
       "code": 1867,
       "valueType": "bool",
       "default": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "shimmed_links_in_the_marketing_message_body_enabled",
+      "code": 12995,
+      "valueType": "bool",
+      "default": false
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -8133,6 +9219,21 @@
       "code": 30662,
       "valueType": "int",
       "default": 600
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "show_integrity_screensharing_friction_ui",
+      "code": 16411,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "silent_group_username_activities_enabled",
+      "code": 24269,
+      "valueType": "bool",
+      "default": false
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -8371,6 +9472,13 @@
       "module": "WAWebABPropsConfigs",
       "name": "smb_ctwa_billing_enabled",
       "code": 2158,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "smb_ctwa_irev_long_term_holdout_dummy_enabled",
+      "code": 31959,
       "valueType": "bool",
       "default": false
     },
@@ -8670,6 +9778,13 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "smb_tos_qp_chatlist_banner",
+      "code": 32396,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "smb_waldo_service_offerings_selection_enabled",
       "code": 3285,
       "valueType": "bool",
@@ -8689,6 +9804,30 @@
       "code": 26165,
       "valueType": "bool",
       "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "smb_web_customer_manager_date_range_filter_enabled",
+      "code": 32096,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "smb_web_customer_manager_dob_filter_enabled",
+      "code": 32229,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "smb_web_customer_manager_export_enabled",
+      "code": 32287,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -8792,6 +9931,13 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "smoothie_performance_css_dom",
+      "code": 18995,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "smoothie_performance_msg_send",
       "code": 17942,
       "valueType": "bool",
@@ -8803,6 +9949,14 @@
       "code": 18992,
       "valueType": "bool",
       "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "snapl_newsletter_logging_encrypted_rid_enabled",
+      "code": 32239,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -9268,8 +10422,29 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "unified_response_ai_sports_widget_enabled",
+      "code": 31780,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "unified_response_markdown_links_enabled",
       "code": 30330,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "unified_session_log_call_event",
+      "code": 8582,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "unify_end_call_events",
+      "code": 2856,
       "valueType": "bool",
       "default": false
     },
@@ -9420,6 +10595,13 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "username_creation_reservation_pp_disclosure_enabled",
+      "code": 32098,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "username_enabled_on_companion",
       "code": 23817,
       "valueType": "bool",
@@ -9480,8 +10662,21 @@
       "name": "username_key_upsell_mode",
       "code": 26220,
       "valueType": "int",
-      "default": 0,
-      "altDefault": 1
+      "default": 0
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "username_lid_migration_calling",
+      "code": 21890,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "username_max_length",
+      "code": 20459,
+      "valueType": "int",
+      "default": 35
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -9489,6 +10684,13 @@
       "code": 8763,
       "valueType": "bool",
       "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "username_min_length",
+      "code": 20494,
+      "valueType": "int",
+      "default": 3
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -9528,6 +10730,14 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "utility_order_view_mbs_enabled",
+      "code": 31282,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "utility_payment_reminder_m1_enabled",
       "code": 22434,
       "valueType": "bool",
@@ -9546,6 +10756,13 @@
       "code": 2896,
       "valueType": "int",
       "default": 24
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "uwp_voip_incoming_call_notification_version",
+      "code": 7541,
+      "valueType": "int",
+      "default": 0
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -9628,6 +10845,20 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "voice_chat_companion_experience_version",
+      "code": 17052,
+      "valueType": "int",
+      "default": 0
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "voip_call_coordinator_version",
+      "code": 9502,
+      "valueType": "int",
+      "default": 0
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "voip_enable_webrtc_stats_polling",
       "code": 26744,
       "valueType": "bool",
@@ -9674,6 +10905,14 @@
       "code": 29923,
       "valueType": "bool",
       "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "wa_capping_local_data_logic_update",
+      "code": 21348,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -9778,10 +11017,40 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "wa_individual_new_chat_msg_capping_enabled",
+      "code": 20865,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "wa_individual_new_chat_msg_capping_fetch_ttl_seconds",
+      "code": 20649,
+      "valueType": "int",
+      "default": 3600
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "wa_individual_new_chat_msg_capping_limit",
       "code": 17845,
       "valueType": "int",
       "default": 0
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "wa_individual_new_chat_msg_capping_mv_get_subscription_v2",
+      "code": 20667,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "wa_individual_new_chat_msg_fci_staleness_ttl_in_seconds",
+      "code": 21410,
+      "valueType": "int",
+      "default": 120
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -9936,6 +11205,14 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "wa_web_anr_pushname_check_enabled",
+      "code": 32065,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "wa_web_anyone_can_link_m2",
       "code": 24432,
       "valueType": "bool",
@@ -10009,6 +11286,13 @@
       "module": "WAWebABPropsConfigs",
       "name": "wa_web_biz_profile_graphql_migration_bypass_lid_check_dogfooding",
       "code": 29965,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "wa_web_biz_profile_preload",
+      "code": 31842,
       "valueType": "bool",
       "default": false
     },
@@ -10093,6 +11377,13 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "wa_web_channels_migrate_subscribers_to_followers_enabled",
+      "code": 24540,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "wa_web_chat_open_optimizations",
       "code": 31399,
       "valueType": "bool",
@@ -10140,7 +11431,7 @@
       "name": "wa_web_comet_video_player_snapl",
       "code": 25065,
       "valueType": "bool",
-      "default": false
+      "default": true
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -10582,6 +11873,20 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "wa_web_notifications_modal",
+      "code": 32228,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "wa_web_notifications_modal_variants",
+      "code": 32277,
+      "valueType": "int",
+      "default": 0
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "wa_web_notify_for",
       "code": 25544,
       "valueType": "bool",
@@ -10599,6 +11904,13 @@
       "module": "WAWebABPropsConfigs",
       "name": "wa_web_preload_conversation_chat_open",
       "code": 25937,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "wa_web_ptt_loader_button_uix_improvement",
+      "code": 32418,
       "valueType": "bool",
       "default": false
     },
@@ -10807,6 +12119,13 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "wa_web_velocity_animate_migration_enabled",
+      "code": 31784,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "wa_web_video_comet_video_player_enabled",
       "code": 24905,
       "valueType": "bool",
@@ -10832,6 +12151,13 @@
       "code": 21742,
       "valueType": "bool",
       "default": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "wa_web_wam_falco_flush_interval_ms",
+      "code": 32393,
+      "valueType": "int",
+      "default": 3000
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -10902,6 +12228,14 @@
       "code": 30214,
       "valueType": "bool",
       "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "wa_webtp_use_pdf_annotations",
+      "code": 32144,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -11356,6 +12690,13 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "wds_web_text_layout",
+      "code": 31789,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "wds_web_toast",
       "code": 23486,
       "valueType": "bool",
@@ -11598,6 +12939,13 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "web_bb_genai_composer_min_words",
+      "code": 32054,
+      "valueType": "int",
+      "default": 4
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "web_biz_profile_options",
       "code": 14881,
       "valueType": "int",
@@ -11694,6 +13042,51 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "web_business_broadcast_genai_custom_user_prompt_enabled",
+      "code": 32052,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "web_business_broadcast_genai_text",
+      "code": 32050,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "web_business_broadcast_genai_text_languages",
+      "code": 32117,
+      "valueType": "string",
+      "default": "en,es"
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "web_business_broadcast_genai_text_max_tries",
+      "code": 32053,
+      "valueType": "int",
+      "default": 30
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "web_business_broadcast_genai_text_model",
+      "code": 32051,
+      "valueType": "string",
+      "default": "LLAMA"
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "web_business_broadcast_genai_text_no_exp",
+      "code": 32055,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "web_business_tools_drawer_enabled",
       "code": 6803,
       "valueType": "bool",
@@ -11780,10 +13173,26 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "web_channel_status_likes_sending_enabled",
+      "code": 32428,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "web_channel_video_server_transcode_upload",
       "code": 19920,
       "valueType": "bool",
       "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "web_chat_info_action_buttons_refresh",
+      "code": 14664,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -11833,6 +13242,20 @@
       "module": "WAWebABPropsConfigs",
       "name": "web_configurable_quick_actions_m1",
       "code": 29874,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "web_configurable_quick_actions_m1_channels",
+      "code": 31781,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "web_configurable_quick_actions_m1_communities",
+      "code": 31782,
       "valueType": "bool",
       "default": false
     },
@@ -12134,6 +13557,13 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "web_ip_token_enabled",
+      "code": 20043,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "web_jpeg_quality",
       "code": 6619,
       "valueType": "int",
@@ -12208,6 +13638,13 @@
       "module": "WAWebABPropsConfigs",
       "name": "web_media_compute_in_worker_enabled",
       "code": 25641,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "web_media_encrypt_upload_in_worker_enabled",
+      "code": 31721,
       "valueType": "bool",
       "default": false
     },
@@ -12398,6 +13835,13 @@
       "valueType": "bool",
       "default": false,
       "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "web_optimized_compositing_layers",
+      "code": 32280,
+      "valueType": "bool",
+      "default": false
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -12729,6 +14173,14 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "web_streaming_document_encrypt_min_bytes",
+      "code": 31864,
+      "valueType": "int",
+      "default": 0,
+      "altDefault": 50000000
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "web_syncd_fatal_fields_from_L1104589PRV2",
       "code": 1808,
       "valueType": "bool",
@@ -12769,6 +14221,14 @@
       "code": 21062,
       "valueType": "bool",
       "default": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "web_top_level_message_secret_enforcement_enabled",
+      "code": 32231,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -12947,6 +14407,13 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "web_windows_calling_32p_version",
+      "code": 31845,
+      "valueType": "int",
+      "default": 3
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "web_worker_adv_processing_enabled",
       "code": 24924,
       "valueType": "bool",
@@ -12968,10 +14435,46 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "webview2_disable_gpu_acceleration",
+      "code": 18262,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "webview2_disable_gpu_acceleration_memory_threshold_mb",
+      "code": 23073,
+      "valueType": "int",
+      "default": -1
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "webview2_enable_offline_support",
+      "code": 21793,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "whatsapp_vpv_logging_enabled",
       "code": 9833,
       "valueType": "bool",
       "default": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "win_call_log_send_outgoing_syncd_mutations",
+      "code": 5308,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "win_enable_ss_button_audio",
+      "code": 9633,
+      "valueType": "bool",
+      "default": false
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -12980,6 +14483,64 @@
       "valueType": "bool",
       "default": false,
       "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "win_hybrid_force_persistent_storage_permission",
+      "code": 20260,
+      "valueType": "bool",
+      "default": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "win_hybrid_voip_anr_optimizations",
+      "code": 22616,
+      "valueType": "int",
+      "default": 0
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "win_network_state_watchdog_interval",
+      "code": 7737,
+      "valueType": "int",
+      "default": 30
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "windows_contacts_initial_sync_delay",
+      "code": 24883,
+      "valueType": "int",
+      "default": 10,
+      "altDefault": 1
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "windows_contacts_sync_interval",
+      "code": 24882,
+      "valueType": "int",
+      "default": 60,
+      "altDefault": 5
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "windows_graceful_degradation_version",
+      "code": 8454,
+      "valueType": "int",
+      "default": 0
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "windows_ss_capture_driver_type",
+      "code": 10434,
+      "valueType": "int",
+      "default": 0
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "winrt_renderer",
+      "code": 10966,
+      "valueType": "bool",
+      "default": true
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -13015,6 +14576,14 @@
       "code": 3522,
       "valueType": "bool",
       "default": false
+    },
+    {
+      "module": "WAWebGroupABPropsConfigs",
+      "name": "ai_group_tee_history_share_group_level_enabled",
+      "code": 32501,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
     },
     {
       "module": "WAWebGroupABPropsConfigs",
@@ -13226,10 +14795,31 @@
     },
     {
       "module": "WAWebHybridABPropsConfigs",
+      "name": "ai_group_call_meta_ai_animation_version",
+      "code": 32245,
+      "valueType": "int",
+      "default": 0
+    },
+    {
+      "module": "WAWebHybridABPropsConfigs",
       "name": "ai_group_call_start_call_ahgc_enabled",
       "code": 31716,
       "valueType": "bool",
       "default": false
+    },
+    {
+      "module": "WAWebHybridABPropsConfigs",
+      "name": "ai_group_call_start_call_logging_enabled",
+      "code": 32527,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebHybridABPropsConfigs",
+      "name": "ai_group_call_start_call_notice_id",
+      "code": 31736,
+      "valueType": "string",
+      "default": ""
     },
     {
       "module": "WAWebHybridABPropsConfigs",
@@ -13462,13 +15052,6 @@
     },
     {
       "module": "WAWebHybridABPropsConfigs",
-      "name": "bug_reporting_using_graphql",
-      "code": 24161,
-      "valueType": "bool",
-      "default": false
-    },
-    {
-      "module": "WAWebHybridABPropsConfigs",
       "name": "call_info_optimizations_1on1",
       "code": 31095,
       "valueType": "bool",
@@ -13509,6 +15092,13 @@
       "valueType": "int",
       "default": 0,
       "altDefault": 1
+    },
+    {
+      "module": "WAWebHybridABPropsConfigs",
+      "name": "call_screen_share_dual_stream_app_update_dialog_enabled",
+      "code": 31922,
+      "valueType": "bool",
+      "default": true
     },
     {
       "module": "WAWebHybridABPropsConfigs",
@@ -14167,6 +15757,14 @@
     },
     {
       "module": "WAWebHybridABPropsConfigs",
+      "name": "enable_windows_xdr_wns_pkey",
+      "code": 32324,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebHybridABPropsConfigs",
       "name": "gc_device_switching_killswitch",
       "code": 26182,
       "valueType": "bool",
@@ -14192,6 +15790,20 @@
       "code": 4190,
       "valueType": "int",
       "default": 32
+    },
+    {
+      "module": "WAWebHybridABPropsConfigs",
+      "name": "group_calling_wave_receiving_enabled",
+      "code": 29161,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebHybridABPropsConfigs",
+      "name": "group_calling_wave_sending_enabled",
+      "code": 29247,
+      "valueType": "bool",
+      "default": false
     },
     {
       "module": "WAWebHybridABPropsConfigs",
@@ -14345,6 +15957,13 @@
       "module": "WAWebHybridABPropsConfigs",
       "name": "group_member_updates_hide_in_thread_enabled",
       "code": 24584,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebHybridABPropsConfigs",
+      "name": "group_member_updates_past_participant_migration_enabled",
+      "code": 31614,
       "valueType": "bool",
       "default": false
     },
@@ -14926,6 +16545,34 @@
     },
     {
       "module": "WAWebHybridABPropsConfigs",
+      "name": "privacy_settings_about_lid_migration_enable",
+      "code": 16195,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebHybridABPropsConfigs",
+      "name": "privacy_settings_group_add_lid_migration_enable",
+      "code": 16274,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebHybridABPropsConfigs",
+      "name": "privacy_settings_profile_lid_migration_enable",
+      "code": 16161,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebHybridABPropsConfigs",
+      "name": "privacy_settings_stickers_lid_migration_enable",
+      "code": 16338,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebHybridABPropsConfigs",
       "name": "ptv_quoted_replies_cutout_enabled",
       "code": 30384,
       "valueType": "bool",
@@ -15282,6 +16929,13 @@
       "code": 20043,
       "valueType": "bool",
       "default": false
+    },
+    {
+      "module": "WAWebHybridABPropsConfigs",
+      "name": "web_windows_calling_32p_version",
+      "code": 31845,
+      "valueType": "int",
+      "default": 3
     },
     {
       "module": "WAWebHybridABPropsConfigs",

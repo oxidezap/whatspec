@@ -1,13 +1,13 @@
 {
-  "abPropsConfigs": 2124,
-  "appstateActions": 65,
+  "abPropsConfigs": 2349,
+  "appstateActions": 66,
   "diagnostics": {
     "iq": {
       "candidateModules": 206,
       "crossModule": {
         "fieldsRecovered": 84,
         "requestsEnriched": 9,
-        "requestsWithMixins": 104
+        "requestsWithMixins": 105
       },
       "degradedResponses": 19,
       "dropsByReason": {
@@ -24,44 +24,44 @@
     "abprops": {
       "file": "abprops/index.json",
       "schema": "schema/abprops.schema.json",
-      "sha256": "a1c885c3b1f2c2d672388441c0944eace9ab87d97925692c33c0103fb39c5ce5"
+      "sha256": "5bd237b160e33f0f82b72c6160ce5805815228db38a2103ef2798e64e368f812"
     },
     "appstate": {
       "file": "appstate/index.json",
       "schema": "schema/appstate.schema.json",
-      "sha256": "075da27a55d6504fd52a70235b19a842dc06b89015375cec0d150aa842bfdabd"
+      "sha256": "129e26cea040a876e81aeac74f6772d8db3d917422ee181093224869a3f1f8da"
     },
     "enums": {
       "file": "enums/index.json",
       "schema": "schema/enums.schema.json",
-      "sha256": "84e9728abd57c49c256701eaa80c37ad4faf2b9e16d894f73fd5ae0d8f2bb693"
+      "sha256": "7649b2f025764c12293fd9247cd72517fc98355a5750d21059b4b45afe588639"
     },
     "iq": {
       "file": "iq/index.json",
       "schema": "schema/iq.schema.json",
-      "sha256": "17fa4d41d6077108783ad6308b63dc4fe73bf217d4f6659c3ae5f2b6f96a2479"
+      "sha256": "8f29154abf2bd4872cd4f25f9717bc0c47c0263f30a4b5526c5a6393cddda130"
     },
     "mex": {
       "file": "mex/index.json",
       "schema": "schema/mex.schema.json",
-      "sha256": "488a479a9b5adc68cb47ee2401fd4b562e5bd86c25ee447ef12dd4e354767d6b"
+      "sha256": "519b934c38adcb9737ead1ccb9cb5ebc981b88c53ed4dcc8f70ce20140117641"
     },
     "proto": {
       "file": "proto/WAProto.proto",
-      "sha256": "0ae433a6309b52fc160122e212b7f5201ecdd0ef060e0e4dcc79a790ba7d381e"
+      "sha256": "fd3a0040bade666839f0e9dee5ab68d937f83a0c64c8661834220a657cd97681"
     },
     "wam": {
       "file": "wam/index.json",
       "schema": "schema/wam.schema.json",
-      "sha256": "eef20df3f7f9f427304ca52efa45c5bdbb154a057f6408fb447ed7b6303505d8"
+      "sha256": "9bcb8e3a656642069e2f7f3a3be541b937902d419063d9eed9b734bb43dcaee8"
     }
   },
-  "enumDefs": 246,
+  "enumDefs": 251,
   "generatorVersion": "0.1.0",
   "iqModules": 33,
-  "mexOperations": 127,
-  "protoEntities": 246,
+  "mexOperations": 129,
+  "protoEntities": 257,
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1041193846",
-  "wamEvents": 426
+  "waVersion": "2.3000.1042263421",
+  "wamEvents": 428
 }
