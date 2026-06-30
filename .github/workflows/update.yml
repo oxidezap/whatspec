@@ -4,6 +4,11 @@ name: Update WhatsApp specs
 # Manual for now; switch the schedule on for daily/weekly runs.
 on:
   workflow_dispatch:
+    inputs:
+      allow_shrink:
+        description: "Accept a domain count drop below the committed manifest (only when an upstream removal is verified)"
+        type: boolean
+        default: false
   # schedule:
   #   - cron: "0 6 * * *"   # daily 06:00 UTC
 
@@ -25,7 +30,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Regenerate specs
-        run: ./scripts/update.sh
+        run: ./scripts/update.sh ${{ inputs.allow_shrink && '--allow-shrink' || '' }}
 
       - name: Commit changes
         run: |
