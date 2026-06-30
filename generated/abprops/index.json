@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1042263421",
+  "waVersion": "2.3000.1042386815",
   "configs": [
     {
       "module": "WAWebABPropsConfigs",
@@ -949,6 +949,13 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "ai_rich_response_tee_forwarding_verification_enforcement_v1",
+      "code": 32551,
+      "valueType": "string",
+      "default": "none"
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "ai_rich_response_unknown_sender_preview_enabled",
       "code": 27355,
       "valueType": "bool",
@@ -1832,6 +1839,13 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "biz_ai_web_bulk_thread_control_enabled",
+      "code": 32588,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "biz_ai_web_onboarding_handoff",
       "code": 29298,
       "valueType": "bool",
@@ -2356,6 +2370,13 @@
       "code": 30383,
       "valueType": "int",
       "default": 0
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "calling_voicemail_enabled",
+      "code": 17685,
+      "valueType": "bool",
+      "default": false
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -9030,6 +9051,13 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "scheduled_messages_photo_video_sender_enabled",
+      "code": 32553,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "scheduled_messages_receiver_enabled",
       "code": 24610,
       "valueType": "bool",
@@ -9539,7 +9567,8 @@
       "name": "smb_graphql_token_recovery_during_account_recovery_enabled",
       "code": 9197,
       "valueType": "bool",
-      "default": false
+      "default": false,
+      "altDefault": true
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -9793,6 +9822,13 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "smb_web_bb_home_qp_surface_enabled",
+      "code": 32613,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "smb_web_category_search_via_graph_enabled",
       "code": 28519,
       "valueType": "bool",
@@ -9804,6 +9840,14 @@
       "code": 26165,
       "valueType": "bool",
       "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "smb_web_customer_manager_bulk_edit_enabled",
+      "code": 32550,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -10553,6 +10597,13 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "username_contact_card_dedupe_icons",
+      "code": 32614,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "username_contact_display",
       "code": 4746,
       "valueType": "bool",
@@ -10849,6 +10900,13 @@
       "code": 17052,
       "valueType": "int",
       "default": 0
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "voicemail_nudge_duration_ms",
+      "code": 18339,
+      "valueType": "int",
+      "default": 4000
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -11372,13 +11430,6 @@
       "module": "WAWebABPropsConfigs",
       "name": "wa_web_channels_comet_video_player_enabled_v2",
       "code": 24541,
-      "valueType": "bool",
-      "default": false
-    },
-    {
-      "module": "WAWebABPropsConfigs",
-      "name": "wa_web_channels_migrate_subscribers_to_followers_enabled",
-      "code": 24540,
       "valueType": "bool",
       "default": false
     },
@@ -12903,13 +12954,6 @@
     },
     {
       "module": "WAWebABPropsConfigs",
-      "name": "web_anr_throttle_history_sync_db_writes",
-      "code": 19298,
-      "valueType": "bool",
-      "default": false
-    },
-    {
-      "module": "WAWebABPropsConfigs",
       "name": "web_anr_throttle_signal_snapshot_enabled",
       "code": 28890,
       "valueType": "bool",
@@ -13491,13 +13535,6 @@
       "valueType": "bool",
       "default": false,
       "altDefault": true
-    },
-    {
-      "module": "WAWebABPropsConfigs",
-      "name": "web_hybrid_getters_cache_enabled",
-      "code": 19700,
-      "valueType": "bool",
-      "default": false
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -14102,10 +14139,24 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "web_signal_auto_acknowledge_stale_sessions",
+      "code": 17987,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "web_signal_future_messages_max",
       "code": 12509,
       "valueType": "int",
       "default": 20000
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "web_signal_prevent_old_session_lookup_and_promote",
+      "code": 17988,
+      "valueType": "bool",
+      "default": false
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -14582,8 +14633,7 @@
       "name": "ai_group_tee_history_share_group_level_enabled",
       "code": 32501,
       "valueType": "bool",
-      "default": false,
-      "altDefault": true
+      "default": false
     },
     {
       "module": "WAWebGroupABPropsConfigs",
@@ -16690,13 +16740,6 @@
     },
     {
       "module": "WAWebHybridABPropsConfigs",
-      "name": "unified_calling_entry_point_desktop_type",
-      "code": 21591,
-      "valueType": "int",
-      "default": 0
-    },
-    {
-      "module": "WAWebHybridABPropsConfigs",
       "name": "unified_session_log_call_event",
       "code": 8582,
       "valueType": "bool",
@@ -16823,6 +16866,13 @@
     },
     {
       "module": "WAWebHybridABPropsConfigs",
+      "name": "wa_calling_bpn_self_pn_removal",
+      "code": 32546,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebHybridABPropsConfigs",
       "name": "wa_capping_local_data_logic_update",
       "code": 21348,
       "valueType": "bool",
@@ -16877,13 +16927,6 @@
       "module": "WAWebHybridABPropsConfigs",
       "name": "wa_web_adaptive_layout_enabled",
       "code": 30140,
-      "valueType": "bool",
-      "default": false
-    },
-    {
-      "module": "WAWebHybridABPropsConfigs",
-      "name": "wa_web_channels_migrate_subscribers_to_followers_enabled",
-      "code": 24540,
       "valueType": "bool",
       "default": false
     },

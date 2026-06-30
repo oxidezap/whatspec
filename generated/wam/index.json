@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1042263421",
+  "waVersion": "2.3000.1042386815",
   "events": [
     {
       "name": "GroupCreateC",
@@ -17164,6 +17164,11 @@
           "kind": "integer"
         },
         {
+          "name": "lidRawContactId",
+          "id": 258,
+          "kind": "integer"
+        },
+        {
           "name": "lidToPnMappingCount",
           "id": 253,
           "kind": "integer"
@@ -17615,6 +17620,11 @@
           "kind": "boolean"
         },
         {
+          "name": "errorMetadata",
+          "id": 61,
+          "kind": "string"
+        },
+        {
           "name": "externalInteractables",
           "id": 16,
           "kind": "integer"
@@ -17828,6 +17838,12 @@
           "name": "statusPartCode",
           "id": 60,
           "kind": "string"
+        },
+        {
+          "name": "statusPostFailureStage",
+          "id": 62,
+          "kind": "enum",
+          "module": "WAWebWamEnumStatusPostFailureStage"
         },
         {
           "name": "statusPostOrigin",
@@ -40881,10 +40897,7 @@
         }
       ],
       "consumers": [
-        "WAWebDeviceCapabilitiesSync",
-        "WAWebHandlePairSuccess",
-        "WAWebLid1X1ThreadAccountMigrations",
-        "WAWebLid1x1MigrationTimeout"
+        "WAWebHandlePairSuccess"
       ]
     },
     {
@@ -65088,6 +65101,10 @@
         {
           "key": "PIX_NATIVE_ENROLLMENT_BANNER_VIEW",
           "value": 100
+        },
+        {
+          "key": "PIX_NATIVE_FIDO_REGISTRATION_OPTIONS",
+          "value": 101
         }
       ]
     },
@@ -85912,6 +85929,40 @@
       ]
     },
     {
+      "name": "STATUS_POST_FAILURE_STAGE",
+      "module": "WAWebWamEnumStatusPostFailureStage",
+      "variants": [
+        {
+          "key": "UNKNOWN",
+          "value": 0
+        },
+        {
+          "key": "PREKEYS_FETCH",
+          "value": 1
+        },
+        {
+          "key": "ENCRYPT",
+          "value": 2
+        },
+        {
+          "key": "READY_TO_SEND",
+          "value": 3
+        },
+        {
+          "key": "WRITTEN_WIRE",
+          "value": 4
+        },
+        {
+          "key": "AWAITING_SERVER_ACK",
+          "value": 5
+        },
+        {
+          "key": "SERVER_ACK_RECEIVED",
+          "value": 6
+        }
+      ]
+    },
+    {
       "name": "STATUS_POST_ORIGIN",
       "module": "WAWebWamEnumStatusPostOrigin",
       "variants": [
@@ -86356,6 +86407,26 @@
         {
           "key": "ERROR_CLIENT_OUT_OF_MEMORY",
           "value": 51
+        },
+        {
+          "key": "ERROR_RETRY_EXHAUSTED",
+          "value": 52
+        },
+        {
+          "key": "ERROR_EMPTY_TARGET_DEVICES",
+          "value": 53
+        },
+        {
+          "key": "ERROR_UNRECOVERABLE",
+          "value": 54
+        },
+        {
+          "key": "ERROR_ACK_TIMEOUT",
+          "value": 55
+        },
+        {
+          "key": "ERROR_INVALID_STATE",
+          "value": 56
         }
       ]
     },
@@ -90886,6 +90957,22 @@
         {
           "key": "PTT_WIDGET",
           "value": 248
+        },
+        {
+          "key": "BIOMETRIC_UNLOCK",
+          "value": 249
+        },
+        {
+          "key": "LOCKED_CHATS",
+          "value": 250
+        },
+        {
+          "key": "REACTION_DETAILS",
+          "value": 251
+        },
+        {
+          "key": "STORAGE_WARNING",
+          "value": 252
         }
       ]
     },

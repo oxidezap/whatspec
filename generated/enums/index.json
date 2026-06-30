@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1042263421",
+  "waVersion": "2.3000.1042386815",
   "enums": [
     {
       "name": "DGWAuth",
@@ -1607,6 +1607,29 @@
         {
           "name": "TOS_SHOWN",
           "value": "tos_shown"
+        }
+      ]
+    },
+    {
+      "name": "ImportAudienceCancelPhase",
+      "module": "WAWebBizBroadcastsImportLoggingUtils",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "BEFORE_FILE_IMPORT",
+          "value": "before_file_import"
+        },
+        {
+          "name": "COLUMN_SELECTION",
+          "value": "column_selection"
+        },
+        {
+          "name": "IMPORT_REVIEW",
+          "value": "import_review"
+        },
+        {
+          "name": "SEGMENTATION",
+          "value": "segmentation"
         }
       ]
     },
@@ -3490,33 +3513,6 @@
       ]
     },
     {
-      "name": "LidThreadMigrationStatus",
-      "module": "WAWebLid1X1ThreadAccountMigrations.flow",
-      "valueKind": "int",
-      "variants": [
-        {
-          "name": "WAITING_PROP",
-          "value": 1
-        },
-        {
-          "name": "WAITING_MAPPINGS",
-          "value": 2
-        },
-        {
-          "name": "READY",
-          "value": 3
-        },
-        {
-          "name": "IN_PROGRESS",
-          "value": 4
-        },
-        {
-          "name": "COMPLETE",
-          "value": 5
-        }
-      ]
-    },
-    {
       "name": "WebcPairingScreenLinkType",
       "module": "WAWebLinkDeviceQplHelpLinkEvent",
       "valueKind": "string",
@@ -4592,6 +4588,29 @@
         {
           "name": "FollowerActivity",
           "value": "follower_activity"
+        }
+      ]
+    },
+    {
+      "name": "NotificationsModalVariant",
+      "module": "WAWebNotificationsModalVariant",
+      "valueKind": "int",
+      "variants": [
+        {
+          "name": "Banner",
+          "value": 0
+        },
+        {
+          "name": "PostLoad",
+          "value": 1
+        },
+        {
+          "name": "ReturnToUnread",
+          "value": 2
+        },
+        {
+          "name": "AfterMissedCall",
+          "value": 3
         }
       ]
     },

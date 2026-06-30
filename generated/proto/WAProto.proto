@@ -1,7 +1,7 @@
 syntax = "proto2";
 package whatsapp;
 
-/// WhatsApp Version: 2.3000.1042263421
+/// WhatsApp Version: 2.3000.1042386815
 
 message ADVDeviceIdentity {
   optional uint32 rawId = 1;
@@ -2602,19 +2602,8 @@ message KeyId {
   optional bytes id = 1;
 }
 
-message LIDMigrationMapping {
-  required uint64 pn = 1;
-  required uint64 assignedLid = 2;
-  optional uint64 latestLid = 3;
-}
-
 message LIDMigrationMappingSyncMessage {
   optional bytes encodedMappingPayload = 1;
-}
-
-message LIDMigrationMappingSyncPayload {
-  repeated LIDMigrationMapping pnToLidMappings = 1;
-  optional uint64 chatDbMigrationTimestamp = 2;
 }
 
 message LabyrinthWaCommand {
