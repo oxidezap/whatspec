@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1042386815",
+  "waVersion": "2.3000.1042562325",
   "operations": {
     "ACSServerProviderConfig": {
       "originalName": "WAWebACSServerProviderConfigQuery",
@@ -1084,40 +1084,38 @@
     },
     "DebugLabyrinthInboxSnapshot": {
       "originalName": "WAWebDebugLabyrinthInboxSnapshotQuery",
-      "docId": "27702565322674924",
+      "docId": "27416732057922291",
       "operationKind": "query",
       "variables": [
-        "messageFirst",
-        "threadFirst"
+        "params"
       ],
       "variablesShape": {
-        "messageFirst": "string",
-        "threadFirst": "string"
+        "params": {
+          "lower_timestamp": "number",
+          "num_msgs": "string",
+          "num_threads": "string",
+          "upper_timestamp": "number"
+        }
       },
       "response": {
         "get_wa_mailbox": {
           "__typename": "string",
           "id": "string",
-          "threads": {
-            "__typename": "string",
-            "nodes": [
+          "snapshot_threads_with_messages": {
+            "items_with_messages": [
               {
-                "__typename": "string",
-                "id": "string",
-                "messages": {
+                "item": {
                   "__typename": "string",
-                  "edges": [
-                    {
-                      "__typename": "string",
-                      "node": {
-                        "__typename": "string",
-                        "encrypted_payload": "string",
-                        "encryption_version": "number",
-                        "id": "string"
-                      }
-                    }
-                  ]
-                }
+                  "id": "string"
+                },
+                "messages": [
+                  {
+                    "__typename": "string",
+                    "encrypted_payload": "string",
+                    "encryption_version": "number",
+                    "id": "string"
+                  }
+                ]
               }
             ]
           }
@@ -1436,7 +1434,7 @@
     },
     "FetchGroupInfo": {
       "originalName": "WAWebMexFetchGroupInfoJobQuery",
-      "docId": "26570027442651356",
+      "docId": "25830934356604858",
       "operationKind": "query",
       "variables": [
         "id",
@@ -1483,6 +1481,7 @@
           "participants": {
             "edges": [
               {
+                "join_time": "number",
                 "node": {
                   "display_name": "string",
                   "id": "string",
@@ -1499,6 +1498,7 @@
             "participants_phash_match": "string"
           },
           "properties": {
+            "allow_admin_reports": "boolean",
             "allow_non_admin_sub_group_creation": "boolean",
             "announcement": "string",
             "appeal_status": "string",
@@ -1549,7 +1549,7 @@
     },
     "FetchGroupInfoIncludBots": {
       "originalName": "WAWebMexFetchGroupInfoIncludBotsJobQuery",
-      "docId": "26412593755077157",
+      "docId": "27611314235130306",
       "operationKind": "query",
       "variables": [
         "id",
@@ -1596,6 +1596,7 @@
           "participants": {
             "edges": [
               {
+                "join_time": "number",
                 "participant": {
                   "__typename": "string",
                   "display_name": "string",
@@ -1626,7 +1627,6 @@
               "expiration_time_in_sec": "string"
             },
             "general_chat": "string",
-            "group_safety_check": "string",
             "growth_locked2": {
               "locked": "string"
             },
@@ -2128,7 +2128,7 @@
     },
     "FetchNewsletterEnforcements": {
       "originalName": "WAWebMexFetchNewsletterEnforcementsJobQuery",
-      "docId": "36570925279217516",
+      "docId": "27835373536068060",
       "operationKind": "query",
       "variables": [
         "locale",
@@ -2152,6 +2152,15 @@
               "appeal_state": "string",
               "enforcement_creation_time": "number",
               "enforcement_extra_data": {
+                "enforcement_target_data": {
+                  "__typename": "string",
+                  "id": "string",
+                  "name": "string",
+                  "picture": {
+                    "direct_path": "string",
+                    "id": "string"
+                  }
+                },
                 "ip_violation_report_data": {
                   "appeal_form_url": "string",
                   "report_fbid": "string",

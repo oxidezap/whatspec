@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1042386815",
+  "waVersion": "2.3000.1042562325",
   "enums": [
     {
       "name": "DGWAuth",
@@ -925,6 +925,170 @@
         {
           "name": "ServerAckSent",
           "value": "server_ack_sent"
+        }
+      ]
+    },
+    {
+      "name": "ClientPolicy",
+      "module": "WATheiaRaTls",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "STAGING",
+          "value": "staging"
+        },
+        {
+          "name": "PROD",
+          "value": "prod"
+        },
+        {
+          "name": "DEBUG",
+          "value": "debug"
+        },
+        {
+          "name": "TEELAB_DEBUG",
+          "value": "teelab_debug"
+        },
+        {
+          "name": "TEELAB_STAGING",
+          "value": "teelab_staging"
+        },
+        {
+          "name": "GAIA_DEBUG",
+          "value": "gaia_debug"
+        },
+        {
+          "name": "GAIA_STAGING",
+          "value": "gaia_staging"
+        },
+        {
+          "name": "GAIA_PROD",
+          "value": "gaia_prod"
+        },
+        {
+          "name": "LOOPBACK_DEBUG",
+          "value": "loopback_debug"
+        },
+        {
+          "name": "LOOPBACK_STAGING",
+          "value": "loopback_staging"
+        },
+        {
+          "name": "CODEC_AVATAR_DEBUG",
+          "value": "codec_avatar_debug"
+        },
+        {
+          "name": "CODEC_AVATAR_STAGING",
+          "value": "codec_avatar_staging"
+        }
+      ]
+    },
+    {
+      "name": "State",
+      "module": "WATheiaRaTls",
+      "valueKind": "int",
+      "variants": [
+        {
+          "name": "INIT",
+          "value": 0
+        },
+        {
+          "name": "CONNECTING",
+          "value": 1
+        },
+        {
+          "name": "CONNECTED",
+          "value": 2
+        },
+        {
+          "name": "CLOSED",
+          "value": 3
+        },
+        {
+          "name": "ERROR",
+          "value": 4
+        }
+      ]
+    },
+    {
+      "name": "WATheiaRaTlsClientPolicy",
+      "module": "WATheiaRaTls",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "STAGING",
+          "value": "staging"
+        },
+        {
+          "name": "PROD",
+          "value": "prod"
+        },
+        {
+          "name": "DEBUG",
+          "value": "debug"
+        },
+        {
+          "name": "TEELAB_DEBUG",
+          "value": "teelab_debug"
+        },
+        {
+          "name": "TEELAB_STAGING",
+          "value": "teelab_staging"
+        },
+        {
+          "name": "GAIA_DEBUG",
+          "value": "gaia_debug"
+        },
+        {
+          "name": "GAIA_STAGING",
+          "value": "gaia_staging"
+        },
+        {
+          "name": "GAIA_PROD",
+          "value": "gaia_prod"
+        },
+        {
+          "name": "LOOPBACK_DEBUG",
+          "value": "loopback_debug"
+        },
+        {
+          "name": "LOOPBACK_STAGING",
+          "value": "loopback_staging"
+        },
+        {
+          "name": "CODEC_AVATAR_DEBUG",
+          "value": "codec_avatar_debug"
+        },
+        {
+          "name": "CODEC_AVATAR_STAGING",
+          "value": "codec_avatar_staging"
+        }
+      ]
+    },
+    {
+      "name": "WATheiaRaTlsState",
+      "module": "WATheiaRaTls",
+      "valueKind": "int",
+      "variants": [
+        {
+          "name": "INIT",
+          "value": 0
+        },
+        {
+          "name": "CONNECTING",
+          "value": 1
+        },
+        {
+          "name": "CONNECTED",
+          "value": 2
+        },
+        {
+          "name": "CLOSED",
+          "value": 3
+        },
+        {
+          "name": "ERROR",
+          "value": 4
         }
       ]
     },
@@ -7483,6 +7647,10 @@
         {
           "name": "STATUS",
           "value": "status"
+        },
+        {
+          "name": "PQ",
+          "value": "pq"
         }
       ]
     },
@@ -9037,6 +9205,21 @@
     {
       "name": "AppState_v2625",
       "module": "WAWebWindowsHybridBridgeNativeAppState.v2625",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "Normal",
+          "value": "normal"
+        },
+        {
+          "name": "MinimizedToTray",
+          "value": "minimizedToTray"
+        }
+      ]
+    },
+    {
+      "name": "AppState_v2626",
+      "module": "WAWebWindowsHybridBridgeNativeAppState.v2626",
       "valueKind": "string",
       "variants": [
         {

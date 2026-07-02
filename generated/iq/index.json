@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1042386815",
+  "waVersion": "2.3000.1042562325",
   "stanzas": [
     {
       "moduleName": "WASmaxOutAbPropsGetExperimentConfigRequest",
@@ -3942,7 +3942,18 @@
         "children": [
           {
             "tag": "key",
-            "attrs": [],
+            "attrs": [
+              {
+                "name": "pqsupport",
+                "kind": "optional",
+                "required": false
+              },
+              {
+                "name": "context_jid",
+                "kind": "optional",
+                "required": false
+              }
+            ],
             "children": [
               {
                 "tag": "user",
@@ -4070,6 +4081,55 @@
                       },
                       {
                         "method": "",
+                        "name": "botIdentityKeyAuthMixin",
+                        "type": "string",
+                        "required": false,
+                        "children": [
+                          {
+                            "method": "attrInt",
+                            "name": "identityAuthVersion",
+                            "wireName": "version",
+                            "type": "integer",
+                            "required": true,
+                            "sourcePath": [
+                              "identity_auth"
+                            ]
+                          },
+                          {
+                            "method": "contentBytes",
+                            "name": "identityAuthSignatureElementValue",
+                            "type": "bytes",
+                            "required": true,
+                            "sourcePath": [
+                              "identity_auth",
+                              "signature"
+                            ]
+                          },
+                          {
+                            "method": "child",
+                            "name": "identityAuthCertsCert",
+                            "type": "string",
+                            "required": true,
+                            "tag": "cert",
+                            "children": [
+                              {
+                                "method": "contentBytes",
+                                "name": "elementValue",
+                                "type": "bytes",
+                                "required": true
+                              }
+                            ],
+                            "repeats": true,
+                            "sourcePath": [
+                              "identity_auth",
+                              "certs"
+                            ]
+                          }
+                        ],
+                        "sameNode": true
+                      },
+                      {
+                        "method": "",
                         "name": "preKeyMixin",
                         "type": "string",
                         "required": false,
@@ -4162,6 +4222,63 @@
                         "sourcePath": [
                           "skey"
                         ]
+                      },
+                      {
+                        "method": "",
+                        "name": "pQKeyMixin",
+                        "type": "string",
+                        "required": false,
+                        "children": [
+                          {
+                            "method": "contentBytes",
+                            "name": "pqkeySignatureElementValue",
+                            "type": "bytes",
+                            "required": true,
+                            "sourcePath": [
+                              "pqkey",
+                              "signature"
+                            ]
+                          },
+                          {
+                            "method": "child",
+                            "name": "pqkeyIdKeyIDMixin",
+                            "type": "string",
+                            "required": true,
+                            "tag": "id",
+                            "children": [
+                              {
+                                "method": "contentBytes",
+                                "name": "elementValue",
+                                "type": "bytes",
+                                "required": true
+                              }
+                            ],
+                            "repeats": false,
+                            "sourcePath": [
+                              "pqkey"
+                            ]
+                          },
+                          {
+                            "method": "child",
+                            "name": "pqkeyValuePQKeyDataMixin",
+                            "type": "string",
+                            "required": true,
+                            "tag": "value",
+                            "children": [
+                              {
+                                "method": "contentBytes",
+                                "name": "elementValue",
+                                "type": "bytes",
+                                "required": true
+                              }
+                            ],
+                            "repeats": false,
+                            "sourcePath": [
+                              "pqkey"
+                            ]
+                          }
+                        ],
+                        "sameNode": true
                       },
                       {
                         "method": "",
@@ -4377,6 +4494,55 @@
                           },
                           {
                             "method": "",
+                            "name": "botIdentityKeyAuthMixin",
+                            "type": "string",
+                            "required": false,
+                            "children": [
+                              {
+                                "method": "attrInt",
+                                "name": "identityAuthVersion",
+                                "wireName": "version",
+                                "type": "integer",
+                                "required": true,
+                                "sourcePath": [
+                                  "identity_auth"
+                                ]
+                              },
+                              {
+                                "method": "contentBytes",
+                                "name": "identityAuthSignatureElementValue",
+                                "type": "bytes",
+                                "required": true,
+                                "sourcePath": [
+                                  "identity_auth",
+                                  "signature"
+                                ]
+                              },
+                              {
+                                "method": "child",
+                                "name": "identityAuthCertsCert",
+                                "type": "string",
+                                "required": true,
+                                "tag": "cert",
+                                "children": [
+                                  {
+                                    "method": "contentBytes",
+                                    "name": "elementValue",
+                                    "type": "bytes",
+                                    "required": true
+                                  }
+                                ],
+                                "repeats": true,
+                                "sourcePath": [
+                                  "identity_auth",
+                                  "certs"
+                                ]
+                              }
+                            ],
+                            "sameNode": true
+                          },
+                          {
+                            "method": "",
                             "name": "preKeyMixin",
                             "type": "string",
                             "required": false,
@@ -4469,6 +4635,63 @@
                             "sourcePath": [
                               "skey"
                             ]
+                          },
+                          {
+                            "method": "",
+                            "name": "pQKeyMixin",
+                            "type": "string",
+                            "required": false,
+                            "children": [
+                              {
+                                "method": "contentBytes",
+                                "name": "pqkeySignatureElementValue",
+                                "type": "bytes",
+                                "required": true,
+                                "sourcePath": [
+                                  "pqkey",
+                                  "signature"
+                                ]
+                              },
+                              {
+                                "method": "child",
+                                "name": "pqkeyIdKeyIDMixin",
+                                "type": "string",
+                                "required": true,
+                                "tag": "id",
+                                "children": [
+                                  {
+                                    "method": "contentBytes",
+                                    "name": "elementValue",
+                                    "type": "bytes",
+                                    "required": true
+                                  }
+                                ],
+                                "repeats": false,
+                                "sourcePath": [
+                                  "pqkey"
+                                ]
+                              },
+                              {
+                                "method": "child",
+                                "name": "pqkeyValuePQKeyDataMixin",
+                                "type": "string",
+                                "required": true,
+                                "tag": "value",
+                                "children": [
+                                  {
+                                    "method": "contentBytes",
+                                    "name": "elementValue",
+                                    "type": "bytes",
+                                    "required": true
+                                  }
+                                ],
+                                "repeats": false,
+                                "sourcePath": [
+                                  "pqkey"
+                                ]
+                              }
+                            ],
+                            "sameNode": true
                           },
                           {
                             "method": "",
@@ -4802,7 +5025,18 @@
         "children": [
           {
             "tag": "key_fetch",
-            "attrs": [],
+            "attrs": [
+              {
+                "name": "pqsupport",
+                "kind": "optional",
+                "required": false
+              },
+              {
+                "name": "context_jid",
+                "kind": "optional",
+                "required": false
+              }
+            ],
             "children": [
               {
                 "tag": "user",
@@ -5056,6 +5290,63 @@
                             "sourcePath": [
                               "skey"
                             ]
+                          },
+                          {
+                            "method": "",
+                            "name": "pQKeyMixin",
+                            "type": "string",
+                            "required": false,
+                            "children": [
+                              {
+                                "method": "contentBytes",
+                                "name": "pqkeySignatureElementValue",
+                                "type": "bytes",
+                                "required": true,
+                                "sourcePath": [
+                                  "pqkey",
+                                  "signature"
+                                ]
+                              },
+                              {
+                                "method": "child",
+                                "name": "pqkeyIdKeyIDMixin",
+                                "type": "string",
+                                "required": true,
+                                "tag": "id",
+                                "children": [
+                                  {
+                                    "method": "contentBytes",
+                                    "name": "elementValue",
+                                    "type": "bytes",
+                                    "required": true
+                                  }
+                                ],
+                                "repeats": false,
+                                "sourcePath": [
+                                  "pqkey"
+                                ]
+                              },
+                              {
+                                "method": "child",
+                                "name": "pqkeyValuePQKeyDataMixin",
+                                "type": "string",
+                                "required": true,
+                                "tag": "value",
+                                "children": [
+                                  {
+                                    "method": "contentBytes",
+                                    "name": "elementValue",
+                                    "type": "bytes",
+                                    "required": true
+                                  }
+                                ],
+                                "repeats": false,
+                                "sourcePath": [
+                                  "pqkey"
+                                ]
+                              }
+                            ],
+                            "sameNode": true
                           },
                           {
                             "method": "",
@@ -5387,6 +5678,63 @@
                                 "sourcePath": [
                                   "skey"
                                 ]
+                              },
+                              {
+                                "method": "",
+                                "name": "pQKeyMixin",
+                                "type": "string",
+                                "required": false,
+                                "children": [
+                                  {
+                                    "method": "contentBytes",
+                                    "name": "pqkeySignatureElementValue",
+                                    "type": "bytes",
+                                    "required": true,
+                                    "sourcePath": [
+                                      "pqkey",
+                                      "signature"
+                                    ]
+                                  },
+                                  {
+                                    "method": "child",
+                                    "name": "pqkeyIdKeyIDMixin",
+                                    "type": "string",
+                                    "required": true,
+                                    "tag": "id",
+                                    "children": [
+                                      {
+                                        "method": "contentBytes",
+                                        "name": "elementValue",
+                                        "type": "bytes",
+                                        "required": true
+                                      }
+                                    ],
+                                    "repeats": false,
+                                    "sourcePath": [
+                                      "pqkey"
+                                    ]
+                                  },
+                                  {
+                                    "method": "child",
+                                    "name": "pqkeyValuePQKeyDataMixin",
+                                    "type": "string",
+                                    "required": true,
+                                    "tag": "value",
+                                    "children": [
+                                      {
+                                        "method": "contentBytes",
+                                        "name": "elementValue",
+                                        "type": "bytes",
+                                        "required": true
+                                      }
+                                    ],
+                                    "repeats": false,
+                                    "sourcePath": [
+                                      "pqkey"
+                                    ]
+                                  }
+                                ],
+                                "sameNode": true
                               },
                               {
                                 "method": "",
@@ -5755,6 +6103,1174 @@
         "parserName": "unknown",
         "assertions": [],
         "fields": []
+      }
+    },
+    {
+      "moduleName": "WASmaxOutPreKeysAddRequest",
+      "namespace": "encrypt",
+      "iqType": "set",
+      "target": "s.whatsapp.net",
+      "parserName": "WASmaxPreKeysAddRPC",
+      "exportedFunction": "makeAddRequest",
+      "allExports": [
+        "makeAddRequest"
+      ],
+      "request": {
+        "namespace": "encrypt",
+        "iqType": "set",
+        "target": "s.whatsapp.net",
+        "children": [
+          {
+            "tag": "op",
+            "attrs": [
+              {
+                "name": "mode",
+                "kind": "const",
+                "value": "add",
+                "required": true
+              }
+            ],
+            "children": [],
+            "repeats": false
+          }
+        ]
+      },
+      "response": {
+        "parserName": "WASmaxPreKeysAddRPC",
+        "assertions": [],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "type",
+            "wireName": "type",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "",
+            "name": "preKeyListCountLowMixin",
+            "type": "string",
+            "required": false,
+            "children": [
+              {
+                "method": "attrString",
+                "name": "countLow",
+                "wireName": "count_low",
+                "type": "string",
+                "required": true,
+                "sourcePath": [
+                  "list"
+                ]
+              }
+            ],
+            "sameNode": true
+          },
+          {
+            "method": "",
+            "name": "pQPreKeyListCountLowMixin",
+            "type": "string",
+            "required": false,
+            "children": [
+              {
+                "method": "attrString",
+                "name": "countLow",
+                "wireName": "count_low",
+                "type": "string",
+                "required": true,
+                "sourcePath": [
+                  "pq_list"
+                ]
+              }
+            ],
+            "sameNode": true
+          }
+        ],
+        "variants": [
+          {
+            "tag": "AddResponseSuccess",
+            "moduleName": "WASmaxInPreKeysAddResponseSuccess",
+            "kind": "success",
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
+            "fields": [
+              {
+                "method": "attrString",
+                "name": "type",
+                "wireName": "type",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "",
+                "name": "preKeyListCountLowMixin",
+                "type": "string",
+                "required": false,
+                "children": [
+                  {
+                    "method": "attrString",
+                    "name": "countLow",
+                    "wireName": "count_low",
+                    "type": "string",
+                    "required": true,
+                    "sourcePath": [
+                      "list"
+                    ]
+                  }
+                ],
+                "sameNode": true
+              },
+              {
+                "method": "",
+                "name": "pQPreKeyListCountLowMixin",
+                "type": "string",
+                "required": false,
+                "children": [
+                  {
+                    "method": "attrString",
+                    "name": "countLow",
+                    "wireName": "count_low",
+                    "type": "string",
+                    "required": true,
+                    "sourcePath": [
+                      "pq_list"
+                    ]
+                  }
+                ],
+                "sameNode": true
+              }
+            ]
+          },
+          {
+            "tag": "AddResponseRequestError",
+            "moduleName": "WASmaxInPreKeysAddResponseRequestError",
+            "kind": "error",
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
+            "fields": [
+              {
+                "method": "attrString",
+                "name": "type",
+                "wireName": "type",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "",
+                "name": "errorRequestErrors",
+                "type": "union",
+                "required": true,
+                "unionVariants": [
+                  {
+                    "name": "IQErrorNotAcceptable",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      },
+                      {
+                        "method": "child",
+                        "name": "field",
+                        "type": "string",
+                        "required": false,
+                        "tag": "field",
+                        "children": [
+                          {
+                            "method": "attrString",
+                            "name": "name",
+                            "wireName": "name",
+                            "type": "string",
+                            "required": true
+                          },
+                          {
+                            "method": "attrString",
+                            "name": "reason",
+                            "wireName": "reason",
+                            "type": "string",
+                            "required": true
+                          }
+                        ],
+                        "repeats": false
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "error"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "text",
+                        "value": "not-acceptable"
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorFallbackClient",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "error"
+                      }
+                    ]
+                  }
+                ],
+                "sourcePath": [
+                  "error"
+                ]
+              }
+            ]
+          },
+          {
+            "tag": "AddResponseServerError",
+            "moduleName": "WASmaxInPreKeysAddResponseServerError",
+            "kind": "error",
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
+            "fields": [
+              {
+                "method": "attrString",
+                "name": "type",
+                "wireName": "type",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "",
+                "name": "errorServerErrors",
+                "type": "union",
+                "required": true,
+                "unionVariants": [
+                  {
+                    "name": "IQErrorServiceUnavailable",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "error"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "text",
+                        "value": "service-unavailable"
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorFallbackServer",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "error"
+                      }
+                    ]
+                  }
+                ],
+                "sourcePath": [
+                  "error"
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "moduleName": "WASmaxOutPreKeysDeleteRequest",
+      "namespace": "encrypt",
+      "iqType": "set",
+      "target": "s.whatsapp.net",
+      "parserName": "WASmaxPreKeysDeleteRPC",
+      "exportedFunction": "makeDeleteRequestList",
+      "allExports": [
+        "makeDeleteRequestList",
+        "makeDeleteRequestPqList",
+        "makeDeleteRequest"
+      ],
+      "request": {
+        "namespace": "encrypt",
+        "iqType": "set",
+        "target": "s.whatsapp.net",
+        "children": [
+          {
+            "tag": "list",
+            "attrs": [],
+            "children": [],
+            "repeats": false
+          },
+          {
+            "tag": "pq_list",
+            "attrs": [],
+            "children": [],
+            "repeats": false
+          },
+          {
+            "tag": "op",
+            "attrs": [
+              {
+                "name": "mode",
+                "kind": "const",
+                "value": "delete",
+                "required": true
+              }
+            ],
+            "children": [],
+            "repeats": false
+          }
+        ]
+      },
+      "response": {
+        "parserName": "WASmaxPreKeysDeleteRPC",
+        "assertions": [],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "type",
+            "wireName": "type",
+            "type": "string",
+            "required": true
+          }
+        ],
+        "variants": [
+          {
+            "tag": "DeleteResponseSuccess",
+            "moduleName": "WASmaxInPreKeysDeleteResponseSuccess",
+            "kind": "success",
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
+            "fields": [
+              {
+                "method": "attrString",
+                "name": "type",
+                "wireName": "type",
+                "type": "string",
+                "required": true
+              }
+            ]
+          },
+          {
+            "tag": "DeleteResponseRequestError",
+            "moduleName": "WASmaxInPreKeysDeleteResponseRequestError",
+            "kind": "error",
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
+            "fields": [
+              {
+                "method": "attrString",
+                "name": "type",
+                "wireName": "type",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "",
+                "name": "errorRequestErrors",
+                "type": "union",
+                "required": true,
+                "unionVariants": [
+                  {
+                    "name": "IQErrorNotAcceptable",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      },
+                      {
+                        "method": "child",
+                        "name": "field",
+                        "type": "string",
+                        "required": false,
+                        "tag": "field",
+                        "children": [
+                          {
+                            "method": "attrString",
+                            "name": "name",
+                            "wireName": "name",
+                            "type": "string",
+                            "required": true
+                          },
+                          {
+                            "method": "attrString",
+                            "name": "reason",
+                            "wireName": "reason",
+                            "type": "string",
+                            "required": true
+                          }
+                        ],
+                        "repeats": false
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "error"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "text",
+                        "value": "not-acceptable"
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorFallbackClient",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "error"
+                      }
+                    ]
+                  }
+                ],
+                "sourcePath": [
+                  "error"
+                ]
+              }
+            ]
+          },
+          {
+            "tag": "DeleteResponseServerError",
+            "moduleName": "WASmaxInPreKeysDeleteResponseServerError",
+            "kind": "error",
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
+            "fields": [
+              {
+                "method": "attrString",
+                "name": "type",
+                "wireName": "type",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "",
+                "name": "errorServerErrors",
+                "type": "union",
+                "required": true,
+                "unionVariants": [
+                  {
+                    "name": "IQErrorServiceUnavailable",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "error"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "text",
+                        "value": "service-unavailable"
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorFallbackServer",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "error"
+                      }
+                    ]
+                  }
+                ],
+                "sourcePath": [
+                  "error"
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "moduleName": "WASmaxOutPreKeysSetRequest",
+      "namespace": "encrypt",
+      "iqType": "set",
+      "target": "s.whatsapp.net",
+      "parserName": "WASmaxPreKeysSetRPC",
+      "exportedFunction": "makeSetRequest",
+      "allExports": [
+        "makeSetRequest"
+      ],
+      "request": {
+        "namespace": "encrypt",
+        "iqType": "set",
+        "target": "s.whatsapp.net",
+        "children": []
+      },
+      "response": {
+        "parserName": "WASmaxPreKeysSetRPC",
+        "assertions": [],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "type",
+            "wireName": "type",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "",
+            "name": "preKeyListCountLowMixin",
+            "type": "string",
+            "required": false,
+            "children": [
+              {
+                "method": "attrString",
+                "name": "countLow",
+                "wireName": "count_low",
+                "type": "string",
+                "required": true,
+                "sourcePath": [
+                  "list"
+                ]
+              }
+            ],
+            "sameNode": true
+          },
+          {
+            "method": "",
+            "name": "pQPreKeyListCountLowMixin",
+            "type": "string",
+            "required": false,
+            "children": [
+              {
+                "method": "attrString",
+                "name": "countLow",
+                "wireName": "count_low",
+                "type": "string",
+                "required": true,
+                "sourcePath": [
+                  "pq_list"
+                ]
+              }
+            ],
+            "sameNode": true
+          }
+        ],
+        "variants": [
+          {
+            "tag": "SetResponseSuccess",
+            "moduleName": "WASmaxInPreKeysSetResponseSuccess",
+            "kind": "success",
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
+            "fields": [
+              {
+                "method": "attrString",
+                "name": "type",
+                "wireName": "type",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "",
+                "name": "preKeyListCountLowMixin",
+                "type": "string",
+                "required": false,
+                "children": [
+                  {
+                    "method": "attrString",
+                    "name": "countLow",
+                    "wireName": "count_low",
+                    "type": "string",
+                    "required": true,
+                    "sourcePath": [
+                      "list"
+                    ]
+                  }
+                ],
+                "sameNode": true
+              },
+              {
+                "method": "",
+                "name": "pQPreKeyListCountLowMixin",
+                "type": "string",
+                "required": false,
+                "children": [
+                  {
+                    "method": "attrString",
+                    "name": "countLow",
+                    "wireName": "count_low",
+                    "type": "string",
+                    "required": true,
+                    "sourcePath": [
+                      "pq_list"
+                    ]
+                  }
+                ],
+                "sameNode": true
+              }
+            ]
+          },
+          {
+            "tag": "SetResponsePreKeySuccessVnameFailure",
+            "moduleName": "WASmaxInPreKeysSetResponsePreKeySuccessVnameFailure",
+            "kind": "success",
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
+            "fields": [
+              {
+                "method": "attrString",
+                "name": "errorText",
+                "wireName": "text",
+                "type": "string",
+                "required": true,
+                "sourcePath": [
+                  "error"
+                ]
+              },
+              {
+                "method": "attrInt",
+                "name": "errorCode",
+                "wireName": "code",
+                "type": "integer",
+                "required": true,
+                "sourcePath": [
+                  "error"
+                ]
+              },
+              {
+                "method": "attrInt",
+                "name": "errorErrorCode",
+                "wireName": "code",
+                "type": "integer",
+                "required": true,
+                "sourcePath": [
+                  "error",
+                  "error"
+                ]
+              },
+              {
+                "method": "attrString",
+                "name": "type",
+                "wireName": "type",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "",
+                "name": "errorErrorVnameFailures",
+                "type": "union",
+                "required": true,
+                "unionVariants": [
+                  {
+                    "name": "SetVnameFailureNotAcceptable",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrString",
+                        "name": "violationReason",
+                        "wireName": "reason",
+                        "type": "string",
+                        "required": true,
+                        "sourcePath": [
+                          "violation"
+                        ]
+                      },
+                      {
+                        "method": "maybeAttrInt",
+                        "name": "violationMax",
+                        "wireName": "max",
+                        "type": "integer",
+                        "required": false,
+                        "sourcePath": [
+                          "violation"
+                        ]
+                      },
+                      {
+                        "method": "maybeAttrInt",
+                        "name": "violationLength",
+                        "wireName": "length",
+                        "type": "integer",
+                        "required": false,
+                        "sourcePath": [
+                          "violation"
+                        ]
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "error"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "text",
+                        "value": "not-acceptable"
+                      }
+                    ]
+                  },
+                  {
+                    "name": "SetVnameFailureBadRequest",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "error"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "text",
+                        "value": "bad-request"
+                      }
+                    ]
+                  },
+                  {
+                    "name": "SetVnameFailureInternalServerError",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "error"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "text",
+                        "value": "internal-server-error"
+                      }
+                    ]
+                  },
+                  {
+                    "name": "SetVnameFailureFallback",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "error"
+                      }
+                    ]
+                  }
+                ],
+                "sourcePath": [
+                  "error",
+                  "error"
+                ]
+              }
+            ]
+          },
+          {
+            "tag": "SetResponseRequestError",
+            "moduleName": "WASmaxInPreKeysSetResponseRequestError",
+            "kind": "error",
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
+            "fields": [
+              {
+                "method": "attrString",
+                "name": "type",
+                "wireName": "type",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "",
+                "name": "errorRequestErrors",
+                "type": "union",
+                "required": true,
+                "unionVariants": [
+                  {
+                    "name": "IQErrorNotAcceptable",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      },
+                      {
+                        "method": "child",
+                        "name": "field",
+                        "type": "string",
+                        "required": false,
+                        "tag": "field",
+                        "children": [
+                          {
+                            "method": "attrString",
+                            "name": "name",
+                            "wireName": "name",
+                            "type": "string",
+                            "required": true
+                          },
+                          {
+                            "method": "attrString",
+                            "name": "reason",
+                            "wireName": "reason",
+                            "type": "string",
+                            "required": true
+                          }
+                        ],
+                        "repeats": false
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "error"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "text",
+                        "value": "not-acceptable"
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorFallbackClient",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "error"
+                      }
+                    ]
+                  }
+                ],
+                "sourcePath": [
+                  "error"
+                ]
+              }
+            ]
+          },
+          {
+            "tag": "SetResponseServerError",
+            "moduleName": "WASmaxInPreKeysSetResponseServerError",
+            "kind": "error",
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
+            "fields": [
+              {
+                "method": "attrString",
+                "name": "type",
+                "wireName": "type",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "",
+                "name": "errorServerErrors",
+                "type": "union",
+                "required": true,
+                "unionVariants": [
+                  {
+                    "name": "IQErrorServiceUnavailable",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "error"
+                      },
+                      {
+                        "kind": "attr",
+                        "name": "text",
+                        "value": "service-unavailable"
+                      }
+                    ]
+                  },
+                  {
+                    "name": "IQErrorFallbackServer",
+                    "fields": [
+                      {
+                        "method": "attrString",
+                        "name": "text",
+                        "wireName": "text",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ],
+                    "assertions": [
+                      {
+                        "kind": "tag",
+                        "name": "error"
+                      }
+                    ]
+                  }
+                ],
+                "sourcePath": [
+                  "error"
+                ]
+              }
+            ]
+          }
+        ]
       }
     },
     {
@@ -11063,38 +12579,51 @@
                         ]
                       },
                       {
-                        "method": "contentString",
-                        "name": "nameElementValue",
+                        "method": "child",
+                        "name": "name",
                         "type": "string",
-                        "required": true,
+                        "required": false,
+                        "tag": "name",
+                        "children": [
+                          {
+                            "method": "contentString",
+                            "name": "elementValue",
+                            "type": "string",
+                            "required": true
+                          }
+                        ],
+                        "repeats": false,
                         "sourcePath": [
                           "meta",
-                          "admin_profile",
-                          "name"
+                          "admin_profile"
                         ]
                       },
                       {
-                        "method": "attrString",
-                        "name": "pictureId",
-                        "wireName": "id",
+                        "method": "child",
+                        "name": "picture",
                         "type": "string",
-                        "required": true,
+                        "required": false,
+                        "tag": "picture",
+                        "children": [
+                          {
+                            "method": "attrString",
+                            "name": "id",
+                            "wireName": "id",
+                            "type": "string",
+                            "required": true
+                          },
+                          {
+                            "method": "attrString",
+                            "name": "directPath",
+                            "wireName": "direct_path",
+                            "type": "string",
+                            "required": true
+                          }
+                        ],
+                        "repeats": false,
                         "sourcePath": [
                           "meta",
-                          "admin_profile",
-                          "picture"
-                        ]
-                      },
-                      {
-                        "method": "attrString",
-                        "name": "pictureDirectPath",
-                        "wireName": "direct_path",
-                        "type": "string",
-                        "required": true,
-                        "sourcePath": [
-                          "meta",
-                          "admin_profile",
-                          "picture"
+                          "admin_profile"
                         ]
                       }
                     ],
@@ -12451,10 +13980,160 @@
                           },
                           {
                             "method": "",
-                            "name": "contentTypeTextOrMediaOrPollCreationOrQuizCreationMixinGroup",
+                            "name": "newsletterWamoEmptyContent",
                             "type": "union",
                             "required": true,
                             "unionVariants": [
+                              {
+                                "name": "NewsletterQuestionEmpty",
+                                "fields": [
+                                  {
+                                    "method": "attrString",
+                                    "name": "metaQuestiontype",
+                                    "wireName": "questiontype",
+                                    "type": "string",
+                                    "required": true,
+                                    "sourcePath": [
+                                      "meta"
+                                    ]
+                                  },
+                                  {
+                                    "method": "",
+                                    "name": "contentTypeTextOrMediaMixinGroup",
+                                    "type": "union",
+                                    "required": true,
+                                    "unionVariants": [
+                                      {
+                                        "name": "ContentTypeText",
+                                        "fields": [
+                                          {
+                                            "method": "attrString",
+                                            "name": "type",
+                                            "wireName": "type",
+                                            "type": "string",
+                                            "required": true
+                                          }
+                                        ],
+                                        "assertions": [
+                                          {
+                                            "kind": "tag",
+                                            "name": "message"
+                                          },
+                                          {
+                                            "kind": "attr",
+                                            "name": "type",
+                                            "value": "text"
+                                          }
+                                        ]
+                                      },
+                                      {
+                                        "name": "ContentTypeMedia",
+                                        "fields": [
+                                          {
+                                            "method": "attrString",
+                                            "name": "type",
+                                            "wireName": "type",
+                                            "type": "string",
+                                            "required": true
+                                          }
+                                        ],
+                                        "assertions": [
+                                          {
+                                            "kind": "tag",
+                                            "name": "message"
+                                          },
+                                          {
+                                            "kind": "attr",
+                                            "name": "type",
+                                            "value": "media"
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                ],
+                                "assertions": [
+                                  {
+                                    "kind": "tag",
+                                    "name": "message"
+                                  }
+                                ]
+                              },
+                              {
+                                "name": "NewsletterQuestionReplyEmpty",
+                                "fields": [
+                                  {
+                                    "method": "attrString",
+                                    "name": "metaQuestiontype",
+                                    "wireName": "questiontype",
+                                    "type": "string",
+                                    "required": true,
+                                    "sourcePath": [
+                                      "meta"
+                                    ]
+                                  },
+                                  {
+                                    "method": "",
+                                    "name": "contentTypeTextOrMediaMixinGroup",
+                                    "type": "union",
+                                    "required": true,
+                                    "unionVariants": [
+                                      {
+                                        "name": "ContentTypeText",
+                                        "fields": [
+                                          {
+                                            "method": "attrString",
+                                            "name": "type",
+                                            "wireName": "type",
+                                            "type": "string",
+                                            "required": true
+                                          }
+                                        ],
+                                        "assertions": [
+                                          {
+                                            "kind": "tag",
+                                            "name": "message"
+                                          },
+                                          {
+                                            "kind": "attr",
+                                            "name": "type",
+                                            "value": "text"
+                                          }
+                                        ]
+                                      },
+                                      {
+                                        "name": "ContentTypeMedia",
+                                        "fields": [
+                                          {
+                                            "method": "attrString",
+                                            "name": "type",
+                                            "wireName": "type",
+                                            "type": "string",
+                                            "required": true
+                                          }
+                                        ],
+                                        "assertions": [
+                                          {
+                                            "kind": "tag",
+                                            "name": "message"
+                                          },
+                                          {
+                                            "kind": "attr",
+                                            "name": "type",
+                                            "value": "media"
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                ],
+                                "assertions": [
+                                  {
+                                    "kind": "tag",
+                                    "name": "message"
+                                  }
+                                ]
+                              },
                               {
                                 "name": "ContentTypeText",
                                 "fields": [
@@ -12963,38 +14642,51 @@
                             ]
                           },
                           {
-                            "method": "contentString",
-                            "name": "nameElementValue",
+                            "method": "child",
+                            "name": "name",
                             "type": "string",
-                            "required": true,
+                            "required": false,
+                            "tag": "name",
+                            "children": [
+                              {
+                                "method": "contentString",
+                                "name": "elementValue",
+                                "type": "string",
+                                "required": true
+                              }
+                            ],
+                            "repeats": false,
                             "sourcePath": [
                               "meta",
-                              "admin_profile",
-                              "name"
+                              "admin_profile"
                             ]
                           },
                           {
-                            "method": "attrString",
-                            "name": "pictureId",
-                            "wireName": "id",
+                            "method": "child",
+                            "name": "picture",
                             "type": "string",
-                            "required": true,
+                            "required": false,
+                            "tag": "picture",
+                            "children": [
+                              {
+                                "method": "attrString",
+                                "name": "id",
+                                "wireName": "id",
+                                "type": "string",
+                                "required": true
+                              },
+                              {
+                                "method": "attrString",
+                                "name": "directPath",
+                                "wireName": "direct_path",
+                                "type": "string",
+                                "required": true
+                              }
+                            ],
+                            "repeats": false,
                             "sourcePath": [
                               "meta",
-                              "admin_profile",
-                              "picture"
-                            ]
-                          },
-                          {
-                            "method": "attrString",
-                            "name": "pictureDirectPath",
-                            "wireName": "direct_path",
-                            "type": "string",
-                            "required": true,
-                            "sourcePath": [
-                              "meta",
-                              "admin_profile",
-                              "picture"
+                              "admin_profile"
                             ]
                           }
                         ],
@@ -14351,10 +16043,160 @@
                               },
                               {
                                 "method": "",
-                                "name": "contentTypeTextOrMediaOrPollCreationOrQuizCreationMixinGroup",
+                                "name": "newsletterWamoEmptyContent",
                                 "type": "union",
                                 "required": true,
                                 "unionVariants": [
+                                  {
+                                    "name": "NewsletterQuestionEmpty",
+                                    "fields": [
+                                      {
+                                        "method": "attrString",
+                                        "name": "metaQuestiontype",
+                                        "wireName": "questiontype",
+                                        "type": "string",
+                                        "required": true,
+                                        "sourcePath": [
+                                          "meta"
+                                        ]
+                                      },
+                                      {
+                                        "method": "",
+                                        "name": "contentTypeTextOrMediaMixinGroup",
+                                        "type": "union",
+                                        "required": true,
+                                        "unionVariants": [
+                                          {
+                                            "name": "ContentTypeText",
+                                            "fields": [
+                                              {
+                                                "method": "attrString",
+                                                "name": "type",
+                                                "wireName": "type",
+                                                "type": "string",
+                                                "required": true
+                                              }
+                                            ],
+                                            "assertions": [
+                                              {
+                                                "kind": "tag",
+                                                "name": "message"
+                                              },
+                                              {
+                                                "kind": "attr",
+                                                "name": "type",
+                                                "value": "text"
+                                              }
+                                            ]
+                                          },
+                                          {
+                                            "name": "ContentTypeMedia",
+                                            "fields": [
+                                              {
+                                                "method": "attrString",
+                                                "name": "type",
+                                                "wireName": "type",
+                                                "type": "string",
+                                                "required": true
+                                              }
+                                            ],
+                                            "assertions": [
+                                              {
+                                                "kind": "tag",
+                                                "name": "message"
+                                              },
+                                              {
+                                                "kind": "attr",
+                                                "name": "type",
+                                                "value": "media"
+                                              }
+                                            ]
+                                          }
+                                        ]
+                                      }
+                                    ],
+                                    "assertions": [
+                                      {
+                                        "kind": "tag",
+                                        "name": "message"
+                                      }
+                                    ]
+                                  },
+                                  {
+                                    "name": "NewsletterQuestionReplyEmpty",
+                                    "fields": [
+                                      {
+                                        "method": "attrString",
+                                        "name": "metaQuestiontype",
+                                        "wireName": "questiontype",
+                                        "type": "string",
+                                        "required": true,
+                                        "sourcePath": [
+                                          "meta"
+                                        ]
+                                      },
+                                      {
+                                        "method": "",
+                                        "name": "contentTypeTextOrMediaMixinGroup",
+                                        "type": "union",
+                                        "required": true,
+                                        "unionVariants": [
+                                          {
+                                            "name": "ContentTypeText",
+                                            "fields": [
+                                              {
+                                                "method": "attrString",
+                                                "name": "type",
+                                                "wireName": "type",
+                                                "type": "string",
+                                                "required": true
+                                              }
+                                            ],
+                                            "assertions": [
+                                              {
+                                                "kind": "tag",
+                                                "name": "message"
+                                              },
+                                              {
+                                                "kind": "attr",
+                                                "name": "type",
+                                                "value": "text"
+                                              }
+                                            ]
+                                          },
+                                          {
+                                            "name": "ContentTypeMedia",
+                                            "fields": [
+                                              {
+                                                "method": "attrString",
+                                                "name": "type",
+                                                "wireName": "type",
+                                                "type": "string",
+                                                "required": true
+                                              }
+                                            ],
+                                            "assertions": [
+                                              {
+                                                "kind": "tag",
+                                                "name": "message"
+                                              },
+                                              {
+                                                "kind": "attr",
+                                                "name": "type",
+                                                "value": "media"
+                                              }
+                                            ]
+                                          }
+                                        ]
+                                      }
+                                    ],
+                                    "assertions": [
+                                      {
+                                        "kind": "tag",
+                                        "name": "message"
+                                      }
+                                    ]
+                                  },
                                   {
                                     "name": "ContentTypeText",
                                     "fields": [
@@ -15271,38 +17113,51 @@
                         ]
                       },
                       {
-                        "method": "contentString",
-                        "name": "nameElementValue",
+                        "method": "child",
+                        "name": "name",
                         "type": "string",
-                        "required": true,
+                        "required": false,
+                        "tag": "name",
+                        "children": [
+                          {
+                            "method": "contentString",
+                            "name": "elementValue",
+                            "type": "string",
+                            "required": true
+                          }
+                        ],
+                        "repeats": false,
                         "sourcePath": [
                           "meta",
-                          "admin_profile",
-                          "name"
+                          "admin_profile"
                         ]
                       },
                       {
-                        "method": "attrString",
-                        "name": "pictureId",
-                        "wireName": "id",
+                        "method": "child",
+                        "name": "picture",
                         "type": "string",
-                        "required": true,
+                        "required": false,
+                        "tag": "picture",
+                        "children": [
+                          {
+                            "method": "attrString",
+                            "name": "id",
+                            "wireName": "id",
+                            "type": "string",
+                            "required": true
+                          },
+                          {
+                            "method": "attrString",
+                            "name": "directPath",
+                            "wireName": "direct_path",
+                            "type": "string",
+                            "required": true
+                          }
+                        ],
+                        "repeats": false,
                         "sourcePath": [
                           "meta",
-                          "admin_profile",
-                          "picture"
-                        ]
-                      },
-                      {
-                        "method": "attrString",
-                        "name": "pictureDirectPath",
-                        "wireName": "direct_path",
-                        "type": "string",
-                        "required": true,
-                        "sourcePath": [
-                          "meta",
-                          "admin_profile",
-                          "picture"
+                          "admin_profile"
                         ]
                       }
                     ],
@@ -16659,10 +18514,160 @@
                           },
                           {
                             "method": "",
-                            "name": "contentTypeTextOrMediaOrPollCreationOrQuizCreationMixinGroup",
+                            "name": "newsletterWamoEmptyContent",
                             "type": "union",
                             "required": true,
                             "unionVariants": [
+                              {
+                                "name": "NewsletterQuestionEmpty",
+                                "fields": [
+                                  {
+                                    "method": "attrString",
+                                    "name": "metaQuestiontype",
+                                    "wireName": "questiontype",
+                                    "type": "string",
+                                    "required": true,
+                                    "sourcePath": [
+                                      "meta"
+                                    ]
+                                  },
+                                  {
+                                    "method": "",
+                                    "name": "contentTypeTextOrMediaMixinGroup",
+                                    "type": "union",
+                                    "required": true,
+                                    "unionVariants": [
+                                      {
+                                        "name": "ContentTypeText",
+                                        "fields": [
+                                          {
+                                            "method": "attrString",
+                                            "name": "type",
+                                            "wireName": "type",
+                                            "type": "string",
+                                            "required": true
+                                          }
+                                        ],
+                                        "assertions": [
+                                          {
+                                            "kind": "tag",
+                                            "name": "message"
+                                          },
+                                          {
+                                            "kind": "attr",
+                                            "name": "type",
+                                            "value": "text"
+                                          }
+                                        ]
+                                      },
+                                      {
+                                        "name": "ContentTypeMedia",
+                                        "fields": [
+                                          {
+                                            "method": "attrString",
+                                            "name": "type",
+                                            "wireName": "type",
+                                            "type": "string",
+                                            "required": true
+                                          }
+                                        ],
+                                        "assertions": [
+                                          {
+                                            "kind": "tag",
+                                            "name": "message"
+                                          },
+                                          {
+                                            "kind": "attr",
+                                            "name": "type",
+                                            "value": "media"
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                ],
+                                "assertions": [
+                                  {
+                                    "kind": "tag",
+                                    "name": "message"
+                                  }
+                                ]
+                              },
+                              {
+                                "name": "NewsletterQuestionReplyEmpty",
+                                "fields": [
+                                  {
+                                    "method": "attrString",
+                                    "name": "metaQuestiontype",
+                                    "wireName": "questiontype",
+                                    "type": "string",
+                                    "required": true,
+                                    "sourcePath": [
+                                      "meta"
+                                    ]
+                                  },
+                                  {
+                                    "method": "",
+                                    "name": "contentTypeTextOrMediaMixinGroup",
+                                    "type": "union",
+                                    "required": true,
+                                    "unionVariants": [
+                                      {
+                                        "name": "ContentTypeText",
+                                        "fields": [
+                                          {
+                                            "method": "attrString",
+                                            "name": "type",
+                                            "wireName": "type",
+                                            "type": "string",
+                                            "required": true
+                                          }
+                                        ],
+                                        "assertions": [
+                                          {
+                                            "kind": "tag",
+                                            "name": "message"
+                                          },
+                                          {
+                                            "kind": "attr",
+                                            "name": "type",
+                                            "value": "text"
+                                          }
+                                        ]
+                                      },
+                                      {
+                                        "name": "ContentTypeMedia",
+                                        "fields": [
+                                          {
+                                            "method": "attrString",
+                                            "name": "type",
+                                            "wireName": "type",
+                                            "type": "string",
+                                            "required": true
+                                          }
+                                        ],
+                                        "assertions": [
+                                          {
+                                            "kind": "tag",
+                                            "name": "message"
+                                          },
+                                          {
+                                            "kind": "attr",
+                                            "name": "type",
+                                            "value": "media"
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                ],
+                                "assertions": [
+                                  {
+                                    "kind": "tag",
+                                    "name": "message"
+                                  }
+                                ]
+                              },
                               {
                                 "name": "ContentTypeText",
                                 "fields": [
@@ -17175,38 +19180,51 @@
                             ]
                           },
                           {
-                            "method": "contentString",
-                            "name": "nameElementValue",
+                            "method": "child",
+                            "name": "name",
                             "type": "string",
-                            "required": true,
+                            "required": false,
+                            "tag": "name",
+                            "children": [
+                              {
+                                "method": "contentString",
+                                "name": "elementValue",
+                                "type": "string",
+                                "required": true
+                              }
+                            ],
+                            "repeats": false,
                             "sourcePath": [
                               "meta",
-                              "admin_profile",
-                              "name"
+                              "admin_profile"
                             ]
                           },
                           {
-                            "method": "attrString",
-                            "name": "pictureId",
-                            "wireName": "id",
+                            "method": "child",
+                            "name": "picture",
                             "type": "string",
-                            "required": true,
+                            "required": false,
+                            "tag": "picture",
+                            "children": [
+                              {
+                                "method": "attrString",
+                                "name": "id",
+                                "wireName": "id",
+                                "type": "string",
+                                "required": true
+                              },
+                              {
+                                "method": "attrString",
+                                "name": "directPath",
+                                "wireName": "direct_path",
+                                "type": "string",
+                                "required": true
+                              }
+                            ],
+                            "repeats": false,
                             "sourcePath": [
                               "meta",
-                              "admin_profile",
-                              "picture"
-                            ]
-                          },
-                          {
-                            "method": "attrString",
-                            "name": "pictureDirectPath",
-                            "wireName": "direct_path",
-                            "type": "string",
-                            "required": true,
-                            "sourcePath": [
-                              "meta",
-                              "admin_profile",
-                              "picture"
+                              "admin_profile"
                             ]
                           }
                         ],
@@ -18563,10 +20581,160 @@
                               },
                               {
                                 "method": "",
-                                "name": "contentTypeTextOrMediaOrPollCreationOrQuizCreationMixinGroup",
+                                "name": "newsletterWamoEmptyContent",
                                 "type": "union",
                                 "required": true,
                                 "unionVariants": [
+                                  {
+                                    "name": "NewsletterQuestionEmpty",
+                                    "fields": [
+                                      {
+                                        "method": "attrString",
+                                        "name": "metaQuestiontype",
+                                        "wireName": "questiontype",
+                                        "type": "string",
+                                        "required": true,
+                                        "sourcePath": [
+                                          "meta"
+                                        ]
+                                      },
+                                      {
+                                        "method": "",
+                                        "name": "contentTypeTextOrMediaMixinGroup",
+                                        "type": "union",
+                                        "required": true,
+                                        "unionVariants": [
+                                          {
+                                            "name": "ContentTypeText",
+                                            "fields": [
+                                              {
+                                                "method": "attrString",
+                                                "name": "type",
+                                                "wireName": "type",
+                                                "type": "string",
+                                                "required": true
+                                              }
+                                            ],
+                                            "assertions": [
+                                              {
+                                                "kind": "tag",
+                                                "name": "message"
+                                              },
+                                              {
+                                                "kind": "attr",
+                                                "name": "type",
+                                                "value": "text"
+                                              }
+                                            ]
+                                          },
+                                          {
+                                            "name": "ContentTypeMedia",
+                                            "fields": [
+                                              {
+                                                "method": "attrString",
+                                                "name": "type",
+                                                "wireName": "type",
+                                                "type": "string",
+                                                "required": true
+                                              }
+                                            ],
+                                            "assertions": [
+                                              {
+                                                "kind": "tag",
+                                                "name": "message"
+                                              },
+                                              {
+                                                "kind": "attr",
+                                                "name": "type",
+                                                "value": "media"
+                                              }
+                                            ]
+                                          }
+                                        ]
+                                      }
+                                    ],
+                                    "assertions": [
+                                      {
+                                        "kind": "tag",
+                                        "name": "message"
+                                      }
+                                    ]
+                                  },
+                                  {
+                                    "name": "NewsletterQuestionReplyEmpty",
+                                    "fields": [
+                                      {
+                                        "method": "attrString",
+                                        "name": "metaQuestiontype",
+                                        "wireName": "questiontype",
+                                        "type": "string",
+                                        "required": true,
+                                        "sourcePath": [
+                                          "meta"
+                                        ]
+                                      },
+                                      {
+                                        "method": "",
+                                        "name": "contentTypeTextOrMediaMixinGroup",
+                                        "type": "union",
+                                        "required": true,
+                                        "unionVariants": [
+                                          {
+                                            "name": "ContentTypeText",
+                                            "fields": [
+                                              {
+                                                "method": "attrString",
+                                                "name": "type",
+                                                "wireName": "type",
+                                                "type": "string",
+                                                "required": true
+                                              }
+                                            ],
+                                            "assertions": [
+                                              {
+                                                "kind": "tag",
+                                                "name": "message"
+                                              },
+                                              {
+                                                "kind": "attr",
+                                                "name": "type",
+                                                "value": "text"
+                                              }
+                                            ]
+                                          },
+                                          {
+                                            "name": "ContentTypeMedia",
+                                            "fields": [
+                                              {
+                                                "method": "attrString",
+                                                "name": "type",
+                                                "wireName": "type",
+                                                "type": "string",
+                                                "required": true
+                                              }
+                                            ],
+                                            "assertions": [
+                                              {
+                                                "kind": "tag",
+                                                "name": "message"
+                                              },
+                                              {
+                                                "kind": "attr",
+                                                "name": "type",
+                                                "value": "media"
+                                              }
+                                            ]
+                                          }
+                                        ]
+                                      }
+                                    ],
+                                    "assertions": [
+                                      {
+                                        "kind": "tag",
+                                        "name": "message"
+                                      }
+                                    ]
+                                  },
                                   {
                                     "name": "ContentTypeText",
                                     "fields": [
@@ -19493,6 +21661,12 @@
                     "name": "hasFlagsRepliedFlagMixin",
                     "type": "bool",
                     "required": true
+                  },
+                  {
+                    "method": "",
+                    "name": "hasFlagsStarredFlagMixin",
+                    "type": "bool",
+                    "required": true
                   }
                 ],
                 "sameNode": true
@@ -19675,6 +21849,12 @@
                       {
                         "method": "",
                         "name": "hasFlagsRepliedFlagMixin",
+                        "type": "bool",
+                        "required": true
+                      },
+                      {
+                        "method": "",
+                        "name": "hasFlagsStarredFlagMixin",
                         "type": "bool",
                         "required": true
                       }
@@ -20393,9 +22573,87 @@
                   },
                   {
                     "method": "",
+                    "name": "statusAdminProfileMetaMixin",
+                    "type": "string",
+                    "required": false,
+                    "children": [
+                      {
+                        "method": "attrString",
+                        "name": "id",
+                        "wireName": "id",
+                        "type": "string",
+                        "required": true,
+                        "sourcePath": [
+                          "meta",
+                          "admin_profile"
+                        ]
+                      }
+                    ],
+                    "sameNode": true
+                  },
+                  {
+                    "method": "",
                     "name": "hasStatusPaidPartnershipContentMixin",
                     "type": "bool",
                     "required": true
+                  },
+                  {
+                    "method": "",
+                    "name": "statusNewsletterInteractionTypeQuestionMixin",
+                    "type": "string",
+                    "required": false,
+                    "children": [
+                      {
+                        "method": "attrString",
+                        "name": "metaInteractionType",
+                        "wireName": "interaction_type",
+                        "type": "string",
+                        "required": true,
+                        "sourcePath": [
+                          "meta"
+                        ]
+                      }
+                    ],
+                    "sameNode": true
+                  },
+                  {
+                    "method": "",
+                    "name": "statusNewsletterInteractionTypeQuestionReshareMixin",
+                    "type": "string",
+                    "required": false,
+                    "children": [
+                      {
+                        "method": "attrString",
+                        "name": "metaInteractionType",
+                        "wireName": "interaction_type",
+                        "type": "string",
+                        "required": true,
+                        "sourcePath": [
+                          "meta"
+                        ]
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "metaParentServerId",
+                        "wireName": "parent_server_id",
+                        "type": "integer",
+                        "required": true,
+                        "sourcePath": [
+                          "meta"
+                        ]
+                      },
+                      {
+                        "method": "attrString",
+                        "name": "metaResponseServerId",
+                        "wireName": "response_server_id",
+                        "type": "string",
+                        "required": true,
+                        "sourcePath": [
+                          "meta"
+                        ]
+                      }
+                    ],
+                    "sameNode": true
                   },
                   {
                     "method": "",
@@ -20457,6 +22715,25 @@
                         "required": true,
                         "sourcePath": [
                           "views_count"
+                        ]
+                      }
+                    ],
+                    "sameNode": true
+                  },
+                  {
+                    "method": "",
+                    "name": "statusNewsletterResponsesCountMixin",
+                    "type": "string",
+                    "required": false,
+                    "children": [
+                      {
+                        "method": "attrInt",
+                        "name": "responsesCountCount",
+                        "wireName": "count",
+                        "type": "integer",
+                        "required": true,
+                        "sourcePath": [
+                          "responses_count"
                         ]
                       }
                     ],
@@ -20800,9 +23077,87 @@
                       },
                       {
                         "method": "",
+                        "name": "statusAdminProfileMetaMixin",
+                        "type": "string",
+                        "required": false,
+                        "children": [
+                          {
+                            "method": "attrString",
+                            "name": "id",
+                            "wireName": "id",
+                            "type": "string",
+                            "required": true,
+                            "sourcePath": [
+                              "meta",
+                              "admin_profile"
+                            ]
+                          }
+                        ],
+                        "sameNode": true
+                      },
+                      {
+                        "method": "",
                         "name": "hasStatusPaidPartnershipContentMixin",
                         "type": "bool",
                         "required": true
+                      },
+                      {
+                        "method": "",
+                        "name": "statusNewsletterInteractionTypeQuestionMixin",
+                        "type": "string",
+                        "required": false,
+                        "children": [
+                          {
+                            "method": "attrString",
+                            "name": "metaInteractionType",
+                            "wireName": "interaction_type",
+                            "type": "string",
+                            "required": true,
+                            "sourcePath": [
+                              "meta"
+                            ]
+                          }
+                        ],
+                        "sameNode": true
+                      },
+                      {
+                        "method": "",
+                        "name": "statusNewsletterInteractionTypeQuestionReshareMixin",
+                        "type": "string",
+                        "required": false,
+                        "children": [
+                          {
+                            "method": "attrString",
+                            "name": "metaInteractionType",
+                            "wireName": "interaction_type",
+                            "type": "string",
+                            "required": true,
+                            "sourcePath": [
+                              "meta"
+                            ]
+                          },
+                          {
+                            "method": "attrInt",
+                            "name": "metaParentServerId",
+                            "wireName": "parent_server_id",
+                            "type": "integer",
+                            "required": true,
+                            "sourcePath": [
+                              "meta"
+                            ]
+                          },
+                          {
+                            "method": "attrString",
+                            "name": "metaResponseServerId",
+                            "wireName": "response_server_id",
+                            "type": "string",
+                            "required": true,
+                            "sourcePath": [
+                              "meta"
+                            ]
+                          }
+                        ],
+                        "sameNode": true
                       },
                       {
                         "method": "",
@@ -20864,6 +23219,25 @@
                             "required": true,
                             "sourcePath": [
                               "views_count"
+                            ]
+                          }
+                        ],
+                        "sameNode": true
+                      },
+                      {
+                        "method": "",
+                        "name": "statusNewsletterResponsesCountMixin",
+                        "type": "string",
+                        "required": false,
+                        "children": [
+                          {
+                            "method": "attrInt",
+                            "name": "responsesCountCount",
+                            "wireName": "count",
+                            "type": "integer",
+                            "required": true,
+                            "sourcePath": [
+                              "responses_count"
                             ]
                           }
                         ],
@@ -21615,9 +23989,87 @@
                   },
                   {
                     "method": "",
+                    "name": "statusAdminProfileMetaMixin",
+                    "type": "string",
+                    "required": false,
+                    "children": [
+                      {
+                        "method": "attrString",
+                        "name": "id",
+                        "wireName": "id",
+                        "type": "string",
+                        "required": true,
+                        "sourcePath": [
+                          "meta",
+                          "admin_profile"
+                        ]
+                      }
+                    ],
+                    "sameNode": true
+                  },
+                  {
+                    "method": "",
                     "name": "hasStatusPaidPartnershipContentMixin",
                     "type": "bool",
                     "required": true
+                  },
+                  {
+                    "method": "",
+                    "name": "statusNewsletterInteractionTypeQuestionMixin",
+                    "type": "string",
+                    "required": false,
+                    "children": [
+                      {
+                        "method": "attrString",
+                        "name": "metaInteractionType",
+                        "wireName": "interaction_type",
+                        "type": "string",
+                        "required": true,
+                        "sourcePath": [
+                          "meta"
+                        ]
+                      }
+                    ],
+                    "sameNode": true
+                  },
+                  {
+                    "method": "",
+                    "name": "statusNewsletterInteractionTypeQuestionReshareMixin",
+                    "type": "string",
+                    "required": false,
+                    "children": [
+                      {
+                        "method": "attrString",
+                        "name": "metaInteractionType",
+                        "wireName": "interaction_type",
+                        "type": "string",
+                        "required": true,
+                        "sourcePath": [
+                          "meta"
+                        ]
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "metaParentServerId",
+                        "wireName": "parent_server_id",
+                        "type": "integer",
+                        "required": true,
+                        "sourcePath": [
+                          "meta"
+                        ]
+                      },
+                      {
+                        "method": "attrString",
+                        "name": "metaResponseServerId",
+                        "wireName": "response_server_id",
+                        "type": "string",
+                        "required": true,
+                        "sourcePath": [
+                          "meta"
+                        ]
+                      }
+                    ],
+                    "sameNode": true
                   },
                   {
                     "method": "",
@@ -21679,6 +24131,25 @@
                         "required": true,
                         "sourcePath": [
                           "views_count"
+                        ]
+                      }
+                    ],
+                    "sameNode": true
+                  },
+                  {
+                    "method": "",
+                    "name": "statusNewsletterResponsesCountMixin",
+                    "type": "string",
+                    "required": false,
+                    "children": [
+                      {
+                        "method": "attrInt",
+                        "name": "responsesCountCount",
+                        "wireName": "count",
+                        "type": "integer",
+                        "required": true,
+                        "sourcePath": [
+                          "responses_count"
                         ]
                       }
                     ],
@@ -22026,9 +24497,87 @@
                       },
                       {
                         "method": "",
+                        "name": "statusAdminProfileMetaMixin",
+                        "type": "string",
+                        "required": false,
+                        "children": [
+                          {
+                            "method": "attrString",
+                            "name": "id",
+                            "wireName": "id",
+                            "type": "string",
+                            "required": true,
+                            "sourcePath": [
+                              "meta",
+                              "admin_profile"
+                            ]
+                          }
+                        ],
+                        "sameNode": true
+                      },
+                      {
+                        "method": "",
                         "name": "hasStatusPaidPartnershipContentMixin",
                         "type": "bool",
                         "required": true
+                      },
+                      {
+                        "method": "",
+                        "name": "statusNewsletterInteractionTypeQuestionMixin",
+                        "type": "string",
+                        "required": false,
+                        "children": [
+                          {
+                            "method": "attrString",
+                            "name": "metaInteractionType",
+                            "wireName": "interaction_type",
+                            "type": "string",
+                            "required": true,
+                            "sourcePath": [
+                              "meta"
+                            ]
+                          }
+                        ],
+                        "sameNode": true
+                      },
+                      {
+                        "method": "",
+                        "name": "statusNewsletterInteractionTypeQuestionReshareMixin",
+                        "type": "string",
+                        "required": false,
+                        "children": [
+                          {
+                            "method": "attrString",
+                            "name": "metaInteractionType",
+                            "wireName": "interaction_type",
+                            "type": "string",
+                            "required": true,
+                            "sourcePath": [
+                              "meta"
+                            ]
+                          },
+                          {
+                            "method": "attrInt",
+                            "name": "metaParentServerId",
+                            "wireName": "parent_server_id",
+                            "type": "integer",
+                            "required": true,
+                            "sourcePath": [
+                              "meta"
+                            ]
+                          },
+                          {
+                            "method": "attrString",
+                            "name": "metaResponseServerId",
+                            "wireName": "response_server_id",
+                            "type": "string",
+                            "required": true,
+                            "sourcePath": [
+                              "meta"
+                            ]
+                          }
+                        ],
+                        "sameNode": true
                       },
                       {
                         "method": "",
@@ -22090,6 +24639,25 @@
                             "required": true,
                             "sourcePath": [
                               "views_count"
+                            ]
+                          }
+                        ],
+                        "sameNode": true
+                      },
+                      {
+                        "method": "",
+                        "name": "statusNewsletterResponsesCountMixin",
+                        "type": "string",
+                        "required": false,
+                        "children": [
+                          {
+                            "method": "attrInt",
+                            "name": "responsesCountCount",
+                            "wireName": "count",
+                            "type": "integer",
+                            "required": true,
+                            "sourcePath": [
+                              "responses_count"
                             ]
                           }
                         ],
@@ -78295,6 +80863,30 @@
     },
     {
       "moduleName": "WASmaxOutPreKeysClientRequestMixin",
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
+    },
+    {
+      "moduleName": "WASmaxOutPreKeysIdentityKeyBundleMixin",
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
+    },
+    {
+      "moduleName": "WASmaxOutPreKeysPQKeyBundleMixin",
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
+    },
+    {
+      "moduleName": "WASmaxOutPreKeysRequestPaddingMixin",
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
+    },
+    {
+      "moduleName": "WASmaxOutPreKeysSetOpAddMixin",
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
+    },
+    {
+      "moduleName": "WASmaxOutPreKeysSetOpDefaultMixin",
+      "reason": "namespace/type unresolved (dropped by guard)"
+    },
+    {
+      "moduleName": "WASmaxOutPreKeysSetOpDeleteMixin",
       "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {

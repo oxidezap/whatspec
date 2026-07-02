@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1042386815",
+  "waVersion": "2.3000.1042562325",
   "events": [
     {
       "name": "GroupCreateC",
@@ -4328,6 +4328,12 @@
           "kind": "integer"
         },
         {
+          "name": "e2eeType",
+          "id": 3054,
+          "kind": "enum",
+          "module": "WAWebWamEnumE2eeType"
+        },
+        {
           "name": "echoCancellationMsPerSec",
           "id": 320,
           "kind": "integer"
@@ -5067,9 +5073,65 @@
           "kind": "boolean"
         },
         {
+          "name": "hbhDcBytesReceivedCount",
+          "id": 3055,
+          "kind": "integer"
+        },
+        {
+          "name": "hbhDcBytesSentCount",
+          "id": 3056,
+          "kind": "integer"
+        },
+        {
+          "name": "hbhDcMsgsReceivedCount",
+          "id": 3057,
+          "kind": "integer"
+        },
+        {
+          "name": "hbhDcMsgsSentCount",
+          "id": 3058,
+          "kind": "integer"
+        },
+        {
+          "name": "hbhDcSetupAvgT",
+          "id": 3059,
+          "kind": "timer"
+        },
+        {
+          "name": "hbhDtlsConnectionState",
+          "id": 3060,
+          "kind": "enum",
+          "module": "WAWebWamEnumHbhDtlsConnectionState"
+        },
+        {
+          "name": "hbhDtlsHandshakeCompletedCount",
+          "id": 3061,
+          "kind": "integer"
+        },
+        {
+          "name": "hbhDtlsHandshakeFailedCount",
+          "id": 3062,
+          "kind": "integer"
+        },
+        {
+          "name": "hbhDtlsHandshakeSetupAvgT",
+          "id": 3063,
+          "kind": "timer"
+        },
+        {
+          "name": "hbhDtlsHandshakeStartedCount",
+          "id": 3064,
+          "kind": "integer"
+        },
+        {
           "name": "hbhKeyInconsistencyCnt",
           "id": 1427,
           "kind": "integer"
+        },
+        {
+          "name": "hbhSctpSetupAvgT",
+          "id": 3065,
+          "kind": "timer"
         },
         {
           "name": "hbhSmlPacketCount",
@@ -8413,6 +8475,11 @@
         {
           "name": "redialAfterCer",
           "id": 1973,
+          "kind": "boolean"
+        },
+        {
+          "name": "redialAfterUserHangup",
+          "id": 3053,
           "kind": "boolean"
         },
         {
@@ -14829,7 +14896,8 @@
         "WAWebWindowsHybridBridgeWam.v2622",
         "WAWebWindowsHybridBridgeWam.v2623",
         "WAWebWindowsHybridBridgeWam.v2624",
-        "WAWebWindowsHybridBridgeWam.v2625"
+        "WAWebWindowsHybridBridgeWam.v2625",
+        "WAWebWindowsHybridBridgeWam.v2626"
       ]
     },
     {
@@ -18298,7 +18366,8 @@
         "WAWebWindowsHybridBridgeWam.v2622",
         "WAWebWindowsHybridBridgeWam.v2623",
         "WAWebWindowsHybridBridgeWam.v2624",
-        "WAWebWindowsHybridBridgeWam.v2625"
+        "WAWebWindowsHybridBridgeWam.v2625",
+        "WAWebWindowsHybridBridgeWam.v2626"
       ]
     },
     {
@@ -18627,6 +18696,16 @@
         {
           "name": "hasCategory",
           "id": 4,
+          "kind": "boolean"
+        },
+        {
+          "name": "hasConnectedFbMedia",
+          "id": 12,
+          "kind": "boolean"
+        },
+        {
+          "name": "hasConnectedIgMedia",
+          "id": 13,
           "kind": "boolean"
         },
         {
@@ -30261,6 +30340,12 @@
           "kind": "integer"
         },
         {
+          "name": "pqFallbackReason",
+          "id": 13,
+          "kind": "enum",
+          "module": "WAWebWamEnumPqFallbackReason"
+        },
+        {
           "name": "retryRejectReason",
           "id": 3,
           "kind": "enum",
@@ -38426,6 +38511,12 @@
           "module": "WAWebWamEnumChatFilterActionTypes"
         },
         {
+          "name": "bbTier",
+          "id": 22,
+          "kind": "enum",
+          "module": "WAWebWamEnumBbTierType"
+        },
+        {
           "name": "contactIsSaved",
           "id": 2,
           "kind": "boolean"
@@ -46325,7 +46416,6 @@
       ],
       "consumers": [
         "PaymentLinkWamLogger",
-        "WAWebBuyerEventLogger",
         "WAWebGalaxyFlowWamLoggerUtils",
         "WAWebOrderDetailsReceivedWamLogger",
         "WAWebPaymentInfoReceivedWamLogger",
@@ -47038,16 +47128,20 @@
           "kind": "string"
         },
         {
-          "name": "botEntryPoint",
-          "id": 2,
-          "kind": "enum",
-          "module": "WAWebWamEnumBotEntryPointType"
-        },
-        {
           "name": "hatchActionType",
           "id": 3,
           "kind": "enum",
           "module": "WAWebWamEnumHatchActionType"
+        },
+        {
+          "name": "hitlIsMulti",
+          "id": 6,
+          "kind": "boolean"
+        },
+        {
+          "name": "rawBotEntryPoint",
+          "id": 5,
+          "kind": "string"
         },
         {
           "name": "unifiedSessionId",
@@ -50079,6 +50173,20 @@
         {
           "key": "SMB_SHOP_SUNSET_BANNER",
           "value": 121
+        }
+      ]
+    },
+    {
+      "name": "BB_TIER_TYPE",
+      "module": "WAWebWamEnumBbTierType",
+      "variants": [
+        {
+          "key": "CORE",
+          "value": 0
+        },
+        {
+          "key": "PRO",
+          "value": 1
         }
       ]
     },
@@ -60675,6 +60783,20 @@
       ]
     },
     {
+      "name": "E2EE_TYPE",
+      "module": "WAWebWamEnumE2eeType",
+      "variants": [
+        {
+          "key": "DEFAULT",
+          "value": 1
+        },
+        {
+          "key": "PQ",
+          "value": 2
+        }
+      ]
+    },
+    {
       "name": "EDIT_PROFILE_ACTION",
       "module": "WAWebWamEnumEditProfileAction",
       "variants": [
@@ -63535,6 +63657,56 @@
         {
           "key": "WA_READ_WRITE_ACCESS_LINK_SUCCESS",
           "value": 6
+        },
+        {
+          "key": "HITL_BOTTOM_SHEET_IMPRESSION",
+          "value": 7
+        },
+        {
+          "key": "HITL_DETAIL_IMPRESSION",
+          "value": 8
+        },
+        {
+          "key": "HITL_ALLOW_ONCE_TAP",
+          "value": 9
+        },
+        {
+          "key": "HITL_ALWAYS_ALLOW_TAP",
+          "value": 10
+        },
+        {
+          "key": "HITL_DENY_TAP",
+          "value": 11
+        }
+      ]
+    },
+    {
+      "name": "HBH_DTLS_CONNECTION_STATE",
+      "module": "WAWebWamEnumHbhDtlsConnectionState",
+      "variants": [
+        {
+          "key": "NONE",
+          "value": 0
+        },
+        {
+          "key": "INITED",
+          "value": 1
+        },
+        {
+          "key": "CONNECTING",
+          "value": 2
+        },
+        {
+          "key": "CONNECTED",
+          "value": 3
+        },
+        {
+          "key": "CLOSED",
+          "value": 4
+        },
+        {
+          "key": "ERROR",
+          "value": 5
         }
       ]
     },
@@ -64137,6 +64309,10 @@
         {
           "key": "AI_TAB",
           "value": 24
+        },
+        {
+          "key": "AI_SEASONAL_UPSELL",
+          "value": 25
         }
       ]
     },
@@ -75137,6 +75313,10 @@
         {
           "key": "CHANNEL_STATUS_QUESTION_ANSWER_POST_RESHARE",
           "value": 63
+        },
+        {
+          "key": "BUSINESS_BROADCAST_INSIGHTS_READY",
+          "value": 64
         }
       ]
     },
@@ -77667,6 +77847,30 @@
         {
           "key": "MARK_AS_PAID_BUTTON",
           "value": 346
+        },
+        {
+          "key": "PAYMENT_STATUS_SAVED",
+          "value": 347
+        },
+        {
+          "key": "SYNCD_STORE_SENT",
+          "value": 348
+        },
+        {
+          "key": "SYNCD_REMOVE_PIX",
+          "value": 349
+        },
+        {
+          "key": "SYNCD_STORE",
+          "value": 350
+        },
+        {
+          "key": "SYNCD_REMOVE",
+          "value": 351
+        },
+        {
+          "key": "SYNCD_FAILED",
+          "value": 352
         }
       ]
     },
@@ -77927,6 +78131,38 @@
         {
           "key": "REGISTER_ALL",
           "value": 39
+        },
+        {
+          "key": "GET_CATEGORIES_LIST",
+          "value": 40
+        },
+        {
+          "key": "GET_BILLER_LIST",
+          "value": 41
+        },
+        {
+          "key": "GET_OPERATOR_CIRCLE_INFO",
+          "value": 42
+        },
+        {
+          "key": "FETCH_BILL",
+          "value": 43
+        },
+        {
+          "key": "GET_RECENT_BILLS",
+          "value": 44
+        },
+        {
+          "key": "GET_BILL_DETAILS",
+          "value": 45
+        },
+        {
+          "key": "GET_BILLER_DETAILS",
+          "value": 46
+        },
+        {
+          "key": "GET_PLANS",
+          "value": 47
         }
       ]
     },
@@ -79023,6 +79259,24 @@
       ]
     },
     {
+      "name": "PQ_FALLBACK_REASON",
+      "module": "WAWebWamEnumPqFallbackReason",
+      "variants": [
+        {
+          "key": "UNKNOWN",
+          "value": 0
+        },
+        {
+          "key": "PQ_NO_SESSION_REGULAR_FALLBACK",
+          "value": 1
+        },
+        {
+          "key": "PQ_SESSION_DELETED_KEYLESS_RETRY",
+          "value": 2
+        }
+      ]
+    },
+    {
       "name": "PRE_CALL_ACTION_TYPE",
       "module": "WAWebWamEnumPreCallActionType",
       "variants": [
@@ -79619,6 +79873,14 @@
         {
           "key": "PREVIOUS_SET_ABOUT",
           "value": 11
+        },
+        {
+          "key": "AWAY_LEAVE_A_MESSAGE",
+          "value": 12
+        },
+        {
+          "key": "AT_THE_GYM",
+          "value": 13
         }
       ]
     },
@@ -84999,6 +85261,10 @@
         {
           "key": "ME_TAB",
           "value": 59
+        },
+        {
+          "key": "CONTACTS_TAB",
+          "value": 60
         }
       ]
     },
@@ -85643,6 +85909,10 @@
         {
           "key": "STATUS_CREATION_ENTRYPOINT_IMP",
           "value": 156
+        },
+        {
+          "key": "POST_NEXT_TAP",
+          "value": 157
         }
       ]
     },
@@ -86197,6 +86467,10 @@
         {
           "key": "ME_TAB",
           "value": 58
+        },
+        {
+          "key": "CONTACTS_TAB",
+          "value": 59
         }
       ]
     },

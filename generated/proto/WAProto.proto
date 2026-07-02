@@ -1,7 +1,7 @@
 syntax = "proto2";
 package whatsapp;
 
-/// WhatsApp Version: 2.3000.1042386815
+/// WhatsApp Version: 2.3000.1042562325
 
 message ADVDeviceIdentity {
   optional uint32 rawId = 1;
@@ -2611,6 +2611,7 @@ message LabyrinthWaCommand {
     CreateBackupInput createBackupInput = 1;
     EncryptMessageInput encryptMessageInput = 2;
     DecryptMessageInput decryptMessageInput = 3;
+    OrfThreadIdInput orfThreadIdInput = 4;
   }
 }
 
@@ -4838,6 +4839,16 @@ message NotificationSettings {
   optional string callVibrate = 6;
 }
 
+message OrfThreadIdInput {
+  required bytes orfClientState = 1;
+  required string threadId = 2;
+}
+
+message OrfThreadIdOutput {
+  optional bytes orfThreadId = 1;
+  optional string error = 2;
+}
+
 message PairingRequest {
   optional bytes companionPublicKey = 1;
   optional bytes companionIdentityKey = 2;
@@ -5047,6 +5058,8 @@ message PreKeySignalMessage {
   optional bytes baseKey = 2;
   optional bytes identityKey = 3;
   optional bytes message = 4;
+  optional uint32 kyberPreKeyId = 7;
+  optional bytes kyberCiphertext = 8;
 }
 
 message PremiumMessageInfo {
@@ -5262,6 +5275,8 @@ message SessionStructure {
     optional uint32 preKeyId = 1;
     optional int32 signedPreKeyId = 3;
     optional bytes baseKey = 2;
+    optional uint32 kyberPreKeyId = 4;
+    optional bytes kyberCiphertext = 5;
   }
 }
 

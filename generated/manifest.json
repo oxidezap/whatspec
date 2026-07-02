@@ -1,67 +1,67 @@
 {
-  "abPropsConfigs": 2355,
+  "abPropsConfigs": 2365,
   "appstateActions": 66,
   "diagnostics": {
     "iq": {
-      "candidateModules": 206,
+      "candidateModules": 215,
       "crossModule": {
-        "fieldsRecovered": 84,
-        "requestsEnriched": 9,
-        "requestsWithMixins": 105
+        "fieldsRecovered": 88,
+        "requestsEnriched": 11,
+        "requestsWithMixins": 108
       },
       "degradedResponses": 19,
       "dropsByReason": {
         "iq builder substring present but no AST iq call": 5,
-        "mixin fragment (folded into requests, not a standalone stanza)": 51,
-        "namespace/type unresolved (dropped by guard)": 1
+        "mixin fragment (folded into requests, not a standalone stanza)": 56,
+        "namespace/type unresolved (dropped by guard)": 2
       },
-      "stanzas": 156,
-      "typedResponses": 137,
-      "unparseable": 57
+      "stanzas": 159,
+      "typedResponses": 140,
+      "unparseable": 63
     }
   },
   "domains": {
     "abprops": {
       "file": "abprops/index.json",
       "schema": "schema/abprops.schema.json",
-      "sha256": "e65da19d7bc8db0d201dcad6061058e6f5769c21d54321b89be75afa3bb20ef9"
+      "sha256": "cb4ce3c5b86ab2c1696bf890778ac9ad6e8f70976d97acbb611bdf41b3759871"
     },
     "appstate": {
       "file": "appstate/index.json",
       "schema": "schema/appstate.schema.json",
-      "sha256": "a6d05783a180c60420e1be72672ccd30dace6d0b5bf8bb3c12581f3c52f28621"
+      "sha256": "f0da36ee45356b7658f343f1f673922013347acb2782960f2dc4084749493345"
     },
     "enums": {
       "file": "enums/index.json",
       "schema": "schema/enums.schema.json",
-      "sha256": "0b6abde6a6c362243545b8bbeeda61ca3696c0e45b6e14b558f454a723c913a5"
+      "sha256": "a6c3424d6b2a2c1f3f5e4fcd7439abeceef208114dd4b8644b9a4bdfec21bfc7"
     },
     "iq": {
       "file": "iq/index.json",
       "schema": "schema/iq.schema.json",
-      "sha256": "3465103910d61a66b496c0367c6634752be70db263e8f6e91e6e884e815e2cf1"
+      "sha256": "2ff4efa661d3469298e71b43afa5e68b94df2bdcd79b84ab3d16482ab5665c91"
     },
     "mex": {
       "file": "mex/index.json",
       "schema": "schema/mex.schema.json",
-      "sha256": "e048e1ec45585855513be208cc9cd9c6817ce0977474fd01733cd529041cb356"
+      "sha256": "324774ede310f41f3193968873947fe09a006ac84290bcb88e34309dd49bdf5f"
     },
     "proto": {
       "file": "proto/WAProto.proto",
-      "sha256": "b926ed5e5f6f6a71d0f54159216eb4b7cc5c2f61e46a74c6e3c7287afa2604f4"
+      "sha256": "1b18336d1c4c8e0252bc8cb65da09652326a3f56c565d625520eeb3c9b2642bc"
     },
     "wam": {
       "file": "wam/index.json",
       "schema": "schema/wam.schema.json",
-      "sha256": "b63bf09fa33bc8f4e61d575d4566704600fa585236310a028c325e5d141fb909"
+      "sha256": "8b164c35c6b61126f229b2b987d162501f4c35873ee4774404c665c6b0f1db56"
     }
   },
-  "enumDefs": 252,
+  "enumDefs": 257,
   "generatorVersion": "0.1.0",
   "iqModules": 33,
   "mexOperations": 129,
-  "protoEntities": 255,
+  "protoEntities": 257,
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1042386815",
+  "waVersion": "2.3000.1042562325",
   "wamEvents": 428
 }
