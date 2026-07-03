@@ -1,7 +1,8 @@
 //! Native tooling: extract WhatsApp Web's incoming stanza-dispatch catalog.
 //!
-//! WA Web routes every inbound stanza through one dispatcher module
-//! (`WAWebCommsHandleLoggedInStanza`) shaped as a two-level `switch`:
+//! WA Web routes inbound stanzas through dispatcher modules shaped as a two-level
+//! `switch` — `switch(stanza.tag)` at the top, and inside the `notification` arm a
+//! `switch(notification.type)`:
 //!
 //! ```js
 //! switch (stanza.tag) {
@@ -17,14 +18,17 @@
 //! }
 //! ```
 //!
-//! We locate that switch structurally (a `switch(x.tag)` with a `"notification"`
-//! case), then read the stanza-tag arms, the `notification.type` arms, each arm's
-//! handler module, and any second-level (`content[0].tag`) sub-dispatch. The result
-//! is [`NotifIr`] — the discriminant catalog, drift-pinned to the bundle.
+//! There is **more than one** such dispatcher (the main
+//! `WAWebCommsHandleLoggedInStanza` plus a `WAWebCommsHandleWorkerCompatibleStanza`);
+//! we locate each structurally — a `switch(.tag)` whose `notification` arm holds a
+//! `switch(.type)`, a signature that excludes tag-classifiers like
+//! `WAWebCreateNackFromStanza` — and **merge** their arms. The result is [`NotifIr`],
+//! the union catalog, drift-pinned to the bundle.
 //!
 //! Handler resolution is structural, never by hardcoded name: an arm forwards via
-//! `require("Module").method(stanza)` or `require("Module")(stanza)`, and both
-//! forms are recovered from the AST.
+//! `require("Module").method(stanza)` or `require("Module")(stanza)` (optionally
+//! wrapped in promise plumbing like `e(handler(t)).catch(fn)`), all recovered from
+//! the AST.
 #![cfg(not(target_arch = "wasm32"))]
 
 use std::collections::HashMap;
@@ -109,11 +113,14 @@ pub fn extract_notif_from_modules(
     // dropping the catalog entry.
     let slice_by_name = module_slice_index(source, module_defs);
     for n in &mut dispatch.notifications {
-        if let Some(module) = &n.handler_module
-            && let Some(slice) = slice_by_name.get(module.as_str())
-        {
-            n.content = notification_content(slice);
-        }
+        let Some(module) = n.handler_module.clone() else {
+            continue;
+        };
+        let Some(slice) = slice_by_name.get(module.as_str()) else {
+            continue;
+        };
+        let notif_type = n.notif_type.clone();
+        n.content = notification_content(slice, &notif_type);
     }
 
     NotifIr {
@@ -201,25 +208,39 @@ fn module_slice_index<'s>(
     idx
 }
 
-/// The typed content shape of a notification, read from its handler module's
-/// legacy response parser (`new WADeprecatedWapParser("incoming…Notification", fn)`).
+/// The typed content shape of a notification `type`, read from its handler
+/// module's legacy response parser (`new WADeprecatedWapParser("incoming…", fn)`).
 /// `None` when the handler carries no such parser (it delegates parsing to a
 /// job/sub-module) — a degraded, but still catalogued, entry.
-fn notification_content(handler_slice: &str) -> Option<ParsedResponse> {
+fn notification_content(handler_slice: &str, notif_type: &str) -> Option<ParsedResponse> {
     let parsers = wa_scan::parse_module_wap_parsers(handler_slice);
-    pick_notification_parser(parsers)
+    pick_notification_parser(parsers, notif_type)
 }
 
-/// Choose the parser that reads the incoming notification from a handler module's
-/// parsers: prefer one that asserts `tag == "notification"` (the incoming stanza),
-/// else the sole parser if the module has exactly one. Ambiguous multi-parser
-/// modules with no notification-asserting parser yield `None`.
-fn pick_notification_parser(parsers: Vec<ParsedResponse>) -> Option<ParsedResponse> {
+/// Choose the parser for `notif_type` from a handler module's parsers. A module
+/// can hold parsers for several notification types (each asserting its own
+/// `type`), so prefer the one whose `assertAttr("type", notif_type)` matches;
+/// then any parser that asserts `tag == "notification"`; then the sole parser.
+/// Ambiguous multi-parser modules with no match yield `None`.
+fn pick_notification_parser(
+    parsers: Vec<ParsedResponse>,
+    notif_type: &str,
+) -> Option<ParsedResponse> {
+    let matches_type = |p: &ParsedResponse| {
+        p.assertions.iter().any(|a| {
+            a.kind == AssertionKind::Attr
+                && a.name.as_deref() == Some("type")
+                && a.value.as_deref() == Some(notif_type)
+        })
+    };
     let asserts_notification = |p: &ParsedResponse| {
         p.assertions
             .iter()
             .any(|a| a.kind == AssertionKind::Tag && a.name.as_deref() == Some("notification"))
     };
+    if let Some(i) = parsers.iter().position(matches_type) {
+        return parsers.into_iter().nth(i);
+    }
     if let Some(i) = parsers.iter().position(asserts_notification) {
         return parsers.into_iter().nth(i);
     }
@@ -335,7 +356,7 @@ fn extract_notifications(consequent: &[Statement]) -> Vec<NotificationDef> {
     // of types (passkey_prologue_request, crsc_continuation) dispatch this way.
     for stmt in body {
         if let Statement::IfStatement(if_stmt) = stmt
-            && let Some(ty) = eq_string_literal(&if_stmt.test)
+            && let Some(ty) = type_eq_string_literal(&if_stmt.test)
             && !out.iter().any(|n| n.notif_type == ty)
         {
             let handler = primary_handler(std::slice::from_ref(&if_stmt.consequent));
@@ -531,9 +552,15 @@ fn require_name<'b, 'a>(e: &'b Expression<'a>) -> Option<&'b str> {
     first_string_arg(call)
 }
 
-/// The string literal compared against in the first `=== "…"` / `== "…"` found
-/// anywhere in `expr` (e.g. `n.type != null && String(n.type) === "crsc_continuation"`).
-fn eq_string_literal<'b, 'a>(expr: &'b Expression<'a>) -> Option<&'b str> {
+/// The notification-type literal from an `if` guard that compares the stanza's
+/// `type` against a string, e.g. `n.type != null && String(n.type) === "crsc_continuation"`
+/// → `"crsc_continuation"`.
+///
+/// Narrow on purpose: the equality is accepted only when its non-literal side
+/// **references `.type`** (directly, or through a `String(x.type)` / `x.type.toString()`
+/// wrapper). Without that guard, an unrelated `if (mode === "sentinel")` in the arm
+/// would mint a phantom notification type with a bogus handler.
+fn type_eq_string_literal<'b, 'a>(expr: &'b Expression<'a>) -> Option<&'b str> {
     match expr {
         Expression::BinaryExpression(bin)
             if matches!(
@@ -542,17 +569,42 @@ fn eq_string_literal<'b, 'a>(expr: &'b Expression<'a>) -> Option<&'b str> {
                     | oxc_ast::ast::BinaryOperator::Equality
             ) =>
         {
-            as_string_lit(&bin.left)
-                .or_else(|| as_string_lit(&bin.right))
-                .or_else(|| eq_string_literal(&bin.left))
-                .or_else(|| eq_string_literal(&bin.right))
+            // One side a string literal, the other a `.type` reference.
+            let (lit, other) = match (as_string_lit(&bin.left), as_string_lit(&bin.right)) {
+                (Some(s), _) => (s, &bin.right),
+                (_, Some(s)) => (s, &bin.left),
+                _ => return None,
+            };
+            references_type(other).then_some(lit)
         }
+        // Descend `&&` / `||` chains to reach the `=== "…"` comparison.
         Expression::LogicalExpression(log) => {
-            eq_string_literal(&log.left).or_else(|| eq_string_literal(&log.right))
+            type_eq_string_literal(&log.left).or_else(|| type_eq_string_literal(&log.right))
         }
-        Expression::ParenthesizedExpression(p) => eq_string_literal(&p.expression),
+        Expression::ParenthesizedExpression(p) => type_eq_string_literal(&p.expression),
         _ => None,
     }
+}
+
+/// Whether `e` reads the stanza's `type`: a `.type` member, or one wrapped in
+/// `String(x.type)` / `x.type.toString()`.
+fn references_type(e: &Expression) -> bool {
+    if member_prop(e) == Some("type") {
+        return true;
+    }
+    let Some(call) = as_call(e) else {
+        return false;
+    };
+    // `String(x.type)` — a bare-identifier callee over the type expression.
+    if as_identifier(&call.callee).is_some() {
+        return call
+            .arguments
+            .iter()
+            .filter_map(arg_expr)
+            .any(references_type);
+    }
+    // `x.type.toString()` — recurse into the method's receiver.
+    callee_object(call).is_some_and(references_type)
 }
 
 // ── small AST helpers ────────────────────────────────────────────────────────────

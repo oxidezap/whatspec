@@ -464,6 +464,9 @@ struct Counts {
     notif_types: usize,
     /// Of those, how many recovered a typed content shape (the rest are degraded).
     notif_typed_content: usize,
+    /// Top-level stanza tags in the dispatch catalog (a drop to 0 means the
+    /// tag-switch stopped being recognized even if notif types survive).
+    notif_stanza_tags: usize,
     /// Stanza-level IQ coverage (more sensitive than the namespace/module count)
     /// — carried so the floor guard can regress on a stanza-count drop, matching
     /// `manifest.diagnostics.iq.{stanzas,typedResponses}`.
@@ -741,7 +744,7 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
     let (abprops_arts, abprops_count) = abprops.context("abprops extraction")?;
     let (enums_arts, enums_count) = enums.context("enums extraction")?;
     let (wam_arts, wam_count) = wam.context("wam extraction")?;
-    let (notif_arts, (notif_count, notif_typed)) = notif.context("notif extraction")?;
+    let (notif_arts, (notif_count, notif_typed, notif_tags)) = notif.context("notif extraction")?;
 
     // Fail loud if any domain extracted nothing — a real WA bundle always yields
     // all of these, so a zero means the bundle is incomplete or that extractor
@@ -793,6 +796,7 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
         wam_events: wam_count,
         notif_types: notif_count,
         notif_typed_content: notif_typed,
+        notif_stanza_tags: notif_tags,
         iq_stanzas: iq_diag.stanzas,
         iq_typed_responses: iq_diag.typed_responses,
     };
@@ -874,6 +878,7 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
                 "types": counts.notif_types,
                 "typedContent": counts.notif_typed_content,
                 "degraded": counts.notif_types - counts.notif_typed_content,
+                "stanzaTags": counts.notif_stanza_tags,
             },
         },
     });
@@ -933,18 +938,20 @@ fn check_floor(out: &Path, counts: &Counts) -> Result<Vec<String>> {
             }
         }
     }
-    // Notification typed-content coverage: a drop means a handler's parser stopped
-    // resolving (the catalog can stay full while content silently degrades).
-    if let Some(notif) = prior.get("diagnostics").and_then(|d| d.get("notif"))
-        && let Some(prev) = notif
-            .get("typedContent")
-            .and_then(serde_json::Value::as_u64)
-        && (counts.notif_typed_content as u64) < prev
-    {
-        regressions.push(format!(
-            "notif.typedContent: {prev} → {}",
-            counts.notif_typed_content
-        ));
+    // Notification coverage below the catalog count: a drop in typed-content means a
+    // handler's parser stopped resolving; a drop in stanzaTags means the tag-switch
+    // stopped being recognized — either can regress silently while notif types survive.
+    if let Some(notif) = prior.get("diagnostics").and_then(|d| d.get("notif")) {
+        for (key, new) in [
+            ("typedContent", counts.notif_typed_content),
+            ("stanzaTags", counts.notif_stanza_tags),
+        ] {
+            if let Some(prev) = notif.get(key).and_then(serde_json::Value::as_u64)
+                && (new as u64) < prev
+            {
+                regressions.push(format!("notif.{key}: {prev} → {new}"));
+            }
+        }
     }
     Ok(regressions)
 }
@@ -1162,9 +1169,10 @@ fn push_notif(
     wa_version: &str,
     source: &str,
     module_defs: &[wa_transform::ModuleDefinition],
-) -> Result<(usize, usize)> {
+) -> Result<(usize, usize, usize)> {
     let ir = wa_notif::extract_notif_from_modules(source, module_defs, wa_version);
     let count = ir.notifications.len();
+    let stanza_tags = ir.stanza_tags.len();
     let typed = ir
         .notifications
         .iter()
@@ -1174,7 +1182,7 @@ fn push_notif(
         "notif: {count} notification types ({typed} with typed content, {} degraded), \
          {} stanza tags (dispatchers: {})",
         count - typed,
-        ir.stanza_tags.len(),
+        stanza_tags,
         if ir.dispatcher_modules.is_empty() {
             "<none>".to_string()
         } else {
@@ -1191,7 +1199,7 @@ fn push_notif(
         rel_path: PathBuf::from("notif/notif.rs"),
         content: wa_codegen::generate_notif(&ir),
     });
-    Ok((count, typed))
+    Ok((count, typed, stanza_tags))
 }
 
 fn push_wam(
@@ -1336,6 +1344,7 @@ mod tests {
             wam_events: 0,
             notif_types: 0,
             notif_typed_content: 0,
+            notif_stanza_tags: 0,
             iq_stanzas: 0,
             iq_typed_responses: 0,
         };

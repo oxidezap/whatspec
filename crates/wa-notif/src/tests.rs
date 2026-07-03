@@ -365,6 +365,82 @@ fn non_dispatcher_module_yields_empty() {
     assert!(ir.notifications.is_empty());
 }
 
+/// A handler module that defines parsers for TWO notification types — the wrong
+/// one (`other`) first — to exercise type-matched content selection.
+const MULTI_PARSER_HANDLER: &str = r#"
+__d("WAWebHandleDeviceNotification",["WADeprecatedWapParser"],function(g,r,d,o,e,i,l){
+  var other = new (r("WADeprecatedWapParser"))("incomingOtherNotification", function(t){
+    t.assertTag("notification");
+    t.assertAttr("type", "other");
+    t.attrString("wrong");
+  });
+  var dev = new (r("WADeprecatedWapParser"))("incomingDevicesNotification", function(t){
+    t.assertTag("notification");
+    t.assertAttr("type", "devices");
+    t.attrString("id");
+  });
+  l.handleDevicesNotification = function(n){ return dev.parse(n); };
+}, 3);
+"#;
+
+#[test]
+fn content_selected_by_type_when_module_has_multiple_parsers() {
+    // The module defines the `other` parser before the `devices` one; selection
+    // must match on assertAttr("type","devices"), not take the first
+    // notification-asserting parser.
+    let src = format!("{DISPATCHER}\n{MULTI_PARSER_HANDLER}");
+    let ir = extract_notif(&src, "v");
+    let content = notif(&ir, "devices")
+        .content
+        .as_ref()
+        .expect("devices content");
+    assert_eq!(content.parser_name, "incomingDevicesNotification");
+    assert!(content.fields.iter().any(|f| f.name == "id"));
+    assert!(
+        !content.fields.iter().any(|f| f.name == "wrong"),
+        "picked the wrong type's parser"
+    );
+}
+
+/// A dispatcher with a trailing `if (mode === "sentinel")` that is NOT a `.type`
+/// comparison — it must not be mistaken for a notification type.
+const PHANTOM_IF_DISPATCHER: &str = r#"
+__d("WAWebCommsHandleLoggedInStanza",[],function(g,r,d,o,e,i,l){
+  l.h = function(){ return (function*(e,t){
+    var n = e.attrs;
+    switch (e.tag) {
+      case "notification": try {
+        switch (n.type) {
+          case "devices": return yield o("WAWebHandleDeviceNotification").handleDevicesNotification(e);
+        }
+        if (n.type != null && String(n.type) === "passkey_prologue_request")
+          return yield o("WAWebShortcakeLinkingHandlePasskeyPrologueRequest").handlePasskeyPrologueRequestNotification(e);
+        var mode = e.attrs.mode;
+        if (mode === "sentinel") return yield r("WAWebBogus")(e);
+      } catch (t) {}
+    }
+  }); };
+}, 1);
+"#;
+
+#[test]
+fn unrelated_string_equality_does_not_mint_a_phantom_type() {
+    let ir = extract_notif(PHANTOM_IF_DISPATCHER, "v");
+    let types: Vec<&str> = ir
+        .notifications
+        .iter()
+        .map(|n| n.notif_type.as_str())
+        .collect();
+    // The real arms are captured…
+    assert!(types.contains(&"devices"));
+    assert!(types.contains(&"passkey_prologue_request"));
+    // …but a `mode === "sentinel"` guard (not a `.type` comparison) is not a type.
+    assert!(
+        !types.contains(&"sentinel"),
+        "phantom type leaked from a non-`.type` equality: {types:?}"
+    );
+}
+
 #[test]
 fn extraction_is_deterministic() {
     // Same input → byte-identical serialization (stable sort keys).

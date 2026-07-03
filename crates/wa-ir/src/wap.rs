@@ -142,12 +142,26 @@ mod tests {
             ATTR_STRING,
             ATTR_INT,
             ATTR_ENUM,
+            ATTR_ENUM_VALUES,
             MAYBE_ATTR_STRING,
             MAYBE_ATTR_INT,
             MAYBE_ATTR_ENUM,
             ATTR_DEVICE_JID,
             ATTR_GROUP_JID,
             ATTR_JID_WITH_TYPE,
+            // Timestamp and extended-JID accessors (notification parsers). Kept here
+            // too so dropping one from the `matches!` block trips this test, not just
+            // the dedicated `notification_accessors_classified`.
+            ATTR_TIME,
+            MAYBE_ATTR_TIME,
+            ATTR_USER_JID,
+            MAYBE_ATTR_USER_JID,
+            ATTR_WAP_JID,
+            ATTR_CHAT_JID,
+            ATTR_FROM_JID,
+            ATTR_LID_USER_JID,
+            MAYBE_ATTR_LID_USER_JID,
+            ATTR_LID_DEVICE_JID,
         ] {
             assert!(is_attr_method(m), "{m}");
         }

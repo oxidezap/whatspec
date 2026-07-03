@@ -17,7 +17,7 @@ pub fn generate_notif(ir: &NotifIr) -> String {
     body.push_str(&emit_notification_type_enum(&ir.notifications));
     body.push_str(&emit_stanza_tag_enum(&ir.stanza_tags));
     body.push_str(&emit_handler_table(&ir.notifications));
-    let content = emit_content_module(&ir.notifications);
+    let (content, uses_jid) = emit_content_module(&ir.notifications);
 
     let mut out = String::new();
     let dispatchers = if ir.dispatcher_modules.is_empty() {
@@ -32,9 +32,9 @@ pub fn generate_notif(ir: &NotifIr) -> String {
          #![allow(clippy::all, dead_code, non_snake_case)]\n\n",
         ir.wa_version, dispatchers,
     ));
-    // The typed content structs may reference `Jid`; import it only when used so
-    // the file has no dead import.
-    if content.contains("Jid") {
+    // The typed content structs may reference `Jid`; import it only when a field
+    // actually decodes to one, so the file has no dead import.
+    if uses_jid {
         out.push_str("use wacore_binary::jid::Jid;\n\n");
     }
     out.push_str(&body);
@@ -162,20 +162,32 @@ fn emit_handler_table(notifications: &[NotificationDef]) -> String {
 
 /// `pub mod content { … }` — one typed struct per notification with a recovered
 /// content shape, plus the nested child structs / enums those fields need.
-fn emit_content_module(notifications: &[NotificationDef]) -> String {
+///
+/// Returns `(module_source, uses_jid)`. `uses_jid` is derived from the generated
+/// fields' Rust types (which come from the type-aware [`crate::fields`] emitter),
+/// not by grepping the rendered text — so it can't misfire on a `Jid` substring in
+/// a doc comment or parser name.
+fn emit_content_module(notifications: &[NotificationDef]) -> (String, bool) {
     let typed: Vec<&NotificationDef> = notifications
         .iter()
         .filter(|n| n.content.is_some())
         .collect();
     if typed.is_empty() {
-        return String::new();
+        return (String::new(), false);
     }
 
     let mut inner = String::new();
+    let mut uses_jid = false;
     for n in &typed {
         let content = n.content.as_ref().unwrap();
         let struct_name = pascal_case(&n.notif_type);
         let (fields, child_structs, enums) = collect_response_fields(&content.fields, &struct_name);
+
+        uses_jid |= fields_use_jid(&fields)
+            || child_structs.iter().any(|cs| fields_use_jid(&cs.fields))
+            || enums
+                .iter()
+                .any(|e| e.variants.iter().any(|v| fields_use_jid(&v.fields)));
 
         inner.push_str(&format!(
             "/// Content of `<notification type={:?}>` (parser `{}`).\n",
@@ -196,7 +208,7 @@ fn emit_content_module(notifications: &[NotificationDef]) -> String {
     let mut l = String::new();
     l.push_str("/// Typed content shapes for notifications whose handler exposes a parser.\n");
     l.push_str("pub mod content {\n");
-    if inner.contains("Jid") {
+    if uses_jid {
         l.push_str("    use super::Jid;\n\n");
     }
     for line in inner.trim_end().split('\n') {
@@ -209,7 +221,13 @@ fn emit_content_module(notifications: &[NotificationDef]) -> String {
         }
     }
     l.push_str("}\n");
-    l
+    (l, uses_jid)
+}
+
+/// Whether any generated field decodes to a `Jid` (`Jid` / `Option<Jid>`). Read off
+/// the field's Rust type, which the field emitter derives from `ParsedFieldType`.
+fn fields_use_jid(fields: &[RustField]) -> bool {
+    fields.iter().any(|f| f.rust_type.contains("Jid"))
 }
 
 /// A plain data struct: `pub struct Name { pub f: T, … }` (empty → unit-like `{}`).
