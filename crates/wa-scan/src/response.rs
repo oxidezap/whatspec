@@ -8,12 +8,91 @@
 use std::collections::HashMap;
 
 use oxc_allocator::Allocator;
-use oxc_ast::ast::{CallExpression, Expression, VariableDeclaration};
+use oxc_ast::ast::{CallExpression, Expression, NewExpression, VariableDeclaration};
 use oxc_ast_visit::{Visit, walk};
+use oxc_span::GetSpan;
 use wa_ir::wap;
-use wa_ir::{AssertionKind, ContentType, ParsedField, ParsedFieldType, ResponseAssertion};
+use wa_ir::{
+    AssertionKind, ContentType, ParsedField, ParsedFieldType, ParsedResponse, ResponseAssertion,
+};
 
 use wa_oxc::{arg_expr, as_call, as_identifier, as_string_lit, callee_method, callee_object};
+
+/// The class name a legacy response parser is constructed from.
+const PARSER_CLASS: &str = "WADeprecatedWapParser";
+
+/// If `new_expr` is `new WADeprecatedWapParser("name", function(p){ … })`, analyze
+/// its callback body into a [`ParsedResponse`] (name + assertions + field tree).
+///
+/// `source` is the module slice the new-expression's spans index into. Shared by
+/// the IQ module scanner (which keeps the module's single parser) and
+/// [`parse_module_wap_parsers`] (which collects every parser in a module), so the
+/// two can't drift on how a parser is recognized.
+pub(crate) fn parsed_response_from_new_expr(
+    new_expr: &NewExpression,
+    source: &str,
+) -> Option<ParsedResponse> {
+    if new_expr.arguments.len() < 2 {
+        return None;
+    }
+    let name = arg_expr(&new_expr.arguments[0]).and_then(as_string_lit)?;
+    let Some(Expression::FunctionExpression(cb)) = arg_expr(&new_expr.arguments[1]) else {
+        return None;
+    };
+    // The callee must reference WADeprecatedWapParser.
+    let callee_span = new_expr.callee.span();
+    let callee_src = &source[callee_span.start as usize..callee_span.end as usize];
+    if !callee_src.contains(PARSER_CLASS) {
+        return None;
+    }
+    let param = cb
+        .params
+        .items
+        .first()
+        .and_then(|p| p.pattern.get_identifier_name())?;
+    let body = cb.body.as_ref()?;
+    let cb_body = &source[body.span.start as usize..body.span.end as usize];
+    let result = analyze_parser_ast(cb_body, param.as_str());
+    Some(ParsedResponse {
+        parser_name: name.to_string(),
+        assertions: result.assertions,
+        fields: result.fields,
+        ..Default::default()
+    })
+}
+
+/// Collect every `new WADeprecatedWapParser("name", fn)` in a module slice as a
+/// [`ParsedResponse`]. Used by non-IQ domains (e.g. notification handlers) to
+/// recover a stanza's typed content shape with the same parser-body analysis the
+/// IQ response scanner uses. Returns empty for an unparseable slice or a module
+/// with no legacy parser (a handler that delegates to a job/sub-module).
+pub fn parse_module_wap_parsers(source: &str) -> Vec<ParsedResponse> {
+    let alloc = Allocator::default();
+    let ret = wa_oxc::parse_cjs(&alloc, source);
+    if ret.panicked {
+        return Vec::new();
+    }
+    let mut collector = ParserCollector {
+        source,
+        out: Vec::new(),
+    };
+    collector.visit_program(&ret.program);
+    collector.out
+}
+
+struct ParserCollector<'s> {
+    source: &'s str,
+    out: Vec<ParsedResponse>,
+}
+
+impl<'a> Visit<'a> for ParserCollector<'_> {
+    fn visit_new_expression(&mut self, new_expr: &NewExpression<'a>) {
+        if let Some(pr) = parsed_response_from_new_expr(new_expr, self.source) {
+            self.out.push(pr);
+        }
+        walk::walk_new_expression(self, new_expr);
+    }
+}
 
 /// Result of analyzing a parser callback body.
 pub(crate) struct ParserResult {

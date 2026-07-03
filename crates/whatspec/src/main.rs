@@ -176,7 +176,7 @@ fn update(args: &[String]) -> Result<()> {
 
     eprintln!(
         "wrote artifacts to {}: {} iq modules, {} proto entities, {} mex ops, {} appstate actions, \
-         {} abprops, {} enums, {} wam events",
+         {} abprops, {} enums, {} wam events, {} notif types",
         opts.out.display(),
         counts.iq_modules,
         counts.proto_entities,
@@ -184,7 +184,8 @@ fn update(args: &[String]) -> Result<()> {
         counts.appstate_actions,
         counts.abprops_configs,
         counts.enum_defs,
-        counts.wam_events
+        counts.wam_events,
+        counts.notif_types
     );
     Ok(())
 }
@@ -290,6 +291,7 @@ fn diff(args: &[String]) -> Result<()> {
         "abPropsConfigs",
         "enumDefs",
         "wamEvents",
+        "notifTypes",
     ] {
         print_count_delta(key, json_u64(&mo, key), json_u64(&mn, key));
     }
@@ -341,6 +343,14 @@ fn diff(args: &[String]) -> Result<()> {
         "name",
     );
     print_name_diff("enums", old, new, "enums/index.json", "enums", "name");
+    print_name_diff(
+        "notif types",
+        old,
+        new,
+        "notif/index.json",
+        "notifications",
+        "type",
+    );
 
     Ok(())
 }
@@ -450,6 +460,13 @@ struct Counts {
     abprops_configs: usize,
     enum_defs: usize,
     wam_events: usize,
+    /// Number of `<notification type="…">` kinds in the dispatch catalog.
+    notif_types: usize,
+    /// Of those, how many recovered a typed content shape (the rest are degraded).
+    notif_typed_content: usize,
+    /// Top-level stanza tags in the dispatch catalog (a drop to 0 means the
+    /// tag-switch stopped being recognized even if notif types survive).
+    notif_stanza_tags: usize,
     /// Stanza-level IQ coverage (more sensitive than the namespace/module count)
     /// — carried so the floor guard can regress on a stanza-count drop, matching
     /// `manifest.diagnostics.iq.{stanzas,typedResponses}`.
@@ -668,7 +685,7 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
     // The four extractors are independent and read-only over the shared inputs;
     // each returns `Result` so a failure surfaces with context instead of a
     // silent empty artifact or a bare panic.
-    let (iq, proto, mex, appstate, abprops, enums, wam) = std::thread::scope(|s| {
+    let (iq, proto, mex, appstate, abprops, enums, wam, notif) = std::thread::scope(|s| {
         let iq = s.spawn(|| -> Result<_> {
             let mut a = Vec::new();
             let c = push_iq(&mut a, wa_version, source, &module_defs)?;
@@ -704,6 +721,11 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
             let c = push_wam(&mut a, wa_version, source, &module_defs)?;
             Ok((a, c))
         });
+        let notif = s.spawn(|| -> Result<_> {
+            let mut a = Vec::new();
+            let c = push_notif(&mut a, wa_version, source, &module_defs)?;
+            Ok((a, c))
+        });
         (
             iq.join().expect("iq extractor panicked"),
             proto.join().expect("proto extractor panicked"),
@@ -712,6 +734,7 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
             abprops.join().expect("abprops extractor panicked"),
             enums.join().expect("enums extractor panicked"),
             wam.join().expect("wam extractor panicked"),
+            notif.join().expect("notif extractor panicked"),
         )
     });
     let (iq_arts, (iq_count, iq_diag)) = iq.context("iq codegen")?;
@@ -721,6 +744,7 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
     let (abprops_arts, abprops_count) = abprops.context("abprops extraction")?;
     let (enums_arts, enums_count) = enums.context("enums extraction")?;
     let (wam_arts, wam_count) = wam.context("wam extraction")?;
+    let (notif_arts, (notif_count, notif_typed, notif_tags)) = notif.context("notif extraction")?;
 
     // Fail loud if any domain extracted nothing — a real WA bundle always yields
     // all of these, so a zero means the bundle is incomplete or that extractor
@@ -732,6 +756,7 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
         ("abprops configs", abprops_count),
         ("enum defs", enums_count),
         ("wam events", wam_count),
+        ("notif types", notif_count),
     ] {
         if n == 0 {
             anyhow::bail!(
@@ -750,6 +775,7 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
     artifacts.extend(abprops_arts);
     artifacts.extend(enums_arts);
     artifacts.extend(wam_arts);
+    artifacts.extend(notif_arts);
 
     // JSON Schema of the IR contract (one per domain), for cross-language
     // consumers to validate the `index.json` files and auto-generate IR types.
@@ -768,6 +794,9 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
         abprops_configs: abprops_count,
         enum_defs: enums_count,
         wam_events: wam_count,
+        notif_types: notif_count,
+        notif_typed_content: notif_typed,
+        notif_stanza_tags: notif_tags,
         iq_stanzas: iq_diag.stanzas,
         iq_typed_responses: iq_diag.typed_responses,
     };
@@ -790,6 +819,7 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
         ),
         ("enums", "enums/index.json", "schema/enums.schema.json"),
         ("wam", "wam/index.json", "schema/wam.schema.json"),
+        ("notif", "notif/index.json", "schema/notif.schema.json"),
     ];
     let domains: serde_json::Map<String, serde_json::Value> =
         neutral
@@ -828,6 +858,7 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
         "abPropsConfigs": counts.abprops_configs,
         "enumDefs": counts.enum_defs,
         "wamEvents": counts.wam_events,
+        "notifTypes": counts.notif_types,
         "domains": domains,
         "diagnostics": {
             "iq": {
@@ -842,6 +873,12 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
                     "requestsEnriched": iq_diag.cross_module.requests_enriched,
                     "fieldsRecovered": iq_diag.cross_module.fields_recovered,
                 },
+            },
+            "notif": {
+                "types": counts.notif_types,
+                "typedContent": counts.notif_typed_content,
+                "degraded": counts.notif_types - counts.notif_typed_content,
+                "stanzaTags": counts.notif_stanza_tags,
             },
         },
     });
@@ -876,6 +913,7 @@ fn check_floor(out: &Path, counts: &Counts) -> Result<Vec<String>> {
         ("abPropsConfigs", counts.abprops_configs),
         ("enumDefs", counts.enum_defs),
         ("wamEvents", counts.wam_events),
+        ("notifTypes", counts.notif_types),
     ];
     let mut regressions = Vec::new();
     for (key, new) in checks {
@@ -897,6 +935,21 @@ fn check_floor(out: &Path, counts: &Counts) -> Result<Vec<String>> {
                 && (new as u64) < prev
             {
                 regressions.push(format!("iq.{key}: {prev} → {new}"));
+            }
+        }
+    }
+    // Notification coverage below the catalog count: a drop in typed-content means a
+    // handler's parser stopped resolving; a drop in stanzaTags means the tag-switch
+    // stopped being recognized — either can regress silently while notif types survive.
+    if let Some(notif) = prior.get("diagnostics").and_then(|d| d.get("notif")) {
+        for (key, new) in [
+            ("typedContent", counts.notif_typed_content),
+            ("stanzaTags", counts.notif_stanza_tags),
+        ] {
+            if let Some(prev) = notif.get(key).and_then(serde_json::Value::as_u64)
+                && (new as u64) < prev
+            {
+                regressions.push(format!("notif.{key}: {prev} → {new}"));
             }
         }
     }
@@ -1110,6 +1163,45 @@ fn push_enums(
     Ok(count)
 }
 
+/// `(notification types, types with a recovered typed content shape)`.
+fn push_notif(
+    artifacts: &mut Vec<Artifact>,
+    wa_version: &str,
+    source: &str,
+    module_defs: &[wa_transform::ModuleDefinition],
+) -> Result<(usize, usize, usize)> {
+    let ir = wa_notif::extract_notif_from_modules(source, module_defs, wa_version);
+    let count = ir.notifications.len();
+    let stanza_tags = ir.stanza_tags.len();
+    let typed = ir
+        .notifications
+        .iter()
+        .filter(|n| n.content.is_some())
+        .count();
+    eprintln!(
+        "notif: {count} notification types ({typed} with typed content, {} degraded), \
+         {} stanza tags (dispatchers: {})",
+        count - typed,
+        stanza_tags,
+        if ir.dispatcher_modules.is_empty() {
+            "<none>".to_string()
+        } else {
+            ir.dispatcher_modules.join(", ")
+        }
+    );
+    artifacts.push(Artifact {
+        rel_path: PathBuf::from("notif/index.json"),
+        content: serde_json::to_string_pretty(&wa_ir::IrEnvelope::new(&ir))? + "\n",
+    });
+    // Reference Rust catalog (NotificationType/StanzaTag enums, handler table,
+    // typed content structs).
+    artifacts.push(Artifact {
+        rel_path: PathBuf::from("notif/notif.rs"),
+        content: wa_codegen::generate_notif(&ir),
+    });
+    Ok((count, typed, stanza_tags))
+}
+
 fn push_wam(
     artifacts: &mut Vec<Artifact>,
     wa_version: &str,
@@ -1250,6 +1342,9 @@ mod tests {
             abprops_configs: 0,
             enum_defs: 0,
             wam_events: 0,
+            notif_types: 0,
+            notif_typed_content: 0,
+            notif_stanza_tags: 0,
             iq_stanzas: 0,
             iq_typed_responses: 0,
         };
