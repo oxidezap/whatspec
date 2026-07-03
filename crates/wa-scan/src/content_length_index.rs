@@ -20,8 +20,12 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use oxc_allocator::Allocator;
-use oxc_ast::ast::{CallExpression, Expression, FunctionBody, VariableDeclaration};
+use oxc_ast::ast::{
+    ArrowFunctionExpression, CallExpression, Expression, FormalParameters, Function,
+    VariableDeclaration,
+};
 use oxc_ast_visit::{Visit, walk};
+use oxc_syntax::scope::ScopeFlags;
 use wa_ir::{WapChildNode, WapContentKind};
 use wa_transform::ModuleDefinition;
 
@@ -106,33 +110,54 @@ fn collect_module(slice: &str) -> Vec<(String, String, u32)> {
     collector.out
 }
 
+/// A resolved reference to a child node: its own `tag`, and its `parent` tag when
+/// the parent chain is known.
+#[derive(Clone)]
+struct ChildRef {
+    parent: Option<String>,
+    tag: String,
+}
+
 struct Collector {
-    /// local var name → the child tag it was bound to (`var m = x.child("skey")`).
-    child_vars: HashMap<String, String>,
+    /// local var name → the child node it was bound to (`var m = x.child("skey")`).
+    child_vars: HashMap<String, ChildRef>,
     out: Vec<(String, String, u32)>,
 }
 
 impl<'a> Visit<'a> for Collector {
-    /// Scope child-var bindings to the function they're declared in: a nested body
-    /// starts from a copy of the outer bindings (so a closure can read them) and its
-    /// own additions are discarded on exit, so a `var m = child(...)` in one function
-    /// can't be misattributed to a same-named local in a sibling function.
-    fn visit_function_body(&mut self, body: &FunctionBody<'a>) {
+    // Scope child-var bindings to the function they're declared in: a nested function
+    // starts from a copy of the outer bindings (so a closure can read them), with its
+    // own PARAMETERS removed (they shadow any outer binding of the same name), and its
+    // own additions discarded on exit. This keeps a `var m = child(...)` in one
+    // function from being misattributed to a same-named local/param elsewhere.
+    fn visit_function(&mut self, func: &Function<'a>, flags: ScopeFlags) {
         let outer = self.child_vars.clone();
-        walk::walk_function_body(self, body);
+        shadow_params(&mut self.child_vars, &func.params);
+        walk::walk_function(self, func, flags);
+        self.child_vars = outer;
+    }
+
+    fn visit_arrow_function_expression(&mut self, arrow: &ArrowFunctionExpression<'a>) {
+        let outer = self.child_vars.clone();
+        shadow_params(&mut self.child_vars, &arrow.params);
+        walk::walk_arrow_function_expression(self, arrow);
         self.child_vars = outer;
     }
 
     fn visit_variable_declaration(&mut self, decl: &VariableDeclaration<'a>) {
         for d in &decl.declarations {
             if let Some(name) = d.id.get_identifier_name() {
-                match d.init.as_ref().and_then(child_call_tag) {
-                    // `var m = x.child("skey")` → track.
-                    Some(tag) => {
-                        self.child_vars.insert(name.as_str().to_string(), tag);
+                match d
+                    .init
+                    .as_ref()
+                    .and_then(|init| self.resolve_child_ref(init))
+                {
+                    // `var m = x.child("skey")` / `var v = m.child("value")` → track.
+                    Some(cref) => {
+                        self.child_vars.insert(name.as_str().to_string(), cref);
                     }
                     // `var m = <anything else>` → drop any stale binding for this name,
-                    // so a reused local isn't read as its previous child tag.
+                    // so a reused local isn't read as its previous child.
                     None => {
                         self.child_vars.remove(name.as_str());
                     }
@@ -148,29 +173,46 @@ impl<'a> Visit<'a> for Collector {
             && let Some(len) = call.arguments.first().and_then(arg_expr).and_then(as_int)
             && let Ok(len) = u32::try_from(len)
             && let Some(receiver) = callee_object(call)
-            && let (Some(parent), Some(tag)) = self.parent_and_tag(receiver)
+            && let Some(cref) = self.resolve_child_ref(receiver)
+            && let Some(parent) = cref.parent
         {
-            self.out.push((parent, tag, len));
+            self.out.push((parent, cref.tag, len));
         }
         walk::walk_call_expression(self, call);
     }
 }
 
 impl Collector {
-    /// From the receiver of a `.contentBytes(n)` call, the `(parentTag, tag)` of the
-    /// field being read — i.e. the receiver must be `Y.child("TAG")` and `Y` must
-    /// resolve to a parent tag (a `Z.child("PARENT")` or a tracked child var).
-    fn parent_and_tag(&self, receiver: &Expression) -> (Option<String>, Option<String>) {
-        let Some(tag) = child_call_tag(receiver) else {
-            return (None, None);
-        };
-        // `receiver` is `Y.child("TAG")`; find Y and its tag.
-        let Some(inner) = as_call(receiver).and_then(callee_object) else {
-            return (None, Some(tag));
-        };
-        let parent = child_call_tag(inner)
-            .or_else(|| as_identifier(inner).and_then(|n| self.child_vars.get(n).cloned()));
-        (parent, Some(tag))
+    /// The child node an expression refers to: a `Y.child("TAG")` call (parent from
+    /// `Y`), or an identifier bound to a tracked child var. Handles the stored-leaf
+    /// form `var v = m.child("value"); v.contentBytes(…)` by resolving `v`.
+    fn resolve_child_ref(&self, e: &Expression) -> Option<ChildRef> {
+        if let Some(id) = as_identifier(e) {
+            return self.child_vars.get(id).cloned();
+        }
+        let tag = child_call_tag(e)?;
+        let parent = as_call(e)
+            .and_then(callee_object)
+            .and_then(|y| self.tag_of(y));
+        Some(ChildRef { parent, tag })
+    }
+
+    /// The tag a receiver expression resolves to (its own child tag): a `Z.child("P")`
+    /// call, or an identifier bound to a child var.
+    fn tag_of(&self, e: &Expression) -> Option<String> {
+        child_call_tag(e).or_else(|| {
+            as_identifier(e).and_then(|id| self.child_vars.get(id).map(|c| c.tag.clone()))
+        })
+    }
+}
+
+/// Remove a nested function's formal parameter names from the (copied) child-var
+/// map, so a parameter shadows — never inherits — an outer binding of the same name.
+fn shadow_params(child_vars: &mut HashMap<String, ChildRef>, params: &FormalParameters) {
+    for p in &params.items {
+        if let Some(name) = p.pattern.get_identifier_name() {
+            child_vars.remove(name.as_str());
+        }
     }
 }
 
@@ -262,6 +304,35 @@ mod tests {
             __d("P",[],function(g,r,d,o,e,i,l){
                 l.a = function(u){ var m = u.child("skey"); return m.child("value").contentBytes(32); };
                 l.b = function(m){ return m.child("value").contentBytes(48); };
+            },1);
+        "#;
+        assert_eq!(index(bundle).get("skey", "value"), Some((32, "P")));
+    }
+
+    #[test]
+    fn nested_param_shadows_outer_child_var() {
+        // The outer function binds `m` to skey; a nested callback's PARAMETER `m`
+        // shadows it, so the nested `m.child("value").contentBytes(48)` must not be
+        // attributed to skey (which would conflict with the outer 32 and drop it).
+        let bundle = r#"
+            __d("P",[],function(g,r,d,o,e,i,l){
+                l.a = function(u){
+                    var m = u.child("skey");
+                    [1].forEach(function(m){ m.child("value").contentBytes(48); });
+                    return m.child("value").contentBytes(32);
+                };
+            },1);
+        "#;
+        assert_eq!(index(bundle).get("skey", "value"), Some((32, "P")));
+    }
+
+    #[test]
+    fn stored_leaf_identifier_receiver_is_resolved() {
+        // `var v = m.child("value"); v.contentBytes(32)` — the leaf child is stored in
+        // a var before being read; resolving `v` must recover (skey, value).
+        let bundle = r#"
+            __d("P",[],function(g,r,d,o,e,i,l){
+                l.a = function(u){ var m = u.child("skey"); var v = m.child("value"); return v.contentBytes(32); };
             },1);
         "#;
         assert_eq!(index(bundle).get("skey", "value"), Some((32, "P")));
