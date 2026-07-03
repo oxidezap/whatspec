@@ -208,11 +208,19 @@ impl Collector {
 
 /// Remove a nested function's formal parameter names from the (copied) child-var
 /// map, so a parameter shadows — never inherits — an outer binding of the same name.
+/// Uses every bound identifier in each pattern, so a destructured param
+/// (`function({ m })` / `function([m])`) shadows too, not just a simple `function(m)`.
 fn shadow_params(child_vars: &mut HashMap<String, ChildRef>, params: &FormalParameters) {
-    for p in &params.items {
-        if let Some(name) = p.pattern.get_identifier_name() {
-            child_vars.remove(name.as_str());
+    let mut remove_bound = |pattern: &oxc_ast::ast::BindingPattern| {
+        for ident in pattern.get_binding_identifiers() {
+            child_vars.remove(ident.name.as_str());
         }
+    };
+    for p in &params.items {
+        remove_bound(&p.pattern);
+    }
+    if let Some(rest) = &params.rest {
+        remove_bound(&rest.rest.argument);
     }
 }
 
@@ -319,6 +327,23 @@ mod tests {
                 l.a = function(u){
                     var m = u.child("skey");
                     [1].forEach(function(m){ m.child("value").contentBytes(48); });
+                    return m.child("value").contentBytes(32);
+                };
+            },1);
+        "#;
+        assert_eq!(index(bundle).get("skey", "value"), Some((32, "P")));
+    }
+
+    #[test]
+    fn destructured_nested_param_shadows_outer_child_var() {
+        // A nested callback whose param is DESTRUCTURED (`function({ m })`) must still
+        // shadow the outer `var m = u.child("skey")` — `get_binding_identifiers`
+        // covers the bound name, not just a simple identifier param.
+        let bundle = r#"
+            __d("P",[],function(g,r,d,o,e,i,l){
+                l.a = function(u){
+                    var m = u.child("skey");
+                    [1].forEach(function({ m }){ m.child("value").contentBytes(48); });
                     return m.child("value").contentBytes(32);
                 };
             },1);
