@@ -81,9 +81,22 @@ pub enum WapContentKind {
 #[serde(rename_all = "camelCase")]
 pub struct WapContent {
     pub kind: WapContentKind,
-    /// Fixed byte length when statically known (`BIG_ENDIAN_CONTENT(x, 3)` → 3).
+    /// Fixed byte length. Either written directly in the request builder
+    /// (`BIG_ENDIAN_CONTENT(x, 3)` → 3, [`byte_length_source`] absent) or
+    /// cross-referenced from the symmetric parser that reads the same wire field
+    /// (`child("signature").contentBytes(64)` → 64, [`byte_length_source`] set).
+    ///
+    /// [`byte_length_source`]: WapContent::byte_length_source
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub byte_length: Option<u32>,
+    /// Provenance of an *inferred* [`byte_length`] — the parser module the length was
+    /// cross-referenced from (e.g. `"parse:WAWebRetryRequestParser"`). Absent when the
+    /// length is written directly in the request builder, so a consumer can tell a
+    /// wire-contract fact from a builder-literal one.
+    ///
+    /// [`byte_length`]: WapContent::byte_length
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub byte_length_source: Option<String>,
     /// The literal value for [`WapContentKind::Const`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub value: Option<String>,

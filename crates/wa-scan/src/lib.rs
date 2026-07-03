@@ -8,6 +8,7 @@
 
 mod alias;
 mod attrs;
+mod content_length_index;
 mod helper_index;
 mod mixin_index;
 mod module;
@@ -100,6 +101,11 @@ pub fn scan_iq_with_diagnostics(
     // response (the smax response lives in a separate module).
     let response_index = response_index::build_pass(module_defs, source);
 
+    // Build the content-length cross-reference once. It reads the byte length WA
+    // Web's parsers pin each wire field to (`child("signature").contentBytes(64)`),
+    // to fill request leaf lengths the builder writes opaquely.
+    let content_lengths = content_length_index::build_pass(module_defs, source);
+
     let mut stanzas = Vec::new();
     let mut unparseable = Vec::new();
     let mut cross = CrossModuleStats::default();
@@ -135,6 +141,13 @@ pub fn scan_iq_with_diagnostics(
             }),
         }
     }
+    // Cross-reference each request's opaque leaf lengths from the symmetric parsers
+    // (`<skey><signature>` gains its 64-byte length). The children of `<iq>` are the
+    // tree roots, so their parent path is `iq`.
+    for s in &mut stanzas {
+        content_length_index::enrich(&mut s.request.children, "iq", &content_lengths);
+    }
+
     // Normalize ordering by an intrinsic key so the output (index.json + the
     // grouped codegen) is independent of bundle/source order, matching every
     // other domain (enums/abprops sort by name, mex/appstate use BTreeMaps).
@@ -496,6 +509,52 @@ mod tests {
         assert_eq!(key.tag, "key");
         assert!(key.repeats);
         assert!(key.children.iter().any(|c| c.tag == "id"));
+    }
+
+    #[test]
+    fn content_length_cross_referenced_from_symmetric_parser() {
+        // A parser module reads the same `<skey>` fields the request writes opaquely,
+        // pinning their byte lengths; the request's `<value>`/`<signature>` inherit
+        // those lengths with parser provenance, while the builder-written `<id>` stays
+        // builder-sourced.
+        let parser = r#"
+            __d("WAWebPreKeyBundleParser", [], function(g,r,d,o,e,i,l){
+                l.parse = function(u){ var m = u.child("skey"); return {
+                    pubkey: m.child("value").contentBytes(32),
+                    signature: m.child("signature").contentBytes(64),
+                }; };
+            }, 9);
+        "#;
+        let bundle = format!("{PREKEY_BUNDLE}\n{parser}");
+        let res = scan_iq_stanzas(&bundle);
+        let s = res
+            .stanzas
+            .iter()
+            .find(|s| s.module_name == "WAWebRotateKeyJob")
+            .expect("rotate stanza");
+        let skey = &s.request.children[0].children[0];
+        let leaf = |tag: &str| {
+            skey.children
+                .iter()
+                .find(|c| c.tag == tag)
+                .unwrap()
+                .content
+                .as_ref()
+                .unwrap()
+        };
+        let value = leaf("value");
+        assert_eq!(value.byte_length, Some(32));
+        assert_eq!(
+            value.byte_length_source.as_deref(),
+            Some("parse:WAWebPreKeyBundleParser")
+        );
+        assert_eq!(value.kind, wa_ir::WapContentKind::Bytes);
+        assert_eq!(leaf("signature").byte_length, Some(64));
+        // `<id>` is written directly by the builder (BIG_ENDIAN_CONTENT(x, 3)) → no
+        // parse provenance, length untouched.
+        let id = leaf("id");
+        assert_eq!(id.byte_length, Some(3));
+        assert_eq!(id.byte_length_source, None);
     }
 
     #[test]
