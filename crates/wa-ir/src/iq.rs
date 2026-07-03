@@ -58,6 +58,37 @@ pub struct WapAttrDef {
     pub required: bool,
 }
 
+/// The kind of leaf payload a request node carries in its element content
+/// (`wap("id", null, BIG_ENDIAN_CONTENT(x, 3))` → the `<id>` node's content).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum WapContentKind {
+    /// Raw bytes (`BIG_ENDIAN_CONTENT(x, n)`, a key/signature buffer, …).
+    Bytes,
+    /// A fixed string literal (carried in [`WapContent::value`]).
+    Const,
+    /// A computed value not statically resolvable to bytes/const (a variable ref,
+    /// a helper result, …). Present but opaque.
+    #[default]
+    Dynamic,
+}
+
+/// The element content of a leaf request node — what sits between `<tag>` and
+/// `</tag>` when the node carries a value rather than child nodes.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct WapContent {
+    pub kind: WapContentKind,
+    /// Fixed byte length when statically known (`BIG_ENDIAN_CONTENT(x, 3)` → 3).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub byte_length: Option<u32>,
+    /// The literal value for [`WapContentKind::Const`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
+}
+
 /// A node in a request stanza tree.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -67,6 +98,11 @@ pub struct WapChildNode {
     /// Attributes always present on this node (independent of any variant group).
     pub attrs: Vec<WapAttrDef>,
     pub children: Vec<WapChildNode>,
+    /// The leaf element content, when this node carries a value instead of child
+    /// nodes (`<id>`, `<value>`, `<signature>` in a prekey `<skey>`). `None` for
+    /// container nodes and attr-only nodes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content: Option<WapContent>,
     /// Whether this child can appear multiple times (maps to `Vec<_>` in codegen).
     pub repeats: bool,
     /// Mutually-exclusive variant groups this node can take, each from a smax

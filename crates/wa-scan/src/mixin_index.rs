@@ -28,6 +28,7 @@ use wa_ir::{IqTarget, IqType, WapAttrKind, WapChildNode};
 
 use crate::alias::{AliasMap, build_alias_map};
 use crate::attrs::{extract_attrs_from_obj, parse_wap_call};
+use crate::helper_index::HelperIndex;
 use crate::module::{iq_type_from_merge_name, require_module_name};
 use crate::request::{
     MixinContributions, VarScope, build_var_scope, resolve_child_node, resolve_contribution,
@@ -169,7 +170,7 @@ fn resolve_contribution_rec(
     }
     visiting.remove(name);
     if let Some(slice) = slices.get(name) {
-        let contrib = resolve_contribution(slice, contributions);
+        let contrib = resolve_contribution(slice, contributions, &HelperIndex::default());
         contributions.insert(name.to_string(), contrib);
     }
 }
@@ -283,6 +284,7 @@ impl<'a> Visit<'a> for FragmentVisitor<'_> {
                         self.source,
                         self.aliases,
                         Some(self.contributions),
+                        &HelperIndex::default(),
                         0,
                     ));
                 }
@@ -496,6 +498,7 @@ mod tests {
             tag: tag.to_string(),
             attrs: attrs.iter().map(|a| attr(a)).collect(),
             children,
+            content: None,
             repeats: false,
             variant_groups: Vec::new(),
         }

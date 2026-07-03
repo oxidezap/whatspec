@@ -13,6 +13,7 @@ use wa_ir::{
 
 use crate::alias::{AliasMap, build_alias_map};
 use crate::attrs::{extract_attrs_from_obj, parse_wap_call};
+use crate::helper_index::HelperIndex;
 use crate::mixin_index::MixinIndex;
 use crate::request::{VarScope, build_var_scope, resolve_child_node};
 use crate::response_index::ResponseIndex;
@@ -27,8 +28,9 @@ pub fn scan_module_source(
     source: &str,
     mixins: &MixinIndex,
     responses: &ResponseIndex,
+    helpers: &HelperIndex,
 ) -> Vec<IqStanzaDef> {
-    scan_module_outcome(source, mixins, responses)
+    scan_module_outcome(source, mixins, responses, helpers)
         .map(|(stanzas, _)| stanzas)
         .unwrap_or_default()
 }
@@ -93,6 +95,7 @@ pub fn scan_module_outcome(
     source: &str,
     mixins: &MixinIndex,
     responses: &ResponseIndex,
+    helpers: &HelperIndex,
 ) -> Result<(Vec<IqStanzaDef>, CrossModuleStat), DropReason> {
     let alloc = Allocator::default();
     let ret = wa_oxc::parse_cjs(&alloc, source);
@@ -117,6 +120,7 @@ pub fn scan_module_outcome(
         source,
         scope: &scope,
         aliases: &aliases,
+        helpers,
         iq_calls: Vec::new(),
         parser: None,
         exports: Vec::new(),
@@ -344,6 +348,7 @@ struct ResolvedIqCall {
 struct ModuleScanner<'src> {
     source: &'src str,
     scope: &'src VarScope,
+    helpers: &'src HelperIndex,
     aliases: &'src AliasMap,
     iq_calls: Vec<IqCall>,
     parser: Option<ParsedResponse>,
@@ -500,6 +505,7 @@ impl ModuleScanner<'_> {
                     // cross-module attrs a referenced mixin contributes arrive via
                     // `resolve_fragment_children` (Phase 2/3), merged in afterward.
                     None,
+                    self.helpers,
                     0,
                 ));
             }
@@ -547,6 +553,10 @@ mod tests {
         ResponseIndex::default()
     }
 
+    fn hi() -> crate::helper_index::HelperIndex {
+        crate::helper_index::HelperIndex::default()
+    }
+
     const MODULE: &str = r#"
         __d("WAWebFooBarRPC", ["WADeprecatedSendIq","WAWap"], function(g,r,d,o,e,i,n){
             "use strict";
@@ -565,7 +575,7 @@ mod tests {
 
     #[test]
     fn scans_full_module() {
-        let stanzas = scan_module_source(MODULE, &mi(), &ri());
+        let stanzas = scan_module_source(MODULE, &mi(), &ri(), &hi());
         assert_eq!(stanzas.len(), 1);
         let s = &stanzas[0];
         assert_eq!(s.module_name, "WAWebFooBarRPC");
@@ -609,7 +619,7 @@ mod tests {
             e.viaA = function(){ return i.wap("iq", { xmlns: "w:dup", type: "get" }); };
             e.viaB = function(){ return i.wap("iq", { xmlns: "w:dup", type: "get" }); };
         });"#;
-        let s = scan_module_source(m, &mi(), &ri());
+        let s = scan_module_source(m, &mi(), &ri(), &hi());
         assert_eq!(s.len(), 1, "identical iq calls must dedup to one stanza");
         assert_eq!(s[0].namespace, "w:dup");
         assert_eq!(s[0].exported_function.as_deref(), Some("viaA"));
@@ -623,7 +633,7 @@ mod tests {
             e.getThing = function(){ return i.wap("iq", { xmlns: "w:a", type: "get" }); };
             e.setThing = function(){ return i.wap("iq", { xmlns: "w:b", type: "set" }); };
         });"#;
-        let mut s = scan_module_source(m, &mi(), &ri());
+        let mut s = scan_module_source(m, &mi(), &ri(), &hi());
         s.sort_by(|a, b| a.namespace.cmp(&b.namespace));
         assert_eq!(s.len(), 2);
         assert_eq!(s[0].namespace, "w:a");
@@ -637,7 +647,7 @@ mod tests {
         let m = r#"__d("WAWebGrp",["WADeprecatedSendIq","WAWap"],function(g,r,d,o,e,i){
             e.go = function(){ return i.wap("iq", { to: "g.us", xmlns: "w:g2", type: "set" }); };
         });"#;
-        let s = scan_module_source(m, &mi(), &ri());
+        let s = scan_module_source(m, &mi(), &ri(), &hi());
         assert_eq!(s.len(), 1);
         assert_eq!(s[0].target, IqTarget::Group);
         assert_eq!(s[0].iq_type, IqType::Set);
@@ -649,12 +659,13 @@ mod tests {
             scan_module_source(
                 r#"__d("WAWebNope",[],function(){ var x = 1; });"#,
                 &mi(),
-                &ri()
+                &ri(),
+                &hi()
             )
             .is_empty()
         );
         // Not a module at all.
-        assert!(scan_module_source("var z = 1;", &mi(), &ri()).is_empty());
+        assert!(scan_module_source("var z = 1;", &mi(), &ri(), &hi()).is_empty());
     }
 
     #[test]
@@ -662,7 +673,7 @@ mod tests {
         let m = r#"__d("WAWebNP",["WAWap"],function(g,r,d,o,e,i){
             e.f = function(){ return i.wap("iq", { xmlns: "w:x", type: "get" }); };
         });"#;
-        let s = scan_module_source(m, &mi(), &ri());
+        let s = scan_module_source(m, &mi(), &ri(), &hi());
         assert_eq!(s.len(), 1);
         assert_eq!(s[0].parser_name, "unknown");
         assert!(s[0].response.fields.is_empty());
@@ -673,7 +684,7 @@ mod tests {
         let m = r#"__d("WAWebOdd",["WAWap"],function(g,r,d,o,e,i){
             e.f = function(){ return i.wap("iq", { xmlns: "w:x", type: "result" }); };
         });"#;
-        assert!(scan_module_source(m, &mi(), &ri()).is_empty());
+        assert!(scan_module_source(m, &mi(), &ri(), &hi()).is_empty());
     }
 
     #[test]
@@ -694,7 +705,7 @@ mod tests {
             e.fooParser = 2;
             e.doThing = function(){ return i.wap("iq", { xmlns: "w:e", type: "get" }); };
         });"#;
-        let s = scan_module_source(m, &mi(), &ri());
+        let s = scan_module_source(m, &mi(), &ri(), &hi());
         assert_eq!(s[0].exported_function.as_deref(), Some("doThing"));
         assert!(s[0].all_exports.contains(&"SOME_CONST".to_string()));
     }

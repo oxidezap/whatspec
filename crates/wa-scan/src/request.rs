@@ -8,21 +8,85 @@
 //! All span-relative work uses the source a node came from (`node_source`); all
 //! scope lookups slice the module source. This mirrors the TS scanner's re-parse
 //! approach while staying lifetime-clean.
+//!
+//! The resolution functions thread a wide, shared context (scope, both sources,
+//! aliases, the mixin contributions, and the helper index) through a mutual
+//! recursion, so the many-argument signatures are intrinsic rather than a smell.
+#![allow(clippy::too_many_arguments)]
 
 use std::collections::{BTreeMap, HashMap};
 
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
-    AssignmentExpression, Expression, Function, Program, Statement, VariableDeclaration,
+    Argument, AssignmentExpression, Expression, Function, Program, Statement, VariableDeclaration,
 };
 use oxc_ast_visit::{Visit, walk};
 use oxc_span::GetSpan;
-use wa_ir::WapChildNode;
+use wa_ir::{WapChildNode, WapContent, WapContentKind};
 
 use crate::alias::{AliasMap, build_alias_map, resolve_owner};
 use crate::attrs::{extract_attrs_from_obj, parse_wap_call};
+use crate::helper_index::HelperIndex;
 use crate::module::require_module_name;
-use wa_oxc::{arg_expr, as_call, as_identifier, callee_method, callee_object};
+use wa_oxc::{
+    arg_expr, as_call, as_identifier, as_int, as_member, as_string_lit, callee_method,
+    callee_object,
+};
+
+/// The WAWap primitive that emits an `n`-byte big-endian integer as element
+/// content (`BIG_ENDIAN_CONTENT(keyId, 3)`); the 2nd argument is the byte length.
+const BIG_ENDIAN_CONTENT: &str = "BIG_ENDIAN_CONTENT";
+
+/// The leaf element content of a `wap("tag", attrs, <content>)` node — recovered
+/// only when the node has no child nodes and a single, value-like argument.
+///
+/// Distinguishes a value payload from a child node structurally: a string literal
+/// is a fixed `Const`; `BIG_ENDIAN_CONTENT(x, n)` is `n` bytes; a member value
+/// reference (`e.keyPair.pubKey`, `e.signature`) is opaque `Dynamic` bytes/text.
+/// A bare identifier is deliberately ignored — it may be a node variable resolved
+/// elsewhere, not content.
+fn leaf_content(child_args: &[Argument], source: &str) -> Option<WapContent> {
+    if child_args.len() != 1 {
+        return None;
+    }
+    content_of_expr(arg_expr(child_args.first()?)?, source)
+}
+
+fn content_of_expr(e: &Expression, _source: &str) -> Option<WapContent> {
+    // Fixed string literal → const content.
+    if let Some(v) = as_string_lit(e) {
+        return Some(WapContent {
+            kind: WapContentKind::Const,
+            byte_length: None,
+            value: Some(v.to_string()),
+        });
+    }
+    // `X.BIG_ENDIAN_CONTENT(value, n)` → n bytes.
+    if let Some(call) = as_call(e)
+        && callee_method(call) == Some(BIG_ENDIAN_CONTENT)
+    {
+        let byte_length = call
+            .arguments
+            .get(1)
+            .and_then(arg_expr)
+            .and_then(as_int)
+            .and_then(|n| u32::try_from(n).ok());
+        return Some(WapContent {
+            kind: WapContentKind::Bytes,
+            byte_length,
+            value: None,
+        });
+    }
+    // A value reference (`e.signature`, `e.keyPair.pubKey`) → opaque content.
+    if e.as_member_expression().is_some() {
+        return Some(WapContent {
+            kind: WapContentKind::Dynamic,
+            byte_length: None,
+            value: None,
+        });
+    }
+    None
+}
 
 /// Max function-boundary crossings while tracing returns/templates. Bounds the
 /// `resolve_child_node` ↔ `resolve_function_return` recursion so a (pathological)
@@ -134,6 +198,7 @@ pub(crate) fn resolve_child_node(
     module_source: &str,
     aliases: &AliasMap,
     contributions: Option<&MixinContributions>,
+    helpers: &HelperIndex,
     depth: u32,
 ) -> Vec<WapChildNode> {
     // Unwrap `(…)` — a transparent wrapper (e.g. a re-parsed `return (expr)`).
@@ -145,6 +210,7 @@ pub(crate) fn resolve_child_node(
             module_source,
             aliases,
             contributions,
+            helpers,
             depth,
         );
     }
@@ -167,14 +233,21 @@ pub(crate) fn resolve_child_node(
                     module_source,
                     aliases,
                     contributions,
+                    helpers,
                     depth,
                 ));
             }
         }
+        let content = if children.is_empty() {
+            leaf_content(wap.child_args, node_source)
+        } else {
+            None
+        };
         return vec![WapChildNode {
             tag: wap.tag.to_string(),
             attrs,
             children,
+            content,
             repeats: false,
             variant_groups: Vec::new(),
         }];
@@ -193,6 +266,7 @@ pub(crate) fn resolve_child_node(
                     module_source,
                     aliases,
                     contributions,
+                    helpers,
                     depth,
                 ));
             }
@@ -208,7 +282,16 @@ pub(crate) fn resolve_child_node(
                 let alloc = Allocator::default();
                 let ret = wa_oxc::parse_cjs(&alloc, slice);
                 if let Some(expr) = first_expression(&ret.program) {
-                    if let Some(m) = resolve_map_call(expr, slice, aliases) {
+                    if let Some(m) = resolve_map_call(
+                        expr,
+                        slice,
+                        scope,
+                        module_source,
+                        aliases,
+                        contributions,
+                        helpers,
+                        depth,
+                    ) {
                         return m;
                     }
                     let r = resolve_child_node(
@@ -218,6 +301,7 @@ pub(crate) fn resolve_child_node(
                         module_source,
                         aliases,
                         contributions,
+                        helpers,
                         depth,
                     );
                     if !r.is_empty() {
@@ -230,7 +314,16 @@ pub(crate) fn resolve_child_node(
     }
 
     // Case 3: a `.map(fn)` producing an array of children.
-    if let Some(m) = resolve_map_call(node, node_source, aliases) {
+    if let Some(m) = resolve_map_call(
+        node,
+        node_source,
+        scope,
+        module_source,
+        aliases,
+        contributions,
+        helpers,
+        depth,
+    ) {
         return m;
     }
 
@@ -261,6 +354,7 @@ pub(crate) fn resolve_child_node(
                     module_source,
                     aliases,
                     contributions,
+                    helpers,
                     depth,
                 );
                 if repeated {
@@ -301,6 +395,7 @@ pub(crate) fn resolve_child_node(
                     module_source,
                     aliases,
                     contributions,
+                    helpers,
                     depth,
                 ));
             }
@@ -313,6 +408,7 @@ pub(crate) fn resolve_child_node(
                         module_source,
                         aliases,
                         contributions,
+                        helpers,
                         depth,
                     ));
                 }
@@ -358,6 +454,7 @@ pub(crate) fn resolve_child_node(
                     module_source,
                     aliases,
                     contributions,
+                    helpers,
                     depth + 1,
                 );
                 if !r.is_empty() {
@@ -367,7 +464,25 @@ pub(crate) fn resolve_child_node(
         }
     }
 
+    // Case 5b: cross-module helper `o("Module").fn(args)` — inline the wap subtree
+    // the helper returns (e.g. `o("WAWebSignalUtilsApi").xmppSignedPreKey(t)` → the
+    // `<skey><id/><value/><signature/></skey>` tree), read from the pre-built index.
+    if let Some(call) = as_call(node)
+        && let Some((module, func)) = require_member_call(&call.callee)
+        && let Some(tree) = helpers.get(&module, &func)
+    {
+        return tree.clone();
+    }
+
     Vec::new()
+}
+
+/// `o("Module").fn` (a member whose object is a `require` call) → `(Module, fn)`.
+/// The child-position form of a cross-module helper reference.
+fn require_member_call(callee: &Expression) -> Option<(String, String)> {
+    let (obj, method) = as_member(callee)?;
+    let module = require_module_name(obj)?;
+    Some((module, method.to_string()))
 }
 
 /// The mixin module a merge-fn reference belongs to: `o("X").merge…Mixin` (a member
@@ -454,6 +569,7 @@ fn resolve_template_arg(
     module_source: &str,
     aliases: &AliasMap,
     contributions: Option<&MixinContributions>,
+    helpers: &HelperIndex,
     depth: u32,
 ) -> Vec<WapChildNode> {
     // A template is usually a *function* reference: trace its return. Prefer the
@@ -472,6 +588,7 @@ fn resolve_template_arg(
                     module_source,
                     aliases,
                     contributions,
+                    helpers,
                     depth + 1,
                 );
                 if !r.is_empty() {
@@ -488,27 +605,50 @@ fn resolve_template_arg(
         module_source,
         aliases,
         contributions,
+        helpers,
         depth,
     )
 }
 
-/// `x.map(function(o){ return e.wap(...) })` → repeating child template(s).
+/// `list.map(<mapper>)` → repeating child template(s). The mapper is either an
+/// inline `function(o){ return e.wap(...) }` or a *reference* — a cross-module
+/// `o("Module").fn` helper or a local function name — resolved via the helper index
+/// / module scope (e.g. `e.map(o("WAWebSignalUtilsApi").xmppPreKey)` → repeating
+/// `<key>`).
+#[allow(clippy::too_many_arguments)]
 fn resolve_map_call(
     node: &Expression,
     node_source: &str,
+    scope: &VarScope,
+    module_source: &str,
     aliases: &AliasMap,
+    contributions: Option<&MixinContributions>,
+    helpers: &HelperIndex,
+    depth: u32,
 ) -> Option<Vec<WapChildNode>> {
     let call = as_call(node)?;
     if callee_method(call)? != "map" {
         return None;
     }
-    let Expression::FunctionExpression(func) = arg_expr(call.arguments.first()?)? else {
-        // `.map(ref)` with a non-inline callback — can't inspect it statically.
-        return None;
+    let mapper = arg_expr(call.arguments.first()?)?;
+    let mut children = match mapper {
+        // Inline callback: collect the `wap()` calls in its body.
+        Expression::FunctionExpression(func) => {
+            let body = func.body.as_ref()?;
+            let body_code = &node_source[body.span.start as usize..body.span.end as usize];
+            find_wap_calls_in_body(body_code, aliases)
+        }
+        // Reference mapper — a cross-module helper or a local function.
+        _ => resolve_mapper_ref(
+            mapper,
+            scope,
+            module_source,
+            aliases,
+            contributions,
+            helpers,
+            depth,
+        ),
     };
-    let body = func.body.as_ref()?;
-    let body_code = &node_source[body.span.start as usize..body.span.end as usize];
-    let mut children = find_wap_calls_in_body(body_code, aliases);
     if children.is_empty() {
         return None;
     }
@@ -516,6 +656,49 @@ fn resolve_map_call(
         c.repeats = true;
     }
     Some(children)
+}
+
+/// Resolve a `.map(<ref>)` mapper reference to the child subtree it produces per
+/// element: `o("Module").fn` via the helper index, or a local function name via the
+/// module scope's function body.
+fn resolve_mapper_ref(
+    mapper: &Expression,
+    scope: &VarScope,
+    module_source: &str,
+    aliases: &AliasMap,
+    contributions: Option<&MixinContributions>,
+    helpers: &HelperIndex,
+    depth: u32,
+) -> Vec<WapChildNode> {
+    // Cross-module `o("Module").fn`.
+    if let Some((module, func)) = require_member_call(mapper)
+        && let Some(tree) = helpers.get(&module, &func)
+    {
+        return tree.clone();
+    }
+    // Local function name.
+    if let Some(name) = as_identifier(mapper)
+        && let Some(inits) = scope.vars.get(name)
+    {
+        for vi in inits {
+            if let Some((bs, be)) = vi.fn_body {
+                let r = resolve_function_return(
+                    bs,
+                    be,
+                    scope,
+                    module_source,
+                    aliases,
+                    contributions,
+                    helpers,
+                    depth + 1,
+                );
+                if !r.is_empty() {
+                    return r;
+                }
+            }
+        }
+    }
+    Vec::new()
 }
 
 /// Resolve each top-level `return <expr>` of a function body SEPARATELY (one entry
@@ -529,6 +712,7 @@ fn resolve_function_returns_each(
     module_source: &str,
     aliases: &AliasMap,
     contributions: Option<&MixinContributions>,
+    helpers: &HelperIndex,
     depth: u32,
 ) -> Vec<Vec<WapChildNode>> {
     if depth > MAX_FN_DEPTH {
@@ -571,6 +755,7 @@ fn resolve_function_returns_each(
                 module_source,
                 aliases,
                 contributions,
+                helpers,
                 depth,
             );
             if !r.is_empty() {
@@ -591,6 +776,7 @@ fn resolve_function_return(
     module_source: &str,
     aliases: &AliasMap,
     contributions: Option<&MixinContributions>,
+    helpers: &HelperIndex,
     depth: u32,
 ) -> Vec<WapChildNode> {
     let flat: Vec<WapChildNode> = resolve_function_returns_each(
@@ -600,6 +786,7 @@ fn resolve_function_return(
         module_source,
         aliases,
         contributions,
+        helpers,
         depth,
     )
     .into_iter()
@@ -628,6 +815,7 @@ fn resolve_function_return(
                         module_source,
                         aliases,
                         contributions,
+                        helpers,
                         depth + 1,
                     );
                     if !r.is_empty() {
@@ -640,6 +828,67 @@ fn resolve_function_return(
     Vec::new()
 }
 
+/// Every exported function in a module that returns a non-`<iq>` `wap()` subtree,
+/// as `(name, resolved subtree)` — the cross-module child helpers a request may
+/// reference (`o("Module").fn(...)` / `.map(o("Module").fn)`). Built once per
+/// module by [`crate::helper_index`]; `helpers` carries the index built so far so a
+/// helper that calls another helper still resolves.
+pub(crate) fn exported_wap_helpers(
+    slice: &str,
+    helpers: &HelperIndex,
+) -> Vec<(String, Vec<WapChildNode>)> {
+    let alloc = Allocator::default();
+    let ret = wa_oxc::parse_cjs(&alloc, slice);
+    let scope = build_var_scope(&ret.program);
+    let aliases = build_alias_map(&ret.program);
+    let mut finder = ExportFnFinder {
+        scope: &scope,
+        out: Vec::new(),
+    };
+    finder.visit_program(&ret.program);
+
+    let mut result = Vec::new();
+    for (name, (bs, be)) in finder.out {
+        let tree = resolve_function_return(bs, be, &scope, slice, &aliases, None, helpers, 0);
+        // Keep only child helpers: non-empty and not an `<iq>` builder (those are
+        // whole requests, never referenced as a child).
+        if !tree.is_empty() && tree.iter().all(|n| n.tag != "iq") {
+            result.push((name, tree));
+        }
+    }
+    result
+}
+
+/// Collects `<exports>.name = fn` / `= localFnName` assignments (the exported
+/// functions), resolving a name reference to its function body via `scope`.
+struct ExportFnFinder<'s> {
+    scope: &'s VarScope,
+    out: Vec<(String, (usize, usize))>,
+}
+
+impl<'a> Visit<'a> for ExportFnFinder<'_> {
+    fn visit_assignment_expression(&mut self, assign: &AssignmentExpression<'a>) {
+        if let Some(m) = assign.left.as_member_expression()
+            && matches!(m.object(), Expression::Identifier(_))
+            && let Some(prop) = m.static_property_name()
+        {
+            let body = match &assign.right {
+                Expression::FunctionExpression(func) => fn_body_span(func),
+                Expression::Identifier(id) => self
+                    .scope
+                    .vars
+                    .get(id.name.as_str())
+                    .and_then(|inits| inits.iter().find_map(|vi| vi.fn_body)),
+                _ => None,
+            };
+            if let Some(b) = body {
+                self.out.push((prop.to_string(), b));
+            }
+        }
+        walk::walk_assignment_expression(self, assign);
+    }
+}
+
 /// Resolve the stanza tree a mixin module contributes when merged into a
 /// destination — its exported `merge…` function's return, with cross-module
 /// `merge…Mixin`/`optionalMerge` calls expanded via `contributions` (the already-
@@ -650,6 +899,7 @@ fn resolve_function_return(
 pub(crate) fn resolve_contribution(
     slice: &str,
     contributions: &MixinContributions,
+    helpers: &HelperIndex,
 ) -> Vec<WapChildNode> {
     let alloc = Allocator::default();
     let ret = wa_oxc::parse_cjs(&alloc, slice);
@@ -664,8 +914,16 @@ pub(crate) fn resolve_contribution(
     // — preserving the discriminator (e.g. `type:"jid"` vs `type:"invite"`) instead of
     // collapsing the branches into one over-merged node.
     if slice.contains("MixinGroupExhaustiveError") {
-        let branches =
-            resolve_function_returns_each(bs, be, &scope, slice, &aliases, Some(contributions), 0);
+        let branches = resolve_function_returns_each(
+            bs,
+            be,
+            &scope,
+            slice,
+            &aliases,
+            Some(contributions),
+            helpers,
+            0,
+        );
         // Each branch resolves to one node (the dst with that variant's attrs folded
         // in); the shared tag (e.g. `messages` or `smax$any`) anchors the group.
         let variants: Vec<wa_ir::WapVariant> = branches
@@ -695,7 +953,16 @@ pub(crate) fn resolve_contribution(
         // < 2 distinct variants: fall through to the normal (collapsed) resolution.
     }
 
-    let raw = resolve_function_return(bs, be, &scope, slice, &aliases, Some(contributions), 0);
+    let raw = resolve_function_return(
+        bs,
+        be,
+        &scope,
+        slice,
+        &aliases,
+        Some(contributions),
+        helpers,
+        0,
+    );
     // Collapse same-tag roots so a non-union mixin's repeated returns fold into one.
     let mut merged = Vec::new();
     crate::mixin_index::merge_children(&mut merged, &raw);
@@ -776,6 +1043,7 @@ impl<'a> Visit<'a> for WapCollector<'_> {
                 tag: wap.tag.to_string(),
                 attrs,
                 children: Vec::new(),
+                content: leaf_content(wap.child_args, self.source),
                 repeats: false,
                 variant_groups: Vec::new(),
             });
@@ -894,7 +1162,16 @@ mod tests {
         let owned = format!("{expr_src};");
         let ret2 = wa_oxc::parse_cjs(&alloc2, &owned);
         let expr = first_expression(&ret2.program).unwrap();
-        resolve_child_node(expr, &owned, &scope, code, &aliases, None, 0)
+        resolve_child_node(
+            expr,
+            &owned,
+            &scope,
+            code,
+            &aliases,
+            None,
+            &HelperIndex::default(),
+            0,
+        )
     }
 
     /// Like [`resolve`], but with cross-module mixin contributions available (Phase
@@ -903,6 +1180,7 @@ mod tests {
         code: &str,
         expr_src: &str,
         contributions: &MixinContributions,
+        helpers: &HelperIndex,
     ) -> Vec<WapChildNode> {
         let alloc = Allocator::default();
         let ret = wa_oxc::parse_cjs(&alloc, code);
@@ -913,7 +1191,16 @@ mod tests {
         let owned = format!("{expr_src};");
         let ret2 = wa_oxc::parse_cjs(&alloc2, &owned);
         let expr = first_expression(&ret2.program).unwrap();
-        resolve_child_node(expr, &owned, &scope, code, &aliases, Some(contributions), 0)
+        resolve_child_node(
+            expr,
+            &owned,
+            &scope,
+            code,
+            &aliases,
+            Some(contributions),
+            helpers,
+            0,
+        )
     }
 
     #[test]
@@ -962,6 +1249,7 @@ mod tests {
     /// A contribution node `tag{attrs}` for the Phase-3 tests.
     fn cnode(tag: &str, attrs: &[&str]) -> WapChildNode {
         WapChildNode {
+            content: None,
             tag: tag.to_string(),
             attrs: attrs
                 .iter()
@@ -991,6 +1279,7 @@ mod tests {
             "",
             r#"o("WASmaxOutFooPayloadMixin").mergeFooPayloadMixin(o("WASmaxJsx").smax("messages", null), a)"#,
             &contribs,
+            &HelperIndex::default(),
         );
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].tag, "messages");
@@ -1009,6 +1298,7 @@ mod tests {
             "",
             r#"o("WASmaxOutFooParamsMixin").mergeFooParamsMixin(o("WASmaxJsx").smax("messages", null), a)"#,
             &contribs,
+            &HelperIndex::default(),
         );
         assert_eq!(
             out[0].tag, "messages",
@@ -1031,6 +1321,7 @@ mod tests {
             "",
             r#"o("WASmaxOutFooParams").mergeFooParams(o("WASmaxJsx").smax("messages", null), a)"#,
             &contribs,
+            &HelperIndex::default(),
         );
         assert!(out[0].attrs.iter().any(|a| a.name == "jid"));
     }
@@ -1048,6 +1339,7 @@ mod tests {
             "",
             r#"o("WASmaxMixins").optionalMerge(o("WASmaxOutDirections").mergeDirections, o("WASmaxJsx").smax("messages", {count:o("WAWap").INT(t)}), n)"#,
             &contribs,
+            &HelperIndex::default(),
         );
         assert_eq!(out[0].tag, "messages");
         let names: Vec<_> = out[0].attrs.iter().map(|a| a.name.as_str()).collect();
@@ -1271,6 +1563,7 @@ mod tests {
             tag: "item".into(),
             attrs: vec![],
             children: vec![],
+            content: None,
             repeats: false,
             variant_groups: vec![],
         };
@@ -1278,6 +1571,7 @@ mod tests {
             tag: "item".into(),
             attrs: vec![],
             children: vec![],
+            content: None,
             repeats: true,
             variant_groups: vec![],
         };

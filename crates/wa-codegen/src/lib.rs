@@ -336,6 +336,7 @@ mod tests {
                             attr("limit", WapAttrKind::Integer),
                         ],
                         children: vec![],
+                        content: None,
                         repeats: false,
                         variant_groups: vec![],
                     }],

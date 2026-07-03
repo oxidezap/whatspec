@@ -8,6 +8,7 @@
 
 mod alias;
 mod attrs;
+mod helper_index;
 mod mixin_index;
 mod module;
 mod request;
@@ -91,6 +92,12 @@ pub fn scan_iq_with_diagnostics(
     // response (the smax response lives in a separate module).
     let response_index = response_index::build_pass(module_defs, source);
 
+    // Build the cross-module helper index once. It resolves wap-returning helpers
+    // (`xmppSignedPreKey`, `xmppPreKey`, …) so a request child built via
+    // `o("Module").fn(...)` / `.map(o("Module").fn)` recovers its subtree instead of
+    // leaving a bare node (e.g. `<rotate>` → `<skey><id/><value/><signature/></skey>`).
+    let helper_index = helper_index::build_pass(module_defs, source);
+
     let mut stanzas = Vec::new();
     let mut unparseable = Vec::new();
     let mut cross = CrossModuleStats::default();
@@ -109,7 +116,7 @@ pub fn scan_iq_with_diagnostics(
         // Every IQ candidate either yields ≥1 stanza or records why it didn't, so
         // a silently-dropped module surfaces as an `unparseable` entry rather than
         // vanishing. Push order follows the deterministic module scan order.
-        match scan_module_outcome(slice, &mixin_index, &response_index) {
+        match scan_module_outcome(slice, &mixin_index, &response_index, &helper_index) {
             Ok((found, stat)) => {
                 stanzas.extend(found);
                 if stat.referenced_mixins {
@@ -417,5 +424,91 @@ mod tests {
         assert_eq!(res.stanzas.len(), 1);
         assert_eq!(res.stanzas[0].module_name, "WAWebDoIq");
         assert_eq!(res.stanzas[0].namespace, "w:test");
+    }
+
+    /// A prekey helper module + a rotate job that builds `<rotate>` via a
+    /// cross-module `o("Helper").xmppSignedPreKey(t)` child (mirrors WAWebRotateKeyJob).
+    const PREKEY_BUNDLE: &str = r#"
+        __d("WAWebSignalUtilsApi", ["WAWap"], function(g,r,d,o,e,i,l){
+            function sk(k){ var t; return (t=o("WAWap")).wap("skey", null,
+                t.wap("id", null, t.BIG_ENDIAN_CONTENT(k.keyId, 3)),
+                t.wap("value", null, k.pub),
+                t.wap("signature", null, k.sig)); }
+            function pk(k){ var t; return (t=o("WAWap")).wap("key", null,
+                t.wap("id", null, t.BIG_ENDIAN_CONTENT(k.keyId, 3)),
+                t.wap("value", null, k.pub)); }
+            l.xmppSignedPreKey = sk;
+            l.xmppPreKey = pk;
+        }, 1);
+        __d("WAWebRotateKeyJob", ["WADeprecatedSendIq","WAWap","WAWebSignalUtilsApi"], function(g,r,d,o,e,i,l){
+            l.rotate = function(t){ return o("WAWap").wap("iq", {xmlns:"encrypt", type:"set"},
+                o("WAWap").wap("rotate", null, o("WAWebSignalUtilsApi").xmppSignedPreKey(t))); };
+        }, 2);
+        __d("WAWebUploadPreKeysJob", ["WADeprecatedSendIq","WAWap","WAWebSignalUtilsApi"], function(g,r,d,o,e,i,l){
+            l.up = function(list){ return o("WAWap").wap("iq", {xmlns:"encrypt", type:"set"},
+                o("WAWap").wap("list", null, list.map(o("WAWebSignalUtilsApi").xmppPreKey))); };
+        }, 3);
+    "#;
+
+    #[test]
+    fn cross_module_helper_child_is_resolved_with_content() {
+        // `<rotate>` recovers `<skey><id/><value/><signature/></skey>` from the
+        // cross-module helper, and `<id>` carries its statically-known 3-byte length.
+        let res = scan_iq_stanzas(PREKEY_BUNDLE);
+        let s = res
+            .stanzas
+            .iter()
+            .find(|s| s.module_name == "WAWebRotateKeyJob")
+            .expect("rotate stanza");
+        assert_eq!(s.namespace, "encrypt");
+        let rotate = &s.request.children[0];
+        assert_eq!(rotate.tag, "rotate");
+        let skey = &rotate.children[0];
+        assert_eq!(skey.tag, "skey");
+        let tags: Vec<&str> = skey.children.iter().map(|c| c.tag.as_str()).collect();
+        assert_eq!(tags, ["id", "value", "signature"]);
+        // `<id>` = BIG_ENDIAN_CONTENT(x, 3) → 3 bytes.
+        let id = &skey.children[0];
+        let id_content = id.content.as_ref().expect("id content");
+        assert_eq!(id_content.kind, wa_ir::WapContentKind::Bytes);
+        assert_eq!(id_content.byte_length, Some(3));
+        // `<value>`/`<signature>` = opaque value refs → dynamic content.
+        assert_eq!(
+            skey.children[1].content.as_ref().unwrap().kind,
+            wa_ir::WapContentKind::Dynamic
+        );
+    }
+
+    #[test]
+    fn map_of_cross_module_helper_yields_repeating_child() {
+        // `list.map(o("Helper").xmppPreKey)` → a repeating `<key>` under `<list>`.
+        let res = scan_iq_stanzas(PREKEY_BUNDLE);
+        let s = res
+            .stanzas
+            .iter()
+            .find(|s| s.module_name == "WAWebUploadPreKeysJob")
+            .expect("upload stanza");
+        let list = &s.request.children[0];
+        assert_eq!(list.tag, "list");
+        let key = &list.children[0];
+        assert_eq!(key.tag, "key");
+        assert!(key.repeats);
+        assert!(key.children.iter().any(|c| c.tag == "id"));
+    }
+
+    #[test]
+    fn helpers_absent_leaves_node_bare_but_present() {
+        // Without the helper module, the child helper can't resolve — the `<rotate>`
+        // node is still emitted (just childless), never dropping the stanza.
+        let only_job = r#"
+            __d("WAWebRotateKeyJob", ["WADeprecatedSendIq","WAWap","WAWebSignalUtilsApi"], function(g,r,d,o,e,i,l){
+                l.rotate = function(t){ return o("WAWap").wap("iq", {xmlns:"encrypt", type:"set"},
+                    o("WAWap").wap("rotate", null, o("WAWebSignalUtilsApi").xmppSignedPreKey(t))); };
+            }, 1);
+        "#;
+        let res = scan_iq_stanzas(only_job);
+        let s = &res.stanzas[0];
+        assert_eq!(s.request.children[0].tag, "rotate");
+        assert!(s.request.children[0].children.is_empty());
     }
 }
