@@ -865,6 +865,7 @@ mod tests {
             tag: tag.into(),
             attrs: vec![],
             children: vec![],
+            content: None,
             repeats: false,
             variant_groups: vec![],
         }
@@ -891,6 +892,7 @@ mod tests {
             tag: "messages".into(),
             attrs: vec![attr("count", WapAttrKind::Integer, None)],
             children: vec![],
+            content: None,
             repeats: false,
             variant_groups: vec![
                 WapVariantGroup {
@@ -997,6 +999,7 @@ mod tests {
             tag: "config".into(),
             attrs: vec![],
             children: vec![],
+            content: None,
             repeats: false,
             variant_groups: vec![WapVariantGroup {
                 optional: false,
@@ -1216,6 +1219,7 @@ mod tests {
                 attr("xmlns", WapAttrKind::Const, Some("w:x")),
             ],
             children: vec![],
+            content: None,
             repeats: false,
             variant_groups: vec![],
         };
@@ -1247,6 +1251,7 @@ mod tests {
             tag: "list".into(),
             attrs: vec![],
             children: vec![leaf("item"), leaf("item")],
+            content: None,
             repeats: false,
             variant_groups: vec![],
         };
