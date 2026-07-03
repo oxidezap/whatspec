@@ -642,9 +642,10 @@ mod tests {
         // `identity` (single namespace) → filled via the guarded fallback.
         let ident = leaf("WAWebReqA", "identity").expect("identity content");
         assert_eq!(ident.byte_length, Some(32));
+        // Provenance marks it as the parent-agnostic (by-tag) inference.
         assert_eq!(
             ident.byte_length_source.as_deref(),
-            Some("parse:WAWebKeyParser")
+            Some("parse:WAWebKeyParser (by-tag)")
         );
         // `id` spans two namespaces → excluded from the fallback, stays unsized.
         assert_eq!(leaf("WAWebReqB", "id").and_then(|c| c.byte_length), None);

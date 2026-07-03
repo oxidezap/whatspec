@@ -63,7 +63,7 @@ impl ContentLengthIndex {
     }
 
     fn is_empty(&self) -> bool {
-        self.by_path.is_empty()
+        self.by_path.is_empty() && self.by_tag.is_empty()
     }
 }
 
@@ -94,24 +94,29 @@ pub(crate) fn build_pass(defs: &[ModuleDefinition], source: &str) -> ContentLeng
     }
 
     let mut index = ContentLengthIndex::default();
-    // Per-tag aggregation for the parent-agnostic fallback: a tag qualifies only if
-    // its length is identical under every parent it's read at.
+    // Per-tag ambiguity is computed from EVERY observed length (including lengths from
+    // paths that are themselves ambiguous), so a tag read as different lengths anywhere
+    // is excluded from the parent-agnostic fallback — even if one of its parents was
+    // dropped by the per-path filter.
     let mut tag_lengths: BTreeMap<String, BTreeSet<u32>> = BTreeMap::new();
     let mut tag_source: BTreeMap<String, String> = BTreeMap::new();
+    for ((_parent, tag), lengths) in &seen_lengths {
+        tag_lengths.entry(tag.clone()).or_default().extend(lengths);
+    }
     for (key, lengths) in seen_lengths {
-        // Only keep a key whose every occurrence agreed on the length.
+        // Only keep a path whose every occurrence agreed on the length.
         if let (1, Some(&len)) = (lengths.len(), lengths.iter().next()) {
             let src = source_module.get(&key).cloned().unwrap_or_default();
-            tag_lengths.entry(key.1.clone()).or_default().insert(len);
-            tag_source
-                .entry(key.1.clone())
-                .or_insert_with(|| src.clone());
+            tag_source.entry(key.1.clone()).or_insert(src.clone());
             index.by_path.insert(key, (len, src));
         }
     }
     for (tag, lengths) in tag_lengths {
-        if let (1, Some(&len)) = (lengths.len(), lengths.iter().next()) {
-            let src = tag_source.remove(&tag).unwrap_or_default();
+        // A tag qualifies for the fallback only if it was read at exactly one length
+        // everywhere AND at least one path pinned it (has a source).
+        if let (1, Some(&len)) = (lengths.len(), lengths.iter().next())
+            && let Some(src) = tag_source.remove(&tag)
+        {
             index.by_tag.insert(tag, (len, src));
         }
     }
@@ -279,17 +284,25 @@ pub(crate) fn enrich(
         return;
     }
     for node in children {
-        if let Some(content) = node.content.as_mut()
-            && content.byte_length.is_none()
-            && let Some((len, source)) = index.get(parent_tag, &node.tag).or_else(|| {
+        // Exact `(parent, tag)` path wins; else the parent-agnostic per-tag fallback
+        // (gated on `tag_fallback`), whose provenance is tagged `(by-tag)` so a
+        // cross-context inference is distinguishable from an exact match.
+        let resolved = index
+            .get(parent_tag, &node.tag)
+            .map(|(len, src)| (len, format!("parse:{src}")))
+            .or_else(|| {
                 tag_fallback
                     .contains(&node.tag)
                     .then(|| index.get_by_tag(&node.tag))
                     .flatten()
-            })
+                    .map(|(len, src)| (len, format!("parse:{src} (by-tag)")))
+            });
+        if let Some(content) = node.content.as_mut()
+            && content.byte_length.is_none()
+            && let Some((len, source)) = resolved
         {
             content.byte_length = Some(len);
-            content.byte_length_source = Some(format!("parse:{source}"));
+            content.byte_length_source = Some(source);
             if content.kind == WapContentKind::Dynamic {
                 content.kind = WapContentKind::Bytes;
             }
@@ -449,6 +462,25 @@ mod tests {
             .unwrap();
         assert_eq!(sig.byte_length, Some(64));
         assert_eq!(sig.byte_length_source.as_deref(), Some("parse:P"));
+    }
+
+    #[test]
+    fn tag_ambiguous_in_any_path_is_excluded_from_fallback() {
+        // `value` is read as 16 under `foo` (ambiguous with 32 there too) and 32 under
+        // `bar`. Even though `(bar, value)` is unambiguous, `value` is NOT globally
+        // consistent, so it must not enter the per-tag fallback.
+        let bundle = r#"
+            __d("A",[],function(g,r,d,o,e,i,l){ l.a=function(u){ return u.child("foo").child("value").contentBytes(16); }; },1);
+            __d("B",[],function(g,r,d,o,e,i,l){ l.b=function(u){ return u.child("foo").child("value").contentBytes(32); }; },2);
+            __d("C",[],function(g,r,d,o,e,i,l){ l.c=function(u){ return u.child("bar").child("value").contentBytes(32); }; },3);
+        "#;
+        let idx = index(bundle);
+        // (bar, value) is unambiguous → exact path still works.
+        assert_eq!(idx.get("bar", "value"), Some((32, "C")));
+        // (foo, value) is ambiguous → dropped from by_path.
+        assert_eq!(idx.get("foo", "value"), None);
+        // `value` is globally ambiguous (16 and 32) → NO by-tag fallback.
+        assert_eq!(idx.get_by_tag("value"), None);
     }
 
     #[test]
