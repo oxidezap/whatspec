@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1042618720",
+  "waVersion": "2.3000.1042620056",
   "stanzas": [
     {
       "moduleName": "WASmaxOutAbPropsGetExperimentConfigRequest",
@@ -3697,7 +3697,8 @@
                 "method": "contentBytes",
                 "name": "content",
                 "type": "bytes",
-                "required": true
+                "required": true,
+                "byteLength": 32
               }
             ]
           },
@@ -3712,7 +3713,8 @@
                 "method": "contentBytes",
                 "name": "content",
                 "type": "bytes",
-                "required": true
+                "required": true,
+                "byteLength": 32
               }
             ]
           },
@@ -3727,7 +3729,8 @@
                 "method": "contentBytes",
                 "name": "content",
                 "type": "bytes",
-                "required": true
+                "required": true,
+                "byteLength": 64
               }
             ]
           },
@@ -3742,7 +3745,8 @@
                 "method": "contentBytes",
                 "name": "content",
                 "type": "bytes",
-                "required": true
+                "required": true,
+                "byteLength": 20
               }
             ]
           }
@@ -3834,7 +3838,8 @@
                         "method": "contentBytes",
                         "name": "content",
                         "type": "bytes",
-                        "required": true
+                        "required": true,
+                        "byteLength": 1
                       }
                     ]
                   },
@@ -3849,7 +3854,8 @@
                         "method": "contentBytes",
                         "name": "content",
                         "type": "bytes",
-                        "required": true
+                        "required": true,
+                        "byteLength": 32
                       }
                     ]
                   },
@@ -3896,7 +3902,8 @@
                 "method": "contentBytes",
                 "name": "content",
                 "type": "bytes",
-                "required": true
+                "required": true,
+                "byteLength": 1
               }
             ]
           },
@@ -3911,7 +3918,8 @@
                 "method": "contentBytes",
                 "name": "content",
                 "type": "bytes",
-                "required": true
+                "required": true,
+                "byteLength": 32
               }
             ]
           },
@@ -6078,7 +6086,9 @@
             "attrs": [],
             "children": [],
             "content": {
-              "kind": "bytes"
+              "kind": "bytes",
+              "byteLength": 4,
+              "byteLengthSource": "parse:WAWebDigestKeyJob (by-tag)"
             },
             "repeats": false
           },
@@ -6087,7 +6097,9 @@
             "attrs": [],
             "children": [],
             "content": {
-              "kind": "dynamic"
+              "kind": "bytes",
+              "byteLength": 1,
+              "byteLengthSource": "parse:WAWebDigestKeyJob (by-tag)"
             },
             "repeats": false
           },
@@ -6096,7 +6108,9 @@
             "attrs": [],
             "children": [],
             "content": {
-              "kind": "dynamic"
+              "kind": "bytes",
+              "byteLength": 32,
+              "byteLengthSource": "parse:WAWebDigestKeyJob (by-tag)"
             },
             "repeats": false
           },
@@ -7445,7 +7459,9 @@
             "attrs": [],
             "children": [],
             "content": {
-              "kind": "bytes"
+              "kind": "bytes",
+              "byteLength": 4,
+              "byteLengthSource": "parse:WAWebDigestKeyJob (by-tag)"
             },
             "repeats": false
           },
@@ -7454,7 +7470,9 @@
             "attrs": [],
             "children": [],
             "content": {
-              "kind": "dynamic"
+              "kind": "bytes",
+              "byteLength": 1,
+              "byteLengthSource": "parse:WAWebDigestKeyJob (by-tag)"
             },
             "repeats": false
           },
@@ -7463,7 +7481,9 @@
             "attrs": [],
             "children": [],
             "content": {
-              "kind": "dynamic"
+              "kind": "bytes",
+              "byteLength": 32,
+              "byteLengthSource": "parse:WAWebDigestKeyJob (by-tag)"
             },
             "repeats": false
           },
