@@ -1,5 +1,5 @@
 {
-  "abPropsConfigs": 2365,
+  "abPropsConfigs": 2047,
   "appstateActions": 66,
   "diagnostics": {
     "iq": {
@@ -18,50 +18,62 @@
       "stanzas": 159,
       "typedResponses": 140,
       "unparseable": 63
+    },
+    "notif": {
+      "degraded": 9,
+      "stanzaTags": 13,
+      "typedContent": 18,
+      "types": 27
     }
   },
   "domains": {
     "abprops": {
       "file": "abprops/index.json",
       "schema": "schema/abprops.schema.json",
-      "sha256": "cb4ce3c5b86ab2c1696bf890778ac9ad6e8f70976d97acbb611bdf41b3759871"
+      "sha256": "826865c84299e70078672ccedecfa26020d9a79c061adcbeeabcd99260855431"
     },
     "appstate": {
       "file": "appstate/index.json",
       "schema": "schema/appstate.schema.json",
-      "sha256": "f0da36ee45356b7658f343f1f673922013347acb2782960f2dc4084749493345"
+      "sha256": "360a0318b2488db002262e40586859cc561e52c1390abc482bf70c6e8b8a1b63"
     },
     "enums": {
       "file": "enums/index.json",
       "schema": "schema/enums.schema.json",
-      "sha256": "a6c3424d6b2a2c1f3f5e4fcd7439abeceef208114dd4b8644b9a4bdfec21bfc7"
+      "sha256": "ac8b8726712eedd3b43c88c238d83542361009061e594ee40b519c05954bdd2e"
     },
     "iq": {
       "file": "iq/index.json",
       "schema": "schema/iq.schema.json",
-      "sha256": "2ff4efa661d3469298e71b43afa5e68b94df2bdcd79b84ab3d16482ab5665c91"
+      "sha256": "0cf8df934242197707abee3f85d7d71ba1634b2e6c7b22ebcb41c59209f832ae"
     },
     "mex": {
       "file": "mex/index.json",
       "schema": "schema/mex.schema.json",
-      "sha256": "324774ede310f41f3193968873947fe09a006ac84290bcb88e34309dd49bdf5f"
+      "sha256": "778298e91ae6350b2eb104b4a3630dd61e8472ff97b57fad6bf40040e474583a"
+    },
+    "notif": {
+      "file": "notif/index.json",
+      "schema": "schema/notif.schema.json",
+      "sha256": "145260b749a1408a5774a94444c2ebb901a029188e6be358270b15e72a7835e6"
     },
     "proto": {
       "file": "proto/WAProto.proto",
-      "sha256": "1b18336d1c4c8e0252bc8cb65da09652326a3f56c565d625520eeb3c9b2642bc"
+      "sha256": "c64d67735176d5b7ef4e9cfd5ccc22d6a90885d77fd5b0c44d80932addbf8dfe"
     },
     "wam": {
       "file": "wam/index.json",
       "schema": "schema/wam.schema.json",
-      "sha256": "8b164c35c6b61126f229b2b987d162501f4c35873ee4774404c665c6b0f1db56"
+      "sha256": "5f08416d9a9e39ec0fe66853dcf6df4601a7df6a137a2a84d041e54749839ca4"
     }
   },
   "enumDefs": 257,
   "generatorVersion": "0.1.0",
   "iqModules": 33,
-  "mexOperations": 129,
+  "mexOperations": 132,
+  "notifTypes": 27,
   "protoEntities": 257,
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1042562325",
+  "waVersion": "2.3000.1042616770",
   "wamEvents": 428
 }

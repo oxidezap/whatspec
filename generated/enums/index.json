@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1042562325",
+  "waVersion": "2.3000.1042616770",
   "enums": [
     {
       "name": "DGWAuth",
@@ -3373,6 +3373,10 @@
         {
           "name": "AUTO_REPLY_FAB",
           "value": "auto_reply_fab"
+        },
+        {
+          "name": "AI_REPLIES",
+          "value": "ai_replies"
         }
       ]
     },

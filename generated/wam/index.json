@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1042562325",
+  "waVersion": "2.3000.1042616770",
   "events": [
     {
       "name": "GroupCreateC",
@@ -39917,6 +39917,16 @@
           "module": "WAWebWamEnumLidMigrationSourceType"
         },
         {
+          "name": "numberOfCagGroups",
+          "id": 15,
+          "kind": "integer"
+        },
+        {
+          "name": "numberOfCagLidGroups",
+          "id": 16,
+          "kind": "integer"
+        },
+        {
           "name": "numberOfChatsWithClientAssignedLid",
           "id": 8,
           "kind": "integer"
@@ -39937,6 +39947,16 @@
           "kind": "integer"
         },
         {
+          "name": "numberOfLidOnlyGroups",
+          "id": 17,
+          "kind": "integer"
+        },
+        {
+          "name": "numberOfMixedPnLidGroups",
+          "id": 18,
+          "kind": "integer"
+        },
+        {
           "name": "numberOfPnBroadcastLists",
           "id": 12,
           "kind": "integer"
@@ -39949,6 +39969,11 @@
         {
           "name": "numberOfPnGroups",
           "id": 13,
+          "kind": "integer"
+        },
+        {
+          "name": "numberOfPnOnlyGroups",
+          "id": 19,
           "kind": "integer"
         },
         {
@@ -51219,6 +51244,10 @@
         {
           "key": "CONTACT_CARD",
           "value": 4
+        },
+        {
+          "key": "DROPDOWN_MENU",
+          "value": 5
         }
       ]
     },
@@ -65281,6 +65310,10 @@
         {
           "key": "PIX_NATIVE_FIDO_REGISTRATION_OPTIONS",
           "value": 101
+        },
+        {
+          "key": "PIX_NATIVE_PROMO_SCREEN_VIEW",
+          "value": 102
         }
       ]
     },
@@ -66283,6 +66316,10 @@
         {
           "key": "CALL_TRANSFER_PUSH_NOTIFICATION",
           "value": 40
+        },
+        {
+          "key": "XDR_CALL_TRANSFER",
+          "value": 41
         }
       ]
     },
@@ -75317,6 +75354,10 @@
         {
           "key": "BUSINESS_BROADCAST_INSIGHTS_READY",
           "value": 64
+        },
+        {
+          "key": "NEWSLETTER_MILESTONE_UPDATE_FORWARDS",
+          "value": 65
         }
       ]
     },
@@ -78543,6 +78584,10 @@
         {
           "key": "TAP_ON_BANNER",
           "value": 1
+        },
+        {
+          "key": "TAP_ON_SYSTEM_MESSAGE",
+          "value": 2
         }
       ]
     },

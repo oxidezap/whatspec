@@ -1,0 +1,1624 @@
+{
+  "schemaVersion": "1.0.0",
+  "waVersion": "2.3000.1042616770",
+  "dispatcherModules": [
+    "WAWebCommsHandleLoggedInStanza",
+    "WAWebCommsHandleWorkerCompatibleStanza"
+  ],
+  "stanzaTags": [
+    {
+      "tag": "call",
+      "handlerModule": "WAWebHandleVoipCall",
+      "handlerFunction": "handleCall"
+    },
+    {
+      "tag": "chatstate",
+      "handlerModule": "WAHandleDecisionTreeResult",
+      "handlerFunction": "handleDecisionTreeResult"
+    },
+    {
+      "tag": "error",
+      "handlerModule": "WABackendHandleError",
+      "handlerFunction": "handleError"
+    },
+    {
+      "tag": "failure",
+      "handlerModule": "WAWebHandleFailure"
+    },
+    {
+      "tag": "ib",
+      "handlerModule": "WAWebHandleInfoBulletin"
+    },
+    {
+      "tag": "message"
+    },
+    {
+      "tag": "notification"
+    },
+    {
+      "tag": "presence",
+      "handlerModule": "WAWebHandlePresence"
+    },
+    {
+      "tag": "receipt"
+    },
+    {
+      "tag": "status"
+    },
+    {
+      "tag": "stream:error",
+      "handlerModule": "WAWebHandleStreamError"
+    },
+    {
+      "tag": "success",
+      "handlerModule": "WAWebHandleSuccess"
+    },
+    {
+      "tag": "xmlstreamend"
+    }
+  ],
+  "notifications": [
+    {
+      "type": "account_sync",
+      "handlerModule": "WAWebHandleAccountSyncNotification",
+      "handlerFunction": "handleAccountSyncNotification",
+      "content": {
+        "parserName": "incomingAccountSyncNotification",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "notification"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "id",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "attrTime",
+            "name": "t",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "method": "attrDeviceJid",
+            "name": "from",
+            "type": "device_jid",
+            "required": true
+          },
+          {
+            "method": "child",
+            "name": "status",
+            "type": "string",
+            "required": true,
+            "tag": "status",
+            "children": [
+              {
+                "method": "attrString",
+                "name": "action",
+                "type": "string",
+                "required": true
+              }
+            ]
+          },
+          {
+            "method": "child",
+            "name": "text_status",
+            "type": "string",
+            "required": true,
+            "tag": "text_status",
+            "children": [
+              {
+                "method": "attrString",
+                "name": "action",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "attrString",
+                "name": "text",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "attrInt",
+                "name": "ephemeral_duration_sec",
+                "type": "integer",
+                "required": true
+              },
+              {
+                "method": "attrString",
+                "name": "last_update_time",
+                "type": "string",
+                "required": true
+              }
+            ]
+          },
+          {
+            "method": "child",
+            "name": "devices",
+            "type": "string",
+            "required": true,
+            "tag": "devices",
+            "children": []
+          },
+          {
+            "method": "child",
+            "name": "blocklist",
+            "type": "string",
+            "required": true,
+            "tag": "blocklist",
+            "children": [
+              {
+                "method": "forEachChildWithTag",
+                "name": "item",
+                "type": "string",
+                "required": true,
+                "tag": "item",
+                "children": [
+                  {
+                    "method": "maybeAttrString",
+                    "name": "username",
+                    "type": "string",
+                    "required": false
+                  },
+                  {
+                    "method": "attrUserJid",
+                    "name": "jid",
+                    "type": "jid",
+                    "required": true
+                  }
+                ],
+                "repeats": true
+              }
+            ]
+          },
+          {
+            "method": "maybeAttrString",
+            "name": "username",
+            "type": "string",
+            "required": false
+          },
+          {
+            "method": "attrUserJid",
+            "name": "jid",
+            "type": "jid",
+            "required": true
+          },
+          {
+            "method": "child",
+            "name": "tos",
+            "type": "string",
+            "required": true,
+            "tag": "tos",
+            "children": [
+              {
+                "method": "forEachChildWithTag",
+                "name": "notice",
+                "type": "string",
+                "required": true,
+                "tag": "notice",
+                "children": [
+                  {
+                    "method": "maybeAttrString",
+                    "name": "state",
+                    "type": "string",
+                    "required": false
+                  },
+                  {
+                    "method": "attrString",
+                    "name": "id",
+                    "type": "string",
+                    "required": true
+                  }
+                ],
+                "repeats": true
+              }
+            ]
+          },
+          {
+            "method": "maybeAttrString",
+            "name": "state",
+            "type": "string",
+            "required": false
+          },
+          {
+            "method": "attrString",
+            "name": "id",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "child",
+            "name": "disappearing_mode",
+            "type": "string",
+            "required": true,
+            "tag": "disappearing_mode",
+            "children": [
+              {
+                "method": "attrString",
+                "name": "action",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "attrInt",
+                "name": "duration",
+                "type": "integer",
+                "required": true
+              },
+              {
+                "method": "attrInt",
+                "name": "t",
+                "type": "integer",
+                "required": true
+              }
+            ]
+          },
+          {
+            "method": "child",
+            "name": "notice",
+            "type": "string",
+            "required": true,
+            "tag": "notice",
+            "children": [
+              {
+                "method": "attrString",
+                "name": "id",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "maybeAttrString",
+                "name": "stage",
+                "type": "string",
+                "required": false
+              },
+              {
+                "method": "maybeAttrString",
+                "name": "version",
+                "type": "string",
+                "required": false
+              },
+              {
+                "method": "attrInt",
+                "name": "t",
+                "type": "integer",
+                "required": true
+              }
+            ]
+          },
+          {
+            "method": "child",
+            "name": "user",
+            "type": "string",
+            "required": true,
+            "tag": "user",
+            "children": [
+              {
+                "method": "maybeAttrString",
+                "name": "state",
+                "type": "string",
+                "required": false
+              }
+            ]
+          },
+          {
+            "method": "child",
+            "name": "biz_opt_out_list",
+            "type": "string",
+            "required": true,
+            "tag": "biz_opt_out_list",
+            "children": [
+              {
+                "method": "mapChildren",
+                "name": "children",
+                "type": "string",
+                "required": true,
+                "children": [
+                  {
+                    "method": "attrString",
+                    "name": "action",
+                    "type": "string",
+                    "required": true
+                  },
+                  {
+                    "method": "attrUserJid",
+                    "name": "biz_jid",
+                    "type": "jid",
+                    "required": true
+                  }
+                ],
+                "repeats": true
+              },
+              {
+                "method": "maybeAttrString",
+                "name": "dhash",
+                "type": "string",
+                "required": false
+              },
+              {
+                "method": "maybeAttrString",
+                "name": "prev_dhash",
+                "type": "string",
+                "required": false
+              }
+            ]
+          },
+          {
+            "method": "attrString",
+            "name": "action",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "attrUserJid",
+            "name": "biz_jid",
+            "type": "jid",
+            "required": true
+          }
+        ]
+      }
+    },
+    {
+      "type": "business",
+      "handlerModule": "WAWebHandleBusinessNotification",
+      "handlerFunction": "handleBusinessNotificationJob",
+      "content": {
+        "parserName": "businessNotificationParser",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "notification"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "id",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "attrWapJid",
+            "name": "from",
+            "type": "jid",
+            "required": true
+          },
+          {
+            "method": "attrTime",
+            "name": "t",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "method": "child",
+            "name": "remove",
+            "type": "string",
+            "required": true,
+            "tag": "remove",
+            "children": []
+          },
+          {
+            "method": "child",
+            "name": "verified_name",
+            "type": "string",
+            "required": true,
+            "tag": "verified_name",
+            "children": []
+          },
+          {
+            "method": "child",
+            "name": "profile",
+            "type": "string",
+            "required": true,
+            "tag": "profile",
+            "children": [
+              {
+                "method": "maybeAttrString",
+                "name": "hash",
+                "type": "string",
+                "required": false
+              }
+            ]
+          },
+          {
+            "method": "child",
+            "name": "product_catalog",
+            "type": "string",
+            "required": true,
+            "tag": "product_catalog",
+            "children": []
+          }
+        ]
+      }
+    },
+    {
+      "type": "companion_reg_refresh",
+      "handlerModule": "WAWebHandleCompanionReqRefreshNotification",
+      "handlerFunction": "handleCompanionReqRefreshNotification",
+      "content": {
+        "parserName": "serverNotifyCompanionRefresh",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "notification"
+          },
+          {
+            "kind": "attr",
+            "name": "type",
+            "value": "companion_reg_refresh"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "id",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "attrString",
+            "name": "from",
+            "type": "string",
+            "required": true
+          }
+        ]
+      }
+    },
+    {
+      "type": "contacts",
+      "handlerModule": "WAWebHandleContactNotification",
+      "content": {
+        "parserName": "incomingContactsNotification",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "notification"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "id",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "attrWapJid",
+            "name": "from",
+            "type": "jid",
+            "required": true
+          },
+          {
+            "method": "attrTime",
+            "name": "t",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "method": "attrString",
+            "name": "t",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "child",
+            "name": "update",
+            "type": "string",
+            "required": true,
+            "tag": "update",
+            "children": [
+              {
+                "method": "attrUserJid",
+                "name": "jid",
+                "type": "jid",
+                "required": true
+              },
+              {
+                "method": "attrString",
+                "name": "hash",
+                "type": "string",
+                "required": true
+              }
+            ]
+          },
+          {
+            "method": "child",
+            "name": "add",
+            "type": "string",
+            "required": true,
+            "tag": "add",
+            "children": [
+              {
+                "method": "contentBytes",
+                "name": "content",
+                "type": "bytes",
+                "required": true
+              }
+            ],
+            "contentType": "bytes"
+          },
+          {
+            "method": "child",
+            "name": "remove",
+            "type": "string",
+            "required": true,
+            "tag": "remove",
+            "children": [
+              {
+                "method": "attrUserJid",
+                "name": "jid",
+                "type": "jid",
+                "required": true
+              }
+            ]
+          },
+          {
+            "method": "child",
+            "name": "modify",
+            "type": "string",
+            "required": true,
+            "tag": "modify",
+            "children": [
+              {
+                "method": "attrUserJid",
+                "name": "new",
+                "type": "jid",
+                "required": true
+              },
+              {
+                "method": "attrUserJid",
+                "name": "old",
+                "type": "jid",
+                "required": true
+              },
+              {
+                "method": "maybeAttrUserJid",
+                "name": "new_lid",
+                "type": "jid",
+                "required": false
+              },
+              {
+                "method": "attrLidUserJid",
+                "name": "new_lid",
+                "type": "jid",
+                "required": true
+              },
+              {
+                "method": "maybeAttrUserJid",
+                "name": "old_lid",
+                "type": "jid",
+                "required": false
+              },
+              {
+                "method": "attrLidUserJid",
+                "name": "old_lid",
+                "type": "jid",
+                "required": true
+              }
+            ]
+          },
+          {
+            "method": "child",
+            "name": "sync",
+            "type": "string",
+            "required": true,
+            "tag": "sync",
+            "children": [
+              {
+                "method": "attrTime",
+                "name": "after",
+                "type": "integer",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "crsc_continuation",
+      "handlerModule": "WAWebShortcakeLinkingHandleNotification",
+      "handlerFunction": "handleShortcakeLinkingNotification"
+    },
+    {
+      "type": "devices",
+      "handlerModule": "WAWebHandleDeviceNotification",
+      "handlerFunction": "handleDevicesNotification",
+      "content": {
+        "parserName": "incomingDevicesNotification",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "notification"
+          },
+          {
+            "kind": "tag",
+            "name": "notification"
+          },
+          {
+            "kind": "attr",
+            "name": "type",
+            "value": "devices"
+          }
+        ],
+        "fields": [
+          {
+            "method": "child",
+            "name": "remove",
+            "type": "string",
+            "required": true,
+            "tag": "remove",
+            "children": []
+          },
+          {
+            "method": "child",
+            "name": "add",
+            "type": "string",
+            "required": true,
+            "tag": "add",
+            "children": []
+          },
+          {
+            "method": "child",
+            "name": "update",
+            "type": "string",
+            "required": true,
+            "tag": "update",
+            "children": []
+          },
+          {
+            "method": "attrString",
+            "name": "id",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "attrDeviceJid",
+            "name": "from",
+            "type": "device_jid",
+            "required": true
+          },
+          {
+            "method": "attrLidDeviceJid",
+            "name": "lid",
+            "type": "device_jid",
+            "required": true
+          }
+        ]
+      }
+    },
+    {
+      "type": "digital_commerce_subscription",
+      "handlerModule": "WAWebHandleDigitalCommerceSubscriptionNotification",
+      "handlerFunction": "handleDigitalCommerceSubscriptionNotificationJob",
+      "content": {
+        "parserName": "digitalCommerceSubscriptionNotificationParser",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "notification"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "id",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "attrWapJid",
+            "name": "from",
+            "type": "jid",
+            "required": true
+          }
+        ]
+      }
+    },
+    {
+      "type": "disappearing_mode",
+      "handlerModule": "WAWebHandleDisappearingModeNotification",
+      "handlerFunction": "handleDisappearingModeNotificationJob",
+      "content": {
+        "parserName": "disappearingModeNotification",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "notification"
+          }
+        ],
+        "fields": [
+          {
+            "method": "child",
+            "name": "disappearing_mode",
+            "type": "string",
+            "required": true,
+            "tag": "disappearing_mode",
+            "children": [
+              {
+                "method": "attrInt",
+                "name": "duration",
+                "type": "integer",
+                "required": true
+              },
+              {
+                "method": "attrTime",
+                "name": "t",
+                "type": "integer",
+                "required": true
+              }
+            ]
+          },
+          {
+            "method": "attrString",
+            "name": "id",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "attrDeviceJid",
+            "name": "from",
+            "type": "device_jid",
+            "required": true
+          }
+        ]
+      }
+    },
+    {
+      "type": "encrypt",
+      "subDiscriminants": [
+        {
+          "on": "firstChildTag",
+          "cases": [
+            {
+              "value": "count"
+            },
+            {
+              "value": "digest",
+              "handlerModule": "WAWebHandleDigestKey"
+            },
+            {
+              "value": "identity",
+              "handlerModule": "WAWebHandleIdentityChange",
+              "handlerFunction": "handleE2eIdentityChange"
+            },
+            {
+              "value": "pq_count",
+              "handlerModule": "WAWebHandlePreKeyLow"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "fb:update",
+      "handlerModule": "WAWebHandleBotProfileNotification",
+      "handlerFunction": "handleBotProfileNotification"
+    },
+    {
+      "type": "hosted",
+      "handlerModule": "WAWebHandleHostedNotification",
+      "handlerFunction": "handleHostedNotification"
+    },
+    {
+      "type": "link_code_companion_reg",
+      "handlerModule": "WAWebAltDeviceLinkingHandleNotification",
+      "handlerFunction": "handleAltDeviceLinkingNotification"
+    },
+    {
+      "type": "mediaretry",
+      "handlerModule": "WAWebHandleMediaRetryNotification",
+      "content": {
+        "parserName": "mediaRetryNotification",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "notification"
+          }
+        ],
+        "fields": [
+          {
+            "method": "maybeChild",
+            "name": "error",
+            "type": "string",
+            "required": false,
+            "tag": "error",
+            "children": [
+              {
+                "method": "attrInt",
+                "name": "code",
+                "type": "integer",
+                "required": true
+              }
+            ]
+          },
+          {
+            "method": "attrWapJid",
+            "name": "from",
+            "type": "jid",
+            "required": true
+          },
+          {
+            "method": "attrWapJid",
+            "name": "participant",
+            "type": "jid",
+            "required": true
+          },
+          {
+            "method": "attrString",
+            "name": "id",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "child",
+            "name": "encrypt",
+            "type": "string",
+            "required": true,
+            "tag": "encrypt",
+            "children": []
+          },
+          {
+            "method": "attrString",
+            "name": "id",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "child",
+            "name": "enc_p",
+            "type": "string",
+            "required": true,
+            "tag": "enc_p",
+            "children": [
+              {
+                "method": "contentBytes",
+                "name": "content",
+                "type": "bytes",
+                "required": true
+              }
+            ]
+          },
+          {
+            "method": "child",
+            "name": "enc_iv",
+            "type": "string",
+            "required": true,
+            "tag": "enc_iv",
+            "children": [
+              {
+                "method": "contentBytes",
+                "name": "content",
+                "type": "bytes",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "mex",
+      "handlerModule": "WAWebHandleMexNotification",
+      "handlerFunction": "handleMexNotification"
+    },
+    {
+      "type": "newsletter",
+      "handlerModule": "WAWebHandleNewsletterNotification",
+      "content": {
+        "parserName": "incomingNewsletterNotificationParser",
+        "assertions": [],
+        "fields": [
+          {
+            "method": "attrFromJid",
+            "name": "content",
+            "type": "jid",
+            "required": true
+          }
+        ]
+      }
+    },
+    {
+      "type": "passkey_prologue_request",
+      "handlerModule": "WAWebShortcakeLinkingHandlePasskeyPrologueRequest",
+      "handlerFunction": "handlePasskeyPrologueRequestNotification"
+    },
+    {
+      "type": "pay",
+      "handlerModule": "WAWebPaymentNotificationHandler",
+      "handlerFunction": "handlePaymentNotification"
+    },
+    {
+      "type": "picture",
+      "handlerModule": "WAWebHandleProfilePicNotification",
+      "handlerFunction": "handleProfilePicNotificationJob",
+      "content": {
+        "parserName": "incomingProfilePicNotificationParser",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "notification"
+          }
+        ],
+        "fields": [
+          {
+            "method": "child",
+            "name": "delete",
+            "type": "string",
+            "required": true,
+            "tag": "delete",
+            "children": []
+          },
+          {
+            "method": "child",
+            "name": "set",
+            "type": "string",
+            "required": true,
+            "tag": "set",
+            "children": []
+          },
+          {
+            "method": "child",
+            "name": "request",
+            "type": "string",
+            "required": true,
+            "tag": "request",
+            "children": []
+          },
+          {
+            "method": "child",
+            "name": "set_avatar",
+            "type": "string",
+            "required": true,
+            "tag": "set_avatar",
+            "children": []
+          },
+          {
+            "method": "attrString",
+            "name": "id",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "attrChatJid",
+            "name": "from",
+            "type": "jid",
+            "required": true
+          },
+          {
+            "method": "attrTime",
+            "name": "t",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "method": "attrString",
+            "name": "t",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "attrUserJid",
+            "name": "from",
+            "type": "jid",
+            "required": true
+          },
+          {
+            "method": "attrTime",
+            "name": "t",
+            "type": "integer",
+            "required": true
+          }
+        ]
+      }
+    },
+    {
+      "type": "privacy_token",
+      "handlerModule": "WAWebHandlePrivacyTokensNotification",
+      "content": {
+        "parserName": "incomingPrivacyTokensParser",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "notification"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "id",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "attrUserJid",
+            "name": "from",
+            "type": "jid",
+            "required": true
+          },
+          {
+            "method": "maybeAttrLidUserJid",
+            "name": "sender_lid",
+            "type": "jid",
+            "required": false
+          },
+          {
+            "method": "child",
+            "name": "tokens",
+            "type": "string",
+            "required": true,
+            "tag": "tokens",
+            "children": [
+              {
+                "method": "forEachChildWithTag",
+                "name": "token",
+                "type": "string",
+                "required": true,
+                "tag": "token",
+                "children": [
+                  {
+                    "method": "attrString",
+                    "name": "type",
+                    "type": "string",
+                    "required": true
+                  }
+                ],
+                "repeats": true
+              }
+            ]
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          }
+        ]
+      }
+    },
+    {
+      "type": "psa",
+      "handlerModule": "WAWebHandlePsa",
+      "content": {
+        "parserName": "incomingCampaignParser",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "notification"
+          },
+          {
+            "kind": "attr",
+            "name": "from"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "id",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "attrUserJid",
+            "name": "participant",
+            "type": "jid",
+            "required": true
+          },
+          {
+            "method": "attrTime",
+            "name": "t",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "method": "child",
+            "name": "campaign",
+            "type": "string",
+            "required": true,
+            "tag": "campaign",
+            "children": [
+              {
+                "method": "attrString",
+                "name": "id",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "maybeAttrInt",
+                "name": "duration",
+                "type": "integer",
+                "required": false
+              },
+              {
+                "method": "mapChildrenWithTag",
+                "name": "message",
+                "type": "string",
+                "required": true,
+                "tag": "message",
+                "children": [
+                  {
+                    "method": "child",
+                    "name": "media",
+                    "type": "string",
+                    "required": true,
+                    "tag": "media",
+                    "children": [
+                      {
+                        "method": "attrEnumValues",
+                        "name": "mediatype",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "contentBytes",
+                        "name": "content",
+                        "type": "bytes",
+                        "required": true
+                      }
+                    ],
+                    "contentType": "bytes"
+                  },
+                  {
+                    "method": "attrString",
+                    "name": "id",
+                    "type": "string",
+                    "required": true
+                  }
+                ],
+                "repeats": true
+              }
+            ]
+          },
+          {
+            "method": "child",
+            "name": "media",
+            "type": "string",
+            "required": true,
+            "tag": "media",
+            "children": [
+              {
+                "method": "attrEnumValues",
+                "name": "mediatype",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "contentBytes",
+                "name": "content",
+                "type": "bytes",
+                "required": true
+              }
+            ],
+            "contentType": "bytes"
+          },
+          {
+            "method": "attrString",
+            "name": "id",
+            "type": "string",
+            "required": true
+          }
+        ]
+      }
+    },
+    {
+      "type": "registration",
+      "handlerModule": "WAWebHandleDeviceSwitchingNotification",
+      "content": {
+        "parserName": "incomingDeviceSwitchingNotificationParser",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "notification"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "id",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "attrWapJid",
+            "name": "from",
+            "type": "jid",
+            "required": true
+          },
+          {
+            "method": "child",
+            "name": "wa_old_registration",
+            "type": "string",
+            "required": true,
+            "tag": "wa_old_registration",
+            "children": [
+              {
+                "method": "attrString",
+                "name": "code",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "attrTime",
+                "name": "expiry_t",
+                "type": "integer",
+                "required": true
+              },
+              {
+                "method": "attrTime",
+                "name": "ts",
+                "type": "integer",
+                "required": true
+              },
+              {
+                "method": "attrString",
+                "name": "device_id",
+                "type": "string",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "server",
+      "handlerModule": "WAWebHandleServerNotification",
+      "handlerFunction": "handleServerNotification",
+      "content": {
+        "parserName": "incomingServerNotificationParser",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "notification"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "id",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "attrWapJid",
+            "name": "from",
+            "type": "jid",
+            "required": true
+          }
+        ]
+      }
+    },
+    {
+      "type": "server_sync",
+      "handlerModule": "WAWebHandleServerSyncNotification",
+      "handlerFunction": "handleServerSyncNotification",
+      "content": {
+        "parserName": "serverSyncNotification",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "notification"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "id",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "attrString",
+            "name": "from",
+            "type": "string",
+            "required": true
+          }
+        ]
+      }
+    },
+    {
+      "type": "status",
+      "handlerModule": "WAWebHandleAboutNotification",
+      "handlerFunction": "handleAboutNotification",
+      "content": {
+        "parserName": "incomingAboutNotification",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "notification"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "id",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "child",
+            "name": "set",
+            "type": "string",
+            "required": true,
+            "tag": "set",
+            "children": []
+          },
+          {
+            "method": "attrUserJid",
+            "name": "from",
+            "type": "jid",
+            "required": true
+          },
+          {
+            "method": "attrString",
+            "name": "notify",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "attrTime",
+            "name": "t",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "method": "attrUserJid",
+            "name": "from",
+            "type": "jid",
+            "required": true
+          },
+          {
+            "method": "attrString",
+            "name": "from",
+            "type": "string",
+            "required": true
+          }
+        ]
+      }
+    },
+    {
+      "type": "w:gp2",
+      "handlerModule": "WAWebHandleGroupNotification",
+      "handlerFunction": "handleGroupNotification",
+      "content": {
+        "parserName": "groupNotificationParser",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "notification"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "to",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "attrGroupJid",
+            "name": "from",
+            "type": "group_jid",
+            "required": true
+          },
+          {
+            "method": "attrUserJid",
+            "name": "participant",
+            "type": "jid",
+            "required": true
+          },
+          {
+            "method": "attrTime",
+            "name": "t",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "method": "attrString",
+            "name": "addressing_mode",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "attrString",
+            "name": "participant_username",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "attrString",
+            "name": "participant_country_code",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "attrGroupJid",
+            "name": "jid",
+            "type": "group_jid",
+            "required": true
+          },
+          {
+            "method": "attrUserJid",
+            "name": "jid",
+            "type": "jid",
+            "required": true
+          },
+          {
+            "method": "attrInt",
+            "name": "expiration",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "method": "attrGroupJid",
+            "name": "jid",
+            "type": "group_jid",
+            "required": true
+          },
+          {
+            "method": "attrString",
+            "name": "subject",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "attrInt",
+            "name": "s_t",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "method": "attrUserJid",
+            "name": "jid",
+            "type": "jid",
+            "required": true
+          },
+          {
+            "method": "attrString",
+            "name": "username",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "attrUserJid",
+            "name": "phone_number",
+            "type": "jid",
+            "required": true
+          },
+          {
+            "method": "attrUserJid",
+            "name": "jid",
+            "type": "jid",
+            "required": true
+          },
+          {
+            "method": "attrGroupJid",
+            "name": "jid",
+            "type": "group_jid",
+            "required": true
+          },
+          {
+            "method": "attrUserJid",
+            "name": "creator",
+            "type": "jid",
+            "required": true
+          },
+          {
+            "method": "attrString",
+            "name": "reason",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "attrGroupJid",
+            "name": "jid",
+            "type": "group_jid",
+            "required": true
+          },
+          {
+            "method": "attrUserJid",
+            "name": "participant",
+            "type": "jid",
+            "required": true
+          },
+          {
+            "method": "attrString",
+            "name": "id",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "attrTime",
+            "name": "t",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "method": "maybeAttrString",
+            "name": "notify",
+            "type": "string",
+            "required": false
+          },
+          {
+            "method": "maybeAttrString",
+            "name": "offline",
+            "type": "string",
+            "required": false
+          }
+        ]
+      }
+    },
+    {
+      "type": "w:growth",
+      "handlerModule": "WAWebHandleGrowthNotification",
+      "content": {
+        "parserName": "incomingGrowthNotificationParser",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "notification"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "id",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "attrWapJid",
+            "name": "from",
+            "type": "jid",
+            "required": true
+          },
+          {
+            "method": "attrEnum",
+            "name": "type",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "child",
+            "name": "invite",
+            "type": "string",
+            "required": true,
+            "tag": "invite",
+            "children": []
+          },
+          {
+            "method": "child",
+            "name": "receiver",
+            "type": "string",
+            "required": true,
+            "tag": "receiver",
+            "children": [
+              {
+                "method": "attrUserJid",
+                "name": "user",
+                "type": "jid",
+                "required": true
+              },
+              {
+                "method": "attrString",
+                "name": "reason",
+                "type": "string",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "waffle",
+      "handlerModule": "WAWebAccountLinkingNotificationHandler",
+      "handlerFunction": "handleAccountLinkingNotification"
+    }
+  ]
+}

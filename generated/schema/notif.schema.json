@@ -1,0 +1,470 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "IrEnvelope",
+  "description": "Envelope that stamps a domain IR document with [`SCHEMA_VERSION`] at emit\ntime, without altering the inner document's shape.\n\n`#[serde(flatten)]` keeps the document's own fields (`waVersion`, `stanzas`,\n…) at the top level and merely adds `schemaVersion` alongside them — additive,\nso existing consumers that ignore unknown fields are unaffected.",
+  "type": "object",
+  "properties": {
+    "dispatcherModules": {
+      "description": "The dispatcher modules the catalog is the union of, sorted (e.g.\n`WAWebCommsHandleLoggedInStanza`, `WAWebCommsHandleWorkerCompatibleStanza`).",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "notifications": {
+      "description": "`<notification>` types, sorted by `type`.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/NotificationDef"
+      }
+    },
+    "schemaVersion": {
+      "description": "The IR contract version — see [`SCHEMA_VERSION`].",
+      "type": "string"
+    },
+    "stanzaTags": {
+      "description": "Top-level stanza tags, sorted by `tag`.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/StanzaTagDef"
+      }
+    },
+    "waVersion": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "waVersion",
+    "dispatcherModules",
+    "stanzaTags",
+    "notifications"
+  ],
+  "$defs": {
+    "AssertionKind": {
+      "description": "What a response parser asserts before accepting a node as its variant.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "tag",
+            "attr",
+            "from_server"
+          ]
+        },
+        {
+          "description": "The node's text content is pinned to a fixed value (`literalContent(content,\nnode, \"admin_add\")`) — a discriminator for marker union variants. The value is\nin [`ResponseAssertion::value`]; `name` is unused.",
+          "type": "string",
+          "const": "content"
+        }
+      ]
+    },
+    "ContentType": {
+      "description": "How a child/leaf node's content is accessed in the response parser.",
+      "type": "string",
+      "enum": [
+        "string",
+        "bytes",
+        "nodes"
+      ]
+    },
+    "NotificationDef": {
+      "description": "One arm of the inner `switch(notification.type)` — a `<notification type=\"…\">`\nkind and the handler that parses it.",
+      "type": "object",
+      "properties": {
+        "content": {
+          "description": "The typed content shape parsed from the handler's `WADeprecatedWapParser`\n(Phase 2). `None` when the handler carries no statically-recoverable parser\n(it delegates to a job/sub-module) — the catalog entry still stands.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ParsedResponse"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "handlerFunction": {
+          "description": "The method invoked on [`handler_module`], e.g. `handleDevicesNotification`.\n`None` when the arm calls the module value directly (`r(\"Mod\")(stanza)`).\n\n[`handler_module`]: NotificationDef::handler_module",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "handlerModule": {
+          "description": "The handler module the arm forwards to (`WAWebHandleDeviceNotification`),\nwhen the arm resolves to a single handler call.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "subDiscriminants": {
+          "description": "Second-level discriminants the arm branches on after `type` (empty for the\ncommon case of a flat forward to one handler).",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SubDiscriminant"
+          }
+        },
+        "type": {
+          "description": "The `type` attribute value the arm matches (`\"devices\"`, `\"encrypt\"`, …).\nThe discriminant a client dispatches on.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ]
+    },
+    "ParsedField": {
+      "description": "One field extracted from a response stanza by a parser.\n\n`method` is the parser accessor used (e.g. `attrString`, `maybeChild`,\n`forEachChildWithTag`) and is left open-ended (free-form string) to track the\nreal WA accessor surface; the codegen switches on it.",
+      "type": "object",
+      "properties": {
+        "byteLength": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "children": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/ParsedField"
+          }
+        },
+        "contentType": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ContentType"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "enumKeys": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "method": {
+          "type": "string"
+        },
+        "name": {
+          "description": "The output (struct field) name — the camelCase `makeResult` key in smax.",
+          "type": "string"
+        },
+        "repeats": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "sameNode": {
+          "description": "The field's attrs/content are read off the PARENT node, not a child named\n`tag` (a smax payload mixin spread inline) — codegen must not descend.",
+          "type": "boolean"
+        },
+        "sourcePath": {
+          "description": "Wrapper tags to descend (in order) before reading this field — e.g. a\n`flattenedChildWithTag(\"groups\")` ancestor for a repeated `<group>`.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "tag": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "type": {
+          "$ref": "#/$defs/ParsedFieldType"
+        },
+        "unionVariants": {
+          "description": "Alternatives for a [`ParsedFieldType::Union`] field.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/UnionVariant"
+          }
+        },
+        "wireName": {
+          "description": "The wire attribute/content name (snake_case), when it differs from `name`.\nCodegen reads the attribute by this name; falls back to `name` when absent.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "method",
+        "name",
+        "type",
+        "required"
+      ]
+    },
+    "ParsedFieldType": {
+      "description": "Scalar type a parsed response field decodes to.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "string",
+            "integer",
+            "enum",
+            "bytes",
+            "jid",
+            "device_jid",
+            "group_jid",
+            "jid_typed"
+          ]
+        },
+        {
+          "description": "A presence boolean (`{hasX: child.success}` in smax) — true iff a sub-node\nor attr is present. The presence target is carried in `tag`.",
+          "type": "string",
+          "const": "bool"
+        },
+        {
+          "description": "A discriminated union (`{name, value}` smax disjunction) — the alternatives\nare carried in [`ParsedField::union_variants`].",
+          "type": "string",
+          "const": "union"
+        }
+      ]
+    },
+    "ParsedResponse": {
+      "description": "The parsed response half of an IQ operation.\n\nWhen `variants` is non-empty the response is a discriminated union (the RPC\ntries each in order, first success wins); `fields` then mirrors the primary\nsuccess variant for back-compatible single-shape consumers. When `variants` is\nempty, `fields` is the single response shape.",
+      "type": "object",
+      "properties": {
+        "assertions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ResponseAssertion"
+          }
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ParsedField"
+          }
+        },
+        "parserName": {
+          "type": "string"
+        },
+        "variants": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ResponseVariant"
+          }
+        }
+      },
+      "required": [
+        "parserName",
+        "assertions",
+        "fields"
+      ]
+    },
+    "ResponseAssertion": {
+      "description": "A single guard a response parser applies.",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/AssertionKind"
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "value": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "kind"
+      ]
+    },
+    "ResponseVariant": {
+      "description": "One alternative of a response-root discriminated union (an `WASmaxIn<X>Response<V>`\nvariant aggregated by the `WASmax<X>RPC` orchestrator).",
+      "type": "object",
+      "properties": {
+        "assertions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ResponseAssertion"
+          }
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ParsedField"
+          }
+        },
+        "kind": {
+          "$ref": "#/$defs/ResponseVariantKind"
+        },
+        "moduleName": {
+          "type": "string"
+        },
+        "tag": {
+          "description": "The RPC discriminator tag (parser export minus `parse`, e.g.\n`GetResponseSuccessPictureURL`).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tag",
+        "moduleName",
+        "kind",
+        "assertions",
+        "fields"
+      ]
+    },
+    "ResponseVariantKind": {
+      "description": "How a response-root union variant classifies (drives codegen `Ok`/`Err` arms).",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "success",
+            "error"
+          ]
+        },
+        {
+          "description": "A structured non-happy outcome that still parses (Nack, Conflict, …).",
+          "type": "string",
+          "const": "alternative"
+        }
+      ]
+    },
+    "StanzaTagDef": {
+      "description": "One arm of the top-level `switch(stanza.tag)` — a stanza tag WA Web handles on\nan authenticated connection (`receipt`, `notification`, `presence`, `call`, …).\n\nThe `notification` tag is special: it fans out further into\n[`NotifIr::notifications`]. Every other tag forwards straight to a handler.",
+      "type": "object",
+      "properties": {
+        "handlerFunction": {
+          "description": "The method invoked on [`handler_module`], when the arm calls\n`module.method(...)` rather than the module value directly.\n\n[`handler_module`]: StanzaTagDef::handler_module",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "handlerModule": {
+          "description": "The module the arm forwards to (`o(\"WAWebHandleX\").handleX(stanza)` /\n`r(\"WAWebHandleX\")(stanza)`), when the arm resolves to a single handler\ncall. `None` for arms that only branch further, log, or return inline.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tag": {
+          "description": "The stanza tag matched (`stanza.tag`), e.g. `\"receipt\"`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tag"
+      ]
+    },
+    "SubCase": {
+      "description": "One case of a [`SubDiscriminant`] (`encrypt`'s `count`, `psa`'s `surfaces`, …).",
+      "type": "object",
+      "properties": {
+        "handlerFunction": {
+          "description": "The method invoked on [`handler_module`], when applicable.\n\n[`handler_module`]: SubCase::handler_module",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "handlerModule": {
+          "description": "The handler module the case forwards to, when it resolves to a single\nhandler call. `None` for a bare guard (`if(tag===\"invite\") break`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "value": {
+          "description": "The discriminant value matched (the child tag), e.g. `\"count\"`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "value"
+      ]
+    },
+    "SubDiscriminant": {
+      "description": "A second-level discriminant a notification arm branches on *after* `type` —\ne.g. `encrypt` switches on its first child tag (`count` vs `digest`), `psa` on\n`surfaces` vs `reset_smb_last_qp_prefetch_timestamp`.",
+      "type": "object",
+      "properties": {
+        "cases": {
+          "description": "The recognized cases, in source order.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SubCase"
+          }
+        },
+        "on": {
+          "description": "What the arm inspects to pick a case. Currently always\n[`SubDiscriminantOn::FirstChildTag`] (`content[0].tag`); kept as an enum so a\nfuture attr-based sub-switch is representable without a schema break.",
+          "$ref": "#/$defs/SubDiscriminantOn"
+        }
+      },
+      "required": [
+        "on",
+        "cases"
+      ]
+    },
+    "SubDiscriminantOn": {
+      "description": "The value a [`SubDiscriminant`] inspects.",
+      "oneOf": [
+        {
+          "description": "The tag of the notification's first child node (`content[0].tag`).",
+          "type": "string",
+          "const": "firstChildTag"
+        }
+      ]
+    },
+    "UnionVariant": {
+      "description": "One alternative of a discriminated union (`{name, value}` smax disjunction).",
+      "type": "object",
+      "properties": {
+        "assertions": {
+          "description": "The same-node guards the variant's parser enforces (`assertTag`,\n`literal(attr,value)`, `literalContent(value)`) — how a consumer tells this\nvariant apart from its siblings. Empty when the parser carries no fixed guard.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ResponseAssertion"
+          }
+        },
+        "fields": {
+          "description": "The variant's payload fields (empty for a marker/unit variant).",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ParsedField"
+          }
+        },
+        "name": {
+          "description": "The discriminator tag (the disjunction `name`, e.g. `GroupInfo`).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "fields"
+      ]
+    }
+  }
+}
