@@ -469,6 +469,39 @@ fn unrelated_string_equality_does_not_mint_a_phantom_type() {
     );
 }
 
+/// A dispatcher whose `sideeffect` arm stashes a module call in a temp and then
+/// `break`s without returning it — the temp must not be read as the handler.
+const SIDE_EFFECT_DISPATCHER: &str = r#"
+__d("WAWebCommsHandleLoggedInStanza",[],function(g,r,d,o,e,i,l){
+  l.h = function(){ return (function*(e,t){
+    var n = e.attrs;
+    switch (e.tag) {
+      case "notification": try {
+        switch (n.type) {
+          case "sideeffect": { var tmp = o("WAWebSomeJob").run(e); break; }
+          case "devices": return yield o("WAWebHandleDeviceNotification").handleDevicesNotification(e);
+        }
+      } catch (t) {}
+    }
+  }); };
+}, 1);
+"#;
+
+#[test]
+fn helper_stashed_in_temp_but_not_returned_is_not_the_handler() {
+    let ir = extract_notif(SIDE_EFFECT_DISPATCHER, "v");
+    assert_eq!(
+        notif(&ir, "sideeffect").handler_module,
+        None,
+        "a non-returned temp initializer is not the primary handler"
+    );
+    // The sibling arm that does return its handler still resolves.
+    assert_eq!(
+        notif(&ir, "devices").handler_module.as_deref(),
+        Some("WAWebHandleDeviceNotification")
+    );
+}
+
 #[test]
 fn extraction_is_deterministic() {
     // Same input → byte-identical serialization (stable sort keys).

@@ -486,9 +486,10 @@ fn is_first_child_tag_expr(e: &Expression) -> bool {
 /// not the arm's primary handler.
 ///
 /// A few arms bind the handler first and return the local (`var l = yield h(e);
-/// return l`), so a fallback second pass reads top-level `var … = yield handler(…)`
-/// inits. It runs only when no direct-return handler exists, so a real return
-/// handler always wins over an incidental helper call in a preceding `var`.
+/// return l`), so a fallback second pass reads top-level `var x = yield handler(…)`
+/// inits — but only when `x` is actually returned at top level. Without that
+/// check, a helper call stashed in a temp that is then dropped (`var t = job(e);
+/// break`) would be mistaken for the primary handler.
 fn primary_handler(consequent: &[Statement]) -> Option<Handler> {
     let stmts = flatten_leading_block(consequent);
     // Pass 1: `return [yield] handler(…)`.
@@ -500,11 +501,25 @@ fn primary_handler(consequent: &[Statement]) -> Option<Handler> {
             return Some(handler);
         }
     }
-    // Pass 2: `var x = [yield] handler(…); … return x`.
+    // The locals returned bare at top level (`return x`) — the only vars whose
+    // initializer is the arm's actual result.
+    let returned: std::collections::HashSet<&str> = stmts
+        .iter()
+        .filter_map(|s| match s {
+            Statement::ReturnStatement(ret) => ret
+                .argument
+                .as_ref()
+                .and_then(|a| as_identifier(unwrap_yield(a))),
+            _ => None,
+        })
+        .collect();
+    // Pass 2: `var x = [yield] handler(…); … return x` (x must be returned).
     for stmt in stmts {
         if let Statement::VariableDeclaration(decl) = stmt {
             for d in &decl.declarations {
-                if let Some(init) = &d.init
+                if let Some(name) = d.id.get_identifier_name()
+                    && returned.contains(name.as_str())
+                    && let Some(init) = &d.init
                     && let Some(handler) = resolve_handler_call(unwrap_yield(init))
                 {
                     return Some(handler);
