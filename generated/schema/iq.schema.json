@@ -566,13 +566,20 @@
       "type": "object",
       "properties": {
         "byteLength": {
-          "description": "Fixed byte length when statically known (`BIG_ENDIAN_CONTENT(x, 3)` → 3).",
+          "description": "Fixed byte length. Either written directly in the request builder\n(`BIG_ENDIAN_CONTENT(x, 3)` → 3, [`byte_length_source`] absent) or\ncross-referenced from the symmetric parser that reads the same wire field\n(`child(\"signature\").contentBytes(64)` → 64, [`byte_length_source`] set).\n\n[`byte_length_source`]: WapContent::byte_length_source",
           "type": [
             "integer",
             "null"
           ],
           "format": "uint32",
           "minimum": 0
+        },
+        "byteLengthSource": {
+          "description": "Provenance of an *inferred* [`byte_length`] — the parser module the length was\ncross-referenced from (e.g. `\"parse:WAWebRetryRequestParser\"`). Absent when the\nlength is written directly in the request builder, so a consumer can tell a\nwire-contract fact from a builder-literal one.\n\n[`byte_length`]: WapContent::byte_length",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "kind": {
           "$ref": "#/$defs/WapContentKind"

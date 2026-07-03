@@ -57,11 +57,12 @@ fn content_of_expr(e: &Expression) -> Option<WapContent> {
     if let Some(v) = as_string_lit(e) {
         return Some(WapContent {
             kind: WapContentKind::Const,
-            byte_length: None,
             value: Some(v.to_string()),
+            ..Default::default()
         });
     }
-    // `X.BIG_ENDIAN_CONTENT(value, n)` → n bytes.
+    // `X.BIG_ENDIAN_CONTENT(value, n)` → n bytes, written directly in the builder
+    // (no `byte_length_source`).
     if let Some(call) = as_call(e)
         && callee_method(call) == Some(BIG_ENDIAN_CONTENT)
     {
@@ -74,15 +75,15 @@ fn content_of_expr(e: &Expression) -> Option<WapContent> {
         return Some(WapContent {
             kind: WapContentKind::Bytes,
             byte_length,
-            value: None,
+            ..Default::default()
         });
     }
-    // A value reference (`e.signature`, `e.keyPair.pubKey`) → opaque content.
+    // A value reference (`e.signature`, `e.keyPair.pubKey`) → opaque content. Its
+    // byte length, if any, is filled later by the content-length cross-reference.
     if e.as_member_expression().is_some() {
         return Some(WapContent {
             kind: WapContentKind::Dynamic,
-            byte_length: None,
-            value: None,
+            ..Default::default()
         });
     }
     None
