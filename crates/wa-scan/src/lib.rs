@@ -21,8 +21,42 @@ pub use mixin_index::MixinIndex;
 pub use module::{CrossModuleStat, DropReason, scan_module_outcome, scan_module_source};
 pub use response::parse_module_wap_parsers;
 
-use wa_ir::{IqIr, IqScanResult, IqType, Unparseable};
+use std::collections::{HashMap, HashSet};
+
+use wa_ir::{IqIr, IqScanResult, IqStanzaDef, IqType, Unparseable, WapChildNode};
 use wa_transform::ModuleDefinition;
+
+/// Request leaf tags that carry content in exactly one IQ namespace — the tags safe
+/// for the content-length parent-agnostic fallback. A tag used across namespaces
+/// (`<id>`: a 3-byte key id in `encrypt`, a product id in `w:biz:catalog`) is
+/// excluded so its per-namespace meaning is never conflated.
+fn single_namespace_content_tags(stanzas: &[IqStanzaDef]) -> HashSet<String> {
+    fn walk(nodes: &[WapChildNode], ns: &str, tag_ns: &mut HashMap<String, HashSet<String>>) {
+        for n in nodes {
+            if n.content.is_some() {
+                tag_ns
+                    .entry(n.tag.clone())
+                    .or_default()
+                    .insert(ns.to_string());
+            }
+            walk(&n.children, ns, tag_ns);
+            for g in &n.variant_groups {
+                for v in &g.variants {
+                    walk(&v.children, ns, tag_ns);
+                }
+            }
+        }
+    }
+    let mut tag_ns: HashMap<String, HashSet<String>> = HashMap::new();
+    for s in stanzas {
+        walk(&s.request.children, &s.namespace, &mut tag_ns);
+    }
+    tag_ns
+        .into_iter()
+        .filter(|(_, namespaces)| namespaces.len() == 1)
+        .map(|(tag, _)| tag)
+        .collect()
+}
 
 /// Cross-module (`mergeStanzas`, Phase 2) recovery counters for the IQ domain,
 /// surfaced in `manifest.diagnostics.iq.crossModule`. They make the Phase-2 fix
@@ -144,8 +178,20 @@ pub fn scan_iq_with_diagnostics(
     // Cross-reference each request's opaque leaf lengths from the symmetric parsers
     // (`<skey><signature>` gains its 64-byte length). The children of `<iq>` are the
     // tree roots, so their parent path is `iq`.
+    //
+    // Tags used with content in a single IQ namespace are safe for the parent-agnostic
+    // fallback (e.g. `<identity>`/`<type>` live only in `encrypt`, so their length is
+    // unambiguous even where the request nests them differently than the parser does).
+    // A tag spanning namespaces (`<id>`: a key id in `encrypt`, a product id in
+    // `w:biz:catalog`) is excluded, so it's never mislabeled.
+    let tag_fallback = single_namespace_content_tags(&stanzas);
     for s in &mut stanzas {
-        content_length_index::enrich(&mut s.request.children, "iq", &content_lengths);
+        content_length_index::enrich(
+            &mut s.request.children,
+            "iq",
+            &content_lengths,
+            &tag_fallback,
+        );
     }
 
     // Normalize ordering by an intrinsic key so the output (index.json + the
@@ -555,6 +601,54 @@ mod tests {
         let id = leaf("id");
         assert_eq!(id.byte_length, Some(3));
         assert_eq!(id.byte_length_source, None);
+    }
+
+    #[test]
+    fn content_length_tag_fallback_is_namespace_guarded() {
+        // A parser pins `identity`=32 (under `keys`) and `id`=3 (under `skey`).
+        // Request A nests `<identity>` directly under `<iq xmlns="encrypt">` (parent
+        // mismatch), so only the parent-agnostic fallback can reach it. `<id>` appears
+        // in BOTH `encrypt` (req B) and `w:biz:catalog` (req C), so it must be excluded
+        // from the fallback and stay unsized.
+        let bundle = r#"
+            __d("WAWebKeyParser", ["WADeprecatedWapParser"], function(g,r,d,o,e,i,l){
+                var p = new (r("WADeprecatedWapParser"))("keyParser", function(t){
+                    var k = t.child("keys"); var s = t.child("skey");
+                    k.child("identity").contentBytes(32);
+                    s.child("id").contentUint(3);
+                });
+            }, 1);
+            __d("WAWebReqA", ["WADeprecatedSendIq","WAWap"], function(g,r,d,o,e,i,l){
+                l.a = function(t){ return o("WAWap").wap("iq", {xmlns:"encrypt", type:"set"},
+                    o("WAWap").wap("identity", null, t.pub)); };
+            }, 2);
+            __d("WAWebReqB", ["WADeprecatedSendIq","WAWap"], function(g,r,d,o,e,i,l){
+                l.b = function(t){ return o("WAWap").wap("iq", {xmlns:"encrypt", type:"set"},
+                    o("WAWap").wap("id", null, t.x)); };
+            }, 3);
+            __d("WAWebReqC", ["WADeprecatedSendIq","WAWap"], function(g,r,d,o,e,i,l){
+                l.c = function(t){ return o("WAWap").wap("iq", {xmlns:"w:biz:catalog", type:"get"},
+                    o("WAWap").wap("id", null, t.y)); };
+            }, 4);
+        "#;
+        let res = scan_iq_stanzas(bundle);
+        let leaf = |module: &str, tag: &str| {
+            res.stanzas
+                .iter()
+                .find(|s| s.module_name == module)
+                .and_then(|s| s.request.children.iter().find(|c| c.tag == tag))
+                .and_then(|c| c.content.as_ref())
+        };
+        // `identity` (single namespace) → filled via the guarded fallback.
+        let ident = leaf("WAWebReqA", "identity").expect("identity content");
+        assert_eq!(ident.byte_length, Some(32));
+        assert_eq!(
+            ident.byte_length_source.as_deref(),
+            Some("parse:WAWebKeyParser")
+        );
+        // `id` spans two namespaces → excluded from the fallback, stays unsized.
+        assert_eq!(leaf("WAWebReqB", "id").and_then(|c| c.byte_length), None);
+        assert_eq!(leaf("WAWebReqC", "id").and_then(|c| c.byte_length), None);
     }
 
     #[test]

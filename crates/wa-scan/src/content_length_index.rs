@@ -37,10 +37,13 @@ use wa_oxc::{
 const CONTENT_LEN_METHODS: [&str; 2] = ["contentBytes", "contentUint"];
 
 /// `(parentTag, tag)` → the byte length WA Web's parsers read that field as, plus the
-/// module the length was cross-referenced from.
+/// module the length was cross-referenced from. `by_tag` is the parent-agnostic view
+/// (a `tag` whose length is the same under every parent) used as a guarded fallback
+/// when the exact `(parent, tag)` path isn't present.
 #[derive(Default)]
 pub struct ContentLengthIndex {
     by_path: BTreeMap<(String, String), (u32, String)>,
+    by_tag: BTreeMap<String, (u32, String)>,
 }
 
 impl ContentLengthIndex {
@@ -50,6 +53,13 @@ impl ContentLengthIndex {
         self.by_path
             .get(&(parent.to_string(), tag.to_string()))
             .map(|(len, src)| (*len, src.as_str()))
+    }
+
+    /// The `(length, source module)` for a `tag` regardless of parent, when every
+    /// parse site of that tag agreed on the length. The caller must still gate this
+    /// on the tag being unambiguous in its use (see [`enrich`]).
+    pub(crate) fn get_by_tag(&self, tag: &str) -> Option<(u32, &str)> {
+        self.by_tag.get(tag).map(|(len, src)| (*len, src.as_str()))
     }
 
     fn is_empty(&self) -> bool {
@@ -84,11 +94,25 @@ pub(crate) fn build_pass(defs: &[ModuleDefinition], source: &str) -> ContentLeng
     }
 
     let mut index = ContentLengthIndex::default();
+    // Per-tag aggregation for the parent-agnostic fallback: a tag qualifies only if
+    // its length is identical under every parent it's read at.
+    let mut tag_lengths: BTreeMap<String, BTreeSet<u32>> = BTreeMap::new();
+    let mut tag_source: BTreeMap<String, String> = BTreeMap::new();
     for (key, lengths) in seen_lengths {
         // Only keep a key whose every occurrence agreed on the length.
         if let (1, Some(&len)) = (lengths.len(), lengths.iter().next()) {
-            let src = source_module.remove(&key).unwrap_or_default();
+            let src = source_module.get(&key).cloned().unwrap_or_default();
+            tag_lengths.entry(key.1.clone()).or_default().insert(len);
+            tag_source
+                .entry(key.1.clone())
+                .or_insert_with(|| src.clone());
             index.by_path.insert(key, (len, src));
+        }
+    }
+    for (tag, lengths) in tag_lengths {
+        if let (1, Some(&len)) = (lengths.len(), lengths.iter().next()) {
+            let src = tag_source.remove(&tag).unwrap_or_default();
+            index.by_tag.insert(tag, (len, src));
         }
     }
     index
@@ -234,18 +258,35 @@ fn child_call_tag(e: &Expression) -> Option<String> {
 }
 
 /// Cross-reference the byte length WA Web's parsers read each leaf field as onto the
-/// request tree: for a leaf node with content but no directly-written length, whose
-/// `(parentTag, tag)` the index pins, fill the length + its parser provenance. Never
-/// overrides a builder-written length. Recurses, threading each node's tag as the
-/// parent of its children.
-pub(crate) fn enrich(children: &mut [WapChildNode], parent_tag: &str, index: &ContentLengthIndex) {
+/// request tree: for a leaf node with content but no directly-written length, fill the
+/// length + its parser provenance. Never overrides a builder-written length.
+///
+/// Resolution: the exact `(parentTag, tag)` path first; else — only for a tag in
+/// `tag_fallback` — the parent-agnostic per-tag length. `tag_fallback` must be the set
+/// of tags that are unambiguous in their use (e.g. appear in a single IQ namespace),
+/// so a same-named field with a different meaning (a `<product_list><id>` vs a 3-byte
+/// key `<id>`) is never mislabeled.
+///
+/// Recurses, threading each node's tag as the parent of its children (and into any
+/// mutually-exclusive variant groups).
+pub(crate) fn enrich(
+    children: &mut [WapChildNode],
+    parent_tag: &str,
+    index: &ContentLengthIndex,
+    tag_fallback: &HashSet<String>,
+) {
     if index.is_empty() {
         return;
     }
     for node in children {
         if let Some(content) = node.content.as_mut()
             && content.byte_length.is_none()
-            && let Some((len, source)) = index.get(parent_tag, &node.tag)
+            && let Some((len, source)) = index.get(parent_tag, &node.tag).or_else(|| {
+                tag_fallback
+                    .contains(&node.tag)
+                    .then(|| index.get_by_tag(&node.tag))
+                    .flatten()
+            })
         {
             content.byte_length = Some(len);
             content.byte_length_source = Some(format!("parse:{source}"));
@@ -254,13 +295,13 @@ pub(crate) fn enrich(children: &mut [WapChildNode], parent_tag: &str, index: &Co
             }
         }
         let tag = node.tag.clone();
-        enrich(&mut node.children, &tag, index);
+        enrich(&mut node.children, &tag, index, tag_fallback);
         // A node's children may instead live inside mutually-exclusive variant
         // groups; those leaves are children of this node too, so enrich them under
         // the same parent tag.
         for group in &mut node.variant_groups {
             for variant in &mut group.variants {
-                enrich(&mut variant.children, &tag, index);
+                enrich(&mut variant.children, &tag, index, tag_fallback);
             }
         }
     }
@@ -401,7 +442,7 @@ mod tests {
             }],
             ..Default::default()
         };
-        enrich(std::slice::from_mut(&mut skey), "iq", &idx);
+        enrich(std::slice::from_mut(&mut skey), "iq", &idx, &HashSet::new());
         let sig = skey.variant_groups[0].variants[0].children[0]
             .content
             .as_ref()
@@ -449,7 +490,7 @@ mod tests {
             ],
             ..Default::default()
         };
-        enrich(std::slice::from_mut(&mut skey), "iq", &idx);
+        enrich(std::slice::from_mut(&mut skey), "iq", &idx, &HashSet::new());
         let sig = &skey.children[0].content.as_ref().unwrap();
         assert_eq!(sig.byte_length, Some(64));
         assert_eq!(

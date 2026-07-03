@@ -138,6 +138,27 @@ fn mk_field(method: &str, name: &str, ftype: ParsedFieldType, required: bool) ->
     }
 }
 
+/// Build a field for a `method(arg0)` accessor, using the string-literal argument as
+/// the field name (else `"content"`), and capturing the `contentBytes(N)` byte length
+/// when the first argument is a numeric literal — the length WA Web's parser pins the
+/// wire field to (`child("signature").contentBytes(64)` → 64).
+fn field_from_call(method: &str, call: &CallExpression) -> ParsedField {
+    let arg0 = call.arguments.first().and_then(arg_expr);
+    let field_name = arg0.and_then(as_string_lit).unwrap_or("content");
+    let mut f = mk_field(
+        method,
+        field_name,
+        method_to_field_type(method),
+        is_method_required(method),
+    );
+    if method == wap::CONTENT_BYTES
+        && let Some(Expression::NumericLiteral(n)) = arg0
+    {
+        f.byte_length = Some(n.value as u32);
+    }
+    f
+}
+
 /// Find an existing top-level field by `tag`, or create one (a `child`-style
 /// parent with an empty `children` list). Returns its index in `fields`.
 fn find_or_create_field(
@@ -274,20 +295,7 @@ impl ParserAnalyzer<'_> {
 
         // ── Attr/content accessor on the param directly ──
         if is_attr_method(method) && obj_is_param {
-            let arg0 = call.arguments.first().and_then(arg_expr);
-            let field_name = arg0.and_then(as_string_lit).unwrap_or("content");
-            let mut f = mk_field(
-                method,
-                field_name,
-                method_to_field_type(method),
-                is_method_required(method),
-            );
-            if method == "contentBytes"
-                && let Some(Expression::NumericLiteral(n)) = arg0
-            {
-                f.byte_length = Some(n.value as u32);
-            }
-            self.fields.push(f);
+            self.fields.push(field_from_call(method, call));
             return;
         }
 
@@ -295,23 +303,13 @@ impl ParserAnalyzer<'_> {
         if is_attr_method(method)
             && let Some((parent_tag, inner_method)) = self.child_call_parent(obj)
         {
-            let field_name = arg_str(call, 0).unwrap_or("content");
             let idx = find_or_create_field(
                 &mut self.fields,
                 &parent_tag,
                 inner_method,
                 inner_method == "child",
             );
-            push_child_field(
-                &mut self.fields,
-                idx,
-                mk_field(
-                    method,
-                    field_name,
-                    method_to_field_type(method),
-                    is_method_required(method),
-                ),
-            );
+            push_child_field(&mut self.fields, idx, field_from_call(method, call));
             return;
         }
 
@@ -360,18 +358,8 @@ impl ParserAnalyzer<'_> {
                 .and_then(|n| self.child_vars.get(n))
                 .cloned()
         {
-            let field_name = arg_str(call, 0).unwrap_or("content");
             let idx = find_or_create_field(&mut self.fields, &parent_tag, "child", true);
-            push_child_field(
-                &mut self.fields,
-                idx,
-                mk_field(
-                    method,
-                    field_name,
-                    method_to_field_type(method),
-                    is_method_required(method),
-                ),
-            );
+            push_child_field(&mut self.fields, idx, field_from_call(method, call));
         }
 
         // ── content methods on a tracked child var ──
@@ -552,6 +540,45 @@ mod tests {
         let kids = err.children.as_ref().unwrap();
         assert_eq!(kids[0].name, "code");
         assert_eq!(kids[0].field_type, ParsedFieldType::Integer);
+    }
+
+    #[test]
+    fn chained_content_bytes_captures_byte_length() {
+        // `e.child("value").contentBytes(32)` — the length must be captured on the
+        // content field, not dropped (the digest/prekey-bundle response shape).
+        let r = analyze_parser_ast(r#"{ e.child("value").contentBytes(32); }"#, "e");
+        let value = r
+            .fields
+            .iter()
+            .find(|f| f.tag.as_deref() == Some("value"))
+            .unwrap();
+        let content = value
+            .children
+            .as_ref()
+            .unwrap()
+            .iter()
+            .find(|c| c.method == "contentBytes")
+            .unwrap();
+        assert_eq!(content.byte_length, Some(32));
+    }
+
+    #[test]
+    fn child_var_content_bytes_captures_byte_length() {
+        // The tracked-child-var form `var m = e.child("skey"); m.contentBytes(64)`.
+        let r = analyze_parser_ast(r#"{ var m = e.child("skey"); m.contentBytes(64); }"#, "e");
+        let skey = r
+            .fields
+            .iter()
+            .find(|f| f.tag.as_deref() == Some("skey"))
+            .unwrap();
+        let content = skey
+            .children
+            .as_ref()
+            .unwrap()
+            .iter()
+            .find(|c| c.method == "contentBytes")
+            .unwrap();
+        assert_eq!(content.byte_length, Some(64));
     }
 
     #[test]
