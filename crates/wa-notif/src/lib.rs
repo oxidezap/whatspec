@@ -217,11 +217,20 @@ fn notification_content(handler_slice: &str, notif_type: &str) -> Option<ParsedR
     pick_notification_parser(parsers, notif_type)
 }
 
-/// Choose the parser for `notif_type` from a handler module's parsers. A module
-/// can hold parsers for several notification types (each asserting its own
-/// `type`), so prefer the one whose `assertAttr("type", notif_type)` matches;
-/// then any parser that asserts `tag == "notification"`; then the sole parser.
-/// Ambiguous multi-parser modules with no match yield `None`.
+/// Choose the parser for `notif_type` from a handler module's parsers.
+///
+/// A module can hold parsers for several notification types (each asserting its
+/// own `type`). Selection is deliberately conservative so one type's content shape
+/// is never attached to another:
+/// 1. the parser whose `assertAttr("type", notif_type)` matches (unambiguous even
+///    among many parsers);
+/// 2. else, only when there is **exactly one** notification-asserting parser (a
+///    lone parser can't be confused with a sibling), use it;
+/// 3. else, only when the module has **exactly one** parser at all, use it.
+///
+/// Anything else — several notification-asserting parsers, none pinned to
+/// `notif_type` — is ambiguous and yields `None` (a degraded, still-catalogued
+/// entry), rather than guessing.
 fn pick_notification_parser(
     parsers: Vec<ParsedResponse>,
     notif_type: &str,
@@ -238,12 +247,21 @@ fn pick_notification_parser(
             .iter()
             .any(|a| a.kind == AssertionKind::Tag && a.name.as_deref() == Some("notification"))
     };
+    // 1. Exact type match.
     if let Some(i) = parsers.iter().position(matches_type) {
         return parsers.into_iter().nth(i);
     }
-    if let Some(i) = parsers.iter().position(asserts_notification) {
+    // 2. A single notification-asserting parser is unambiguous; multiple are not.
+    let notif_positions: Vec<usize> = parsers
+        .iter()
+        .enumerate()
+        .filter(|(_, p)| asserts_notification(p))
+        .map(|(i, _)| i)
+        .collect();
+    if let [i] = notif_positions[..] {
         return parsers.into_iter().nth(i);
     }
+    // 3. A single parser of any kind is unambiguous.
     if parsers.len() == 1 {
         return parsers.into_iter().next();
     }

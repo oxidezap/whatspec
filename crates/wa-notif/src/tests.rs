@@ -402,6 +402,34 @@ fn content_selected_by_type_when_module_has_multiple_parsers() {
     );
 }
 
+/// A handler module with TWO notification-asserting parsers, neither pinned to the
+/// requested `devices` type — the ambiguous case that must stay degraded.
+const AMBIGUOUS_HANDLER: &str = r#"
+__d("WAWebHandleDeviceNotification",["WADeprecatedWapParser"],function(g,r,d,o,e,i,l){
+  var a = new (r("WADeprecatedWapParser"))("incomingA", function(t){
+    t.assertTag("notification");
+    t.attrString("aField");
+  });
+  var b = new (r("WADeprecatedWapParser"))("incomingB", function(t){
+    t.assertTag("notification");
+    t.attrString("bField");
+  });
+  l.handleDevicesNotification = function(n){ return a.parse(n); };
+}, 3);
+"#;
+
+#[test]
+fn ambiguous_multi_parser_module_stays_degraded() {
+    // Two notification-asserting parsers, neither asserting type="devices": we must
+    // not guess one of them — the entry degrades to no content.
+    let src = format!("{DISPATCHER}\n{AMBIGUOUS_HANDLER}");
+    let ir = extract_notif(&src, "v");
+    assert!(
+        notif(&ir, "devices").content.is_none(),
+        "attached a sibling parser's shape to an ambiguous module"
+    );
+}
+
 /// A dispatcher with a trailing `if (mode === "sentinel")` that is NOT a `.type`
 /// comparison — it must not be mistaken for a notification type.
 const PHANTOM_IF_DISPATCHER: &str = r#"
