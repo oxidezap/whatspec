@@ -20,7 +20,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use oxc_allocator::Allocator;
-use oxc_ast::ast::{CallExpression, Expression, VariableDeclaration};
+use oxc_ast::ast::{CallExpression, Expression, FunctionBody, VariableDeclaration};
 use oxc_ast_visit::{Visit, walk};
 use wa_ir::{WapChildNode, WapContentKind};
 use wa_transform::ModuleDefinition;
@@ -113,12 +113,30 @@ struct Collector {
 }
 
 impl<'a> Visit<'a> for Collector {
+    /// Scope child-var bindings to the function they're declared in: a nested body
+    /// starts from a copy of the outer bindings (so a closure can read them) and its
+    /// own additions are discarded on exit, so a `var m = child(...)` in one function
+    /// can't be misattributed to a same-named local in a sibling function.
+    fn visit_function_body(&mut self, body: &FunctionBody<'a>) {
+        let outer = self.child_vars.clone();
+        walk::walk_function_body(self, body);
+        self.child_vars = outer;
+    }
+
     fn visit_variable_declaration(&mut self, decl: &VariableDeclaration<'a>) {
         for d in &decl.declarations {
-            if let (Some(name), Some(init)) = (d.id.get_identifier_name(), d.init.as_ref())
-                && let Some(tag) = child_call_tag(init)
-            {
-                self.child_vars.insert(name.as_str().to_string(), tag);
+            if let Some(name) = d.id.get_identifier_name() {
+                match d.init.as_ref().and_then(child_call_tag) {
+                    // `var m = x.child("skey")` → track.
+                    Some(tag) => {
+                        self.child_vars.insert(name.as_str().to_string(), tag);
+                    }
+                    // `var m = <anything else>` → drop any stale binding for this name,
+                    // so a reused local isn't read as its previous child tag.
+                    None => {
+                        self.child_vars.remove(name.as_str());
+                    }
+                }
             }
         }
         walk::walk_variable_declaration(self, decl);
@@ -187,6 +205,14 @@ pub(crate) fn enrich(children: &mut [WapChildNode], parent_tag: &str, index: &Co
         }
         let tag = node.tag.clone();
         enrich(&mut node.children, &tag, index);
+        // A node's children may instead live inside mutually-exclusive variant
+        // groups; those leaves are children of this node too, so enrich them under
+        // the same parent tag.
+        for group in &mut node.variant_groups {
+            for variant in &mut group.variants {
+                enrich(&mut variant.children, &tag, index);
+            }
+        }
     }
 }
 
@@ -224,6 +250,68 @@ mod tests {
             l.a = function(u){ return u.child("skey").child("id").contentUint(3); };
         },1);"#;
         assert_eq!(index(bundle).get("skey", "id"), Some((3, "P")));
+    }
+
+    #[test]
+    fn child_var_binding_is_scoped_to_its_function() {
+        // Function `a` binds `m` to skey and reads value(32). Function `b` has a
+        // parameter `m` (not a child binding) and reads value(48). Without
+        // per-function scoping, `b`'s `m` would inherit `a`'s skey binding and record
+        // a conflicting (skey, value) = 48, dropping the field as ambiguous.
+        let bundle = r#"
+            __d("P",[],function(g,r,d,o,e,i,l){
+                l.a = function(u){ var m = u.child("skey"); return m.child("value").contentBytes(32); };
+                l.b = function(m){ return m.child("value").contentBytes(48); };
+            },1);
+        "#;
+        assert_eq!(index(bundle).get("skey", "value"), Some((32, "P")));
+    }
+
+    #[test]
+    fn redeclaration_with_non_child_init_drops_stale_binding() {
+        // `a` rebinds `m` to a non-child, so its later `m.child("value")` must not be
+        // attributed to skey; only `b`'s legitimate read defines (skey, value).
+        let bundle = r#"
+            __d("P",[],function(g,r,d,o,e,i,l){
+                l.a = function(u,x){ var m = u.child("skey"); var m = x.blob(); return m.child("value").contentBytes(48); };
+                l.b = function(u){ var n = u.child("skey"); return n.child("value").contentBytes(32); };
+            },1);
+        "#;
+        assert_eq!(index(bundle).get("skey", "value"), Some((32, "P")));
+    }
+
+    #[test]
+    fn enrich_descends_into_variant_groups() {
+        let bundle = r#"__d("P",[],function(g,r,d,o,e,i,l){
+            l.a = function(u){ var m = u.child("skey"); return m.child("signature").contentBytes(64); };
+        },1);"#;
+        let idx = index(bundle);
+        // A `<skey>` whose `<signature>` leaf lives inside a variant, not `children`.
+        let mut skey = WapChildNode {
+            tag: "skey".into(),
+            variant_groups: vec![wa_ir::WapVariantGroup {
+                optional: false,
+                variants: vec![wa_ir::WapVariant {
+                    attrs: vec![],
+                    children: vec![WapChildNode {
+                        tag: "signature".into(),
+                        content: Some(wa_ir::WapContent {
+                            kind: WapContentKind::Dynamic,
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    }],
+                }],
+            }],
+            ..Default::default()
+        };
+        enrich(std::slice::from_mut(&mut skey), "iq", &idx);
+        let sig = skey.variant_groups[0].variants[0].children[0]
+            .content
+            .as_ref()
+            .unwrap();
+        assert_eq!(sig.byte_length, Some(64));
+        assert_eq!(sig.byte_length_source.as_deref(), Some("parse:P"));
     }
 
     #[test]
