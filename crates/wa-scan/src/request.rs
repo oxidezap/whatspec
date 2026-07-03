@@ -45,14 +45,14 @@ const BIG_ENDIAN_CONTENT: &str = "BIG_ENDIAN_CONTENT";
 /// reference (`e.keyPair.pubKey`, `e.signature`) is opaque `Dynamic` bytes/text.
 /// A bare identifier is deliberately ignored — it may be a node variable resolved
 /// elsewhere, not content.
-fn leaf_content(child_args: &[Argument], source: &str) -> Option<WapContent> {
+fn leaf_content(child_args: &[Argument]) -> Option<WapContent> {
     if child_args.len() != 1 {
         return None;
     }
-    content_of_expr(arg_expr(child_args.first()?)?, source)
+    content_of_expr(arg_expr(child_args.first()?)?)
 }
 
-fn content_of_expr(e: &Expression, _source: &str) -> Option<WapContent> {
+fn content_of_expr(e: &Expression) -> Option<WapContent> {
     // Fixed string literal → const content.
     if let Some(v) = as_string_lit(e) {
         return Some(WapContent {
@@ -239,7 +239,7 @@ pub(crate) fn resolve_child_node(
             }
         }
         let content = if children.is_empty() {
-            leaf_content(wap.child_args, node_source)
+            leaf_content(wap.child_args)
         } else {
             None
         };
@@ -1043,7 +1043,7 @@ impl<'a> Visit<'a> for WapCollector<'_> {
                 tag: wap.tag.to_string(),
                 attrs,
                 children: Vec::new(),
-                content: leaf_content(wap.child_args, self.source),
+                content: leaf_content(wap.child_args),
                 repeats: false,
                 variant_groups: Vec::new(),
             });

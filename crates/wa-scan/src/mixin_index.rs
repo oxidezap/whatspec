@@ -79,7 +79,11 @@ impl MixinIndex {
 /// before any mixin that nests it (Phase 3). Then extract each `<iq>` fragment with
 /// those contributions available, so a fragment's children (e.g. newsletter
 /// `messages`) carry the cross-module attrs the nested mixins add.
-pub(crate) fn build_pass(defs: &[ModuleDefinition], source: &str) -> MixinIndex {
+pub(crate) fn build_pass(
+    defs: &[ModuleDefinition],
+    source: &str,
+    helpers: &HelperIndex,
+) -> MixinIndex {
     // First-occurrence slice per WASmaxOut* module (the same module may appear in
     // several bundle shards; the first definition is authoritative).
     let mut slices: BTreeMap<&str, &str> = BTreeMap::new();
@@ -99,14 +103,21 @@ pub(crate) fn build_pass(defs: &[ModuleDefinition], source: &str) -> MixinIndex 
     let mut contributions: MixinContributions = BTreeMap::new();
     let mut visiting: HashSet<String> = HashSet::new();
     for name in slices.keys() {
-        resolve_contribution_rec(name, &slices, &deps, &mut contributions, &mut visiting);
+        resolve_contribution_rec(
+            name,
+            &slices,
+            &deps,
+            &mut contributions,
+            &mut visiting,
+            helpers,
+        );
     }
 
     // Extract each module's `<iq>` fragment with the contributions available, so the
     // fragment's children pick up the nested mixins' attrs.
     let mut by_module = BTreeMap::new();
     for (name, slice) in &slices {
-        if let Some(frag) = extract_fragment(slice, &contributions) {
+        if let Some(frag) = extract_fragment(slice, &contributions, helpers) {
             by_module.insert(name.to_string(), frag);
         }
     }
@@ -158,6 +169,7 @@ fn resolve_contribution_rec(
     deps: &BTreeMap<&str, Vec<String>>,
     contributions: &mut MixinContributions,
     visiting: &mut HashSet<String>,
+    helpers: &HelperIndex,
 ) {
     if contributions.contains_key(name) || visiting.contains(name) {
         return;
@@ -165,12 +177,12 @@ fn resolve_contribution_rec(
     visiting.insert(name.to_string());
     if let Some(ds) = deps.get(name) {
         for d in ds {
-            resolve_contribution_rec(d, slices, deps, contributions, visiting);
+            resolve_contribution_rec(d, slices, deps, contributions, visiting, helpers);
         }
     }
     visiting.remove(name);
     if let Some(slice) = slices.get(name) {
-        let contrib = resolve_contribution(slice, contributions, &HelperIndex::default());
+        let contrib = resolve_contribution(slice, contributions, helpers);
         contributions.insert(name.to_string(), contrib);
     }
 }
@@ -179,7 +191,11 @@ fn resolve_contribution_rec(
 /// builds one. Returns `None` for modules that don't construct a `smax("iq", …)`.
 /// `contributions` lets the fragment's children pick up cross-module sub-stanza
 /// attrs (Phase 3); pass an empty map for purely structural extraction.
-fn extract_fragment(slice: &str, contributions: &MixinContributions) -> Option<MixinIqFragment> {
+fn extract_fragment(
+    slice: &str,
+    contributions: &MixinContributions,
+    helpers: &HelperIndex,
+) -> Option<MixinIqFragment> {
     let alloc = Allocator::default();
     let ret = wa_oxc::parse_cjs(&alloc, slice);
     let aliases = build_alias_map(&ret.program);
@@ -189,6 +205,7 @@ fn extract_fragment(slice: &str, contributions: &MixinContributions) -> Option<M
         aliases: &aliases,
         scope: &scope,
         contributions,
+        helpers,
         merge_fn: None,
         frag: MixinIqFragment::default(),
         found_iq: false,
@@ -217,6 +234,9 @@ struct FragmentVisitor<'s> {
     /// Resolved contributions of the mixins this one nests (Phase 3) — lets the iq's
     /// children pick up cross-module sub-stanza attrs.
     contributions: &'s MixinContributions,
+    /// Cross-module wap-returning-helper index — so a fragment child built via a
+    /// helper (`o("Module").fn(...)`) expands instead of dropping.
+    helpers: &'s HelperIndex,
     /// The exported `l.merge<Name>Mixin = …` name, captured from the assignment.
     merge_fn: Option<String>,
     frag: MixinIqFragment,
@@ -284,7 +304,7 @@ impl<'a> Visit<'a> for FragmentVisitor<'_> {
                         self.source,
                         self.aliases,
                         Some(self.contributions),
-                        &HelperIndex::default(),
+                        self.helpers,
                         0,
                     ));
                 }
@@ -575,7 +595,8 @@ mod tests {
             function s(t){ return o("WASmaxMixins").mergeStanzas(t, e()); }
             l.mergeBaseIQSetRequestMixin = s;
         }, 1);"#;
-        let f = extract_fragment(m, &MixinContributions::new()).expect("fragment");
+        let f = extract_fragment(m, &MixinContributions::new(), &HelperIndex::default())
+            .expect("fragment");
         assert_eq!(f.iq_type, Some(IqType::Set));
         assert_eq!(f.xmlns, None);
     }
@@ -588,7 +609,8 @@ mod tests {
             function s(t){ return o("WASmaxMixins").mergeStanzas(t, e()); }
             l.mergeBaseIQGetRequestMixin = s;
         }, 1);"#;
-        let f = extract_fragment(m, &MixinContributions::new()).expect("fragment");
+        let f = extract_fragment(m, &MixinContributions::new(), &HelperIndex::default())
+            .expect("fragment");
         assert_eq!(f.xmlns.as_deref(), Some("foo"));
         assert_eq!(f.iq_type, Some(IqType::Get), "type from merge name");
     }
@@ -601,7 +623,7 @@ mod tests {
             function s(t,n){ return o("WASmaxMixins").mergeStanzas(t, e(n)); }
             l.mergeMessageMixin = s;
         }, 1);"#;
-        assert!(extract_fragment(m, &MixinContributions::new()).is_none());
+        assert!(extract_fragment(m, &MixinContributions::new(), &HelperIndex::default()).is_none());
     }
 
     #[test]
@@ -613,7 +635,8 @@ mod tests {
             function s(t,n){ return o("WASmaxMixins").mergeStanzas(t, e(n)); }
             l.mergeBaseReportMixin = s;
         }, 1);"#;
-        let f = extract_fragment(m, &MixinContributions::new()).expect("fragment");
+        let f = extract_fragment(m, &MixinContributions::new(), &HelperIndex::default())
+            .expect("fragment");
         assert_eq!(f.xmlns.as_deref(), Some("spam"));
         assert_eq!(f.children.len(), 1, "the iq's spam_list child is captured");
         assert_eq!(f.children[0].tag, "spam_list");

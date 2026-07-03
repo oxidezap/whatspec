@@ -82,21 +82,23 @@ pub fn scan_iq_with_diagnostics(
     source: &str,
     module_defs: &[ModuleDefinition],
 ) -> (IqScanResult, CrossModuleStats) {
+    // Build the cross-module helper index first. It resolves wap-returning helpers
+    // (`xmppSignedPreKey`, `xmppPreKey`, …) so a child built via `o("Module").fn(...)`
+    // / `.map(o("Module").fn)` recovers its subtree instead of leaving a bare node
+    // (e.g. `<rotate>` → `<skey><id/><value/><signature/></skey>`). Built before the
+    // mixin index so mixin fragment children can expand helper calls too. Helpers
+    // don't depend on mixins (they resolve with no contributions), so there's no cycle.
+    let helper_index = helper_index::build_pass(module_defs, source);
+
     // Build the cross-module mixin index once (Phase 2), before scanning. It
     // records what each `WASmaxOut*` mixin contributes to the `<iq>` it folds,
     // so Requests that defer xmlns/type to mixins can be resolved.
-    let mixin_index = mixin_index::build_pass(module_defs, source);
+    let mixin_index = mixin_index::build_pass(module_defs, source, &helper_index);
 
     // Build the cross-module response index once (Phase 3). It parses the smax
     // `WASmaxIn*ResponseSuccess` modules so a Request can attach its typed
     // response (the smax response lives in a separate module).
     let response_index = response_index::build_pass(module_defs, source);
-
-    // Build the cross-module helper index once. It resolves wap-returning helpers
-    // (`xmppSignedPreKey`, `xmppPreKey`, …) so a request child built via
-    // `o("Module").fn(...)` / `.map(o("Module").fn)` recovers its subtree instead of
-    // leaving a bare node (e.g. `<rotate>` → `<skey><id/><value/><signature/></skey>`).
-    let helper_index = helper_index::build_pass(module_defs, source);
 
     let mut stanzas = Vec::new();
     let mut unparseable = Vec::new();

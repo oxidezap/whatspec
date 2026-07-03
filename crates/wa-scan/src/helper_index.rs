@@ -38,12 +38,25 @@ fn qualified(module: &str, func: &str) -> String {
     format!("{module}.{func}")
 }
 
-/// Build the index over modules that construct `wap()` nodes. Cheap: only the slices
-/// that actually contain a `.wap(` are re-parsed (~100 of the bundle's modules), and
-/// `<iq>`-builder returns are filtered out (those are whole requests, never a child).
-/// First definition per module name wins (the same module may appear in several
-/// bundle shards).
+/// Build the index over modules that construct stanza nodes. Cheap: only the slices
+/// that actually contain a `.wap(`/`.smax(` builder are re-parsed (~100 of the
+/// bundle's modules), and `<iq>`-builder returns are filtered out (those are whole
+/// requests, never a child).
+///
+/// Runs **two passes** so the result is independent of module declaration order: the
+/// first resolves each module's helpers against the index built so far (single-level
+/// / earlier-declared helpers); the second re-resolves them all with that full index
+/// available, so a helper that calls another module's helper resolves even when the
+/// callee is declared later. First definition per module name wins (the same module
+/// may appear in several bundle shards).
 pub(crate) fn build_pass(defs: &[ModuleDefinition], source: &str) -> HelperIndex {
+    let first = resolve_all(defs, source, &HelperIndex::default());
+    resolve_all(defs, source, &first)
+}
+
+/// Resolve every module's exported wap helpers, expanding cross-module helper
+/// references via `context` (a previous pass's index).
+fn resolve_all(defs: &[ModuleDefinition], source: &str, context: &HelperIndex) -> HelperIndex {
     let mut index = HelperIndex::default();
     let mut seen = HashSet::new();
     for m in defs {
@@ -51,12 +64,10 @@ pub(crate) fn build_pass(defs: &[ModuleDefinition], source: &str) -> HelperIndex
             continue;
         }
         let slice = &source[m.start..m.end];
-        if !slice.contains(".wap(") {
+        if !slice.contains(".wap(") && !slice.contains(".smax(") {
             continue;
         }
-        // Pass the index built so far so a helper that calls an already-indexed
-        // helper (from an earlier module) still resolves.
-        for (func, tree) in exported_wap_helpers(slice, &index) {
+        for (func, tree) in exported_wap_helpers(slice, context) {
             index
                 .by_qualified_name
                 .entry(qualified(&m.name, &func))
