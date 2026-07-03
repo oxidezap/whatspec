@@ -528,6 +528,17 @@
             "$ref": "#/$defs/WapChildNode"
           }
         },
+        "content": {
+          "description": "The leaf element content, when this node carries a value instead of child\nnodes (`<id>`, `<value>`, `<signature>` in a prekey `<skey>`). `None` for\ncontainer nodes and attr-only nodes.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WapContent"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "repeats": {
           "description": "Whether this child can appear multiple times (maps to `Vec<_>` in codegen).",
           "type": "boolean"
@@ -548,6 +559,54 @@
         "attrs",
         "children",
         "repeats"
+      ]
+    },
+    "WapContent": {
+      "description": "The element content of a leaf request node — what sits between `<tag>` and\n`</tag>` when the node carries a value rather than child nodes.",
+      "type": "object",
+      "properties": {
+        "byteLength": {
+          "description": "Fixed byte length when statically known (`BIG_ENDIAN_CONTENT(x, 3)` → 3).",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "kind": {
+          "$ref": "#/$defs/WapContentKind"
+        },
+        "value": {
+          "description": "The literal value for [`WapContentKind::Const`].",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "kind"
+      ]
+    },
+    "WapContentKind": {
+      "description": "The kind of leaf payload a request node carries in its element content\n(`wap(\"id\", null, BIG_ENDIAN_CONTENT(x, 3))` → the `<id>` node's content).",
+      "oneOf": [
+        {
+          "description": "Raw bytes (`BIG_ENDIAN_CONTENT(x, n)`, a key/signature buffer, …).",
+          "type": "string",
+          "const": "bytes"
+        },
+        {
+          "description": "A fixed string literal (carried in [`WapContent::value`]).",
+          "type": "string",
+          "const": "const"
+        },
+        {
+          "description": "A computed value not statically resolvable to bytes/const (a variable ref,\na helper result, …). Present but opaque.",
+          "type": "string",
+          "const": "dynamic"
+        }
       ]
     },
     "WapVariant": {

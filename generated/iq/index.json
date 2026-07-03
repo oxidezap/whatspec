@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1042616770",
+  "waVersion": "2.3000.1042618720",
   "stanzas": [
     {
       "moduleName": "WASmaxOutAbPropsGetExperimentConfigRequest",
@@ -6077,24 +6077,95 @@
             "tag": "registration",
             "attrs": [],
             "children": [],
+            "content": {
+              "kind": "bytes"
+            },
             "repeats": false
           },
           {
             "tag": "type",
             "attrs": [],
             "children": [],
+            "content": {
+              "kind": "dynamic"
+            },
             "repeats": false
           },
           {
             "tag": "identity",
             "attrs": [],
             "children": [],
+            "content": {
+              "kind": "dynamic"
+            },
             "repeats": false
           },
           {
             "tag": "list",
             "attrs": [],
-            "children": [],
+            "children": [
+              {
+                "tag": "key",
+                "attrs": [],
+                "children": [
+                  {
+                    "tag": "id",
+                    "attrs": [],
+                    "children": [],
+                    "content": {
+                      "kind": "bytes",
+                      "byteLength": 3
+                    },
+                    "repeats": false
+                  },
+                  {
+                    "tag": "value",
+                    "attrs": [],
+                    "children": [],
+                    "content": {
+                      "kind": "dynamic"
+                    },
+                    "repeats": false
+                  }
+                ],
+                "repeats": true
+              }
+            ],
+            "repeats": false
+          },
+          {
+            "tag": "skey",
+            "attrs": [],
+            "children": [
+              {
+                "tag": "id",
+                "attrs": [],
+                "children": [],
+                "content": {
+                  "kind": "bytes",
+                  "byteLength": 3
+                },
+                "repeats": false
+              },
+              {
+                "tag": "value",
+                "attrs": [],
+                "children": [],
+                "content": {
+                  "kind": "dynamic"
+                },
+                "repeats": false
+              },
+              {
+                "tag": "signature",
+                "attrs": [],
+                "children": [],
+                "content": {
+                  "kind": "dynamic"
+                },
+                "repeats": false
+              }
+            ],
             "repeats": false
           }
         ]
@@ -7291,7 +7362,43 @@
           {
             "tag": "rotate",
             "attrs": [],
-            "children": [],
+            "children": [
+              {
+                "tag": "skey",
+                "attrs": [],
+                "children": [
+                  {
+                    "tag": "id",
+                    "attrs": [],
+                    "children": [],
+                    "content": {
+                      "kind": "bytes",
+                      "byteLength": 3
+                    },
+                    "repeats": false
+                  },
+                  {
+                    "tag": "value",
+                    "attrs": [],
+                    "children": [],
+                    "content": {
+                      "kind": "dynamic"
+                    },
+                    "repeats": false
+                  },
+                  {
+                    "tag": "signature",
+                    "attrs": [],
+                    "children": [],
+                    "content": {
+                      "kind": "dynamic"
+                    },
+                    "repeats": false
+                  }
+                ],
+                "repeats": false
+              }
+            ],
             "repeats": false
           }
         ]
@@ -7327,24 +7434,95 @@
             "tag": "registration",
             "attrs": [],
             "children": [],
+            "content": {
+              "kind": "bytes"
+            },
             "repeats": false
           },
           {
             "tag": "type",
             "attrs": [],
             "children": [],
+            "content": {
+              "kind": "dynamic"
+            },
             "repeats": false
           },
           {
             "tag": "identity",
             "attrs": [],
             "children": [],
+            "content": {
+              "kind": "dynamic"
+            },
             "repeats": false
           },
           {
             "tag": "list",
             "attrs": [],
-            "children": [],
+            "children": [
+              {
+                "tag": "key",
+                "attrs": [],
+                "children": [
+                  {
+                    "tag": "id",
+                    "attrs": [],
+                    "children": [],
+                    "content": {
+                      "kind": "bytes",
+                      "byteLength": 3
+                    },
+                    "repeats": false
+                  },
+                  {
+                    "tag": "value",
+                    "attrs": [],
+                    "children": [],
+                    "content": {
+                      "kind": "dynamic"
+                    },
+                    "repeats": false
+                  }
+                ],
+                "repeats": true
+              }
+            ],
+            "repeats": false
+          },
+          {
+            "tag": "skey",
+            "attrs": [],
+            "children": [
+              {
+                "tag": "id",
+                "attrs": [],
+                "children": [],
+                "content": {
+                  "kind": "bytes",
+                  "byteLength": 3
+                },
+                "repeats": false
+              },
+              {
+                "tag": "value",
+                "attrs": [],
+                "children": [],
+                "content": {
+                  "kind": "dynamic"
+                },
+                "repeats": false
+              },
+              {
+                "tag": "signature",
+                "attrs": [],
+                "children": [],
+                "content": {
+                  "kind": "dynamic"
+                },
+                "repeats": false
+              }
+            ],
             "repeats": false
           }
         ]
@@ -76170,7 +76348,37 @@
           {
             "tag": "sync",
             "attrs": [],
-            "children": [],
+            "children": [
+              {
+                "tag": "collection",
+                "attrs": [
+                  {
+                    "name": "name",
+                    "kind": "string",
+                    "required": true
+                  },
+                  {
+                    "name": "return_snapshot",
+                    "kind": "dynamic",
+                    "required": true
+                  },
+                  {
+                    "name": "version",
+                    "kind": "integer",
+                    "required": true
+                  }
+                ],
+                "children": [
+                  {
+                    "tag": "patch",
+                    "attrs": [],
+                    "children": [],
+                    "repeats": false
+                  }
+                ],
+                "repeats": true
+              }
+            ],
             "repeats": false
           }
         ]
