@@ -1609,6 +1609,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "wa-notif"
+version = "0.1.0"
+dependencies = [
+ "oxc_allocator",
+ "oxc_ast",
+ "oxc_ast_visit",
+ "serde_json",
+ "wa-ir",
+ "wa-oxc",
+ "wa-scan",
+ "wa-transform",
+]
+
+[[package]]
 name = "wa-oxc"
 version = "0.1.0"
 dependencies = [
@@ -1705,6 +1719,7 @@ dependencies = [
  "wa-fetch",
  "wa-ir",
  "wa-mex",
+ "wa-notif",
  "wa-proto",
  "wa-scan",
  "wa-text",

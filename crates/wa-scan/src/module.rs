@@ -15,11 +15,8 @@ use crate::alias::{AliasMap, build_alias_map};
 use crate::attrs::{extract_attrs_from_obj, parse_wap_call};
 use crate::mixin_index::MixinIndex;
 use crate::request::{VarScope, build_var_scope, resolve_child_node};
-use crate::response::analyze_parser_ast;
 use crate::response_index::ResponseIndex;
 use wa_oxc::{arg_expr, as_call, callee_method, callee_object};
-
-const PARSER_CLASS: &str = "WADeprecatedWapParser";
 
 /// Scan a single module's `__d(...)` source for IQ stanza definitions.
 ///
@@ -518,40 +515,12 @@ impl ModuleScanner<'_> {
     }
 
     fn try_parser(&mut self, new_expr: &NewExpression) {
-        if new_expr.arguments.len() < 2 {
-            return;
+        // A module has at most one legacy response parser; the shared recognizer
+        // (also used by `parse_module_wap_parsers`) keeps the two paths in lockstep.
+        if let Some(parser) = crate::response::parsed_response_from_new_expr(new_expr, self.source)
+        {
+            self.parser = Some(parser);
         }
-        let Some(name) = arg_expr(&new_expr.arguments[0]).and_then(wa_oxc::as_string_lit) else {
-            return;
-        };
-        let Some(Expression::FunctionExpression(cb)) = arg_expr(&new_expr.arguments[1]) else {
-            return;
-        };
-
-        // The callee must reference WADeprecatedWapParser.
-        let callee_span = new_expr.callee.span();
-        let callee_src = &self.source[callee_span.start as usize..callee_span.end as usize];
-        if !callee_src.contains(PARSER_CLASS) {
-            return;
-        }
-
-        let Some(param) = cb
-            .params
-            .items
-            .first()
-            .and_then(|p| p.pattern.get_identifier_name())
-        else {
-            return;
-        };
-        let Some(body) = cb.body.as_ref() else { return };
-        let cb_body = &self.source[body.span.start as usize..body.span.end as usize];
-        let result = analyze_parser_ast(cb_body, param.as_str());
-        self.parser = Some(ParsedResponse {
-            parser_name: name.to_string(),
-            assertions: result.assertions,
-            fields: result.fields,
-            ..Default::default()
-        });
     }
 }
 

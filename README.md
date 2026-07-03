@@ -14,6 +14,7 @@ WhatsApp Web ships its whole protocol (IQ stanzas, protobuf schemas, GraphQL ope
 | **appstate** | `appstate/index.json` (+ Rust) | app-state (syncd) action schemas + indexing |
 | **abprops** | `abprops/index.json` (+ Rust) | the A/B-props feature-flag registry (~1.7k flags: code, type, default) |
 | **enums** | `enums/index.json` (+ Rust) | the wire-enum catalog (nack codes, chat/receipt types, …) |
+| **notif** | `notif/index.json` (+ Rust) | the incoming stanza-dispatch catalog: `<notification type="…">` kinds + handlers + typed content shapes |
 
 Every domain ships a JSON Schema under `generated/schema/`, and a top-level `generated/manifest.json` stamps the WhatsApp version, per-domain counts, content hashes, and extraction diagnostics.
 

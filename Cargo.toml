@@ -10,6 +10,7 @@ members = [
     "crates/wa-fetch",
     "crates/wa-ir",
     "crates/wa-mex",
+    "crates/wa-notif",
     "crates/wa-oxc",
     "crates/wa-proto",
     "crates/wa-scan",
@@ -48,6 +49,7 @@ wa-enums = { path = "crates/wa-enums" }
 wa-fetch = { path = "crates/wa-fetch" }
 wa-ir = { path = "crates/wa-ir" }
 wa-mex = { path = "crates/wa-mex" }
+wa-notif = { path = "crates/wa-notif" }
 wa-oxc = { path = "crates/wa-oxc" }
 wa-proto = { path = "crates/wa-proto" }
 wa-scan = { path = "crates/wa-scan" }

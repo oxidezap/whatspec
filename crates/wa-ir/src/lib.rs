@@ -18,6 +18,7 @@ pub mod appstate;
 pub mod enums;
 pub mod iq;
 pub mod mex;
+pub mod notif;
 pub mod proto;
 pub mod wam;
 pub mod wap;
@@ -27,6 +28,7 @@ pub use appstate::*;
 pub use enums::*;
 pub use iq::*;
 pub use mex::*;
+pub use notif::*;
 pub use proto::*;
 pub use wam::*;
 
@@ -104,6 +106,7 @@ pub fn schemas() -> Vec<(&'static str, String)> {
         ("schema/abprops.schema.json", dump::<abprops::AbPropsIr>()),
         ("schema/enums.schema.json", dump::<enums::EnumsIr>()),
         ("schema/wam.schema.json", dump::<wam::WamIr>()),
+        ("schema/notif.schema.json", dump::<notif::NotifIr>()),
     ]
 }
 
@@ -114,7 +117,7 @@ mod schema_tests {
     #[test]
     fn schemas_are_well_formed_and_versioned() {
         let out = schemas();
-        assert_eq!(out.len(), 6, "one schema per neutral domain");
+        assert_eq!(out.len(), 7, "one schema per neutral domain");
         for (path, json) in &out {
             // Each schema parses as JSON and is a JSON Schema object with $defs.
             let v: serde_json::Value =

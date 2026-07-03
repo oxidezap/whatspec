@@ -23,6 +23,7 @@ DOMAINS = [
     ("abprops/index.json", "schema/abprops.schema.json"),
     ("enums/index.json", "schema/enums.schema.json"),
     ("wam/index.json", "schema/wam.schema.json"),
+    ("notif/index.json", "schema/notif.schema.json"),
 ]
 
 

@@ -11,6 +11,7 @@ mod fields;
 mod mex_export;
 mod mex_ids;
 mod naming;
+mod notif_export;
 mod spec;
 mod union;
 mod wam;
@@ -20,6 +21,7 @@ pub use appstate_export::generate_appstate_schemas;
 pub use enums_export::generate_enums;
 pub use mex_export::generate_mex_operations;
 pub use mex_ids::{MexIdRefresh, refresh_mex_ids};
+pub use notif_export::generate_notif;
 pub use wam::generate_wam;
 
 use std::collections::HashSet;
@@ -461,5 +463,26 @@ mod tests {
         let code = generate_iq(&ir);
         syn::parse_file(&code)
             .unwrap_or_else(|e| panic!("generated iq.rs is not valid Rust ({e})"));
+    }
+
+    #[test]
+    fn generated_notif_rs_is_valid_rust() {
+        // Same guard as IQ: the notif catalog compiles into no crate here, so
+        // syntax-check the whole generated file against the committed reference IR.
+        // Skips when the notif IR isn't committed yet (it lands on the next real
+        // `update`); the synthetic-IR check in `notif_export` always runs.
+        let ir_path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../generated/notif/index.json"
+        );
+        let Ok(json) = std::fs::read_to_string(ir_path) else {
+            eprintln!("skip: {ir_path} not committed yet");
+            return;
+        };
+        let ir: wa_ir::NotifIr =
+            serde_json::from_str(&json).expect("deserialize committed NotifIr");
+        let code = generate_notif(&ir);
+        syn::parse_file(&code)
+            .unwrap_or_else(|e| panic!("generated notif.rs is not valid Rust ({e})"));
     }
 }

@@ -17,6 +17,7 @@ mod response_smax;
 
 pub use mixin_index::MixinIndex;
 pub use module::{CrossModuleStat, DropReason, scan_module_outcome, scan_module_source};
+pub use response::parse_module_wap_parsers;
 
 use wa_ir::{IqIr, IqScanResult, IqType, Unparseable};
 use wa_transform::ModuleDefinition;
