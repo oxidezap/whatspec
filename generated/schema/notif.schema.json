@@ -154,6 +154,7 @@
           }
         },
         "intMax": {
+          "description": "Inclusive upper bound from the same `attrIntRange` check (see [`int_min`]).\n\n[`int_min`]: ParsedField::int_min",
           "type": [
             "integer",
             "null"
@@ -161,7 +162,7 @@
           "format": "int64"
         },
         "intMin": {
-          "description": "Inclusive integer bounds the parser enforces via `attrIntRange(node, name, min,\nmax)`. Present only for a bounded [`ParsedFieldType::Integer`]; a consumer can\nvalidate or pick a narrower Rust width from these. The timestamp-marker range is\nnot carried here — it is surfaced as [`ParsedFieldType::Timestamp`] instead.",
+          "description": "Inclusive lower bound the parser enforces via `attrIntRange(node, name, min,\nmax)`. Present only for a bounded [`ParsedFieldType::Integer`]; a consumer can\nvalidate or pick a narrower Rust width from these. The timestamp-marker range is\nnot carried here — it is surfaced as [`ParsedFieldType::Timestamp`] instead.",
           "type": [
             "integer",
             "null"
@@ -245,7 +246,7 @@
           ]
         },
         {
-          "description": "An integer the parser range-checks as a Unix timestamp in **seconds** —\nrecognized by the `attrIntRange(t, 1577865600, 4102473600)` bound\n(2020-01-01…2100-01-01), which WA uses to tell a wall-clock time apart from a\nplain counter. A consumer can decode it as a date/time rather than a bare integer.",
+          "description": "An integer the parser range-checks as a Unix timestamp in **seconds** —\nrecognized by the `attrIntRange(t, 1577865600, 4102473600)` bound, i.e.\n`2020-01-01T08:00:00Z`…`2100-01-01T08:00:00Z` (the exact constants; both are\n08:00 UTC, not midnight). WA uses this to tell a wall-clock time apart from a\nplain counter. A consumer can decode it as a date/time rather than a bare integer.",
           "type": "string",
           "const": "timestamp"
         },

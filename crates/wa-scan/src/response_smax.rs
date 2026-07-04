@@ -651,9 +651,10 @@ fn classify_child(
     }
 }
 
-/// The `attrIntRange` bounds WA uses to range-check a Unix timestamp (2020-01-01 …
-/// 2100-01-01), in seconds and in milliseconds (`15778656e5`/`41024736e5`). A field
-/// checked against exactly one of these windows is a wall-clock time, not a counter.
+/// The `attrIntRange` bounds WA uses to range-check a Unix timestamp — the window
+/// `2020-01-01T08:00:00Z`…`2100-01-01T08:00:00Z` (08:00 UTC, not midnight), in seconds
+/// and in milliseconds (`15778656e5`/`41024736e5`). A field checked against exactly one
+/// of these windows is a wall-clock time, not a counter.
 const TIMESTAMP_RANGE_SECONDS: (i64, i64) = (1577865600, 4102473600);
 const TIMESTAMP_RANGE_MILLIS: (i64, i64) = (1577865600000, 4102473600000);
 

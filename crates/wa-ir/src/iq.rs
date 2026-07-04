@@ -245,8 +245,9 @@ pub enum ParsedFieldType {
     String,
     Integer,
     /// An integer the parser range-checks as a Unix timestamp in **seconds** —
-    /// recognized by the `attrIntRange(t, 1577865600, 4102473600)` bound
-    /// (2020-01-01…2100-01-01), which WA uses to tell a wall-clock time apart from a
+    /// recognized by the `attrIntRange(t, 1577865600, 4102473600)` bound, i.e.
+    /// `2020-01-01T08:00:00Z`…`2100-01-01T08:00:00Z` (the exact constants; both are
+    /// 08:00 UTC, not midnight). WA uses this to tell a wall-clock time apart from a
     /// plain counter. A consumer can decode it as a date/time rather than a bare integer.
     Timestamp,
     /// A Unix timestamp in **milliseconds** — the same window range-checked ×1000
@@ -363,12 +364,15 @@ pub struct ParsedField {
     pub required: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub byte_length: Option<u32>,
-    /// Inclusive integer bounds the parser enforces via `attrIntRange(node, name, min,
+    /// Inclusive lower bound the parser enforces via `attrIntRange(node, name, min,
     /// max)`. Present only for a bounded [`ParsedFieldType::Integer`]; a consumer can
     /// validate or pick a narrower Rust width from these. The timestamp-marker range is
     /// not carried here — it is surfaced as [`ParsedFieldType::Timestamp`] instead.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub int_min: Option<i64>,
+    /// Inclusive upper bound from the same `attrIntRange` check (see [`int_min`]).
+    ///
+    /// [`int_min`]: ParsedField::int_min
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub int_max: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
