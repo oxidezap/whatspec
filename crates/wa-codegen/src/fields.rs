@@ -84,10 +84,8 @@ pub(crate) fn rust_field_type(field: &ParsedField) -> &'static str {
     let base = match wap::method_field_type(&field.method) {
         ParsedFieldType::Integer => "u64",
         ParsedFieldType::Bytes => "Vec<u8>",
-        ParsedFieldType::DeviceJid
-        | ParsedFieldType::GroupJid
-        | ParsedFieldType::JidTyped
-        | ParsedFieldType::Jid => "Jid",
+        // Every JID flavor materializes as one `Jid` today; the flavor lives in the IR.
+        t if t.is_jid() => "Jid",
         // String / Enum / (Bool/Union handled elsewhere) materialize as String.
         _ => "String",
     };

@@ -226,12 +226,63 @@
             "string",
             "integer",
             "enum",
-            "bytes",
-            "jid",
-            "device_jid",
-            "group_jid",
-            "jid_typed"
+            "bytes"
           ]
+        },
+        {
+          "description": "A JID with no flavor-specific validation (`attrJid`/`attrWapJid`/`attrFromJid`).",
+          "type": "string",
+          "const": "jid"
+        },
+        {
+          "description": "`<user>@s.whatsapp.net` — a phone-number (PN) user JID (`attrUserJid`).\nDistinct from [`LidUserJid`]: the two are different identities for the same\nperson and must never be conflated — a protocol-safety-critical distinction.\n\n[`LidUserJid`]: ParsedFieldType::LidUserJid",
+          "type": "string",
+          "const": "user_jid"
+        },
+        {
+          "description": "`<user>@lid` — a LID (privacy) user JID (`attrLidUserJid`). See [`UserJid`].\n\n[`UserJid`]: ParsedFieldType::UserJid",
+          "type": "string",
+          "const": "lid_user_jid"
+        },
+        {
+          "description": "`<user>:<device>@s.whatsapp.net` (`attrDeviceJid`).",
+          "type": "string",
+          "const": "device_jid"
+        },
+        {
+          "description": "`<user>:<device>@lid` — a LID device JID (`attrLidDeviceJid`).",
+          "type": "string",
+          "const": "lid_device_jid"
+        },
+        {
+          "description": "`<group>@g.us` (`attrGroupJid`).",
+          "type": "string",
+          "const": "group_jid"
+        },
+        {
+          "description": "`<id>@newsletter` (`attrNewsletterJid`).",
+          "type": "string",
+          "const": "newsletter_jid"
+        },
+        {
+          "description": "`<id>@call` (`attrCallJid`).",
+          "type": "string",
+          "const": "call_jid"
+        },
+        {
+          "description": "`<target>@broadcast` (`attrBroadcastJid`).",
+          "type": "string",
+          "const": "broadcast_jid"
+        },
+        {
+          "description": "`status@broadcast` (`attrStatusJid`).",
+          "type": "string",
+          "const": "status_jid"
+        },
+        {
+          "description": "A JID validated against a server-kind enum arg but with no single flavor\n(`attrJidWithType`/`attrJidEnum`).",
+          "type": "string",
+          "const": "jid_typed"
         },
         {
           "description": "A presence boolean (`{hasX: child.success}` in smax) — true iff a sub-node\nor attr is present. The presence target is carried in `tag`.",
