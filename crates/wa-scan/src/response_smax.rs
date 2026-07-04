@@ -500,7 +500,7 @@ fn classify_call(
                         method: optional_variant(&m),
                         field_type,
                         required: false,
-                        byte_length: bl,
+                        byte_length: bl.or_else(|| content_byte_length(inner, args)),
                         int_range,
                         wire_name,
                         source_path,
@@ -526,7 +526,7 @@ fn classify_call(
                     method: m,
                     field_type,
                     required: true,
-                    byte_length: bl,
+                    byte_length: bl.or_else(|| content_byte_length(Some(other), args)),
                     int_range,
                     wire_name,
                     source_path,
@@ -685,6 +685,21 @@ fn int_range_and_type(
         }
         (Some(min), Some(max)) => (base, Some((min, max))),
         _ => (base, None),
+    }
+}
+
+/// The fixed byte length pinned by a `contentBytesRange(node, min, max)` when `min ==
+/// max` — a hard wire-contract length (a 32-byte key, a 64-byte signature). A true
+/// range (`min != max`) is a max-payload size limit, not a fixed length, so it yields
+/// `None` (never a bogus `byteLength`). `contentBytes(node)` carries no length at all.
+fn content_byte_length(accessor: Option<&str>, args: &[Argument]) -> Option<u32> {
+    if accessor != Some("contentBytesRange") {
+        return None;
+    }
+    let mut nums = args.iter().filter_map(|a| arg_expr(a).and_then(as_int));
+    match (nums.next(), nums.next()) {
+        (Some(min), Some(max)) if min == max => u32::try_from(min).ok(),
+        _ => None,
     }
 }
 
@@ -1503,6 +1518,34 @@ mod tests {
         let pl = field("plain");
         assert_eq!(pl.field_type, ParsedFieldType::Integer);
         assert_eq!((pl.int_min, pl.int_max), (None, None));
+    }
+
+    #[test]
+    fn content_bytes_range_pins_fixed_length_only() {
+        let module = r#"__d("WASmaxInBazResponseSuccess",["WASmaxParseUtils","WAResultOrError"],(function(t,n,r,o,a,i,l){
+            function s(t){
+                var r = o("WASmaxParseUtils").assertTag(t, "iq"); if(!r.success) return r;
+                var a = o("WASmaxParseUtils").contentBytesRange(t, 32, 32); if(!a.success) return a;
+                var b = o("WASmaxParseUtils").contentBytesRange(t, 1, 1048576); if(!b.success) return b;
+                var c = o("WASmaxParseUtils").contentBytes(t); if(!c.success) return c;
+                return o("WAResultOrError").makeResult({ key: a.value, blob: b.value, raw: c.value });
+            }
+            l.parseBazResponseSuccess = s;
+        }), 1);"#;
+        let exports = analyze_mod_local(module);
+        let (_n, pr) = exports
+            .iter()
+            .find(|(n, _)| n == "parseBazResponseSuccess")
+            .expect("parser");
+        let field = |name: &str| pr.fields.iter().find(|f| f.name == name).expect(name);
+        // Fixed range (min == max) → a pinned wire length.
+        let key = field("key");
+        assert_eq!(key.field_type, ParsedFieldType::Bytes);
+        assert_eq!(key.byte_length, Some(32));
+        // A true range is a max-size limit, not a fixed length → no byteLength.
+        assert_eq!(field("blob").byte_length, None);
+        // Plain contentBytes carries no length.
+        assert_eq!(field("raw").byte_length, None);
     }
 
     #[test]
