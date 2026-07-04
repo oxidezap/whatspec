@@ -45,7 +45,7 @@
     "iq": {
       "file": "iq/index.json",
       "schema": "schema/iq.schema.json",
-      "sha256": "af8f6f78d4414a05ef199c44d80d3d4fd5c51cea91be777bb514083071fbeb8a"
+      "sha256": "85d70a6ab9367e8c4d7be429c90c452ab3667d8b3cf2d0bdf9174d3263ebe1f6"
     },
     "mex": {
       "file": "mex/index.json",
@@ -55,7 +55,7 @@
     "notif": {
       "file": "notif/index.json",
       "schema": "schema/notif.schema.json",
-      "sha256": "81aa2a9866dce4abef56edd513fbfcd96feb5be5fd05555b5ac200ad85c030e9"
+      "sha256": "97f3b878e2213affee23d2b9c3d10091b0cf8faf1007ed7394f8778a3cc04d7e"
     },
     "proto": {
       "file": "proto/WAProto.proto",

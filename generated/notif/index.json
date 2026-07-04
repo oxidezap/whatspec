@@ -168,7 +168,7 @@
                   {
                     "method": "attrUserJid",
                     "name": "jid",
-                    "type": "jid",
+                    "type": "user_jid",
                     "required": true
                   }
                 ],
@@ -185,7 +185,7 @@
           {
             "method": "attrUserJid",
             "name": "jid",
-            "type": "jid",
+            "type": "user_jid",
             "required": true
           },
           {
@@ -328,7 +328,7 @@
                   {
                     "method": "attrUserJid",
                     "name": "biz_jid",
-                    "type": "jid",
+                    "type": "user_jid",
                     "required": true
                   }
                 ],
@@ -357,7 +357,7 @@
           {
             "method": "attrUserJid",
             "name": "biz_jid",
-            "type": "jid",
+            "type": "user_jid",
             "required": true
           }
         ]
@@ -515,7 +515,7 @@
               {
                 "method": "attrUserJid",
                 "name": "jid",
-                "type": "jid",
+                "type": "user_jid",
                 "required": true
               },
               {
@@ -552,7 +552,7 @@
               {
                 "method": "attrUserJid",
                 "name": "jid",
-                "type": "jid",
+                "type": "user_jid",
                 "required": true
               }
             ]
@@ -567,37 +567,37 @@
               {
                 "method": "attrUserJid",
                 "name": "new",
-                "type": "jid",
+                "type": "user_jid",
                 "required": true
               },
               {
                 "method": "attrUserJid",
                 "name": "old",
-                "type": "jid",
+                "type": "user_jid",
                 "required": true
               },
               {
                 "method": "maybeAttrUserJid",
                 "name": "new_lid",
-                "type": "jid",
+                "type": "user_jid",
                 "required": false
               },
               {
                 "method": "attrLidUserJid",
                 "name": "new_lid",
-                "type": "jid",
+                "type": "lid_user_jid",
                 "required": true
               },
               {
                 "method": "maybeAttrUserJid",
                 "name": "old_lid",
-                "type": "jid",
+                "type": "user_jid",
                 "required": false
               },
               {
                 "method": "attrLidUserJid",
                 "name": "old_lid",
-                "type": "jid",
+                "type": "lid_user_jid",
                 "required": true
               }
             ]
@@ -686,7 +686,7 @@
           {
             "method": "attrLidDeviceJid",
             "name": "lid",
-            "type": "device_jid",
+            "type": "lid_device_jid",
             "required": true
           }
         ]
@@ -1005,7 +1005,7 @@
           {
             "method": "attrUserJid",
             "name": "from",
-            "type": "jid",
+            "type": "user_jid",
             "required": true
           },
           {
@@ -1038,13 +1038,13 @@
           {
             "method": "attrUserJid",
             "name": "from",
-            "type": "jid",
+            "type": "user_jid",
             "required": true
           },
           {
             "method": "maybeAttrLidUserJid",
             "name": "sender_lid",
-            "type": "jid",
+            "type": "lid_user_jid",
             "required": false
           },
           {
@@ -1106,7 +1106,7 @@
           {
             "method": "attrUserJid",
             "name": "participant",
-            "type": "jid",
+            "type": "user_jid",
             "required": true
           },
           {
@@ -1351,7 +1351,7 @@
           {
             "method": "attrUserJid",
             "name": "from",
-            "type": "jid",
+            "type": "user_jid",
             "required": true
           },
           {
@@ -1369,7 +1369,7 @@
           {
             "method": "attrUserJid",
             "name": "from",
-            "type": "jid",
+            "type": "user_jid",
             "required": true
           },
           {
@@ -1409,7 +1409,7 @@
           {
             "method": "attrUserJid",
             "name": "participant",
-            "type": "jid",
+            "type": "user_jid",
             "required": true
           },
           {
@@ -1445,7 +1445,7 @@
           {
             "method": "attrUserJid",
             "name": "jid",
-            "type": "jid",
+            "type": "user_jid",
             "required": true
           },
           {
@@ -1475,7 +1475,7 @@
           {
             "method": "attrUserJid",
             "name": "jid",
-            "type": "jid",
+            "type": "user_jid",
             "required": true
           },
           {
@@ -1487,13 +1487,13 @@
           {
             "method": "attrUserJid",
             "name": "phone_number",
-            "type": "jid",
+            "type": "user_jid",
             "required": true
           },
           {
             "method": "attrUserJid",
             "name": "jid",
-            "type": "jid",
+            "type": "user_jid",
             "required": true
           },
           {
@@ -1505,7 +1505,7 @@
           {
             "method": "attrUserJid",
             "name": "creator",
-            "type": "jid",
+            "type": "user_jid",
             "required": true
           },
           {
@@ -1523,7 +1523,7 @@
           {
             "method": "attrUserJid",
             "name": "participant",
-            "type": "jid",
+            "type": "user_jid",
             "required": true
           },
           {
@@ -1601,7 +1601,7 @@
               {
                 "method": "attrUserJid",
                 "name": "user",
-                "type": "jid",
+                "type": "user_jid",
                 "required": true
               },
               {
