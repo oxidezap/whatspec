@@ -36,6 +36,72 @@ fn enum_ref_of(e: &Expression) -> Option<(String, String)> {
     Some((module, enum_name.to_string()))
 }
 
+/// The single enum a guard tests for equality: an `o("Mod").Enum.VARIANT` operand of a
+/// strict-equality (`===`) comparison, reached through `&&`/`||`/parens. Returns `None`
+/// if the guard tests no enum with `===` (a `!==` guard has inverted semantics — the
+/// value is emitted when it does NOT equal the variant — so it isn't a membership test),
+/// or if it tests two *different* enums (ambiguous which the emitted value belongs to).
+fn guard_enum(e: &Expression) -> Option<(String, String)> {
+    let mut found: Option<(String, String)> = None;
+    let mut ambiguous = false;
+    collect_guard_enums(e, &mut found, &mut ambiguous);
+    if ambiguous { None } else { found }
+}
+
+fn collect_guard_enums(e: &Expression, found: &mut Option<(String, String)>, ambiguous: &mut bool) {
+    match e {
+        // `X === o("Mod").Enum.VARIANT` (either operand). Only `===`: a `!==` test means
+        // the emitted value is used when it is NOT the variant, so it's not a membership.
+        Expression::BinaryExpression(b)
+            if b.operator == oxc_ast::ast::BinaryOperator::StrictEquality =>
+        {
+            if let Some(r) = enum_ref_of(&b.left).or_else(|| enum_ref_of(&b.right)) {
+                match found {
+                    Some(existing) if *existing != r => *ambiguous = true,
+                    None => *found = Some(r),
+                    _ => {}
+                }
+            }
+        }
+        Expression::LogicalExpression(b) => {
+            collect_guard_enums(&b.left, found, ambiguous);
+            collect_guard_enums(&b.right, found, ambiguous);
+        }
+        Expression::ParenthesizedExpression(p) => {
+            collect_guard_enums(&p.expression, found, ambiguous)
+        }
+        _ => {}
+    }
+}
+
+/// FORM B: `cond === o("Mod").Enum.VARIANT ? CUSTOM_STRING(<value>) : DROP_ATTR`. The
+/// enum only gates presence; the attribute is drawn from it *only if* the emitted value
+/// belongs to it. Returns `(module, enum, guard_value)`:
+///  - the consequent structurally references the SAME enum (`CUSTOM_STRING(Enum.X)`,
+///    like `addressing_mode`) → the value is inarguably an enum variant → `guard_value`
+///    is `None` (link unconditionally);
+///  - the consequent is a string literal (`CUSTOM_STRING("status")`) → `guard_value` is
+///    `Some(literal)`, and the link is kept only if the resolver finds it *is* a variant
+///    of the enum (so `enc.state`'s `"false"`, not a `CiphertextType`, is dropped);
+///  - anything else → `None` (no link).
+fn form_b_link(
+    test: &Expression,
+    consequent: &Expression,
+) -> Option<(String, String, Option<String>)> {
+    let (module, ename) = guard_enum(test)?;
+    // The emitted value: the sole arg of the consequent's `CUSTOM_STRING(...)`.
+    let arg = as_call(consequent)
+        .filter(|c| callee_method(c) == Some("CUSTOM_STRING"))
+        .and_then(|c| c.arguments.first())
+        .and_then(arg_expr)?;
+    if let Some((cm, ce)) = enum_ref_of(arg) {
+        // Structural: link only when it's the same enum as the guard.
+        return ((cm, ce) == (module.clone(), ename.clone())).then_some((module, ename, None));
+    }
+    // Literal: validate membership against the resolved enum later.
+    as_string_lit(arg).map(|lit| (module, ename, Some(lit.to_string())))
+}
+
 /// A parsed `.wap("tag", attrs?, ...children)` / `.smax(...)` call.
 pub(crate) struct WapCall<'a> {
     pub tag: &'a str,
@@ -116,18 +182,25 @@ fn classify_attr_node<'a>(
         enum_ref: None,
     };
     // A pending enum link — only its (name, module) are known here; the variants are
-    // resolved cross-module after the scan (see `crate::enum_link`). `variants` empty
-    // marks it unresolved.
-    let with_enum = |kind: WapAttrKind, required: bool, module: String, ename: String| WapAttrDef {
-        name: name.to_string(),
-        kind,
-        value: None,
-        required,
-        enum_ref: Some(AttrEnumRef {
-            name: ename,
-            module,
-            variants: Vec::new(),
-        }),
+    // resolved cross-module after the scan (see `crate::enum_link`), which then clears
+    // `value`. `variants` empty marks it unresolved; `value` carries the FORM B guard
+    // value the resolver must confirm is a member of the enum (`None` for FORM A).
+    let with_enum = |kind: WapAttrKind,
+                     required: bool,
+                     module: String,
+                     ename: String,
+                     guard: Option<String>| {
+        WapAttrDef {
+            name: name.to_string(),
+            kind,
+            value: guard,
+            required,
+            enum_ref: Some(AttrEnumRef {
+                name: ename,
+                module,
+                variants: Vec::new(),
+            }),
+        }
     };
 
     // String literal → fixed const.
@@ -157,7 +230,7 @@ fn classify_attr_node<'a>(
             && let Some(arg) = call.arguments.first().and_then(arg_expr)
             && let Some((module, ename)) = enum_ref_of(arg)
         {
-            return with_enum(WapAttrKind::String, true, module, ename);
+            return with_enum(WapAttrKind::String, true, module, ename, None);
         }
         let kind = match method {
             "CUSTOM_STRING" | "STANZA_ID" => Some(WapAttrKind::String),
@@ -184,18 +257,17 @@ fn classify_attr_node<'a>(
     }
 
     // Ternary mentioning DROP_ATTR → optional (matches JSON.stringify().includes()).
-    //
-    // A guard-position enum reference (`cond === o("Mod").Enum.VARIANT ? … : DROP_ATTR`)
-    // is deliberately NOT enum-linked here: the enum only gates presence, and the
-    // emitted value may be unrelated to it (`enc.state` emits the literal `"false"`
-    // when `… === CiphertextType.Pkmsg`, and `"false"` is not a CiphertextType). Linking
-    // it would be a false positive. Those attrs (enc.state / session_scope /
-    // addressing_mode) are all non-IQ and out of this scanner's scope anyway; they land
-    // with the message-stanza phase, which will validate that the emitted value is
-    // actually a member of the guard's enum before linking.
+    // FORM B: when the guard tests an enum (`cond === o("Mod").Enum.VARIANT ? … :
+    // DROP_ATTR`), link the attr to that enum — but only via `form_b_link`, which keeps
+    // the link solely when the emitted value belongs to the enum (a literal must be one
+    // of its variants; `enc.state`'s `"false"` is not a `CiphertextType`, so it's
+    // dropped). The guard value rides in `value` until the resolver validates it.
     if let Expression::ConditionalExpression(cond) = value {
         let s = &source[cond.span.start as usize..cond.span.end as usize];
         if s.contains("DROP_ATTR") {
+            if let Some((module, ename, guard)) = form_b_link(&cond.test, &cond.consequent) {
+                return with_enum(WapAttrKind::Optional, false, module, ename, guard);
+            }
             return owned(WapAttrKind::Optional, None, false);
         }
     }
@@ -345,6 +417,47 @@ mod tests {
         assert_eq!(by("dyn").kind, WapAttrKind::Dynamic);
         // Quoted (string-literal) key is skipped.
         assert!(!attrs.iter().any(|a| a.name == "quoted"));
+    }
+
+    #[test]
+    fn detects_form_a_and_form_b_enum_links() {
+        let alloc = Allocator::default();
+        let code = r#"e.wap("enc", {
+            type: o("WAWap").CUSTOM_STRING(o("Mod").CiphertextType.Skmsg),
+            state: cond === o("Mod").CiphertextType.Pkmsg ? o("WAWap").CUSTOM_STRING("false") : o("WAWap").DROP_ATTR,
+            addr: x === o("U").USYNC_ADDRESSING_MODE.LID ? o("WAWap").CUSTOM_STRING(o("U").USYNC_ADDRESSING_MODE.LID) : o("WAWap").DROP_ATTR,
+            scope: k === o("S").SessionScope.STATUS ? o("WAWap").CUSTOM_STRING("status") : o("WAWap").DROP_ATTR,
+            diff: a === o("A").EnumA.X ? o("WAWap").CUSTOM_STRING(o("B").EnumB.Y) : o("WAWap").DROP_ATTR,
+            compound: a === o("A").EnumA.X && b === o("B").EnumB.Y ? o("WAWap").CUSTOM_STRING("v") : o("WAWap").DROP_ATTR,
+            neq: c !== o("Mod").CiphertextType.Pkmsg ? o("WAWap").CUSTOM_STRING("false") : o("WAWap").DROP_ATTR
+        });"#;
+        let ret = wa_oxc::parse_cjs(&alloc, code);
+        let wap = parse_wap_call(first_call(&ret.program), &no_aliases()).unwrap();
+        let attrs = extract_attrs_from_obj(wap.attrs_node.unwrap(), code, &no_aliases());
+        let by = |n: &str| attrs.iter().find(|a| a.name == n).unwrap();
+        let er = |a: &WapAttrDef| a.enum_ref.as_ref().map(|e| e.name.clone());
+
+        // FORM A: the value IS the enum → pending link, no guard value.
+        assert_eq!(er(by("type")).as_deref(), Some("CiphertextType"));
+        assert_eq!(by("type").value, None);
+        // FORM B literal: the guard value rides in `value` for later membership check;
+        // "false" is NOT a CiphertextType, so the resolver will drop it.
+        assert_eq!(er(by("state")).as_deref(), Some("CiphertextType"));
+        assert_eq!(by("state").value.as_deref(), Some("false"));
+        assert_eq!(by("state").kind, WapAttrKind::Optional);
+        // FORM B structural: consequent references the SAME enum → no guard value.
+        assert_eq!(er(by("addr")).as_deref(), Some("USYNC_ADDRESSING_MODE"));
+        assert_eq!(by("addr").value, None);
+        // FORM B literal with a member-looking value.
+        assert_eq!(er(by("scope")).as_deref(), Some("SessionScope"));
+        assert_eq!(by("scope").value.as_deref(), Some("status"));
+        // Consequent references a DIFFERENT enum than the guard → not linked.
+        assert_eq!(er(by("diff")), None);
+        assert_eq!(by("diff").kind, WapAttrKind::Optional);
+        // A compound guard testing two DIFFERENT enums is ambiguous → not linked.
+        assert_eq!(er(by("compound")), None);
+        // A `!==` guard has inverted membership semantics → not linked.
+        assert_eq!(er(by("neq")), None);
     }
 
     #[test]

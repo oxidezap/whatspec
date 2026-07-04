@@ -44,6 +44,9 @@ impl<'a> EnumResolver<'a> {
             Some(er) if er.variants.is_empty() => (er.module.clone(), er.name.clone()),
             _ => return, // no link, or already resolved
         };
+        // FORM B carries a guard value in `value` that must be a member of the enum;
+        // FORM A leaves it `None`. Either way it's transient scan state, so clear it.
+        let guard = attr.value.take();
         let module_slice = &self.module_slice;
         let resolved = self
             .cache
@@ -53,12 +56,22 @@ impl<'a> EnumResolver<'a> {
                     wa_enums::resolve_named_enum(slice, &module, &ename).and_then(variants_of)
                 })
             });
-        // Some → fill the variants; None → drop the (unresolvable) link.
-        attr.enum_ref = resolved.clone().map(|variants| AttrEnumRef {
-            name: ename,
-            module,
-            variants,
-        });
+        // Keep the link when the enum resolves AND — for a FORM B literal guard — the
+        // guard value is one of its variants; otherwise drop it (never a guessed link).
+        attr.enum_ref = match resolved.clone() {
+            Some(variants)
+                if guard
+                    .as_ref()
+                    .is_none_or(|gv| variants.iter().any(|v| &v.value == gv)) =>
+            {
+                Some(AttrEnumRef {
+                    name: ename,
+                    module,
+                    variants,
+                })
+            }
+            _ => None,
+        };
     }
 
     /// Resolve every attribute directly on these nodes and throughout their subtrees.
@@ -109,10 +122,15 @@ mod tests {
     use wa_ir::{WapAttrKind, WapChildNode};
 
     fn pending(module: &str, name: &str) -> WapAttrDef {
+        pending_guard(module, name, None)
+    }
+
+    /// A pending link with an optional FORM B guard value (rides in `value`).
+    fn pending_guard(module: &str, name: &str, guard: Option<&str>) -> WapAttrDef {
         WapAttrDef {
             name: "type".into(),
             kind: WapAttrKind::String,
-            value: None,
+            value: guard.map(str::to_string),
             required: true,
             enum_ref: Some(AttrEnumRef {
                 name: name.into(),
@@ -126,6 +144,28 @@ mod tests {
         let defs = wa_transform::extract_module_definitions(bundle);
         let mut r = EnumResolver::new(&defs, bundle);
         r.resolve_attrs(attrs);
+    }
+
+    #[test]
+    fn form_b_guard_value_membership_gates_the_link() {
+        // SessionScope = {default, status, pq}.
+        let bundle = r#"__d("M",["$InternalEnum"],(function(g,n,d,o,e,i,l){
+            i.SessionScope=n("$InternalEnum")({DEFAULT:"default",STATUS:"status",PQ:"pq"});
+        }),1);"#;
+        // Guard value "status" IS a variant → link kept, and `value` is cleared.
+        let mut ok = [pending_guard("M", "SessionScope", Some("status"))];
+        resolve(bundle, &mut ok);
+        assert!(ok[0].enum_ref.is_some(), "member guard keeps the link");
+        assert_eq!(ok[0].value, None, "transient guard value is cleared");
+        // Guard value "false" is NOT a variant (the `enc.state` case) → link dropped.
+        let mut bad = [pending_guard("M", "SessionScope", Some("false"))];
+        resolve(bundle, &mut bad);
+        assert!(bad[0].enum_ref.is_none(), "non-member guard drops the link");
+        assert_eq!(bad[0].value, None);
+        // No guard (FORM A / structural FORM B) → link kept unconditionally.
+        let mut structural = [pending_guard("M", "SessionScope", None)];
+        resolve(bundle, &mut structural);
+        assert!(structural[0].enum_ref.is_some());
     }
 
     #[test]
