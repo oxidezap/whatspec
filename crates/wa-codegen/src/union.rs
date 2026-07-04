@@ -725,18 +725,10 @@ fn field_expr(f: &ParsedField, node_var: &str) -> String {
         ParsedFieldType::Integer => format!(
             "{node_var}.get_attr({flit}).and_then(|v| v.as_str().parse().ok()).unwrap_or_default()"
         ),
-        ParsedFieldType::DeviceJid
-        | ParsedFieldType::GroupJid
-        | ParsedFieldType::JidTyped
-        | ParsedFieldType::Jid
-            if optional =>
-        {
+        t if t.is_jid() && optional => {
             format!("{node_var}.get_attr({flit}).and_then(|v| v.to_jid())")
         }
-        ParsedFieldType::DeviceJid
-        | ParsedFieldType::GroupJid
-        | ParsedFieldType::JidTyped
-        | ParsedFieldType::Jid => {
+        t if t.is_jid() => {
             format!("{node_var}.get_attr({flit}).and_then(|v| v.to_jid()).unwrap_or_default()")
         }
         _ if optional => format!("{node_var}.get_attr({flit}).map(|v| v.as_str().to_string())"),

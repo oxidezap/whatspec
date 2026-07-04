@@ -650,12 +650,26 @@ fn normalize_accessor(m: &str) -> Option<(String, ParsedFieldType, Option<u32>)>
         "contentStringEnum" => s(wap::ATTR_ENUM, ParsedFieldType::Enum),
         "contentBytes" => s(wap::CONTENT_BYTES, ParsedFieldType::Bytes),
         "contentBytesRange" => s(wap::CONTENT_BYTES, ParsedFieldType::Bytes),
-        // Every smax JID accessor maps to the single typed-JID method the codegen
-        // materializes (granularity is a future iteration). `attrJidEnum` pins the
-        // JID's server kind via an enum arg but still yields a JID; `attrLidUserJid`
-        // is the LID-or-user accessor.
-        "attrJid" | "attrDomainJid" | "attrUserJid" | "attrDeviceJid" | "attrGroupJid"
-        | "attrNewsletterJid" | "attrLidJid" | "attrLidUserJid" | "attrJidEnum" | "literalJid" => {
+        // Keep the JID flavor each accessor validates rather than collapsing every JID
+        // to one type. The flavor is protocol-safety-critical: a LID user JID and a PN
+        // user JID are different identities for the same person. The `phone*` variants
+        // are the explicit-PN spelling of the plain user/device accessors.
+        "attrUserJid" | "attrPhoneUserJid" => s(wap::ATTR_USER_JID, ParsedFieldType::UserJid),
+        "attrLidUserJid" => s(wap::ATTR_LID_USER_JID, ParsedFieldType::LidUserJid),
+        "attrDeviceJid" | "attrPhoneDeviceJid" => {
+            s(wap::ATTR_DEVICE_JID, ParsedFieldType::DeviceJid)
+        }
+        "attrLidDeviceJid" => s(wap::ATTR_LID_DEVICE_JID, ParsedFieldType::LidDeviceJid),
+        "attrGroupJid" => s(wap::ATTR_GROUP_JID, ParsedFieldType::GroupJid),
+        "attrNewsletterJid" => s(wap::ATTR_NEWSLETTER_JID, ParsedFieldType::NewsletterJid),
+        "attrCallJid" => s(wap::ATTR_CALL_JID, ParsedFieldType::CallJid),
+        "attrBroadcastJid" => s(wap::ATTR_BROADCAST_JID, ParsedFieldType::BroadcastJid),
+        "attrStatusJid" => s(wap::ATTR_STATUS_JID, ParsedFieldType::StatusJid),
+        // Generic / multi-flavor accessors stay a bare Jid: `attrChatJid` is a user OR
+        // a group, `attrJid`/`attrDomainJid` accept any, `attrJidEnum` pins the server
+        // kind via a runtime enum arg (no single static flavor).
+        "attrJid" | "attrDomainJid" | "attrChatJid" | "attrPhoneChatJid" | "attrWapJid"
+        | "attrFromJid" | "attrFromPhoneJid" | "attrLidJid" | "attrJidEnum" | "literalJid" => {
             s(wap::ATTR_JID_WITH_TYPE, ParsedFieldType::Jid)
         }
         _ => None,
@@ -1348,6 +1362,48 @@ mod tests {
     fn unrecognized_tail_yields_none() {
         let body = r#"function e(node){ return somethingElse(node); }"#;
         assert!(analyze_one(body).is_none());
+    }
+
+    #[test]
+    fn jid_accessors_keep_their_flavor() {
+        // Each JID accessor must yield its specific flavor, not a collapsed `Jid`. The
+        // PN-user vs LID-user split is the protocol-safety-critical case.
+        let module = r#"__d("WASmaxInFooResponseSuccess",["WASmaxParseUtils","WAResultOrError"],(function(t,n,r,o,a,i,l){
+            function s(t){
+                var r = o("WASmaxParseUtils").assertTag(t, "iq"); if(!r.success) return r;
+                var a = o("WASmaxParseUtils").attrUserJid(t, "from"); if(!a.success) return a;
+                var b = o("WASmaxParseUtils").attrLidUserJid(t, "lid"); if(!b.success) return b;
+                var c = o("WASmaxParseUtils").attrGroupJid(t, "group"); if(!c.success) return c;
+                var d = o("WASmaxParseUtils").attrNewsletterJid(t, "nl"); if(!d.success) return d;
+                var e = o("WASmaxParseUtils").attrJid(t, "any"); if(!e.success) return e;
+                var f = o("WASmaxParseUtils").attrPhoneUserJid(t, "pn"); if(!f.success) return f;
+                var g = o("WASmaxParseUtils").attrPhoneDeviceJid(t, "pndev"); if(!g.success) return g;
+                var h = o("WASmaxParseUtils").attrPhoneChatJid(t, "pnchat"); if(!h.success) return h;
+                return o("WAResultOrError").makeResult({ from: a.value, lid: b.value, group: c.value, nl: d.value, any: e.value, pn: f.value, pndev: g.value, pnchat: h.value });
+            }
+            l.parseFooResponseSuccess = s;
+        }), 1);"#;
+        let exports = analyze_mod_local(module);
+        let (_n, pr) = exports
+            .iter()
+            .find(|(n, _)| n == "parseFooResponseSuccess")
+            .expect("parser");
+        let ft = |name: &str| {
+            pr.fields
+                .iter()
+                .find(|f| f.name == name)
+                .map(|f| f.field_type)
+        };
+        assert_eq!(ft("from"), Some(ParsedFieldType::UserJid));
+        assert_eq!(ft("lid"), Some(ParsedFieldType::LidUserJid));
+        assert_eq!(ft("group"), Some(ParsedFieldType::GroupJid));
+        assert_eq!(ft("nl"), Some(ParsedFieldType::NewsletterJid));
+        // A bare `attrJid` (no single flavor) stays a generic Jid.
+        assert_eq!(ft("any"), Some(ParsedFieldType::Jid));
+        // The `phone*` aliases are the explicit-PN spelling of the plain accessors.
+        assert_eq!(ft("pn"), Some(ParsedFieldType::UserJid));
+        assert_eq!(ft("pndev"), Some(ParsedFieldType::DeviceJid));
+        assert_eq!(ft("pnchat"), Some(ParsedFieldType::Jid));
     }
 
     #[test]

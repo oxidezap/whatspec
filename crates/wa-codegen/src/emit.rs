@@ -68,10 +68,9 @@ pub(crate) fn emit_field_parse(f: &ParsedField, node_var: &str, indent: &str) ->
             format!("{indent}    .as_str()"),
             format!("{indent}    .parse()?;"),
         ],
-        ParsedFieldType::DeviceJid
-        | ParsedFieldType::GroupJid
-        | ParsedFieldType::JidTyped
-        | ParsedFieldType::Jid => vec![format!(
+        // Every JID flavor materializes as one `Jid`; switch on `is_jid()` so a newly
+        // preserved flavor (UserJid/LidUserJid/…) is parsed as a JID, not a String.
+        t if t.is_jid() => vec![format!(
             "{indent}let {name} = {node_var}.get_attr({flit}).and_then(|v| v.to_jid()).ok_or_else(|| anyhow::anyhow!(\"missing {fmsg}\"))?;"
         )],
         _ if optional => vec![format!(

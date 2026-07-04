@@ -22,10 +22,10 @@ pub const HAS_ATTR: &str = "hasAttr";
 pub const ATTR_TIME: &str = "attrTime";
 pub const MAYBE_ATTR_TIME: &str = "maybeAttrTime";
 
-// JID-typed accessors beyond the IQ set. WA has one accessor per JID flavor
-// (user / chat / generic-wap / LID user / LID device / "from"); they all decode
-// to a `Jid`, differing only in which server/format they accept. Kept as distinct
-// method names (not collapsed) so the accessor surface stays a faithful mirror.
+// JID-typed accessors beyond the IQ set. WA has one accessor per JID flavor; each
+// decodes to a `Jid` but validates a distinct server/format. The flavor is kept (see
+// `method_field_type`) — not collapsed — because it is protocol-safety-critical: a LID
+// user JID and a PN user JID are different identities for the same person.
 pub const ATTR_USER_JID: &str = "attrUserJid";
 pub const MAYBE_ATTR_USER_JID: &str = "maybeAttrUserJid";
 pub const ATTR_WAP_JID: &str = "attrWapJid";
@@ -34,6 +34,10 @@ pub const ATTR_FROM_JID: &str = "attrFromJid";
 pub const ATTR_LID_USER_JID: &str = "attrLidUserJid";
 pub const MAYBE_ATTR_LID_USER_JID: &str = "maybeAttrLidUserJid";
 pub const ATTR_LID_DEVICE_JID: &str = "attrLidDeviceJid";
+pub const ATTR_NEWSLETTER_JID: &str = "attrNewsletterJid";
+pub const ATTR_CALL_JID: &str = "attrCallJid";
+pub const ATTR_BROADCAST_JID: &str = "attrBroadcastJid";
+pub const ATTR_STATUS_JID: &str = "attrStatusJid";
 
 // Content accessors.
 pub const CONTENT_BYTES: &str = "contentBytes";
@@ -88,6 +92,10 @@ pub fn is_attr_method(m: &str) -> bool {
             | ATTR_LID_USER_JID
             | MAYBE_ATTR_LID_USER_JID
             | ATTR_LID_DEVICE_JID
+            | ATTR_NEWSLETTER_JID
+            | ATTR_CALL_JID
+            | ATTR_BROADCAST_JID
+            | ATTR_STATUS_JID
     )
 }
 
@@ -103,16 +111,22 @@ pub fn method_field_type(m: &str) -> ParsedFieldType {
             ParsedFieldType::String
         }
         ATTR_INT | MAYBE_ATTR_INT | ATTR_TIME | MAYBE_ATTR_TIME => ParsedFieldType::Integer,
-        ATTR_DEVICE_JID | ATTR_LID_DEVICE_JID => ParsedFieldType::DeviceJid,
+        // Each JID accessor pins the flavor (server/format) it validates. Keeping the
+        // flavor — rather than collapsing to a bare `Jid` — is protocol-safety-critical:
+        // a LID user JID and a PN user JID are different identities for the same person.
+        ATTR_USER_JID | MAYBE_ATTR_USER_JID => ParsedFieldType::UserJid,
+        ATTR_LID_USER_JID | MAYBE_ATTR_LID_USER_JID => ParsedFieldType::LidUserJid,
+        ATTR_DEVICE_JID => ParsedFieldType::DeviceJid,
+        ATTR_LID_DEVICE_JID => ParsedFieldType::LidDeviceJid,
         ATTR_GROUP_JID => ParsedFieldType::GroupJid,
+        ATTR_NEWSLETTER_JID => ParsedFieldType::NewsletterJid,
+        ATTR_CALL_JID => ParsedFieldType::CallJid,
+        ATTR_BROADCAST_JID => ParsedFieldType::BroadcastJid,
+        ATTR_STATUS_JID => ParsedFieldType::StatusJid,
         ATTR_JID_WITH_TYPE => ParsedFieldType::JidTyped,
-        ATTR_USER_JID
-        | MAYBE_ATTR_USER_JID
-        | ATTR_WAP_JID
-        | ATTR_CHAT_JID
-        | ATTR_FROM_JID
-        | ATTR_LID_USER_JID
-        | MAYBE_ATTR_LID_USER_JID => ParsedFieldType::Jid,
+        // `attrWapJid`/`attrChatJid`/`attrFromJid` accept more than one flavor
+        // (a chat is a user or a group), so they stay a generic `Jid`.
+        ATTR_WAP_JID | ATTR_CHAT_JID | ATTR_FROM_JID => ParsedFieldType::Jid,
         CONTENT_BYTES => ParsedFieldType::Bytes,
         _ => ParsedFieldType::String,
     }
@@ -162,6 +176,10 @@ mod tests {
             ATTR_LID_USER_JID,
             MAYBE_ATTR_LID_USER_JID,
             ATTR_LID_DEVICE_JID,
+            ATTR_NEWSLETTER_JID,
+            ATTR_CALL_JID,
+            ATTR_BROADCAST_JID,
+            ATTR_STATUS_JID,
         ] {
             assert!(is_attr_method(m), "{m}");
         }
@@ -205,6 +223,10 @@ mod tests {
             ATTR_LID_USER_JID,
             MAYBE_ATTR_LID_USER_JID,
             ATTR_LID_DEVICE_JID,
+            ATTR_NEWSLETTER_JID,
+            ATTR_CALL_JID,
+            ATTR_BROADCAST_JID,
+            ATTR_STATUS_JID,
             ATTR_ENUM_VALUES,
         ] {
             assert!(is_attr_method(m), "{m} should be an attr method");
@@ -212,22 +234,62 @@ mod tests {
         // Timestamps decode to integers.
         assert_eq!(method_field_type(ATTR_TIME), ParsedFieldType::Integer);
         assert_eq!(method_field_type(MAYBE_ATTR_TIME), ParsedFieldType::Integer);
-        // The JID flavors all decode to a Jid (device-LID is a device JID).
+        // Each JID accessor keeps its flavor; the LID-vs-PN split is preserved.
+        assert_eq!(method_field_type(ATTR_USER_JID), ParsedFieldType::UserJid);
+        assert_eq!(
+            method_field_type(MAYBE_ATTR_USER_JID),
+            ParsedFieldType::UserJid
+        );
+        assert_eq!(
+            method_field_type(ATTR_LID_USER_JID),
+            ParsedFieldType::LidUserJid
+        );
+        assert_eq!(
+            method_field_type(MAYBE_ATTR_LID_USER_JID),
+            ParsedFieldType::LidUserJid
+        );
+        assert_eq!(
+            method_field_type(ATTR_LID_DEVICE_JID),
+            ParsedFieldType::LidDeviceJid
+        );
+        assert_eq!(
+            method_field_type(ATTR_NEWSLETTER_JID),
+            ParsedFieldType::NewsletterJid
+        );
+        assert_eq!(method_field_type(ATTR_CALL_JID), ParsedFieldType::CallJid);
+        assert_eq!(
+            method_field_type(ATTR_BROADCAST_JID),
+            ParsedFieldType::BroadcastJid
+        );
+        assert_eq!(
+            method_field_type(ATTR_STATUS_JID),
+            ParsedFieldType::StatusJid
+        );
+        // The multi-flavor accessors stay a bare Jid (a chat is a user or a group).
+        for m in [ATTR_WAP_JID, ATTR_CHAT_JID, ATTR_FROM_JID] {
+            assert_eq!(method_field_type(m), ParsedFieldType::Jid, "{m}");
+        }
+        // Every JID accessor — specific, `maybe*`, and multi-flavor — reports as JID
+        // for codegen purposes, so a dropped/miswired arm trips this.
         for m in [
             ATTR_USER_JID,
             MAYBE_ATTR_USER_JID,
+            ATTR_LID_USER_JID,
+            MAYBE_ATTR_LID_USER_JID,
+            ATTR_DEVICE_JID,
+            ATTR_LID_DEVICE_JID,
+            ATTR_GROUP_JID,
+            ATTR_NEWSLETTER_JID,
+            ATTR_CALL_JID,
+            ATTR_BROADCAST_JID,
+            ATTR_STATUS_JID,
+            ATTR_JID_WITH_TYPE,
             ATTR_WAP_JID,
             ATTR_CHAT_JID,
             ATTR_FROM_JID,
-            ATTR_LID_USER_JID,
-            MAYBE_ATTR_LID_USER_JID,
         ] {
-            assert_eq!(method_field_type(m), ParsedFieldType::Jid, "{m}");
+            assert!(method_field_type(m).is_jid(), "{m}");
         }
-        assert_eq!(
-            method_field_type(ATTR_LID_DEVICE_JID),
-            ParsedFieldType::DeviceJid
-        );
         assert_eq!(method_field_type(ATTR_ENUM_VALUES), ParsedFieldType::String);
         // `maybe*` variants stay optional.
         assert!(is_optional_method(MAYBE_ATTR_TIME));

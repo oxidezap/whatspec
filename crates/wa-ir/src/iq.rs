@@ -246,9 +246,34 @@ pub enum ParsedFieldType {
     Integer,
     Enum,
     Bytes,
+    /// A JID with no flavor-specific validation (`attrJid`/`attrWapJid`/`attrFromJid`).
     Jid,
+    /// `<user>@s.whatsapp.net` — a phone-number (PN) user JID (`attrUserJid`).
+    /// Distinct from [`LidUserJid`]: the two are different identities for the same
+    /// person and must never be conflated — a protocol-safety-critical distinction.
+    ///
+    /// [`LidUserJid`]: ParsedFieldType::LidUserJid
+    UserJid,
+    /// `<user>@lid` — a LID (privacy) user JID (`attrLidUserJid`). See [`UserJid`].
+    ///
+    /// [`UserJid`]: ParsedFieldType::UserJid
+    LidUserJid,
+    /// `<user>:<device>@s.whatsapp.net` (`attrDeviceJid`).
     DeviceJid,
+    /// `<user>:<device>@lid` — a LID device JID (`attrLidDeviceJid`).
+    LidDeviceJid,
+    /// `<group>@g.us` (`attrGroupJid`).
     GroupJid,
+    /// `<id>@newsletter` (`attrNewsletterJid`).
+    NewsletterJid,
+    /// `<id>@call` (`attrCallJid`).
+    CallJid,
+    /// `<target>@broadcast` (`attrBroadcastJid`).
+    BroadcastJid,
+    /// `status@broadcast` (`attrStatusJid`).
+    StatusJid,
+    /// A JID validated against a server-kind enum arg but with no single flavor
+    /// (`attrJidWithType`/`attrJidEnum`).
     JidTyped,
     /// A presence boolean (`{hasX: child.success}` in smax) — true iff a sub-node
     /// or attr is present. The presence target is carried in `tag`.
@@ -256,6 +281,28 @@ pub enum ParsedFieldType {
     /// A discriminated union (`{name, value}` smax disjunction) — the alternatives
     /// are carried in [`ParsedField::union_variants`].
     Union,
+}
+
+impl ParsedFieldType {
+    /// Whether this type is any JID flavor (generic or a specific server/format).
+    /// The codegen materializes every flavor as one `Jid` today, so it switches on
+    /// this rather than listing each variant — a new flavor is covered automatically.
+    pub fn is_jid(&self) -> bool {
+        matches!(
+            self,
+            ParsedFieldType::Jid
+                | ParsedFieldType::UserJid
+                | ParsedFieldType::LidUserJid
+                | ParsedFieldType::DeviceJid
+                | ParsedFieldType::LidDeviceJid
+                | ParsedFieldType::GroupJid
+                | ParsedFieldType::NewsletterJid
+                | ParsedFieldType::CallJid
+                | ParsedFieldType::BroadcastJid
+                | ParsedFieldType::StatusJid
+                | ParsedFieldType::JidTyped
+        )
+    }
 }
 
 /// How a child/leaf node's content is accessed in the response parser.
