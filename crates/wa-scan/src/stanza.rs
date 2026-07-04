@@ -315,10 +315,19 @@ mod tests {
                 l.pub=function(){ return o("WAWap").wap("status",{type:o("WAWap").CUSTOM_STRING("text")}); };
             }),1);
         "#;
-        let tags: Vec<StanzaTag> = scan(bundle).iter().map(|s| s.stanza_type).collect();
-        assert!(tags.contains(&StanzaTag::Call), "call captured");
-        assert!(tags.contains(&StanzaTag::Privacy), "privacy captured");
-        assert!(tags.contains(&StanzaTag::Status), "status captured");
+        let stanzas = scan(bundle);
+        let by = |t: StanzaTag| {
+            stanzas
+                .iter()
+                .find(|s| s.stanza_type == t)
+                .unwrap_or_else(|| panic!("{t:?} captured"))
+        };
+        let has = |s: &StanzaDef, n: &str| s.attrs.iter().any(|a| a.name == n);
+        // Each tag is recognized AND its attributes are extracted (not just discovered).
+        let call = by(StanzaTag::Call);
+        assert!(has(call, "id") && has(call, "to"), "call attrs extracted");
+        assert!(has(by(StanzaTag::Privacy), "category"), "privacy attr");
+        assert!(has(by(StanzaTag::Status), "type"), "status attr");
     }
 
     #[test]
