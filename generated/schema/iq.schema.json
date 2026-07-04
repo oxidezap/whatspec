@@ -190,6 +190,21 @@
             "type": "string"
           }
         },
+        "intMax": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64"
+        },
+        "intMin": {
+          "description": "Inclusive integer bounds the parser enforces via `attrIntRange(node, name, min,\nmax)`. Present only for a bounded [`ParsedFieldType::Integer`]; a consumer can\nvalidate or pick a narrower Rust width from these. The timestamp-marker range is\nnot carried here — it is surfaced as [`ParsedFieldType::Timestamp`] instead.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64"
+        },
         "method": {
           "type": "string"
         },
@@ -265,6 +280,16 @@
             "enum",
             "bytes"
           ]
+        },
+        {
+          "description": "An integer the parser range-checks as a Unix timestamp in **seconds** —\nrecognized by the `attrIntRange(t, 1577865600, 4102473600)` bound\n(2020-01-01…2100-01-01), which WA uses to tell a wall-clock time apart from a\nplain counter. A consumer can decode it as a date/time rather than a bare integer.",
+          "type": "string",
+          "const": "timestamp"
+        },
+        {
+          "description": "A Unix timestamp in **milliseconds** — the same window range-checked ×1000\n(`attrIntRange(t, 15778656e5, 41024736e5)`). Distinct from [`Timestamp`] so a\nconsumer applies the right scale.\n\n[`Timestamp`]: ParsedFieldType::Timestamp",
+          "type": "string",
+          "const": "timestamp_millis"
         },
         {
           "description": "A JID with no flavor-specific validation (`attrJid`/`attrWapJid`/`attrFromJid`).",
