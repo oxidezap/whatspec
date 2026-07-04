@@ -1,0 +1,2533 @@
+{
+  "schemaVersion": "1.0.0",
+  "waVersion": "2.3000.1042633915",
+  "stanzas": [
+    {
+      "stanzaType": "receipt",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutReceiptNewsletterMixin",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "to",
+          "kind": "user_jid",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "receipt",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutReceiptSenderAggregatedViewPublishMixin",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        }
+      ],
+      "children": [
+        {
+          "tag": "list",
+          "attrs": [],
+          "children": [
+            {
+              "tag": "item",
+              "attrs": [
+                {
+                  "name": "server_id",
+                  "kind": "integer",
+                  "required": true
+                }
+              ],
+              "children": [],
+              "repeats": true
+            }
+          ],
+          "repeats": false
+        }
+      ],
+      "response": null
+    },
+    {
+      "stanzaType": "receipt",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutReceiptStatusClassMixin",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "class",
+          "kind": "const",
+          "value": "status",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "receipt",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutReceiptViewTypeMixin",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": "view",
+      "target": null,
+      "attrs": [
+        {
+          "name": "type",
+          "kind": "const",
+          "value": "view",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "receipt",
+      "direction": "outgoing",
+      "moduleName": "WAWebHandleVoipCall",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "to",
+          "kind": "user_jid",
+          "required": true
+        },
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "receipt",
+      "direction": "outgoing",
+      "moduleName": "WAWebSendDeliveryReceiptJob",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "user_jid",
+          "required": true
+        },
+        {
+          "name": "participant",
+          "kind": "optional",
+          "required": false
+        },
+        {
+          "name": "recipient",
+          "kind": "optional",
+          "required": false
+        },
+        {
+          "name": "type",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "class",
+          "kind": "dynamic",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "receipt",
+      "direction": "outgoing",
+      "moduleName": "WAWebSendHistSyncServerErrorReceiptJob",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": "server-error",
+      "target": null,
+      "attrs": [
+        {
+          "name": "type",
+          "kind": "const",
+          "value": "server-error",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "user_jid",
+          "required": true
+        },
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "category",
+          "kind": "const",
+          "value": "peer",
+          "required": true
+        }
+      ],
+      "children": [
+        {
+          "tag": "encrypt",
+          "attrs": [],
+          "children": [
+            {
+              "tag": "enc_p",
+              "attrs": [],
+              "children": [],
+              "repeats": false
+            },
+            {
+              "tag": "enc_iv",
+              "attrs": [],
+              "children": [],
+              "repeats": false
+            }
+          ],
+          "repeats": false
+        }
+      ],
+      "response": null
+    },
+    {
+      "stanzaType": "receipt",
+      "direction": "outgoing",
+      "moduleName": "WAWebSendPlayedReceiptJob",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "to",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "t",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "participant",
+          "kind": "optional",
+          "required": false
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "receipt",
+      "direction": "outgoing",
+      "moduleName": "WAWebSendReceiptJobCommon",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "to",
+          "kind": "user_jid",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "optional",
+          "required": false
+        },
+        {
+          "name": "class",
+          "kind": "optional",
+          "required": false
+        },
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "t",
+          "kind": "optional",
+          "required": false
+        },
+        {
+          "name": "participant",
+          "kind": "optional",
+          "required": false
+        },
+        {
+          "name": "peer_participant_pn",
+          "kind": "optional",
+          "required": false
+        },
+        {
+          "name": "recipient",
+          "kind": "optional",
+          "required": false
+        },
+        {
+          "name": "sts",
+          "kind": "optional",
+          "required": false
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "receipt",
+      "direction": "outgoing",
+      "moduleName": "WAWebSendRetryReceiptJob",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": "retry",
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "participant",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "recipient",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "const",
+          "value": "retry",
+          "required": true
+        },
+        {
+          "name": "category",
+          "kind": "dynamic",
+          "required": true
+        }
+      ],
+      "children": [
+        {
+          "tag": "retry",
+          "attrs": [
+            {
+              "name": "v",
+              "kind": "const",
+              "value": "1",
+              "required": true
+            },
+            {
+              "name": "count",
+              "kind": "integer",
+              "required": true
+            },
+            {
+              "name": "id",
+              "kind": "string",
+              "required": true
+            },
+            {
+              "name": "t",
+              "kind": "string",
+              "required": true
+            },
+            {
+              "name": "error",
+              "kind": "optional",
+              "required": false
+            }
+          ],
+          "children": [],
+          "repeats": false
+        },
+        {
+          "tag": "registration",
+          "attrs": [],
+          "children": [],
+          "content": {
+            "kind": "bytes"
+          },
+          "repeats": false
+        }
+      ],
+      "response": null
+    },
+    {
+      "stanzaType": "receipt",
+      "direction": "outgoing",
+      "moduleName": "WAWebSendServerErrorReceiptJob",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": "server-error",
+      "target": null,
+      "attrs": [
+        {
+          "name": "type",
+          "kind": "const",
+          "value": "server-error",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "user_jid",
+          "required": true
+        },
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        }
+      ],
+      "children": [
+        {
+          "tag": "encrypt",
+          "attrs": [],
+          "children": [
+            {
+              "tag": "enc_p",
+              "attrs": [],
+              "children": [],
+              "repeats": false
+            },
+            {
+              "tag": "enc_iv",
+              "attrs": [],
+              "children": [],
+              "repeats": false
+            }
+          ],
+          "repeats": false
+        },
+        {
+          "tag": "rmr",
+          "attrs": [
+            {
+              "name": "jid",
+              "kind": "dynamic",
+              "required": true
+            },
+            {
+              "name": "from_me",
+              "kind": "string",
+              "required": true
+            },
+            {
+              "name": "participant",
+              "kind": "dynamic",
+              "required": true
+            }
+          ],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null
+    },
+    {
+      "stanzaType": "receipt",
+      "direction": "outgoing",
+      "moduleName": "WAWebVoipSendGroupCallRekeyRetryReceiptJob",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "to",
+          "kind": "device_jid",
+          "required": true
+        },
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "string",
+          "required": true,
+          "enumRef": {
+            "name": "ENC_RETRY_RECEIPT_ATTRS",
+            "module": "WAWebVoipSignalingEnums",
+            "variants": [
+              {
+                "name": "SINGLE_PARTICIPANT",
+                "value": "enc"
+              },
+              {
+                "name": "GROUP_CALL",
+                "value": "enc_rekey_retry"
+              }
+            ]
+          }
+        }
+      ],
+      "children": [
+        {
+          "tag": "enc_rekey",
+          "attrs": [
+            {
+              "name": "count",
+              "kind": "integer",
+              "required": true
+            }
+          ],
+          "children": [],
+          "repeats": false
+        },
+        {
+          "tag": "registration",
+          "attrs": [],
+          "children": [],
+          "content": {
+            "kind": "bytes"
+          },
+          "repeats": false
+        }
+      ],
+      "response": null
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutGroupsNotificationClientAckMixin",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "user_jid",
+          "required": true
+        },
+        {
+          "name": "class",
+          "kind": "const",
+          "value": "notification",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "string",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutMdNotificationClientAckMixin",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "user_jid",
+          "required": true
+        },
+        {
+          "name": "class",
+          "kind": "const",
+          "value": "notification",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "string",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutMessageDeliverCommonAckMixin",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "to",
+          "kind": "user_jid",
+          "required": true
+        },
+        {
+          "name": "class",
+          "kind": "const",
+          "value": "message",
+          "required": true
+        },
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "string",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutMessageDeliverNewsletterResponseError",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "error",
+          "kind": "const",
+          "value": "406",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutMessageFallbackDeliverResponseBadStanza",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "class",
+          "kind": "const",
+          "value": "message",
+          "required": true
+        },
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "user_jid",
+          "required": true
+        },
+        {
+          "name": "participant",
+          "kind": "optional",
+          "required": false
+        },
+        {
+          "name": "type",
+          "kind": "optional",
+          "required": false
+        },
+        {
+          "name": "error",
+          "kind": "integer",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutNewslettersNotificationClientAckMixin",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "user_jid",
+          "required": true
+        },
+        {
+          "name": "class",
+          "kind": "const",
+          "value": "notification",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "string",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutPsaNotificationClientAckMixin",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "user_jid",
+          "required": true
+        },
+        {
+          "name": "class",
+          "kind": "const",
+          "value": "notification",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "string",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutQpSurfacesNotificationClientAckMixin",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "user_jid",
+          "required": true
+        },
+        {
+          "name": "class",
+          "kind": "const",
+          "value": "notification",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "string",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutStatusDeliverStatusAckMixin",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "to",
+          "kind": "user_jid",
+          "required": true
+        },
+        {
+          "name": "class",
+          "kind": "const",
+          "value": "status",
+          "required": true
+        },
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "string",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WAWebCreateNackFromStanza",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "class",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "id",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "participant",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "error",
+          "kind": "integer",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WAWebCreateNackFromStanza",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "class",
+          "kind": "const",
+          "value": "notification",
+          "required": true
+        },
+        {
+          "name": "id",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "participant",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "error",
+          "kind": "integer",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WAWebCreateNackFromStanza",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "class",
+          "kind": "const",
+          "value": "message",
+          "required": true
+        },
+        {
+          "name": "id",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "participant",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "error",
+          "kind": "integer",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WAWebCreateNackFromStanza",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "class",
+          "kind": "const",
+          "value": "receipt",
+          "required": true
+        },
+        {
+          "name": "id",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "participant",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "error",
+          "kind": "integer",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WAWebHandleAboutNotification",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": "status",
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "class",
+          "kind": "const",
+          "value": "notification",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "const",
+          "value": "status",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WAWebHandleAccountSyncNotification",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": "account_sync",
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "user_jid",
+          "required": true
+        },
+        {
+          "name": "class",
+          "kind": "const",
+          "value": "notification",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "const",
+          "value": "account_sync",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WAWebHandleBotProfileNotification",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "class",
+          "kind": "const",
+          "value": "notification",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "string",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WAWebHandleBusinessNotification",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": "business",
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "class",
+          "kind": "const",
+          "value": "notification",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "const",
+          "value": "business",
+          "required": true
+        }
+      ],
+      "children": [
+        {
+          "tag": "user",
+          "attrs": [
+            {
+              "name": "side_list",
+              "kind": "const",
+              "value": "out",
+              "required": true
+            }
+          ],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WAWebHandleBusinessNotification",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": "business",
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "class",
+          "kind": "const",
+          "value": "notification",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "const",
+          "value": "business",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WAWebHandleCompanionReqRefreshNotification",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": "companion_reg_refresh",
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "class",
+          "kind": "const",
+          "value": "notification",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "const",
+          "value": "companion_reg_refresh",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "dynamic",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WAWebHandleContactNotification",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": "contacts",
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "class",
+          "kind": "const",
+          "value": "notification",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "const",
+          "value": "contacts",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WAWebHandleDeviceNotification",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "to",
+          "kind": "user_jid",
+          "required": true
+        },
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "class",
+          "kind": "const",
+          "value": "notification",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WAWebHandleDeviceSwitchingNotification",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": "registration",
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "class",
+          "kind": "const",
+          "value": "notification",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "const",
+          "value": "registration",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "dynamic",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WAWebHandleDigestKey",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "to",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "class",
+          "kind": "const",
+          "value": "notification",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WAWebHandleDigitalCommerceSubscriptionNotification",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": "digital_commerce_subscription",
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "class",
+          "kind": "const",
+          "value": "notification",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "const",
+          "value": "digital_commerce_subscription",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WAWebHandleDisappearingModeNotification",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": "disappearing_mode",
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "user_jid",
+          "required": true
+        },
+        {
+          "name": "class",
+          "kind": "const",
+          "value": "notification",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "const",
+          "value": "disappearing_mode",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WAWebHandleGroupNotification",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": "w:gp2",
+      "target": null,
+      "attrs": [
+        {
+          "name": "to",
+          "kind": "group_jid",
+          "required": true
+        },
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "class",
+          "kind": "const",
+          "value": "notification",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "const",
+          "value": "w:gp2",
+          "required": true
+        },
+        {
+          "name": "participant",
+          "kind": "optional",
+          "required": false
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WAWebHandleGroupNotificationV2",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": "w:gp2",
+      "target": null,
+      "attrs": [
+        {
+          "name": "to",
+          "kind": "group_jid",
+          "required": true
+        },
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "class",
+          "kind": "const",
+          "value": "notification",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "const",
+          "value": "w:gp2",
+          "required": true
+        },
+        {
+          "name": "participant",
+          "kind": "optional",
+          "required": false
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WAWebHandleGrowthNotification",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "class",
+          "kind": "const",
+          "value": "notification",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "dynamic",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WAWebHandleIdentityChange",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "to",
+          "kind": "device_jid",
+          "required": true
+        },
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "class",
+          "kind": "const",
+          "value": "notification",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WAWebHandleMediaRetryNotification",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": "mediaretry",
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "class",
+          "kind": "const",
+          "value": "notification",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "const",
+          "value": "mediaretry",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "participant",
+          "kind": "dynamic",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WAWebHandleMessageRetryRequest",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": "retry",
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "user_jid",
+          "required": true
+        },
+        {
+          "name": "participant",
+          "kind": "optional",
+          "required": false
+        },
+        {
+          "name": "class",
+          "kind": "const",
+          "value": "receipt",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "const",
+          "value": "retry",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WAWebHandleMexNotification",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": "mex",
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "class",
+          "kind": "const",
+          "value": "notification",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "const",
+          "value": "mex",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WAWebHandleMsgSendAck",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "class",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "optional",
+          "required": false
+        },
+        {
+          "name": "participant",
+          "kind": "optional",
+          "required": false
+        },
+        {
+          "name": "type",
+          "kind": "optional",
+          "required": false
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WAWebHandleMsgSendAck",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "class",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "optional",
+          "required": false
+        },
+        {
+          "name": "participant",
+          "kind": "optional",
+          "required": false
+        },
+        {
+          "name": "type",
+          "kind": "optional",
+          "required": false
+        },
+        {
+          "name": "error",
+          "kind": "integer",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WAWebHandlePreKeyLow",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "to",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "class",
+          "kind": "const",
+          "value": "notification",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WAWebHandlePrivacyTokensNotification",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": "privacy_token",
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "class",
+          "kind": "const",
+          "value": "notification",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "user_jid",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "const",
+          "value": "privacy_token",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WAWebHandleProfilePicNotification",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": "picture",
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "user_jid",
+          "required": true
+        },
+        {
+          "name": "class",
+          "kind": "const",
+          "value": "notification",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "const",
+          "value": "picture",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WAWebHandlePsa",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": "psa",
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "participant",
+          "kind": "user_jid",
+          "required": true
+        },
+        {
+          "name": "class",
+          "kind": "const",
+          "value": "notification",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "const",
+          "value": "psa",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "user_jid",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WAWebHandleServerNotification",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": "server",
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "class",
+          "kind": "const",
+          "value": "notification",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "const",
+          "value": "server",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "dynamic",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WAWebHandleServerSyncNotification",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": "server_sync",
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "class",
+          "kind": "const",
+          "value": "notification",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "const",
+          "value": "server_sync",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "dynamic",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WAWebHandleVoipCall",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "to",
+          "kind": "user_jid",
+          "required": true
+        },
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "class",
+          "kind": "const",
+          "value": "call",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "dynamic",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WAWebHandleVoipCallReceipt",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "user_jid",
+          "required": true
+        },
+        {
+          "name": "class",
+          "kind": "const",
+          "value": "receipt",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "dynamic",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WAWebHandleVoipOfferNotice",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "to",
+          "kind": "user_jid",
+          "required": true
+        },
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "class",
+          "kind": "const",
+          "value": "call",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "string",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WAWebHandleWaChat",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": "psa",
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "class",
+          "kind": "const",
+          "value": "notification",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "const",
+          "value": "psa",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "user_jid",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WAWebOfflineResumePreAckHandler",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "class",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "participant",
+          "kind": "optional",
+          "required": false
+        },
+        {
+          "name": "error",
+          "kind": "optional",
+          "required": false
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WAWebPaymentNotificationHandler",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": "pay",
+      "target": null,
+      "attrs": [
+        {
+          "name": "class",
+          "kind": "const",
+          "value": "notification",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "const",
+          "value": "pay",
+          "required": true
+        },
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "dynamic",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WAWebReceiptAck",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "to",
+          "kind": "user_jid",
+          "required": true
+        },
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "class",
+          "kind": "const",
+          "value": "receipt",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "participant",
+          "kind": "optional",
+          "required": false
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WAWebSendReceiptJobCommon",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": "text",
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "user_jid",
+          "required": true
+        },
+        {
+          "name": "class",
+          "kind": "const",
+          "value": "message",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "const",
+          "value": "text",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WAWebSendReceiptJobCommon",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": "text",
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "user_jid",
+          "required": true
+        },
+        {
+          "name": "recipient",
+          "kind": "optional",
+          "required": false
+        },
+        {
+          "name": "participant",
+          "kind": "optional",
+          "required": false
+        },
+        {
+          "name": "class",
+          "kind": "const",
+          "value": "message",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "const",
+          "value": "text",
+          "required": true
+        }
+      ],
+      "children": [
+        {
+          "tag": "ack",
+          "attrs": [
+            {
+              "name": "id",
+              "kind": "string",
+              "required": true
+            },
+            {
+              "name": "to",
+              "kind": "user_jid",
+              "required": true
+            },
+            {
+              "name": "class",
+              "kind": "const",
+              "value": "message",
+              "required": true
+            },
+            {
+              "name": "type",
+              "kind": "const",
+              "value": "text",
+              "required": true
+            }
+          ],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null
+    },
+    {
+      "stanzaType": "chatstate",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutChatstateClientNotificationRequest",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "to",
+          "kind": "user_jid",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "chatstate",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutChatstateComposingMixin",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [],
+      "children": [
+        {
+          "tag": "composing",
+          "attrs": [
+            {
+              "name": "media",
+              "kind": "optional",
+              "required": false
+            }
+          ],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null
+    },
+    {
+      "stanzaType": "chatstate",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutChatstatePausedMixin",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [],
+      "children": [
+        {
+          "tag": "paused",
+          "attrs": [],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null
+    },
+    {
+      "stanzaType": "presence",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutPresenceAvailabilityRequest",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "type",
+          "kind": "optional",
+          "required": false
+        },
+        {
+          "name": "name",
+          "kind": "optional",
+          "required": false
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "presence",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutPresenceSubscribeRequest",
+      "exportedFunction": null,
+      "allExports": [],
+      "namespace": null,
+      "subtype": "subscribe",
+      "target": null,
+      "attrs": [
+        {
+          "name": "type",
+          "kind": "const",
+          "value": "subscribe",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "user_jid",
+          "required": true
+        },
+        {
+          "name": "name",
+          "kind": "optional",
+          "required": false
+        },
+        {
+          "name": "context",
+          "kind": "optional",
+          "required": false
+        }
+      ],
+      "children": [],
+      "response": null
+    }
+  ]
+}
