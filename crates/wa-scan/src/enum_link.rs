@@ -85,9 +85,12 @@ impl<'a> EnumResolver<'a> {
 
 /// The string-valued variants of a resolved enum; `None` if any value isn't a string
 /// (every stanza-attr enum is a wire-token enum — a non-string one isn't one of these,
-/// so we drop rather than coerce).
+/// so we drop rather than coerce) or if the result is empty. Returning `None` on empty
+/// keeps the empty-`variants` "pending" sentinel unambiguous: a resolved link always
+/// has ≥1 variant.
 fn variants_of(def: wa_ir::InternalEnumDef) -> Option<Vec<AttrEnumVariant>> {
-    def.variants
+    let variants: Vec<AttrEnumVariant> = def
+        .variants
         .into_iter()
         .map(|v| match v.value {
             Scalar::Str(s) => Some(AttrEnumVariant {
@@ -96,5 +99,100 @@ fn variants_of(def: wa_ir::InternalEnumDef) -> Option<Vec<AttrEnumVariant>> {
             }),
             _ => None,
         })
-        .collect()
+        .collect::<Option<Vec<_>>>()?;
+    (!variants.is_empty()).then_some(variants)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wa_ir::{WapAttrKind, WapChildNode};
+
+    fn pending(module: &str, name: &str) -> WapAttrDef {
+        WapAttrDef {
+            name: "type".into(),
+            kind: WapAttrKind::String,
+            value: None,
+            required: true,
+            enum_ref: Some(AttrEnumRef {
+                name: name.into(),
+                module: module.into(),
+                variants: Vec::new(),
+            }),
+        }
+    }
+
+    fn resolve(bundle: &str, attrs: &mut [WapAttrDef]) {
+        let defs = wa_transform::extract_module_definitions(bundle);
+        let mut r = EnumResolver::new(&defs, bundle);
+        r.resolve_attrs(attrs);
+    }
+
+    #[test]
+    fn resolvable_object_literal_enum_fills_variants() {
+        let bundle = r#"__d("M",[],(function(g,r,d,o,e,i,l){
+            var s={PN:"pn",LID:"lid"}; i.USYNC_ADDRESSING_MODE=s;
+        }),1);"#;
+        let mut attrs = [pending("M", "USYNC_ADDRESSING_MODE")];
+        resolve(bundle, &mut attrs);
+        let er = attrs[0].enum_ref.as_ref().expect("resolved");
+        let vals: Vec<&str> = er.variants.iter().map(|v| v.value.as_str()).collect();
+        assert_eq!(vals, ["pn", "lid"]);
+    }
+
+    #[test]
+    fn internal_enum_also_resolves() {
+        let bundle = r#"__d("M",["$InternalEnum"],(function(g,r,d,n,e,i,l){
+            i.SessionScope=n("$InternalEnum")({DEFAULT:"default",STATUS:"status"});
+        }),1);"#;
+        let mut attrs = [pending("M", "SessionScope")];
+        resolve(bundle, &mut attrs);
+        let er = attrs[0].enum_ref.as_ref().expect("resolved");
+        assert_eq!(er.variants.len(), 2);
+    }
+
+    #[test]
+    fn unresolvable_module_drops_the_link() {
+        // The referenced module isn't in the bundle → link dropped, not left pending.
+        let mut attrs = [pending("Missing", "Foo")];
+        resolve("__d(\"Other\",[],(function(){}),1);", &mut attrs);
+        assert!(attrs[0].enum_ref.is_none());
+    }
+
+    #[test]
+    fn non_string_enum_drops_the_link() {
+        // An int enum isn't a wire-token enum → dropped rather than coerced.
+        let bundle = r#"__d("M",[],(function(g,r,d,o,e,i,l){
+            var s={A:0,B:1}; i.Foo=s;
+        }),1);"#;
+        let mut attrs = [pending("M", "Foo")];
+        resolve(bundle, &mut attrs);
+        assert!(attrs[0].enum_ref.is_none());
+    }
+
+    #[test]
+    fn resolve_tree_reaches_nested_and_variant_group_attrs() {
+        let bundle = r#"__d("M",[],(function(g,r,d,o,e,i,l){
+            var s={PN:"pn",LID:"lid"}; i.USYNC_ADDRESSING_MODE=s;
+        }),1);"#;
+        let defs = wa_transform::extract_module_definitions(bundle);
+        let mut r = EnumResolver::new(&defs, bundle);
+        let mut tree = vec![WapChildNode {
+            tag: "outer".into(),
+            children: vec![WapChildNode {
+                tag: "inner".into(),
+                attrs: vec![pending("M", "USYNC_ADDRESSING_MODE")],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }];
+        r.resolve_tree(&mut tree);
+        let inner = &tree[0].children[0].attrs[0];
+        assert!(
+            inner
+                .enum_ref
+                .as_ref()
+                .is_some_and(|e| !e.variants.is_empty())
+        );
+    }
 }

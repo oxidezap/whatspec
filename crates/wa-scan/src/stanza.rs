@@ -70,7 +70,17 @@ pub fn scan_stanzas_from_modules(source: &str, defs: &[ModuleDefinition]) -> Vec
             .then_with(|| a.module_name.cmp(&b.module_name))
             .then_with(|| a.subtype.cmp(&b.subtype))
     });
-    out
+    // A module often builds the same stanza in several code paths; emit each once.
+    // Dedup by full equality rather than `dedup_by` (which only drops adjacent pairs,
+    // so an interleaved `A, B, A` visit order would keep both `A`s). `n` is a few dozen
+    // stanzas per bundle, so the O(n²) `contains` is negligible.
+    let mut deduped: Vec<StanzaDef> = Vec::with_capacity(out.len());
+    for s in out {
+        if !deduped.contains(&s) {
+            deduped.push(s);
+        }
+    }
+    deduped
 }
 
 fn scan_module(source: &str, helpers: &HelperIndex) -> Vec<StanzaDef> {
@@ -97,13 +107,6 @@ fn scan_module(source: &str, helpers: &HelperIndex) -> Vec<StanzaDef> {
         out: Vec::new(),
     };
     c.visit_program(&ret.program);
-    // A module often builds the same stanza in several code paths; emit each once.
-    c.out.dedup_by(|a, b| {
-        a.stanza_type == b.stanza_type
-            && a.subtype == b.subtype
-            && a.attrs == b.attrs
-            && a.children == b.children
-    });
     c.out
 }
 
@@ -158,6 +161,10 @@ impl<'a> Visit<'a> for StanzaCollector<'_> {
                 children,
                 response: None,
             });
+            // The stanza's children are already recovered by `resolve_child_node`
+            // above; don't descend into this call's args and re-capture a nested
+            // builder as a second (duplicate/misparented) stanza.
+            return;
         }
         walk::walk_call_expression(self, call);
     }
