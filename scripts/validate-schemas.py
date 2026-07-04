@@ -24,6 +24,7 @@ DOMAINS = [
     ("enums/index.json", "schema/enums.schema.json"),
     ("wam/index.json", "schema/wam.schema.json"),
     ("notif/index.json", "schema/notif.schema.json"),
+    ("tokens/index.json", "schema/tokens.schema.json"),
 ]
 
 

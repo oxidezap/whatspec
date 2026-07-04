@@ -34,5 +34,6 @@ wa-proto = { workspace = true }
 wa-scan = { workspace = true }
 # Pure-Rust content hashing (sha256_hex) for the manifest — no C, always available.
 wa-text = { workspace = true }
+wa-tokens = { workspace = true }
 wa-transform = { workspace = true }
 wa-wam = { workspace = true }
