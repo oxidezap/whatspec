@@ -189,7 +189,9 @@
                         "name": "samplingWeight",
                         "wireName": "sampling_weight",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": -10000,
+                        "intMax": 10000
                       }
                     ],
                     "assertions": [
@@ -368,7 +370,9 @@
                             "name": "samplingWeight",
                             "wireName": "sampling_weight",
                             "type": "integer",
-                            "required": true
+                            "required": true,
+                            "intMin": -10000,
+                            "intMax": 10000
                           }
                         ],
                         "assertions": [
@@ -681,7 +685,9 @@
                         "name": "samplingWeight",
                         "wireName": "sampling_weight",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": -10000,
+                        "intMax": 10000
                       }
                     ],
                     "assertions": [
@@ -824,7 +830,9 @@
                             "name": "samplingWeight",
                             "wireName": "sampling_weight",
                             "type": "integer",
-                            "required": true
+                            "required": true,
+                            "intMin": -10000,
+                            "intMax": 10000
                           }
                         ],
                         "assertions": [
@@ -4099,6 +4107,8 @@
                             "wireName": "version",
                             "type": "integer",
                             "required": true,
+                            "intMin": 1,
+                            "intMax": 100,
                             "sourcePath": [
                               "identity_auth"
                             ]
@@ -4364,6 +4374,8 @@
                         "wireName": "code",
                         "type": "integer",
                         "required": true,
+                        "intMin": 500,
+                        "intMax": 599,
                         "sourcePath": [
                           "error"
                         ]
@@ -4512,6 +4524,8 @@
                                 "wireName": "version",
                                 "type": "integer",
                                 "required": true,
+                                "intMin": 1,
+                                "intMax": 100,
                                 "sourcePath": [
                                   "identity_auth"
                                 ]
@@ -4777,6 +4791,8 @@
                             "wireName": "code",
                             "type": "integer",
                             "required": true,
+                            "intMin": 500,
+                            "intMax": 599,
                             "sourcePath": [
                               "error"
                             ]
@@ -4903,7 +4919,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 400,
+                        "intMax": 499
                       }
                     ],
                     "assertions": [
@@ -4994,7 +5012,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 500,
+                        "intMax": 599
                       }
                     ],
                     "assertions": [
@@ -5152,7 +5172,9 @@
                             "name": "id",
                             "wireName": "id",
                             "type": "integer",
-                            "required": true
+                            "required": true,
+                            "intMin": 0,
+                            "intMax": 99
                           },
                           {
                             "method": "maybeAttrInt",
@@ -5435,6 +5457,8 @@
                         "wireName": "code",
                         "type": "integer",
                         "required": true,
+                        "intMin": 500,
+                        "intMax": 599,
                         "sourcePath": [
                           "error"
                         ]
@@ -5540,7 +5564,9 @@
                                 "name": "id",
                                 "wireName": "id",
                                 "type": "integer",
-                                "required": true
+                                "required": true,
+                                "intMin": 0,
+                                "intMax": 99
                               },
                               {
                                 "method": "maybeAttrInt",
@@ -5823,6 +5849,8 @@
                             "wireName": "code",
                             "type": "integer",
                             "required": true,
+                            "intMin": 500,
+                            "intMax": 599,
                             "sourcePath": [
                               "error"
                             ]
@@ -5949,7 +5977,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 400,
+                        "intMax": 499
                       }
                     ],
                     "assertions": [
@@ -6040,7 +6070,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 500,
+                        "intMax": 599
                       }
                     ],
                     "assertions": [
@@ -6438,7 +6470,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 400,
+                        "intMax": 499
                       }
                     ],
                     "assertions": [
@@ -6529,7 +6563,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 500,
+                        "intMax": 599
                       }
                     ],
                     "assertions": [
@@ -6729,7 +6765,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 400,
+                        "intMax": 499
                       }
                     ],
                     "assertions": [
@@ -6820,7 +6858,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 500,
+                        "intMax": 599
                       }
                     ],
                     "assertions": [
@@ -7012,6 +7052,8 @@
                 "wireName": "code",
                 "type": "integer",
                 "required": true,
+                "intMin": 400,
+                "intMax": 599,
                 "sourcePath": [
                   "error",
                   "error"
@@ -7253,7 +7295,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 400,
+                        "intMax": 499
                       }
                     ],
                     "assertions": [
@@ -7344,7 +7388,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 500,
+                        "intMax": 599
                       }
                     ],
                     "assertions": [
@@ -8279,7 +8325,9 @@
                         "name": "tosVersion",
                         "wireName": "tos_version",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 1,
+                        "intMax": 65535
                       }
                     ],
                     "assertions": [
@@ -10411,7 +10459,9 @@
                         "name": "tosVersion",
                         "wireName": "tos_version",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 1,
+                        "intMax": 65535
                       }
                     ],
                     "assertions": [
@@ -12727,7 +12777,9 @@
                     "name": "serverId",
                     "wireName": "server_id",
                     "type": "integer",
-                    "required": true
+                    "required": true,
+                    "intMin": 99,
+                    "intMax": 2147476647
                   },
                   {
                     "method": "maybeAttrInt",
@@ -12753,7 +12805,7 @@
                         "method": "attrInt",
                         "name": "metaOriginalMsgT",
                         "wireName": "original_msg_t",
-                        "type": "integer",
+                        "type": "timestamp",
                         "required": true,
                         "sourcePath": [
                           "meta"
@@ -12772,7 +12824,7 @@
                         "method": "attrInt",
                         "name": "metaMsgEditT",
                         "wireName": "msg_edit_t",
-                        "type": "integer",
+                        "type": "timestamp_millis",
                         "required": true,
                         "sourcePath": [
                           "meta"
@@ -14790,7 +14842,9 @@
                         "name": "serverId",
                         "wireName": "server_id",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 99,
+                        "intMax": 2147476647
                       },
                       {
                         "method": "maybeAttrInt",
@@ -14816,7 +14870,7 @@
                             "method": "attrInt",
                             "name": "metaOriginalMsgT",
                             "wireName": "original_msg_t",
-                            "type": "integer",
+                            "type": "timestamp",
                             "required": true,
                             "sourcePath": [
                               "meta"
@@ -14835,7 +14889,7 @@
                             "method": "attrInt",
                             "name": "metaMsgEditT",
                             "wireName": "msg_edit_t",
-                            "type": "integer",
+                            "type": "timestamp_millis",
                             "required": true,
                             "sourcePath": [
                               "meta"
@@ -17261,7 +17315,9 @@
                     "name": "serverId",
                     "wireName": "server_id",
                     "type": "integer",
-                    "required": true
+                    "required": true,
+                    "intMin": 99,
+                    "intMax": 2147476647
                   },
                   {
                     "method": "maybeAttrInt",
@@ -17287,7 +17343,7 @@
                         "method": "attrInt",
                         "name": "metaOriginalMsgT",
                         "wireName": "original_msg_t",
-                        "type": "integer",
+                        "type": "timestamp",
                         "required": true,
                         "sourcePath": [
                           "meta"
@@ -17306,7 +17362,7 @@
                         "method": "attrInt",
                         "name": "metaMsgEditT",
                         "wireName": "msg_edit_t",
-                        "type": "integer",
+                        "type": "timestamp_millis",
                         "required": true,
                         "sourcePath": [
                           "meta"
@@ -19328,7 +19384,9 @@
                         "name": "serverId",
                         "wireName": "server_id",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 99,
+                        "intMax": 2147476647
                       },
                       {
                         "method": "maybeAttrInt",
@@ -19354,7 +19412,7 @@
                             "method": "attrInt",
                             "name": "metaOriginalMsgT",
                             "wireName": "original_msg_t",
-                            "type": "integer",
+                            "type": "timestamp",
                             "required": true,
                             "sourcePath": [
                               "meta"
@@ -19373,7 +19431,7 @@
                             "method": "attrInt",
                             "name": "metaMsgEditT",
                             "wireName": "msg_edit_t",
-                            "type": "integer",
+                            "type": "timestamp_millis",
                             "required": true,
                             "sourcePath": [
                               "meta"
@@ -21745,6 +21803,8 @@
             "wireName": "server_id",
             "type": "integer",
             "required": true,
+            "intMin": 99,
+            "intMax": 2147476647,
             "sourcePath": [
               "question_responses"
             ]
@@ -21770,7 +21830,7 @@
                 "method": "attrInt",
                 "name": "messageT",
                 "wireName": "t",
-                "type": "integer",
+                "type": "timestamp",
                 "required": true,
                 "sourcePath": [
                   "message"
@@ -21935,6 +21995,8 @@
                 "wireName": "server_id",
                 "type": "integer",
                 "required": true,
+                "intMin": 99,
+                "intMax": 2147476647,
                 "sourcePath": [
                   "question_responses"
                 ]
@@ -21960,7 +22022,7 @@
                     "method": "attrInt",
                     "name": "messageT",
                     "wireName": "t",
-                    "type": "integer",
+                    "type": "timestamp",
                     "required": true,
                     "sourcePath": [
                       "message"
@@ -22529,13 +22591,15 @@
                     "name": "serverId",
                     "wireName": "server_id",
                     "type": "integer",
-                    "required": true
+                    "required": true,
+                    "intMin": 99,
+                    "intMax": 2147476647
                   },
                   {
                     "method": "maybeAttrInt",
                     "name": "t",
                     "wireName": "t",
-                    "type": "integer",
+                    "type": "timestamp",
                     "required": false
                   },
                   {
@@ -22763,7 +22827,7 @@
                         "method": "attrInt",
                         "name": "metaOriginalMsgT",
                         "wireName": "original_msg_t",
-                        "type": "integer",
+                        "type": "timestamp",
                         "required": true,
                         "sourcePath": [
                           "meta"
@@ -22782,7 +22846,7 @@
                         "method": "attrInt",
                         "name": "metaMsgEditT",
                         "wireName": "msg_edit_t",
-                        "type": "integer",
+                        "type": "timestamp",
                         "required": true,
                         "sourcePath": [
                           "meta"
@@ -22858,6 +22922,8 @@
                         "wireName": "parent_server_id",
                         "type": "integer",
                         "required": true,
+                        "intMin": 99,
+                        "intMax": 2147476647,
                         "sourcePath": [
                           "meta"
                         ]
@@ -23033,13 +23099,15 @@
                         "name": "serverId",
                         "wireName": "server_id",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 99,
+                        "intMax": 2147476647
                       },
                       {
                         "method": "maybeAttrInt",
                         "name": "t",
                         "wireName": "t",
-                        "type": "integer",
+                        "type": "timestamp",
                         "required": false
                       },
                       {
@@ -23267,7 +23335,7 @@
                             "method": "attrInt",
                             "name": "metaOriginalMsgT",
                             "wireName": "original_msg_t",
-                            "type": "integer",
+                            "type": "timestamp",
                             "required": true,
                             "sourcePath": [
                               "meta"
@@ -23286,7 +23354,7 @@
                             "method": "attrInt",
                             "name": "metaMsgEditT",
                             "wireName": "msg_edit_t",
-                            "type": "integer",
+                            "type": "timestamp",
                             "required": true,
                             "sourcePath": [
                               "meta"
@@ -23362,6 +23430,8 @@
                             "wireName": "parent_server_id",
                             "type": "integer",
                             "required": true,
+                            "intMin": 99,
+                            "intMax": 2147476647,
                             "sourcePath": [
                               "meta"
                             ]
@@ -23945,13 +24015,15 @@
                     "name": "serverId",
                     "wireName": "server_id",
                     "type": "integer",
-                    "required": true
+                    "required": true,
+                    "intMin": 99,
+                    "intMax": 2147476647
                   },
                   {
                     "method": "maybeAttrInt",
                     "name": "t",
                     "wireName": "t",
-                    "type": "integer",
+                    "type": "timestamp",
                     "required": false
                   },
                   {
@@ -24179,7 +24251,7 @@
                         "method": "attrInt",
                         "name": "metaOriginalMsgT",
                         "wireName": "original_msg_t",
-                        "type": "integer",
+                        "type": "timestamp",
                         "required": true,
                         "sourcePath": [
                           "meta"
@@ -24198,7 +24270,7 @@
                         "method": "attrInt",
                         "name": "metaMsgEditT",
                         "wireName": "msg_edit_t",
-                        "type": "integer",
+                        "type": "timestamp",
                         "required": true,
                         "sourcePath": [
                           "meta"
@@ -24274,6 +24346,8 @@
                         "wireName": "parent_server_id",
                         "type": "integer",
                         "required": true,
+                        "intMin": 99,
+                        "intMax": 2147476647,
                         "sourcePath": [
                           "meta"
                         ]
@@ -24453,13 +24527,15 @@
                         "name": "serverId",
                         "wireName": "server_id",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 99,
+                        "intMax": 2147476647
                       },
                       {
                         "method": "maybeAttrInt",
                         "name": "t",
                         "wireName": "t",
-                        "type": "integer",
+                        "type": "timestamp",
                         "required": false
                       },
                       {
@@ -24687,7 +24763,7 @@
                             "method": "attrInt",
                             "name": "metaOriginalMsgT",
                             "wireName": "original_msg_t",
-                            "type": "integer",
+                            "type": "timestamp",
                             "required": true,
                             "sourcePath": [
                               "meta"
@@ -24706,7 +24782,7 @@
                             "method": "attrInt",
                             "name": "metaMsgEditT",
                             "wireName": "msg_edit_t",
-                            "type": "integer",
+                            "type": "timestamp",
                             "required": true,
                             "sourcePath": [
                               "meta"
@@ -24782,6 +24858,8 @@
                             "wireName": "parent_server_id",
                             "type": "integer",
                             "required": true,
+                            "intMin": 99,
+                            "intMax": 2147476647,
                             "sourcePath": [
                               "meta"
                             ]
@@ -25324,7 +25402,9 @@
                     "name": "serverId",
                     "wireName": "server_id",
                     "type": "integer",
-                    "required": true
+                    "required": true,
+                    "intMin": 99,
+                    "intMax": 2147476647
                   },
                   {
                     "method": "",
@@ -25453,7 +25533,9 @@
                         "name": "serverId",
                         "wireName": "server_id",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 99,
+                        "intMax": 2147476647
                       },
                       {
                         "method": "",
@@ -25881,7 +25963,9 @@
                     "name": "serverId",
                     "wireName": "server_id",
                     "type": "integer",
-                    "required": true
+                    "required": true,
+                    "intMin": 99,
+                    "intMax": 2147476647
                   },
                   {
                     "method": "",
@@ -25903,7 +25987,7 @@
                         "method": "attrInt",
                         "name": "reactionT",
                         "wireName": "t",
-                        "type": "integer",
+                        "type": "timestamp",
                         "required": true,
                         "sourcePath": [
                           "reaction"
@@ -25982,7 +26066,9 @@
                         "name": "serverId",
                         "wireName": "server_id",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 99,
+                        "intMax": 2147476647
                       },
                       {
                         "method": "",
@@ -26004,7 +26090,7 @@
                             "method": "attrInt",
                             "name": "reactionT",
                             "wireName": "t",
-                            "type": "integer",
+                            "type": "timestamp",
                             "required": true,
                             "sourcePath": [
                               "reaction"
@@ -26420,6 +26506,8 @@
             "wireName": "duration",
             "type": "integer",
             "required": true,
+            "intMin": 30,
+            "intMax": 600,
             "sourcePath": [
               "live_updates"
             ]
@@ -26455,6 +26543,8 @@
                 "wireName": "duration",
                 "type": "integer",
                 "required": true,
+                "intMin": 30,
+                "intMax": 600,
                 "sourcePath": [
                   "live_updates"
                 ]
@@ -31640,7 +31730,9 @@
                 "name": "stage",
                 "wireName": "stage",
                 "type": "integer",
-                "required": true
+                "required": true,
+                "intMin": 0,
+                "intMax": 1000
               }
             ],
             "repeats": true
@@ -31710,7 +31802,9 @@
                     "name": "stage",
                     "wireName": "stage",
                     "type": "integer",
-                    "required": true
+                    "required": true,
+                    "intMin": 0,
+                    "intMax": 1000
                   }
                 ],
                 "repeats": true
@@ -31945,7 +32039,9 @@
                 "name": "stage",
                 "wireName": "stage",
                 "type": "integer",
-                "required": true
+                "required": true,
+                "intMin": 0,
+                "intMax": 1000
               }
             ],
             "repeats": true
@@ -32015,7 +32111,9 @@
                     "name": "stage",
                     "wireName": "stage",
                     "type": "integer",
-                    "required": true
+                    "required": true,
+                    "intMin": 0,
+                    "intMax": 1000
                   }
                 ],
                 "repeats": true
@@ -32336,7 +32434,9 @@
                 "name": "stage",
                 "wireName": "stage",
                 "type": "integer",
-                "required": true
+                "required": true,
+                "intMin": 0,
+                "intMax": 1000
               }
             ],
             "repeats": false
@@ -32422,7 +32522,9 @@
                 "name": "result",
                 "wireName": "result",
                 "type": "integer",
-                "required": true
+                "required": true,
+                "intMin": 0,
+                "intMax": 1000
               }
             ],
             "repeats": false
@@ -37601,7 +37703,9 @@
                         "name": "size",
                         "wireName": "size",
                         "type": "integer",
-                        "required": false
+                        "required": false,
+                        "intMin": 0,
+                        "intMax": 19999
                       },
                       {
                         "method": "",
@@ -38102,14 +38206,18 @@
                             "name": "expiration",
                             "wireName": "expiration",
                             "type": "integer",
-                            "required": true
+                            "required": true,
+                            "intMin": 0,
+                            "intMax": 2147483647
                           },
                           {
                             "method": "maybeAttrInt",
                             "name": "trigger",
                             "wireName": "trigger",
                             "type": "integer",
-                            "required": false
+                            "required": false,
+                            "intMin": 0,
+                            "intMax": 20
                           }
                         ],
                         "repeats": false
@@ -38301,7 +38409,9 @@
                             "name": "value",
                             "wireName": "value",
                             "type": "integer",
-                            "required": true
+                            "required": true,
+                            "intMin": 0,
+                            "intMax": 100
                           }
                         ],
                         "repeats": false
@@ -38330,7 +38440,9 @@
                             "name": "trigger",
                             "wireName": "trigger",
                             "type": "integer",
-                            "required": false
+                            "required": false,
+                            "intMin": 0,
+                            "intMax": 20
                           }
                         ],
                         "repeats": false
@@ -38990,7 +39102,9 @@
                         "name": "size",
                         "wireName": "size",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 0,
+                        "intMax": 19999
                       }
                     ],
                     "assertions": [
@@ -39205,7 +39319,9 @@
                             "name": "size",
                             "wireName": "size",
                             "type": "integer",
-                            "required": false
+                            "required": false,
+                            "intMin": 0,
+                            "intMax": 19999
                           },
                           {
                             "method": "",
@@ -39706,14 +39822,18 @@
                                 "name": "expiration",
                                 "wireName": "expiration",
                                 "type": "integer",
-                                "required": true
+                                "required": true,
+                                "intMin": 0,
+                                "intMax": 2147483647
                               },
                               {
                                 "method": "maybeAttrInt",
                                 "name": "trigger",
                                 "wireName": "trigger",
                                 "type": "integer",
-                                "required": false
+                                "required": false,
+                                "intMin": 0,
+                                "intMax": 20
                               }
                             ],
                             "repeats": false
@@ -39905,7 +40025,9 @@
                                 "name": "value",
                                 "wireName": "value",
                                 "type": "integer",
-                                "required": true
+                                "required": true,
+                                "intMin": 0,
+                                "intMax": 100
                               }
                             ],
                             "repeats": false
@@ -39934,7 +40056,9 @@
                                 "name": "trigger",
                                 "wireName": "trigger",
                                 "type": "integer",
-                                "required": false
+                                "required": false,
+                                "intMin": 0,
+                                "intMax": 20
                               }
                             ],
                             "repeats": false
@@ -40594,7 +40718,9 @@
                             "name": "size",
                             "wireName": "size",
                             "type": "integer",
-                            "required": true
+                            "required": true,
+                            "intMin": 0,
+                            "intMax": 19999
                           }
                         ],
                         "assertions": [
@@ -40909,7 +41035,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 500,
+                        "intMax": 599
                       }
                     ],
                     "assertions": [
@@ -40995,7 +41123,9 @@
                 "name": "size",
                 "wireName": "size",
                 "type": "integer",
-                "required": false
+                "required": false,
+                "intMin": 0,
+                "intMax": 19999
               },
               {
                 "method": "maybeAttrString",
@@ -41559,14 +41689,18 @@
                     "name": "expiration",
                     "wireName": "expiration",
                     "type": "integer",
-                    "required": true
+                    "required": true,
+                    "intMin": 0,
+                    "intMax": 2147483647
                   },
                   {
                     "method": "maybeAttrInt",
                     "name": "trigger",
                     "wireName": "trigger",
                     "type": "integer",
-                    "required": false
+                    "required": false,
+                    "intMin": 0,
+                    "intMax": 20
                   }
                 ],
                 "repeats": false
@@ -41758,7 +41892,9 @@
                     "name": "value",
                     "wireName": "value",
                     "type": "integer",
-                    "required": true
+                    "required": true,
+                    "intMin": 0,
+                    "intMax": 100
                   }
                 ],
                 "repeats": false
@@ -41787,7 +41923,9 @@
                     "name": "trigger",
                     "wireName": "trigger",
                     "type": "integer",
-                    "required": false
+                    "required": false,
+                    "intMin": 0,
+                    "intMax": 20
                   }
                 ],
                 "repeats": false
@@ -42480,7 +42618,9 @@
                     "name": "size",
                     "wireName": "size",
                     "type": "integer",
-                    "required": false
+                    "required": false,
+                    "intMin": 0,
+                    "intMax": 19999
                   },
                   {
                     "method": "maybeAttrString",
@@ -43044,14 +43184,18 @@
                         "name": "expiration",
                         "wireName": "expiration",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 0,
+                        "intMax": 2147483647
                       },
                       {
                         "method": "maybeAttrInt",
                         "name": "trigger",
                         "wireName": "trigger",
                         "type": "integer",
-                        "required": false
+                        "required": false,
+                        "intMin": 0,
+                        "intMax": 20
                       }
                     ],
                     "repeats": false
@@ -43243,7 +43387,9 @@
                         "name": "value",
                         "wireName": "value",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 0,
+                        "intMax": 100
                       }
                     ],
                     "repeats": false
@@ -43272,7 +43418,9 @@
                         "name": "trigger",
                         "wireName": "trigger",
                         "type": "integer",
-                        "required": false
+                        "required": false,
+                        "intMin": 0,
+                        "intMax": 20
                       }
                     ],
                     "repeats": false
@@ -44124,7 +44272,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 400,
+                        "intMax": 499
                       }
                     ],
                     "assertions": [
@@ -44275,7 +44425,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 500,
+                        "intMax": 599
                       }
                     ],
                     "assertions": [
@@ -45021,7 +45173,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 400,
+                        "intMax": 499
                       }
                     ],
                     "assertions": [
@@ -45172,7 +45326,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 500,
+                        "intMax": 599
                       }
                     ],
                     "assertions": [
@@ -45238,6 +45394,8 @@
             "wireName": "size",
             "type": "integer",
             "required": true,
+            "intMin": 0,
+            "intMax": 19999,
             "sourcePath": [
               "group"
             ]
@@ -45254,7 +45412,9 @@
                 "name": "size",
                 "wireName": "size",
                 "type": "integer",
-                "required": true
+                "required": true,
+                "intMin": 0,
+                "intMax": 19999
               },
               {
                 "method": "child",
@@ -45557,7 +45717,9 @@
                     "name": "numSubGroups",
                     "wireName": "num_sub_groups",
                     "type": "integer",
-                    "required": true
+                    "required": true,
+                    "intMin": 1,
+                    "intMax": 1000
                   }
                 ],
                 "repeats": false
@@ -45659,14 +45821,18 @@
                     "name": "expiration",
                     "wireName": "expiration",
                     "type": "integer",
-                    "required": true
+                    "required": true,
+                    "intMin": 0,
+                    "intMax": 2147483647
                   },
                   {
                     "method": "maybeAttrInt",
                     "name": "trigger",
                     "wireName": "trigger",
                     "type": "integer",
-                    "required": false
+                    "required": false,
+                    "intMin": 0,
+                    "intMax": 20
                   }
                 ],
                 "repeats": false
@@ -46320,6 +46486,8 @@
                 "wireName": "size",
                 "type": "integer",
                 "required": true,
+                "intMin": 0,
+                "intMax": 19999,
                 "sourcePath": [
                   "group"
                 ]
@@ -46336,7 +46504,9 @@
                     "name": "size",
                     "wireName": "size",
                     "type": "integer",
-                    "required": true
+                    "required": true,
+                    "intMin": 0,
+                    "intMax": 19999
                   },
                   {
                     "method": "child",
@@ -46639,7 +46809,9 @@
                         "name": "numSubGroups",
                         "wireName": "num_sub_groups",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 1,
+                        "intMax": 1000
                       }
                     ],
                     "repeats": false
@@ -46741,14 +46913,18 @@
                         "name": "expiration",
                         "wireName": "expiration",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 0,
+                        "intMax": 2147483647
                       },
                       {
                         "method": "maybeAttrInt",
                         "name": "trigger",
                         "wireName": "trigger",
                         "type": "integer",
-                        "required": false
+                        "required": false,
+                        "intMin": 0,
+                        "intMax": 20
                       }
                     ],
                     "repeats": false
@@ -47705,7 +47881,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 400,
+                        "intMax": 499
                       }
                     ],
                     "assertions": [
@@ -47856,7 +48034,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 500,
+                        "intMax": 599
                       }
                     ],
                     "assertions": [
@@ -47916,6 +48096,8 @@
                 "wireName": "size",
                 "type": "integer",
                 "required": true,
+                "intMin": 1,
+                "intMax": 19999,
                 "sourcePath": [
                   "group"
                 ]
@@ -48072,7 +48254,9 @@
                     "name": "size",
                     "wireName": "size",
                     "type": "integer",
-                    "required": false
+                    "required": false,
+                    "intMin": 0,
+                    "intMax": 19999
                   },
                   {
                     "method": "",
@@ -48385,7 +48569,9 @@
                     "name": "trigger",
                     "wireName": "trigger",
                     "type": "integer",
-                    "required": false
+                    "required": false,
+                    "intMin": 0,
+                    "intMax": 20
                   }
                 ],
                 "repeats": false,
@@ -49069,6 +49255,8 @@
                     "wireName": "size",
                     "type": "integer",
                     "required": true,
+                    "intMin": 1,
+                    "intMax": 19999,
                     "sourcePath": [
                       "group"
                     ]
@@ -49225,7 +49413,9 @@
                         "name": "size",
                         "wireName": "size",
                         "type": "integer",
-                        "required": false
+                        "required": false,
+                        "intMin": 0,
+                        "intMax": 19999
                       },
                       {
                         "method": "",
@@ -49538,7 +49728,9 @@
                         "name": "trigger",
                         "wireName": "trigger",
                         "type": "integer",
-                        "required": false
+                        "required": false,
+                        "intMin": 0,
+                        "intMax": 20
                       }
                     ],
                     "repeats": false,
@@ -50350,7 +50542,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 400,
+                        "intMax": 499
                       }
                     ],
                     "assertions": [
@@ -50501,7 +50695,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 500,
+                        "intMax": 599
                       }
                     ],
                     "assertions": [
@@ -50976,7 +51172,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 500,
+                        "intMax": 599
                       }
                     ],
                     "assertions": [
@@ -51591,7 +51789,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 400,
+                        "intMax": 499
                       }
                     ],
                     "assertions": [
@@ -51742,7 +51942,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 500,
+                        "intMax": 599
                       }
                     ],
                     "assertions": [
@@ -51918,7 +52120,9 @@
                         "name": "size",
                         "wireName": "size",
                         "type": "integer",
-                        "required": false
+                        "required": false,
+                        "intMin": 0,
+                        "intMax": 19999
                       },
                       {
                         "method": "",
@@ -52419,14 +52623,18 @@
                             "name": "expiration",
                             "wireName": "expiration",
                             "type": "integer",
-                            "required": true
+                            "required": true,
+                            "intMin": 0,
+                            "intMax": 2147483647
                           },
                           {
                             "method": "maybeAttrInt",
                             "name": "trigger",
                             "wireName": "trigger",
                             "type": "integer",
-                            "required": false
+                            "required": false,
+                            "intMin": 0,
+                            "intMax": 20
                           }
                         ],
                         "repeats": false
@@ -52618,7 +52826,9 @@
                             "name": "value",
                             "wireName": "value",
                             "type": "integer",
-                            "required": true
+                            "required": true,
+                            "intMin": 0,
+                            "intMax": 100
                           }
                         ],
                         "repeats": false
@@ -52647,7 +52857,9 @@
                             "name": "trigger",
                             "wireName": "trigger",
                             "type": "integer",
-                            "required": false
+                            "required": false,
+                            "intMin": 0,
+                            "intMax": 20
                           }
                         ],
                         "repeats": false
@@ -53307,7 +53519,9 @@
                         "name": "size",
                         "wireName": "size",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 0,
+                        "intMax": 19999
                       }
                     ],
                     "assertions": [
@@ -53462,7 +53676,9 @@
                             "name": "size",
                             "wireName": "size",
                             "type": "integer",
-                            "required": false
+                            "required": false,
+                            "intMin": 0,
+                            "intMax": 19999
                           },
                           {
                             "method": "",
@@ -53963,14 +54179,18 @@
                                 "name": "expiration",
                                 "wireName": "expiration",
                                 "type": "integer",
-                                "required": true
+                                "required": true,
+                                "intMin": 0,
+                                "intMax": 2147483647
                               },
                               {
                                 "method": "maybeAttrInt",
                                 "name": "trigger",
                                 "wireName": "trigger",
                                 "type": "integer",
-                                "required": false
+                                "required": false,
+                                "intMin": 0,
+                                "intMax": 20
                               }
                             ],
                             "repeats": false
@@ -54162,7 +54382,9 @@
                                 "name": "value",
                                 "wireName": "value",
                                 "type": "integer",
-                                "required": true
+                                "required": true,
+                                "intMin": 0,
+                                "intMax": 100
                               }
                             ],
                             "repeats": false
@@ -54191,7 +54413,9 @@
                                 "name": "trigger",
                                 "wireName": "trigger",
                                 "type": "integer",
-                                "required": false
+                                "required": false,
+                                "intMin": 0,
+                                "intMax": 20
                               }
                             ],
                             "repeats": false
@@ -54851,7 +55075,9 @@
                             "name": "size",
                             "wireName": "size",
                             "type": "integer",
-                            "required": true
+                            "required": true,
+                            "intMin": 0,
+                            "intMax": 19999
                           }
                         ],
                         "assertions": [
@@ -54980,7 +55206,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 400,
+                        "intMax": 499
                       }
                     ],
                     "assertions": [
@@ -55131,7 +55359,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 500,
+                        "intMax": 599
                       }
                     ],
                     "assertions": [
@@ -55772,7 +56002,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 500,
+                        "intMax": 599
                       }
                     ],
                     "assertions": [
@@ -56520,7 +56752,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 400,
+                        "intMax": 499
                       }
                     ],
                     "assertions": [
@@ -56671,7 +56905,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 500,
+                        "intMax": 599
                       }
                     ],
                     "assertions": [
@@ -56886,7 +57122,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 400,
+                        "intMax": 499
                       }
                     ],
                     "assertions": [
@@ -57037,7 +57275,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 500,
+                        "intMax": 599
                       }
                     ],
                     "assertions": [
@@ -58615,7 +58855,9 @@
                                 "name": "participantLimit",
                                 "wireName": "participant_limit",
                                 "type": "integer",
-                                "required": true
+                                "required": true,
+                                "intMin": 1,
+                                "intMax": 19999
                               }
                             ],
                             "assertions": [
@@ -58778,7 +59020,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 400,
+                        "intMax": 499
                       }
                     ],
                     "assertions": [
@@ -58929,7 +59173,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 500,
+                        "intMax": 599
                       }
                     ],
                     "assertions": [
@@ -59400,7 +59646,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 400,
+                        "intMax": 499
                       }
                     ],
                     "assertions": [
@@ -59551,7 +59799,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 500,
+                        "intMax": 599
                       }
                     ],
                     "assertions": [
@@ -60324,14 +60574,18 @@
                 "name": "expiration",
                 "wireName": "expiration",
                 "type": "integer",
-                "required": true
+                "required": true,
+                "intMin": 0,
+                "intMax": 2147483647
               },
               {
                 "method": "maybeAttrInt",
                 "name": "trigger",
                 "wireName": "trigger",
                 "type": "integer",
-                "required": false
+                "required": false,
+                "intMin": 0,
+                "intMax": 20
               }
             ],
             "repeats": false,
@@ -61486,14 +61740,18 @@
                     "name": "expiration",
                     "wireName": "expiration",
                     "type": "integer",
-                    "required": true
+                    "required": true,
+                    "intMin": 0,
+                    "intMax": 2147483647
                   },
                   {
                     "method": "maybeAttrInt",
                     "name": "trigger",
                     "wireName": "trigger",
                     "type": "integer",
-                    "required": false
+                    "required": false,
+                    "intMin": 0,
+                    "intMax": 20
                   }
                 ],
                 "repeats": false,
@@ -62439,7 +62697,9 @@
                                 "name": "participantLimit",
                                 "wireName": "participant_limit",
                                 "type": "integer",
-                                "required": true
+                                "required": true,
+                                "intMin": 1,
+                                "intMax": 19999
                               }
                             ],
                             "assertions": [
@@ -62602,7 +62862,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 400,
+                        "intMax": 499
                       }
                     ],
                     "assertions": [
@@ -62753,7 +63015,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 500,
+                        "intMax": 599
                       }
                     ],
                     "assertions": [
@@ -63531,7 +63795,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 400,
+                        "intMax": 499
                       }
                     ],
                     "assertions": [
@@ -63682,7 +63948,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 500,
+                        "intMax": 599
                       }
                     ],
                     "assertions": [
@@ -64023,7 +64291,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 500,
+                        "intMax": 599
                       }
                     ],
                     "assertions": [
@@ -64508,7 +64778,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 400,
+                        "intMax": 499
                       }
                     ],
                     "assertions": [
@@ -64659,7 +64931,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 500,
+                        "intMax": 599
                       }
                     ],
                     "assertions": [
@@ -65786,7 +66060,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 500,
+                        "intMax": 599
                       }
                     ],
                     "assertions": [
@@ -67008,7 +67284,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 400,
+                        "intMax": 499
                       }
                     ],
                     "assertions": [
@@ -67159,7 +67437,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 500,
+                        "intMax": 599
                       }
                     ],
                     "assertions": [
@@ -67701,7 +67981,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 400,
+                        "intMax": 499
                       }
                     ],
                     "assertions": [
@@ -67852,7 +68134,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 500,
+                        "intMax": 599
                       }
                     ],
                     "assertions": [
@@ -68487,7 +68771,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 400,
+                        "intMax": 499
                       }
                     ],
                     "assertions": [
@@ -68638,7 +68924,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 500,
+                        "intMax": 599
                       }
                     ],
                     "assertions": [
@@ -69349,7 +69637,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 400,
+                        "intMax": 499
                       }
                     ],
                     "assertions": [
@@ -69500,7 +69790,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 500,
+                        "intMax": 599
                       }
                     ],
                     "assertions": [
@@ -69914,7 +70206,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 500,
+                        "intMax": 599
                       }
                     ],
                     "assertions": [
@@ -70353,7 +70647,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 400,
+                        "intMax": 499
                       }
                     ],
                     "assertions": [
@@ -70504,7 +70800,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 500,
+                        "intMax": 599
                       }
                     ],
                     "assertions": [
@@ -70901,7 +71199,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 400,
+                        "intMax": 499
                       }
                     ],
                     "assertions": [
@@ -71052,7 +71352,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 500,
+                        "intMax": 599
                       }
                     ],
                     "assertions": [
@@ -71252,14 +71554,18 @@
                 "name": "expiration",
                 "wireName": "expiration",
                 "type": "integer",
-                "required": true
+                "required": true,
+                "intMin": 0,
+                "intMax": 2147483647
               },
               {
                 "method": "maybeAttrInt",
                 "name": "trigger",
                 "wireName": "trigger",
                 "type": "integer",
-                "required": false
+                "required": false,
+                "intMin": 0,
+                "intMax": 20
               }
             ],
             "repeats": false
@@ -71455,14 +71761,18 @@
                     "name": "expiration",
                     "wireName": "expiration",
                     "type": "integer",
-                    "required": true
+                    "required": true,
+                    "intMin": 0,
+                    "intMax": 2147483647
                   },
                   {
                     "method": "maybeAttrInt",
                     "name": "trigger",
                     "wireName": "trigger",
                     "type": "integer",
-                    "required": false
+                    "required": false,
+                    "intMin": 0,
+                    "intMax": 20
                   }
                 ],
                 "repeats": false
@@ -71919,7 +72229,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 400,
+                        "intMax": 499
                       }
                     ],
                     "assertions": [
@@ -72070,7 +72382,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 500,
+                        "intMax": 599
                       }
                     ],
                     "assertions": [
@@ -72429,7 +72743,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 400,
+                        "intMax": 499
                       }
                     ],
                     "assertions": [
@@ -72580,7 +72896,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 500,
+                        "intMax": 599
                       }
                     ],
                     "assertions": [
@@ -73725,7 +74043,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 400,
+                        "intMax": 499
                       }
                     ],
                     "assertions": [
@@ -73876,7 +74196,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 500,
+                        "intMax": 599
                       }
                     ],
                     "assertions": [
@@ -74663,7 +74985,9 @@
                         "name": "code",
                         "wireName": "code",
                         "type": "integer",
-                        "required": true
+                        "required": true,
+                        "intMin": 500,
+                        "intMax": 599
                       }
                     ],
                     "assertions": [
