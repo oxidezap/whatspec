@@ -56,6 +56,39 @@ pub struct WapAttrDef {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub value: Option<String>,
     pub required: bool,
+    /// The wire enum this attribute's value comes from, when the builder writes it via
+    /// a structural enum reference — `CUSTOM_STRING(o("Mod").EnumName.VARIANT)` or a
+    /// `cond === o("Mod").EnumName.VARIANT ? … : DROP_ATTR` guard. Carries the enum's
+    /// full `(name, module, variants)` so a consumer can type the attribute as that
+    /// enum instead of a bare string. Resolved from the enum's definition (whether a
+    /// `$InternalEnum` or a plain object literal); absent when the value is a literal,
+    /// a variable, or any non-enum expression (never guessed from value coincidence).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enum_ref: Option<AttrEnumRef>,
+}
+
+/// A wire enum a request attribute's value is drawn from, recovered by resolving a
+/// structural `o("Mod").EnumName.VARIANT` reference in the builder. String-valued (all
+/// stanza-attr enums are wire tokens), so a consumer can generate a real enum type.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct AttrEnumRef {
+    /// The enum's name (`CiphertextType`, `USYNC_ADDRESSING_MODE`, …).
+    pub name: String,
+    /// The module that defines it (`WAWebBackendJobs.flow`, `WAWebUsync`, …).
+    pub module: String,
+    /// The enum's variants in source order.
+    pub variants: Vec<AttrEnumVariant>,
+}
+
+/// One `NAME: "wire_value"` member of an [`AttrEnumRef`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct AttrEnumVariant {
+    pub name: String,
+    pub value: String,
 }
 
 /// The kind of leaf payload a request node carries in its element content
@@ -480,12 +513,12 @@ pub struct IqScanResult {
 
 // ─── Generalized stanza model (non-IQ + incoming dispatch) ───────────────────────
 //
-// Reserved/experimental — gated behind the off-by-default `generalized-stanza`
-// feature (see the module doc). No extractor produces these and they appear in no
-// emitted artifact yet.
+// The outgoing model (`StanzaTag`, `Direction`, `StanzaDef`) is produced by the
+// non-IQ stanza scanner and emitted under `stanza/`. The incoming dispatch model
+// (`IncomingHandlerDef`, `StanzaScanResult`) is still reserved behind the off-by-
+// default `generalized-stanza` feature.
 
 /// Top-level WA protocol stanza tag.
-#[cfg(feature = "generalized-stanza")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "lowercase")]
@@ -501,7 +534,6 @@ pub enum StanzaTag {
 }
 
 /// Whether a stanza is constructed (outgoing) or handled (incoming).
-#[cfg(feature = "generalized-stanza")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "lowercase")]
@@ -511,7 +543,6 @@ pub enum Direction {
 }
 
 /// A generic stanza definition covering IQ and all other stanza types.
-#[cfg(feature = "generalized-stanza")]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
@@ -569,6 +600,17 @@ pub struct IqIr {
     pub stanzas: Vec<IqStanzaDef>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub unparseable: Vec<Unparseable>,
+}
+
+/// The versioned generalized-stanza IR document: every outgoing non-IQ stanza the
+/// bundle builds (`receipt`, `presence`, `chatstate`, `ack`, …), in the same
+/// `{ waVersion, … }` envelope as the other domains.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct StanzaIr {
+    pub wa_version: String,
+    pub stanzas: Vec<StanzaDef>,
 }
 
 #[cfg(test)]

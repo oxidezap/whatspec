@@ -510,6 +510,7 @@ mod tests {
             kind: WapAttrKind::Const,
             value: None,
             required: false,
+            enum_ref: None,
         }
     }
 

@@ -176,7 +176,7 @@ fn update(args: &[String]) -> Result<()> {
 
     eprintln!(
         "wrote artifacts to {}: {} iq modules, {} proto entities, {} mex ops, {} appstate actions, \
-         {} abprops, {} enums, {} wam events, {} notif types",
+         {} abprops, {} enums, {} wam events, {} notif types, {} stanzas",
         opts.out.display(),
         counts.iq_modules,
         counts.proto_entities,
@@ -185,7 +185,8 @@ fn update(args: &[String]) -> Result<()> {
         counts.abprops_configs,
         counts.enum_defs,
         counts.wam_events,
-        counts.notif_types
+        counts.notif_types,
+        counts.stanza_defs
     );
     Ok(())
 }
@@ -292,6 +293,7 @@ fn diff(args: &[String]) -> Result<()> {
         "enumDefs",
         "wamEvents",
         "notifTypes",
+        "stanzaDefs",
     ] {
         print_count_delta(key, json_u64(&mo, key), json_u64(&mn, key));
     }
@@ -472,6 +474,8 @@ struct Counts {
     /// `manifest.diagnostics.iq.{stanzas,typedResponses}`.
     iq_stanzas: usize,
     iq_typed_responses: usize,
+    /// Outgoing non-IQ stanzas (receipt/presence/chatstate/ack) the scanner recovers.
+    stanza_defs: usize,
 }
 
 /// Extraction-quality signals for the IQ domain, emitted under `diagnostics.iq`
@@ -685,7 +689,7 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
     // The four extractors are independent and read-only over the shared inputs;
     // each returns `Result` so a failure surfaces with context instead of a
     // silent empty artifact or a bare panic.
-    let (iq, proto, mex, appstate, abprops, enums, wam, notif) = std::thread::scope(|s| {
+    let (iq, proto, mex, appstate, abprops, enums, wam, notif, stanza) = std::thread::scope(|s| {
         let iq = s.spawn(|| -> Result<_> {
             let mut a = Vec::new();
             let c = push_iq(&mut a, wa_version, source, &module_defs)?;
@@ -726,6 +730,11 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
             let c = push_notif(&mut a, wa_version, source, &module_defs)?;
             Ok((a, c))
         });
+        let stanza = s.spawn(|| -> Result<_> {
+            let mut a = Vec::new();
+            let c = push_stanza(&mut a, wa_version, source, &module_defs)?;
+            Ok((a, c))
+        });
         (
             iq.join().expect("iq extractor panicked"),
             proto.join().expect("proto extractor panicked"),
@@ -735,6 +744,7 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
             enums.join().expect("enums extractor panicked"),
             wam.join().expect("wam extractor panicked"),
             notif.join().expect("notif extractor panicked"),
+            stanza.join().expect("stanza extractor panicked"),
         )
     });
     let (iq_arts, (iq_count, iq_diag)) = iq.context("iq codegen")?;
@@ -745,6 +755,7 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
     let (enums_arts, enums_count) = enums.context("enums extraction")?;
     let (wam_arts, wam_count) = wam.context("wam extraction")?;
     let (notif_arts, (notif_count, notif_typed, notif_tags)) = notif.context("notif extraction")?;
+    let (stanza_arts, stanza_count) = stanza.context("stanza extraction")?;
 
     // Fail loud if any domain extracted nothing — a real WA bundle always yields
     // all of these, so a zero means the bundle is incomplete or that extractor
@@ -757,6 +768,7 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
         ("enum defs", enums_count),
         ("wam events", wam_count),
         ("notif types", notif_count),
+        ("stanza defs", stanza_count),
     ] {
         if n == 0 {
             anyhow::bail!(
@@ -776,6 +788,7 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
     artifacts.extend(enums_arts);
     artifacts.extend(wam_arts);
     artifacts.extend(notif_arts);
+    artifacts.extend(stanza_arts);
 
     // JSON Schema of the IR contract (one per domain), for cross-language
     // consumers to validate the `index.json` files and auto-generate IR types.
@@ -799,6 +812,7 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
         notif_stanza_tags: notif_tags,
         iq_stanzas: iq_diag.stanzas,
         iq_typed_responses: iq_diag.typed_responses,
+        stanza_defs: stanza_count,
     };
 
     // The neutral, language-agnostic artifacts a consumer reads (one per domain).
@@ -820,6 +834,7 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
         ("enums", "enums/index.json", "schema/enums.schema.json"),
         ("wam", "wam/index.json", "schema/wam.schema.json"),
         ("notif", "notif/index.json", "schema/notif.schema.json"),
+        ("stanza", "stanza/index.json", "schema/stanza.schema.json"),
     ];
     let domains: serde_json::Map<String, serde_json::Value> =
         neutral
@@ -859,6 +874,7 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
         "enumDefs": counts.enum_defs,
         "wamEvents": counts.wam_events,
         "notifTypes": counts.notif_types,
+        "stanzaDefs": counts.stanza_defs,
         "domains": domains,
         "diagnostics": {
             "iq": {
@@ -914,6 +930,7 @@ fn check_floor(out: &Path, counts: &Counts) -> Result<Vec<String>> {
         ("enumDefs", counts.enum_defs),
         ("wamEvents", counts.wam_events),
         ("notifTypes", counts.notif_types),
+        ("stanzaDefs", counts.stanza_defs),
     ];
     let mut regressions = Vec::new();
     for (key, new) in checks {
@@ -968,6 +985,27 @@ fn check_artifacts(out: &Path, artifacts: &[Artifact]) -> Result<Vec<String>> {
         }
     }
     Ok(diffs)
+}
+
+/// Emit the outgoing non-IQ stanza catalog (`stanza/index.json`). Neutral IR only —
+/// no reference codegen yet (that's a later phase); the committed contract is the
+/// `index.json`.
+fn push_stanza(
+    artifacts: &mut Vec<Artifact>,
+    wa_version: &str,
+    source: &str,
+    module_defs: &[wa_transform::ModuleDefinition],
+) -> Result<usize> {
+    let ir = wa_ir::StanzaIr {
+        wa_version: wa_version.to_string(),
+        stanzas: wa_scan::scan_stanzas_from_modules(source, module_defs),
+    };
+    let count = ir.stanzas.len();
+    artifacts.push(Artifact {
+        rel_path: PathBuf::from("stanza/index.json"),
+        content: serde_json::to_string_pretty(&wa_ir::IrEnvelope::new(&ir))? + "\n",
+    });
+    Ok(count)
 }
 
 fn push_iq(
@@ -1347,6 +1385,7 @@ mod tests {
             notif_stanza_tags: 0,
             iq_stanzas: 0,
             iq_typed_responses: 0,
+            stanza_defs: 0,
         };
         let regressions = check_floor(&dir, &counts).unwrap();
         assert_eq!(regressions.len(), 2);

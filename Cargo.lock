@@ -1656,6 +1656,7 @@ dependencies = [
  "oxc_parser",
  "oxc_span",
  "oxc_syntax",
+ "wa-enums",
  "wa-ir",
  "wa-oxc",
  "wa-transform",

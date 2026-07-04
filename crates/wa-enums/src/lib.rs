@@ -90,6 +90,91 @@ fn extract_from_module(slice: &str, module: &str) -> Vec<InternalEnumDef> {
     out
 }
 
+/// Resolve one named enum export from a single module, for the IQ attribute
+/// enum-linking. Unlike the catalog extractor this also accepts a **plain
+/// object-literal** export (`X.Name = {KEY:"val"}` or `var l = {…}; X.Name = l`) —
+/// how enums like `USYNC_ADDRESSING_MODE` / `ENC_RETRY_RECEIPT_ATTRS` are defined
+/// (they never reach the `$InternalEnum` catalog). It is targeted by `name` and
+/// validated by [`parse_enum`] (all-literal values, one value kind), so a non-enum
+/// object can't resolve. Returns `None` when `name` isn't an enum-shaped export — the
+/// caller then drops the link rather than guessing.
+pub fn resolve_named_enum(module_slice: &str, module: &str, name: &str) -> Option<InternalEnumDef> {
+    let alloc = Allocator::default();
+    let ret = parse_cjs(&alloc, module_slice);
+    if ret.panicked {
+        return None;
+    }
+    let mut r = NamedResolver {
+        locals: HashMap::new(),
+        exports: HashMap::new(),
+        pending: Vec::new(),
+    };
+    r.visit_program(&ret.program);
+    // `X.Name = local` bindings resolve against the locals captured by var-init.
+    for (export, local) in &r.pending {
+        if let Some(data) = r.locals.get(local) {
+            r.exports
+                .entry(export.clone())
+                .or_insert_with(|| data.clone());
+        }
+    }
+    let (value_kind, variants) = r.exports.get(name)?.clone();
+    Some(InternalEnumDef {
+        name: name.to_string(),
+        module: module.to_string(),
+        value_kind,
+        variants,
+    })
+}
+
+/// An enum-body object: either `$InternalEnum({…})` or a bare object literal.
+fn enum_object<'b, 'a>(e: &'b Expression<'a>) -> Option<&'b ObjectExpression<'a>> {
+    internal_enum_object(e).or_else(|| as_object(e))
+}
+
+struct NamedResolver {
+    locals: HashMap<String, EnumData>,
+    exports: HashMap<String, EnumData>,
+    pending: Vec<(String, String)>,
+}
+
+impl<'a> Visit<'a> for NamedResolver {
+    fn visit_variable_declarator(&mut self, d: &VariableDeclarator<'a>) {
+        if let Some(local) = d.id.get_identifier_name()
+            && let Some(obj) = d.init.as_ref().and_then(enum_object)
+            && let Some(data) = parse_enum(obj)
+        {
+            self.locals.insert(local.to_string(), data);
+        }
+        walk::walk_variable_declarator(self, d);
+    }
+
+    fn visit_assignment_expression(&mut self, a: &AssignmentExpression<'a>) {
+        if let Some(m) = a.left.as_member_expression()
+            && let Some(prop) = m.static_property_name()
+        {
+            if let Some(data) = enum_object(&a.right).and_then(parse_enum) {
+                self.exports.entry(prop.to_string()).or_insert(data);
+            } else if prop == "exports"
+                && let Some(o) = as_object(&a.right)
+            {
+                // `X.exports = { Name: <enum|local>, … }` — a named export bag; index
+                // each member so an enum published this way still resolves.
+                for (key, value) in wa_oxc::obj_props(o) {
+                    if let Some(data) = enum_object(value).and_then(parse_enum) {
+                        self.exports.entry(key.to_string()).or_insert(data);
+                    } else if let Some(id) = as_identifier(value) {
+                        self.pending.push((key.to_string(), id.to_string()));
+                    }
+                }
+            } else if let Some(id) = as_identifier(&a.right) {
+                self.pending.push((prop.to_string(), id.to_string()));
+            }
+        }
+        walk::walk_assignment_expression(self, a);
+    }
+}
+
 struct Collector<'m> {
     module: &'m str,
     /// `var local = $InternalEnum(...)` → its parsed body.
@@ -202,6 +287,40 @@ mod tests {
     fn run(src: &str) -> Vec<InternalEnumDef> {
         let defs = wa_transform::extract_module_definitions(src);
         extract_enums_from_modules(src, &defs, "1.0").enums
+    }
+
+    #[test]
+    fn resolve_named_enum_handles_object_literal_and_internal_and_bag() {
+        // Plain object-literal export (`var l = {...}; i.Name = l`).
+        let obj = r#"__d("M",[],(function(g,r,d,o,e,i,l){ var s={PN:"pn",LID:"lid"}; i.USYNC_ADDRESSING_MODE=s; }),1);"#;
+        let r = resolve_named_enum(obj, "M", "USYNC_ADDRESSING_MODE").expect("object-literal");
+        assert_eq!(
+            r.variants
+                .iter()
+                .map(|v| v.value.clone())
+                .collect::<Vec<_>>(),
+            [Scalar::Str("pn".into()), Scalar::Str("lid".into())]
+        );
+        // `$InternalEnum` export.
+        let ie = r#"__d("M",["$InternalEnum"],(function(g,n,d,o,e,i,l){ i.CiphertextType=n("$InternalEnum")({Skmsg:"skmsg",Pkmsg:"pkmsg"}); }),1);"#;
+        assert_eq!(
+            resolve_named_enum(ie, "M", "CiphertextType")
+                .unwrap()
+                .variants
+                .len(),
+            2
+        );
+        // Named export bag (`i.exports = { Name: <enum> }`).
+        let bag = r#"__d("M",["$InternalEnum"],(function(g,n,d,o,e,i,l){ i.exports={Scope:n("$InternalEnum")({A:"a",B:"b"})}; }),1);"#;
+        assert_eq!(
+            resolve_named_enum(bag, "M", "Scope")
+                .unwrap()
+                .variants
+                .len(),
+            2
+        );
+        // A name that isn't an enum export resolves to nothing.
+        assert!(resolve_named_enum(obj, "M", "Nope").is_none());
     }
 
     #[test]

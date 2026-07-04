@@ -10,6 +10,7 @@ mod alias;
 mod attrs;
 mod const_value_index;
 mod content_length_index;
+mod enum_link;
 mod helper_index;
 mod mixin_index;
 mod module;
@@ -17,10 +18,12 @@ mod request;
 mod response;
 mod response_index;
 mod response_smax;
+mod stanza;
 
 pub use mixin_index::MixinIndex;
 pub use module::{CrossModuleStat, DropReason, scan_module_outcome, scan_module_source};
 pub use response::parse_module_wap_parsers;
+pub use stanza::scan_stanzas_from_modules;
 
 use std::collections::{HashMap, HashSet};
 
@@ -204,6 +207,15 @@ pub fn scan_iq_with_diagnostics(
             &content_lengths,
             &tag_fallback,
         );
+    }
+
+    // Resolve request-attribute enum links: the builder references
+    // `o("Mod").Enum.VARIANT`, whose definition lives in another module, so it's
+    // filled in cross-module after the scan. (IQ attrs are namespace/type only, so
+    // links here come from the request children.)
+    let mut enum_resolver = enum_link::EnumResolver::new(module_defs, source);
+    for s in &mut stanzas {
+        enum_resolver.resolve_tree(&mut s.request.children);
     }
 
     // Normalize ordering by an intrinsic key so the output (index.json + the

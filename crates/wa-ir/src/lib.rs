@@ -98,6 +98,7 @@ pub fn schemas() -> Vec<(&'static str, String)> {
     }
     vec![
         ("schema/iq.schema.json", dump::<iq::IqIr>()),
+        ("schema/stanza.schema.json", dump::<iq::StanzaIr>()),
         ("schema/mex.schema.json", dump::<mex::MexIr>()),
         (
             "schema/appstate.schema.json",
@@ -117,7 +118,7 @@ mod schema_tests {
     #[test]
     fn schemas_are_well_formed_and_versioned() {
         let out = schemas();
-        assert_eq!(out.len(), 7, "one schema per neutral domain");
+        assert_eq!(out.len(), 8, "one schema per neutral domain");
         for (path, json) in &out {
             // Each schema parses as JSON and is a JSON Schema object with $defs.
             let v: serde_json::Value =
