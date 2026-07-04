@@ -12,33 +12,28 @@ use crate::alias::{AliasMap, resolve_owner};
 use crate::module::require_module_name;
 use wa_oxc::{arg_expr, as_call, as_member, as_string_lit, callee_method, callee_object};
 
-/// `o("Mod").EnumName.VARIANT` → `(module, enumName)`. The specific variant is
-/// dropped — the attribute is linked to the whole enum. Requires the base to be a
-/// `require("Mod")` call (`o("Mod")`), so a plain `x.Y.Z` never matches.
+/// `o("Mod").EnumName.VARIANT` → `(module, enumName)`, when the base is a `require`
+/// call (`o("Mod")`) and `EnumName` is enum-shaped. The specific variant is dropped —
+/// the attribute links to the whole enum.
+///
+/// `require_module_name` only checks for a string-arg call, so a stray `foo("x").Y.Z`
+/// could slip past; two things keep that from becoming a bogus link: `EnumName` must
+/// start uppercase (enum exports are `CiphertextType` / `USYNC_ADDRESSING_MODE`, never
+/// a lowercase field), and — the real backstop — the cross-module resolver drops any
+/// link whose module/enum doesn't actually resolve to a wire enum. So this is a
+/// permissive first filter, not the final guard.
 fn enum_ref_of(e: &Expression) -> Option<(String, String)> {
     let (obj, _variant) = as_member(e)?;
     let (base, enum_name) = as_member(obj)?;
+    if !enum_name
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_uppercase())
+    {
+        return None;
+    }
     let module = require_module_name(base)?;
     Some((module, enum_name.to_string()))
-}
-
-/// Search a (possibly compound) guard expression for an `o("Mod").EnumName.VARIANT`
-/// reference — the RHS of the `===` in `cond === o("Mod").Enum.VARIANT`, reached
-/// through `&&`/`||`/parentheses in guards like `D && P === o("Mod").Enum.VARIANT`.
-fn find_enum_ref_in(e: &Expression) -> Option<(String, String)> {
-    if let Some(r) = enum_ref_of(e) {
-        return Some(r);
-    }
-    match e {
-        Expression::BinaryExpression(b) => {
-            find_enum_ref_in(&b.left).or_else(|| find_enum_ref_in(&b.right))
-        }
-        Expression::LogicalExpression(b) => {
-            find_enum_ref_in(&b.left).or_else(|| find_enum_ref_in(&b.right))
-        }
-        Expression::ParenthesizedExpression(p) => find_enum_ref_in(&p.expression),
-        _ => None,
-    }
 }
 
 /// A parsed `.wap("tag", attrs?, ...children)` / `.smax(...)` call.
@@ -189,15 +184,18 @@ fn classify_attr_node<'a>(
     }
 
     // Ternary mentioning DROP_ATTR → optional (matches JSON.stringify().includes()).
+    //
+    // A guard-position enum reference (`cond === o("Mod").Enum.VARIANT ? … : DROP_ATTR`)
+    // is deliberately NOT enum-linked here: the enum only gates presence, and the
+    // emitted value may be unrelated to it (`enc.state` emits the literal `"false"`
+    // when `… === CiphertextType.Pkmsg`, and `"false"` is not a CiphertextType). Linking
+    // it would be a false positive. Those attrs (enc.state / session_scope /
+    // addressing_mode) are all non-IQ and out of this scanner's scope anyway; they land
+    // with the message-stanza phase, which will validate that the emitted value is
+    // actually a member of the guard's enum before linking.
     if let Expression::ConditionalExpression(cond) = value {
         let s = &source[cond.span.start as usize..cond.span.end as usize];
         if s.contains("DROP_ATTR") {
-            // FORM B: `cond === o("Mod").EnumName.VARIANT ? CUSTOM_STRING(…) : DROP_ATTR`
-            // — the attr is present iff the runtime value equals that enum variant, so
-            // its value is drawn from that enum. Look for the reference in the guard.
-            if let Some((module, ename)) = find_enum_ref_in(&cond.test) {
-                return with_enum(WapAttrKind::Optional, false, module, ename);
-            }
             return owned(WapAttrKind::Optional, None, false);
         }
     }

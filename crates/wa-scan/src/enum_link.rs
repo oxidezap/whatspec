@@ -184,15 +184,19 @@ mod tests {
                 attrs: vec![pending("M", "USYNC_ADDRESSING_MODE")],
                 ..Default::default()
             }],
+            variant_groups: vec![wa_ir::WapVariantGroup {
+                optional: false,
+                variants: vec![wa_ir::WapVariant {
+                    attrs: vec![pending("M", "USYNC_ADDRESSING_MODE")],
+                    children: Vec::new(),
+                }],
+            }],
             ..Default::default()
         }];
         r.resolve_tree(&mut tree);
-        let inner = &tree[0].children[0].attrs[0];
-        assert!(
-            inner
-                .enum_ref
-                .as_ref()
-                .is_some_and(|e| !e.variants.is_empty())
-        );
+        let resolved = |a: &WapAttrDef| a.enum_ref.as_ref().is_some_and(|e| !e.variants.is_empty());
+        // Both a nested child attr and a variant-group attr get resolved.
+        assert!(resolved(&tree[0].children[0].attrs[0]));
+        assert!(resolved(&tree[0].variant_groups[0].variants[0].attrs[0]));
     }
 }

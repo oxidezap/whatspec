@@ -36,8 +36,13 @@ fn stanza_tag(tag: &str) -> Option<StanzaTag> {
 /// re-check in the scan confirms the real tag, so a permissive substring only risks
 /// re-parsing a few extra modules, never silently skipping one.
 pub(crate) fn is_stanza_module(slice: &str) -> bool {
+    // Tolerate either quote style on the tag (`"receipt"` / `'receipt'`), matching the
+    // IQ pre-filter — a single-quoted builder must not be silently skipped.
     STANZA_TAGS.iter().any(|(t, _)| {
-        slice.contains(&format!(".wap(\"{t}\"")) || slice.contains(&format!(".smax(\"{t}\""))
+        slice.contains(&format!(".wap(\"{t}\""))
+            || slice.contains(&format!(".smax(\"{t}\""))
+            || slice.contains(&format!(".wap('{t}'"))
+            || slice.contains(&format!(".smax('{t}'"))
     })
 }
 

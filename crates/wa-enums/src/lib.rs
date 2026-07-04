@@ -155,6 +155,18 @@ impl<'a> Visit<'a> for NamedResolver {
         {
             if let Some(data) = enum_object(&a.right).and_then(parse_enum) {
                 self.exports.entry(prop.to_string()).or_insert(data);
+            } else if prop == "exports"
+                && let Some(o) = as_object(&a.right)
+            {
+                // `X.exports = { Name: <enum|local>, … }` — a named export bag; index
+                // each member so an enum published this way still resolves.
+                for (key, value) in wa_oxc::obj_props(o) {
+                    if let Some(data) = enum_object(value).and_then(parse_enum) {
+                        self.exports.entry(key.to_string()).or_insert(data);
+                    } else if let Some(id) = as_identifier(value) {
+                        self.pending.push((key.to_string(), id.to_string()));
+                    }
+                }
             } else if let Some(id) = as_identifier(&a.right) {
                 self.pending.push((prop.to_string(), id.to_string()));
             }
@@ -275,6 +287,40 @@ mod tests {
     fn run(src: &str) -> Vec<InternalEnumDef> {
         let defs = wa_transform::extract_module_definitions(src);
         extract_enums_from_modules(src, &defs, "1.0").enums
+    }
+
+    #[test]
+    fn resolve_named_enum_handles_object_literal_and_internal_and_bag() {
+        // Plain object-literal export (`var l = {...}; i.Name = l`).
+        let obj = r#"__d("M",[],(function(g,r,d,o,e,i,l){ var s={PN:"pn",LID:"lid"}; i.USYNC_ADDRESSING_MODE=s; }),1);"#;
+        let r = resolve_named_enum(obj, "M", "USYNC_ADDRESSING_MODE").expect("object-literal");
+        assert_eq!(
+            r.variants
+                .iter()
+                .map(|v| v.value.clone())
+                .collect::<Vec<_>>(),
+            [Scalar::Str("pn".into()), Scalar::Str("lid".into())]
+        );
+        // `$InternalEnum` export.
+        let ie = r#"__d("M",["$InternalEnum"],(function(g,n,d,o,e,i,l){ i.CiphertextType=n("$InternalEnum")({Skmsg:"skmsg",Pkmsg:"pkmsg"}); }),1);"#;
+        assert_eq!(
+            resolve_named_enum(ie, "M", "CiphertextType")
+                .unwrap()
+                .variants
+                .len(),
+            2
+        );
+        // Named export bag (`i.exports = { Name: <enum> }`).
+        let bag = r#"__d("M",["$InternalEnum"],(function(g,n,d,o,e,i,l){ i.exports={Scope:n("$InternalEnum")({A:"a",B:"b"})}; }),1);"#;
+        assert_eq!(
+            resolve_named_enum(bag, "M", "Scope")
+                .unwrap()
+                .variants
+                .len(),
+            2
+        );
+        // A name that isn't an enum export resolves to nothing.
+        assert!(resolve_named_enum(obj, "M", "Nope").is_none());
     }
 
     #[test]
