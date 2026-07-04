@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1042631103",
+  "waVersion": "2.3000.1042632189",
   "operations": {
     "ACSServerProviderConfig": {
       "originalName": "WAWebACSServerProviderConfigQuery",
@@ -3585,26 +3585,6 @@
       "response": {
         "xwa2_newsletter_label_paid_partnership": {
           "id": "string"
-        }
-      }
-    },
-    "NewsletterBlockUser": {
-      "originalName": "WAWebMexNewsletterBlockUserJobMutation",
-      "docId": "24021389470875463",
-      "operationKind": "mutation",
-      "variables": [
-        "newsletter_id",
-        "response_server_id",
-        "server_id"
-      ],
-      "variablesShape": {
-        "newsletter_id": "string",
-        "response_server_id": "string",
-        "server_id": "string"
-      },
-      "response": {
-        "xwa2_newsletter_block_user": {
-          "newsletter_id": "string"
         }
       }
     },

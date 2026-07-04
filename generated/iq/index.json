@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1042631103",
+  "waVersion": "2.3000.1042632189",
   "stanzas": [
     {
       "moduleName": "WASmaxOutAbPropsGetExperimentConfigRequest",
@@ -4064,6 +4064,7 @@
                         "name": "registrationElementValue",
                         "type": "bytes",
                         "required": true,
+                        "byteLength": 4,
                         "sourcePath": [
                           "registration"
                         ]
@@ -4091,6 +4092,7 @@
                         "name": "elementValue",
                         "type": "bytes",
                         "required": true,
+                        "byteLength": 32,
                         "sourcePath": [
                           "identity"
                         ]
@@ -4118,6 +4120,7 @@
                             "name": "identityAuthSignatureElementValue",
                             "type": "bytes",
                             "required": true,
+                            "byteLength": 64,
                             "sourcePath": [
                               "identity_auth",
                               "signature"
@@ -4163,7 +4166,8 @@
                                 "method": "contentBytes",
                                 "name": "elementValue",
                                 "type": "bytes",
-                                "required": true
+                                "required": true,
+                                "byteLength": 3
                               }
                             ],
                             "repeats": false,
@@ -4182,7 +4186,8 @@
                                 "method": "contentBytes",
                                 "name": "elementValue",
                                 "type": "bytes",
-                                "required": true
+                                "required": true,
+                                "byteLength": 32
                               }
                             ],
                             "repeats": false,
@@ -4198,6 +4203,7 @@
                         "name": "skeySignatureElementValue",
                         "type": "bytes",
                         "required": true,
+                        "byteLength": 64,
                         "sourcePath": [
                           "skey",
                           "signature"
@@ -4214,7 +4220,8 @@
                             "method": "contentBytes",
                             "name": "elementValue",
                             "type": "bytes",
-                            "required": true
+                            "required": true,
+                            "byteLength": 3
                           }
                         ],
                         "repeats": false,
@@ -4233,7 +4240,8 @@
                             "method": "contentBytes",
                             "name": "elementValue",
                             "type": "bytes",
-                            "required": true
+                            "required": true,
+                            "byteLength": 32
                           }
                         ],
                         "repeats": false,
@@ -4252,6 +4260,7 @@
                             "name": "pqkeySignatureElementValue",
                             "type": "bytes",
                             "required": true,
+                            "byteLength": 64,
                             "sourcePath": [
                               "pqkey",
                               "signature"
@@ -4268,7 +4277,8 @@
                                 "method": "contentBytes",
                                 "name": "elementValue",
                                 "type": "bytes",
-                                "required": true
+                                "required": true,
+                                "byteLength": 3
                               }
                             ],
                             "repeats": false,
@@ -4287,7 +4297,8 @@
                                 "method": "contentBytes",
                                 "name": "elementValue",
                                 "type": "bytes",
-                                "required": true
+                                "required": true,
+                                "byteLength": 1568
                               }
                             ],
                             "repeats": false,
@@ -4481,6 +4492,7 @@
                             "name": "registrationElementValue",
                             "type": "bytes",
                             "required": true,
+                            "byteLength": 4,
                             "sourcePath": [
                               "registration"
                             ]
@@ -4508,6 +4520,7 @@
                             "name": "elementValue",
                             "type": "bytes",
                             "required": true,
+                            "byteLength": 32,
                             "sourcePath": [
                               "identity"
                             ]
@@ -4535,6 +4548,7 @@
                                 "name": "identityAuthSignatureElementValue",
                                 "type": "bytes",
                                 "required": true,
+                                "byteLength": 64,
                                 "sourcePath": [
                                   "identity_auth",
                                   "signature"
@@ -4580,7 +4594,8 @@
                                     "method": "contentBytes",
                                     "name": "elementValue",
                                     "type": "bytes",
-                                    "required": true
+                                    "required": true,
+                                    "byteLength": 3
                                   }
                                 ],
                                 "repeats": false,
@@ -4599,7 +4614,8 @@
                                     "method": "contentBytes",
                                     "name": "elementValue",
                                     "type": "bytes",
-                                    "required": true
+                                    "required": true,
+                                    "byteLength": 32
                                   }
                                 ],
                                 "repeats": false,
@@ -4615,6 +4631,7 @@
                             "name": "skeySignatureElementValue",
                             "type": "bytes",
                             "required": true,
+                            "byteLength": 64,
                             "sourcePath": [
                               "skey",
                               "signature"
@@ -4631,7 +4648,8 @@
                                 "method": "contentBytes",
                                 "name": "elementValue",
                                 "type": "bytes",
-                                "required": true
+                                "required": true,
+                                "byteLength": 3
                               }
                             ],
                             "repeats": false,
@@ -4650,7 +4668,8 @@
                                 "method": "contentBytes",
                                 "name": "elementValue",
                                 "type": "bytes",
-                                "required": true
+                                "required": true,
+                                "byteLength": 32
                               }
                             ],
                             "repeats": false,
@@ -4669,6 +4688,7 @@
                                 "name": "pqkeySignatureElementValue",
                                 "type": "bytes",
                                 "required": true,
+                                "byteLength": 64,
                                 "sourcePath": [
                                   "pqkey",
                                   "signature"
@@ -4685,7 +4705,8 @@
                                     "method": "contentBytes",
                                     "name": "elementValue",
                                     "type": "bytes",
-                                    "required": true
+                                    "required": true,
+                                    "byteLength": 3
                                   }
                                 ],
                                 "repeats": false,
@@ -4704,7 +4725,8 @@
                                     "method": "contentBytes",
                                     "name": "elementValue",
                                     "type": "bytes",
-                                    "required": true
+                                    "required": true,
+                                    "byteLength": 1568
                                   }
                                 ],
                                 "repeats": false,
@@ -5195,6 +5217,7 @@
                             "name": "registrationElementValue",
                             "type": "bytes",
                             "required": true,
+                            "byteLength": 4,
                             "sourcePath": [
                               "registration"
                             ]
@@ -5222,6 +5245,7 @@
                             "name": "elementValue",
                             "type": "bytes",
                             "required": true,
+                            "byteLength": 32,
                             "sourcePath": [
                               "identity"
                             ]
@@ -5243,7 +5267,8 @@
                                     "method": "contentBytes",
                                     "name": "elementValue",
                                     "type": "bytes",
-                                    "required": true
+                                    "required": true,
+                                    "byteLength": 3
                                   }
                                 ],
                                 "repeats": false,
@@ -5262,7 +5287,8 @@
                                     "method": "contentBytes",
                                     "name": "elementValue",
                                     "type": "bytes",
-                                    "required": true
+                                    "required": true,
+                                    "byteLength": 32
                                   }
                                 ],
                                 "repeats": false,
@@ -5278,6 +5304,7 @@
                             "name": "skeySignatureElementValue",
                             "type": "bytes",
                             "required": true,
+                            "byteLength": 64,
                             "sourcePath": [
                               "skey",
                               "signature"
@@ -5294,7 +5321,8 @@
                                 "method": "contentBytes",
                                 "name": "elementValue",
                                 "type": "bytes",
-                                "required": true
+                                "required": true,
+                                "byteLength": 3
                               }
                             ],
                             "repeats": false,
@@ -5313,7 +5341,8 @@
                                 "method": "contentBytes",
                                 "name": "elementValue",
                                 "type": "bytes",
-                                "required": true
+                                "required": true,
+                                "byteLength": 32
                               }
                             ],
                             "repeats": false,
@@ -5332,6 +5361,7 @@
                                 "name": "pqkeySignatureElementValue",
                                 "type": "bytes",
                                 "required": true,
+                                "byteLength": 64,
                                 "sourcePath": [
                                   "pqkey",
                                   "signature"
@@ -5348,7 +5378,8 @@
                                     "method": "contentBytes",
                                     "name": "elementValue",
                                     "type": "bytes",
-                                    "required": true
+                                    "required": true,
+                                    "byteLength": 3
                                   }
                                 ],
                                 "repeats": false,
@@ -5367,7 +5398,8 @@
                                     "method": "contentBytes",
                                     "name": "elementValue",
                                     "type": "bytes",
-                                    "required": true
+                                    "required": true,
+                                    "byteLength": 1568
                                   }
                                 ],
                                 "repeats": false,
@@ -5587,6 +5619,7 @@
                                 "name": "registrationElementValue",
                                 "type": "bytes",
                                 "required": true,
+                                "byteLength": 4,
                                 "sourcePath": [
                                   "registration"
                                 ]
@@ -5614,6 +5647,7 @@
                                 "name": "elementValue",
                                 "type": "bytes",
                                 "required": true,
+                                "byteLength": 32,
                                 "sourcePath": [
                                   "identity"
                                 ]
@@ -5635,7 +5669,8 @@
                                         "method": "contentBytes",
                                         "name": "elementValue",
                                         "type": "bytes",
-                                        "required": true
+                                        "required": true,
+                                        "byteLength": 3
                                       }
                                     ],
                                     "repeats": false,
@@ -5654,7 +5689,8 @@
                                         "method": "contentBytes",
                                         "name": "elementValue",
                                         "type": "bytes",
-                                        "required": true
+                                        "required": true,
+                                        "byteLength": 32
                                       }
                                     ],
                                     "repeats": false,
@@ -5670,6 +5706,7 @@
                                 "name": "skeySignatureElementValue",
                                 "type": "bytes",
                                 "required": true,
+                                "byteLength": 64,
                                 "sourcePath": [
                                   "skey",
                                   "signature"
@@ -5686,7 +5723,8 @@
                                     "method": "contentBytes",
                                     "name": "elementValue",
                                     "type": "bytes",
-                                    "required": true
+                                    "required": true,
+                                    "byteLength": 3
                                   }
                                 ],
                                 "repeats": false,
@@ -5705,7 +5743,8 @@
                                     "method": "contentBytes",
                                     "name": "elementValue",
                                     "type": "bytes",
-                                    "required": true
+                                    "required": true,
+                                    "byteLength": 32
                                   }
                                 ],
                                 "repeats": false,
@@ -5724,6 +5763,7 @@
                                     "name": "pqkeySignatureElementValue",
                                     "type": "bytes",
                                     "required": true,
+                                    "byteLength": 64,
                                     "sourcePath": [
                                       "pqkey",
                                       "signature"
@@ -5740,7 +5780,8 @@
                                         "method": "contentBytes",
                                         "name": "elementValue",
                                         "type": "bytes",
-                                        "required": true
+                                        "required": true,
+                                        "byteLength": 3
                                       }
                                     ],
                                     "repeats": false,
@@ -5759,7 +5800,8 @@
                                         "method": "contentBytes",
                                         "name": "elementValue",
                                         "type": "bytes",
-                                        "required": true
+                                        "required": true,
+                                        "byteLength": 1568
                                       }
                                     ],
                                     "repeats": false,
@@ -14620,7 +14662,8 @@
                             "method": "contentBytes",
                             "name": "elementValue",
                             "type": "bytes",
-                            "required": true
+                            "required": true,
+                            "byteLength": 32
                           }
                         ],
                         "repeats": true,
@@ -16685,7 +16728,8 @@
                                 "method": "contentBytes",
                                 "name": "elementValue",
                                 "type": "bytes",
-                                "required": true
+                                "required": true,
+                                "byteLength": 32
                               }
                             ],
                             "repeats": true,
@@ -19158,7 +19202,8 @@
                             "method": "contentBytes",
                             "name": "elementValue",
                             "type": "bytes",
-                            "required": true
+                            "required": true,
+                            "byteLength": 32
                           }
                         ],
                         "repeats": true,
@@ -21227,7 +21272,8 @@
                                 "method": "contentBytes",
                                 "name": "elementValue",
                                 "type": "bytes",
-                                "required": true
+                                "required": true,
+                                "byteLength": 32
                               }
                             ],
                             "repeats": true,
@@ -25462,7 +25508,8 @@
                             "method": "contentBytes",
                             "name": "elementValue",
                             "type": "bytes",
-                            "required": true
+                            "required": true,
+                            "byteLength": 32
                           }
                         ],
                         "repeats": true,
@@ -25593,7 +25640,8 @@
                                 "method": "contentBytes",
                                 "name": "elementValue",
                                 "type": "bytes",
-                                "required": true
+                                "required": true,
+                                "byteLength": 32
                               }
                             ],
                             "repeats": true,
@@ -29430,6 +29478,7 @@
             "name": "signCredentialSignedCredentialElementValue",
             "type": "bytes",
             "required": true,
+            "byteLength": 32,
             "sourcePath": [
               "sign_credential",
               "signed_credential"
@@ -29440,6 +29489,7 @@
             "name": "signCredentialAcsPublicKeyElementValue",
             "type": "bytes",
             "required": true,
+            "byteLength": 32,
             "sourcePath": [
               "sign_credential",
               "acs_public_key"
@@ -29450,6 +29500,7 @@
             "name": "signCredentialDleqProofCElementValue",
             "type": "bytes",
             "required": true,
+            "byteLength": 32,
             "sourcePath": [
               "sign_credential",
               "dleq_proof",
@@ -29461,6 +29512,7 @@
             "name": "signCredentialDleqProofSElementValue",
             "type": "bytes",
             "required": true,
+            "byteLength": 32,
             "sourcePath": [
               "sign_credential",
               "dleq_proof",
@@ -29517,6 +29569,7 @@
                 "name": "signCredentialSignedCredentialElementValue",
                 "type": "bytes",
                 "required": true,
+                "byteLength": 32,
                 "sourcePath": [
                   "sign_credential",
                   "signed_credential"
@@ -29527,6 +29580,7 @@
                 "name": "signCredentialAcsPublicKeyElementValue",
                 "type": "bytes",
                 "required": true,
+                "byteLength": 32,
                 "sourcePath": [
                   "sign_credential",
                   "acs_public_key"
@@ -29537,6 +29591,7 @@
                 "name": "signCredentialDleqProofCElementValue",
                 "type": "bytes",
                 "required": true,
+                "byteLength": 32,
                 "sourcePath": [
                   "sign_credential",
                   "dleq_proof",
@@ -29548,6 +29603,7 @@
                 "name": "signCredentialDleqProofSElementValue",
                 "type": "bytes",
                 "required": true,
+                "byteLength": 32,
                 "sourcePath": [
                   "sign_credential",
                   "dleq_proof",
