@@ -987,9 +987,9 @@ fn check_artifacts(out: &Path, artifacts: &[Artifact]) -> Result<Vec<String>> {
     Ok(diffs)
 }
 
-/// Emit the outgoing non-IQ stanza catalog (`stanza/index.json`). Neutral IR only —
-/// no reference codegen yet (that's a later phase); the committed contract is the
-/// `index.json`.
+/// Emit the outgoing non-IQ stanza catalog (`stanza/index.json`) and its reference Rust
+/// consumer (`stanza/stanza.rs`, gitignored like the other domains' `.rs`). The
+/// committed contract is the `index.json`.
 fn push_stanza(
     artifacts: &mut Vec<Artifact>,
     wa_version: &str,
@@ -1004,6 +1004,10 @@ fn push_stanza(
     artifacts.push(Artifact {
         rel_path: PathBuf::from("stanza/index.json"),
         content: serde_json::to_string_pretty(&wa_ir::IrEnvelope::new(&ir))? + "\n",
+    });
+    artifacts.push(Artifact {
+        rel_path: PathBuf::from("stanza/stanza.rs"),
+        content: wa_codegen::generate_stanza(&ir),
     });
     Ok(count)
 }
