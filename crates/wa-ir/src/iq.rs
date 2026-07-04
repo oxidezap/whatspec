@@ -531,6 +531,8 @@ pub enum StanzaTag {
     Call,
     Chatstate,
     Presence,
+    Status,
+    Privacy,
 }
 
 /// Whether a stanza is constructed (outgoing) or handled (incoming).

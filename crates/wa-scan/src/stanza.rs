@@ -31,6 +31,9 @@ const STANZA_TAGS: &[(&str, StanzaTag)] = &[
     ("presence", StanzaTag::Presence),
     ("chatstate", StanzaTag::Chatstate),
     ("ack", StanzaTag::Ack),
+    ("call", StanzaTag::Call),
+    ("status", StanzaTag::Status),
+    ("privacy", StanzaTag::Privacy),
 ];
 
 fn stanza_tag(tag: &str) -> Option<StanzaTag> {
@@ -296,6 +299,26 @@ mod tests {
         assert_eq!(er.module, "WAWebVoipSignalingEnums");
         let vals: Vec<&str> = er.variants.iter().map(|v| v.value.as_str()).collect();
         assert_eq!(vals, ["enc", "enc_rekey_retry"]);
+    }
+
+    #[test]
+    fn captures_call_status_privacy_tags() {
+        // The three top-level outgoing tags added alongside message/receipt/ack.
+        let bundle = r#"
+            __d("WAWebSendCallStanza",["WAWap"],(function(g,r,d,o,e,i,l){
+                l.send=function(t){ return o("WAWap").wap("call",{id:o("WAWap").STANZA_ID(),to:o("WAWap").USER_JID(t)}); };
+            }),1);
+            __d("WAWebSetPrivacyStanza",["WAWap"],(function(g,r,d,o,e,i,l){
+                l.set=function(v){ return o("WAWap").wap("privacy",{category:o("WAWap").CUSTOM_STRING(v)}); };
+            }),1);
+            __d("WAWebPublishStatusStanza",["WAWap"],(function(g,r,d,o,e,i,l){
+                l.pub=function(){ return o("WAWap").wap("status",{type:o("WAWap").CUSTOM_STRING("text")}); };
+            }),1);
+        "#;
+        let tags: Vec<StanzaTag> = scan(bundle).iter().map(|s| s.stanza_type).collect();
+        assert!(tags.contains(&StanzaTag::Call), "call captured");
+        assert!(tags.contains(&StanzaTag::Privacy), "privacy captured");
+        assert!(tags.contains(&StanzaTag::Status), "status captured");
     }
 
     #[test]
