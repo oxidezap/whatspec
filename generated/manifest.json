@@ -30,41 +30,41 @@
     "abprops": {
       "file": "abprops/index.json",
       "schema": "schema/abprops.schema.json",
-      "sha256": "35d9f61eed2d69043c5109cf558e888b9e206ff5482994f8380411ba18942ad4"
+      "sha256": "0984492da317a54c3c6a8604a0a4030b6df5a545f28c3415ed8433e7cb61f0ca"
     },
     "appstate": {
       "file": "appstate/index.json",
       "schema": "schema/appstate.schema.json",
-      "sha256": "e06f67faabd7f1ea933e83ab70acc352e6ab8b35a40f4f6882faee01a552c754"
+      "sha256": "6728fd4ec60ab32d89152919304b53f1735e1c5a76f1d989f7a8bb7136e52b41"
     },
     "enums": {
       "file": "enums/index.json",
       "schema": "schema/enums.schema.json",
-      "sha256": "2571fdc47db6060c7d73d039e40b36c6c841721a9fbf3639e2b6a079f42b9653"
+      "sha256": "607d9d43a51a8529964d86661c5050c80e9f92805ea9b7aa9ac29ca952481d30"
     },
     "iq": {
       "file": "iq/index.json",
       "schema": "schema/iq.schema.json",
-      "sha256": "386d5193277e54e7783a504e93831039e736fbce36df16aa2e1c347addd7dc08"
+      "sha256": "af8f6f78d4414a05ef199c44d80d3d4fd5c51cea91be777bb514083071fbeb8a"
     },
     "mex": {
       "file": "mex/index.json",
       "schema": "schema/mex.schema.json",
-      "sha256": "a538dd6b859b94fcf43c19291a24f99e964b17f1586e6bb773bc51f46b77ff15"
+      "sha256": "40378f8cb0445c14e8455702a134c0f1814ef982bcce00324bc69c7d98d57005"
     },
     "notif": {
       "file": "notif/index.json",
       "schema": "schema/notif.schema.json",
-      "sha256": "96fefd75ef1db0c5214c8d9f45be34b9fd5f53cf3374498ee758d469ab0f2c3e"
+      "sha256": "81aa2a9866dce4abef56edd513fbfcd96feb5be5fd05555b5ac200ad85c030e9"
     },
     "proto": {
       "file": "proto/WAProto.proto",
-      "sha256": "fcc7e96624a23a295859589dcbc75b57460576d9f76a308377053dd49a055927"
+      "sha256": "100f673e1b45cfb04746b81de54bebd9f606a820e95a8b5bb7e2a6aeaf841b1f"
     },
     "wam": {
       "file": "wam/index.json",
       "schema": "schema/wam.schema.json",
-      "sha256": "2167e00abb35d763eb344adefb9f969616ea4cdc1d834fe793719320b11a8917"
+      "sha256": "73e6aebfad7d6d4bc49af36362a8363838520304fd3f3ca50644872c06bbef98"
     }
   },
   "enumDefs": 257,
@@ -74,6 +74,6 @@
   "notifTypes": 27,
   "protoEntities": 257,
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1042620056",
+  "waVersion": "2.3000.1042631103",
   "wamEvents": 428
 }
