@@ -14,6 +14,7 @@ mod naming;
 mod notif_export;
 mod spec;
 mod stanza_export;
+mod tokens_export;
 mod union;
 mod wam;
 
@@ -24,6 +25,7 @@ pub use mex_export::generate_mex_operations;
 pub use mex_ids::{MexIdRefresh, refresh_mex_ids};
 pub use notif_export::generate_notif;
 pub use stanza_export::generate_stanza;
+pub use tokens_export::generate_tokens_json;
 pub use wam::generate_wam;
 
 use std::collections::HashSet;

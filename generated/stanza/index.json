@@ -1,13 +1,68 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1042633915",
+  "waVersion": "2.3000.1042634856",
   "stanzas": [
     {
-      "stanzaType": "receipt",
+      "stanzaType": "message",
       "direction": "outgoing",
-      "moduleName": "WASmaxOutReceiptNewsletterMixin",
+      "moduleName": "WASmaxOutMessagePublishCtwaAttributionMixin",
       "exportedFunction": null,
-      "allExports": [],
+      "allExports": [
+        "makeCtwaAttributionCtwaAttribution",
+        "mergeCtwaAttributionMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [],
+      "children": [
+        {
+          "tag": "ctwa_attribution",
+          "attrs": [],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutMessagePublishNewsletterPollVoteMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "makeNewsletterPollVoteVotesVote",
+        "mergeNewsletterPollVoteMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [],
+      "children": [
+        {
+          "tag": "votes",
+          "attrs": [],
+          "children": [
+            {
+              "tag": "vote",
+              "attrs": [],
+              "children": [],
+              "repeats": true
+            }
+          ],
+          "repeats": false
+        }
+      ],
+      "response": null
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutMessagePublishNewsletterRequest",
+      "exportedFunction": null,
+      "allExports": [
+        "makeNewsletterRequest"
+      ],
       "namespace": null,
       "subtype": null,
       "target": null,
@@ -22,11 +77,952 @@
       "response": null
     },
     {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutSpamExtensionScreenDataMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "makeExtensionScreenDataExtensionScreen",
+        "mergeExtensionScreenDataMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [],
+      "children": [
+        {
+          "tag": "extension_screen",
+          "attrs": [],
+          "children": [],
+          "repeats": true
+        }
+      ],
+      "response": null
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutSpamGroupReportRequest",
+      "exportedFunction": null,
+      "allExports": [
+        "makeGroupReportRequestSpamListMessage",
+        "makeGroupReportRequestSpamListCall",
+        "makeGroupReportRequest"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "from",
+          "kind": "group_jid",
+          "required": true
+        },
+        {
+          "name": "phash",
+          "kind": "optional",
+          "required": false
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutSpamMessageFrankingMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "makeMessageFrankingRaw",
+        "mergeMessageFrankingMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [],
+      "children": [
+        {
+          "tag": "raw",
+          "attrs": [],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutSpamMessageMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "makeMessageRaw",
+        "makeMessageEnc",
+        "mergeMessageMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "t",
+          "kind": "integer",
+          "required": true
+        },
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "selected",
+          "kind": "optional",
+          "required": false
+        },
+        {
+          "name": "unsent",
+          "kind": "optional",
+          "required": false
+        },
+        {
+          "name": "deleted_reason",
+          "kind": "optional",
+          "required": false
+        }
+      ],
+      "children": [
+        {
+          "tag": "raw",
+          "attrs": [
+            {
+              "name": "mediatype",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "local_message_type",
+              "kind": "optional",
+              "required": false
+            }
+          ],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutSpamNewsletterReportRequest",
+      "exportedFunction": null,
+      "allExports": [
+        "makeNewsletterReportRequestSpamListMessage",
+        "makeNewsletterReportRequest"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "from",
+          "kind": "user_jid",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutSpamStatusReportRequest",
+      "exportedFunction": null,
+      "allExports": [
+        "makeStatusReportRequest"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "from",
+          "kind": "user_jid",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutSpamWaMessageReportingMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "makeWaMessageReportingRaw",
+        "mergeWaMessageReportingMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [],
+      "children": [
+        {
+          "tag": "raw",
+          "attrs": [],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutSupportMessageFeedbackSendFeedbackRequest",
+      "exportedFunction": null,
+      "allExports": [
+        "makeSendFeedbackRequestFeedbackListFeedback",
+        "makeSendFeedbackRequest"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WAWebBroadcastMessageRPC",
+      "exportedFunction": null,
+      "allExports": [
+        "sendBroadcastMessageRPC"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "phash",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "string",
+          "required": true
+        }
+      ],
+      "children": [
+        {
+          "tag": "biz",
+          "attrs": [],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WAWebEncryptAndSendStatusMsg",
+      "exportedFunction": null,
+      "allExports": [
+        "calculateRevokeSenderList",
+        "encryptAndSendStatusMsg",
+        "genMessageBody",
+        "maybeApplyStatusTag",
+        "encryptAndSendStatusDirectMsg"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "edit",
+          "kind": "dynamic",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WAWebGroupHistoryReportingTokenUtils",
+      "exportedFunction": null,
+      "allExports": [
+        "buildGroupHistoryReportingMessageStanza"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        }
+      ],
+      "children": [
+        {
+          "tag": "reporting_token",
+          "attrs": [
+            {
+              "name": "v",
+              "kind": "string",
+              "required": true
+            }
+          ],
+          "children": [],
+          "content": {
+            "kind": "dynamic"
+          },
+          "repeats": false
+        }
+      ],
+      "response": null
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WAWebGroupHistoryReportingTokenUtils",
+      "exportedFunction": null,
+      "allExports": [
+        "buildGroupHistoryReportingMessageStanza"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WAWebResendBroadcastMsg",
+      "exportedFunction": null,
+      "allExports": [
+        "createBroadcastDeviceMsgStanza"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "user_jid",
+          "required": true
+        },
+        {
+          "name": "participant",
+          "kind": "device_jid",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "edit",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "eph_setting",
+          "kind": "optional",
+          "required": false
+        }
+      ],
+      "children": [
+        {
+          "tag": "enc",
+          "attrs": [
+            {
+              "name": "v",
+              "kind": "string",
+              "required": true
+            },
+            {
+              "name": "type",
+              "kind": "string",
+              "required": true
+            },
+            {
+              "name": "count",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "mediatype",
+              "kind": "dynamic",
+              "required": true
+            }
+          ],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WAWebResendStatusMsg",
+      "exportedFunction": null,
+      "allExports": [
+        "createStatusDeviceMsgStanza"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "edit",
+          "kind": "dynamic",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WAWebSendGroupSkmsgJob",
+      "exportedFunction": null,
+      "allExports": [
+        "sendPerfReporter",
+        "sendReporter",
+        "encryptAndSendSenderKeyMsg"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "phash",
+          "kind": "optional",
+          "required": false
+        },
+        {
+          "name": "type",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "edit",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "addressing_mode",
+          "kind": "string",
+          "required": true
+        }
+      ],
+      "children": [
+        {
+          "tag": "biz",
+          "attrs": [],
+          "children": [
+            {
+              "tag": "interactive",
+              "attrs": [
+                {
+                  "name": "v",
+                  "kind": "const",
+                  "value": "1",
+                  "required": true
+                },
+                {
+                  "name": "type",
+                  "kind": "string",
+                  "required": true
+                }
+              ],
+              "children": [
+                {
+                  "tag": "native_flow",
+                  "attrs": [
+                    {
+                      "name": "name",
+                      "kind": "string",
+                      "required": true
+                    }
+                  ],
+                  "children": [],
+                  "repeats": false
+                }
+              ],
+              "repeats": false
+            }
+          ],
+          "repeats": false
+        },
+        {
+          "tag": "meta",
+          "attrs": [
+            {
+              "name": "origin",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "destination_id",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "sender_intent",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "polltype",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "event_type",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "thread_msg_id",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "thread_msg_sender_jid",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "appdata",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "view_once",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "conversation_thread_id",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "tag_reason",
+              "kind": "optional",
+              "required": false
+            }
+          ],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WAWebSendMsgCreateDeviceStanza",
+      "exportedFunction": null,
+      "allExports": [
+        "MsgType",
+        "PrivacySensitiveType",
+        "createUserDeviceMsgStanza",
+        "createGroupDeviceMsgStanza"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "user_jid",
+          "required": true
+        },
+        {
+          "name": "participant",
+          "kind": "optional",
+          "required": false
+        },
+        {
+          "name": "recipient",
+          "kind": "optional",
+          "required": false
+        },
+        {
+          "name": "type",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "peer_recipient_pn",
+          "kind": "optional",
+          "required": false
+        },
+        {
+          "name": "peer_recipient_lid",
+          "kind": "optional",
+          "required": false
+        },
+        {
+          "name": "peer_recipient_username",
+          "kind": "optional",
+          "required": false
+        },
+        {
+          "name": "edit",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "category",
+          "kind": "optional",
+          "required": false
+        },
+        {
+          "name": "push_priority",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "privacy_sensitive",
+          "kind": "optional",
+          "required": false
+        },
+        {
+          "name": "addressing_mode",
+          "kind": "optional",
+          "required": false
+        }
+      ],
+      "children": [
+        {
+          "tag": "enc",
+          "attrs": [
+            {
+              "name": "v",
+              "kind": "string",
+              "required": true
+            },
+            {
+              "name": "type",
+              "kind": "string",
+              "required": true
+            },
+            {
+              "name": "session_type",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "state",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "count",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "mediatype",
+              "kind": "dynamic",
+              "required": true
+            }
+          ],
+          "children": [],
+          "repeats": false
+        },
+        {
+          "tag": "meta",
+          "attrs": [
+            {
+              "name": "origin",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "destination_id",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "sender_intent",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "polltype",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "event_type",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "thread_msg_id",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "thread_msg_sender_jid",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "appdata",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "view_once",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "conversation_thread_id",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "tag_reason",
+              "kind": "optional",
+              "required": false
+            }
+          ],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WAWebSendMsgCreateFanoutStanza",
+      "exportedFunction": null,
+      "allExports": [
+        "getBotAgentEngagementType",
+        "createFanoutMsgStanza",
+        "genCsTokenBody"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "peer_recipient_lid",
+          "kind": "optional",
+          "required": false
+        },
+        {
+          "name": "peer_recipient_pn",
+          "kind": "optional",
+          "required": false
+        },
+        {
+          "name": "peer_recipient_username",
+          "kind": "optional",
+          "required": false
+        },
+        {
+          "name": "edit",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "device_fanout",
+          "kind": "optional",
+          "required": false
+        },
+        {
+          "name": "recipient_pn",
+          "kind": "optional",
+          "required": false
+        },
+        {
+          "name": "addressing_mode",
+          "kind": "optional",
+          "required": false
+        }
+      ],
+      "children": [
+        {
+          "tag": "meta",
+          "attrs": [
+            {
+              "name": "origin",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "destination_id",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "sender_intent",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "polltype",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "event_type",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "thread_msg_id",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "thread_msg_sender_jid",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "appdata",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "view_once",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "conversation_thread_id",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "tag_reason",
+              "kind": "optional",
+              "required": false
+            }
+          ],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null
+    },
+    {
       "stanzaType": "receipt",
       "direction": "outgoing",
       "moduleName": "WASmaxOutReceiptSenderAggregatedViewPublishMixin",
       "exportedFunction": null,
-      "allExports": [],
+      "allExports": [
+        "makeSenderAggregatedViewPublishListItem",
+        "mergeSenderAggregatedViewPublishMixin"
+      ],
       "namespace": null,
       "subtype": null,
       "target": null,
@@ -63,49 +1059,12 @@
     {
       "stanzaType": "receipt",
       "direction": "outgoing",
-      "moduleName": "WASmaxOutReceiptStatusClassMixin",
-      "exportedFunction": null,
-      "allExports": [],
-      "namespace": null,
-      "subtype": null,
-      "target": null,
-      "attrs": [
-        {
-          "name": "class",
-          "kind": "const",
-          "value": "status",
-          "required": true
-        }
-      ],
-      "children": [],
-      "response": null
-    },
-    {
-      "stanzaType": "receipt",
-      "direction": "outgoing",
-      "moduleName": "WASmaxOutReceiptViewTypeMixin",
-      "exportedFunction": null,
-      "allExports": [],
-      "namespace": null,
-      "subtype": "view",
-      "target": null,
-      "attrs": [
-        {
-          "name": "type",
-          "kind": "const",
-          "value": "view",
-          "required": true
-        }
-      ],
-      "children": [],
-      "response": null
-    },
-    {
-      "stanzaType": "receipt",
-      "direction": "outgoing",
       "moduleName": "WAWebHandleVoipCall",
       "exportedFunction": null,
-      "allExports": [],
+      "allExports": [
+        "canUseVoipStackForCallMessage",
+        "handleCall"
+      ],
       "namespace": null,
       "subtype": null,
       "target": null,
@@ -129,7 +1088,9 @@
       "direction": "outgoing",
       "moduleName": "WAWebSendDeliveryReceiptJob",
       "exportedFunction": null,
-      "allExports": [],
+      "allExports": [
+        "sendDeliveryReceiptsAfterDecryption"
+      ],
       "namespace": null,
       "subtype": null,
       "target": null,
@@ -173,7 +1134,9 @@
       "direction": "outgoing",
       "moduleName": "WAWebSendHistSyncServerErrorReceiptJob",
       "exportedFunction": null,
-      "allExports": [],
+      "allExports": [
+        "default"
+      ],
       "namespace": null,
       "subtype": "server-error",
       "target": null,
@@ -229,7 +1192,9 @@
       "direction": "outgoing",
       "moduleName": "WAWebSendPlayedReceiptJob",
       "exportedFunction": null,
-      "allExports": [],
+      "allExports": [
+        "default"
+      ],
       "namespace": null,
       "subtype": null,
       "target": null,
@@ -268,7 +1233,13 @@
       "direction": "outgoing",
       "moduleName": "WAWebSendReceiptJobCommon",
       "exportedFunction": null,
-      "allExports": [],
+      "allExports": [
+        "RECEIPT_TYPE",
+        "ReceiptModeBitPosition",
+        "genReceiptMetaModeNode",
+        "sendBotInvokeResponseAcks",
+        "sendAggregateReceipts"
+      ],
       "namespace": null,
       "subtype": null,
       "target": null,
@@ -327,7 +1298,11 @@
       "direction": "outgoing",
       "moduleName": "WAWebSendRetryReceiptJob",
       "exportedFunction": null,
-      "allExports": [],
+      "allExports": [
+        "RetryReason",
+        "sendRetryReceipt",
+        "getRetryReasonFromError"
+      ],
       "namespace": null,
       "subtype": "retry",
       "target": null,
@@ -415,7 +1390,9 @@
       "direction": "outgoing",
       "moduleName": "WAWebSendServerErrorReceiptJob",
       "exportedFunction": null,
-      "allExports": [],
+      "allExports": [
+        "default"
+      ],
       "namespace": null,
       "subtype": "server-error",
       "target": null,
@@ -487,7 +1464,9 @@
       "direction": "outgoing",
       "moduleName": "WAWebVoipSendGroupCallRekeyRetryReceiptJob",
       "exportedFunction": null,
-      "allExports": [],
+      "allExports": [
+        "default"
+      ],
       "namespace": null,
       "subtype": null,
       "target": null,
@@ -550,114 +1529,11 @@
     {
       "stanzaType": "ack",
       "direction": "outgoing",
-      "moduleName": "WASmaxOutGroupsNotificationClientAckMixin",
-      "exportedFunction": null,
-      "allExports": [],
-      "namespace": null,
-      "subtype": null,
-      "target": null,
-      "attrs": [
-        {
-          "name": "id",
-          "kind": "string",
-          "required": true
-        },
-        {
-          "name": "to",
-          "kind": "user_jid",
-          "required": true
-        },
-        {
-          "name": "class",
-          "kind": "const",
-          "value": "notification",
-          "required": true
-        },
-        {
-          "name": "type",
-          "kind": "string",
-          "required": true
-        }
-      ],
-      "children": [],
-      "response": null
-    },
-    {
-      "stanzaType": "ack",
-      "direction": "outgoing",
-      "moduleName": "WASmaxOutMdNotificationClientAckMixin",
-      "exportedFunction": null,
-      "allExports": [],
-      "namespace": null,
-      "subtype": null,
-      "target": null,
-      "attrs": [
-        {
-          "name": "id",
-          "kind": "string",
-          "required": true
-        },
-        {
-          "name": "to",
-          "kind": "user_jid",
-          "required": true
-        },
-        {
-          "name": "class",
-          "kind": "const",
-          "value": "notification",
-          "required": true
-        },
-        {
-          "name": "type",
-          "kind": "string",
-          "required": true
-        }
-      ],
-      "children": [],
-      "response": null
-    },
-    {
-      "stanzaType": "ack",
-      "direction": "outgoing",
-      "moduleName": "WASmaxOutMessageDeliverCommonAckMixin",
-      "exportedFunction": null,
-      "allExports": [],
-      "namespace": null,
-      "subtype": null,
-      "target": null,
-      "attrs": [
-        {
-          "name": "to",
-          "kind": "user_jid",
-          "required": true
-        },
-        {
-          "name": "class",
-          "kind": "const",
-          "value": "message",
-          "required": true
-        },
-        {
-          "name": "id",
-          "kind": "string",
-          "required": true
-        },
-        {
-          "name": "type",
-          "kind": "string",
-          "required": true
-        }
-      ],
-      "children": [],
-      "response": null
-    },
-    {
-      "stanzaType": "ack",
-      "direction": "outgoing",
       "moduleName": "WASmaxOutMessageDeliverNewsletterResponseError",
       "exportedFunction": null,
-      "allExports": [],
+      "allExports": [
+        "makeNewsletterResponseError"
+      ],
       "namespace": null,
       "subtype": null,
       "target": null,
@@ -677,7 +1553,9 @@
       "direction": "outgoing",
       "moduleName": "WASmaxOutMessageFallbackDeliverResponseBadStanza",
       "exportedFunction": null,
-      "allExports": [],
+      "allExports": [
+        "makeDeliverResponseBadStanza"
+      ],
       "namespace": null,
       "subtype": null,
       "target": null,
@@ -720,149 +1598,12 @@
     {
       "stanzaType": "ack",
       "direction": "outgoing",
-      "moduleName": "WASmaxOutNewslettersNotificationClientAckMixin",
-      "exportedFunction": null,
-      "allExports": [],
-      "namespace": null,
-      "subtype": null,
-      "target": null,
-      "attrs": [
-        {
-          "name": "id",
-          "kind": "string",
-          "required": true
-        },
-        {
-          "name": "to",
-          "kind": "user_jid",
-          "required": true
-        },
-        {
-          "name": "class",
-          "kind": "const",
-          "value": "notification",
-          "required": true
-        },
-        {
-          "name": "type",
-          "kind": "string",
-          "required": true
-        }
-      ],
-      "children": [],
-      "response": null
-    },
-    {
-      "stanzaType": "ack",
-      "direction": "outgoing",
-      "moduleName": "WASmaxOutPsaNotificationClientAckMixin",
-      "exportedFunction": null,
-      "allExports": [],
-      "namespace": null,
-      "subtype": null,
-      "target": null,
-      "attrs": [
-        {
-          "name": "id",
-          "kind": "string",
-          "required": true
-        },
-        {
-          "name": "to",
-          "kind": "user_jid",
-          "required": true
-        },
-        {
-          "name": "class",
-          "kind": "const",
-          "value": "notification",
-          "required": true
-        },
-        {
-          "name": "type",
-          "kind": "string",
-          "required": true
-        }
-      ],
-      "children": [],
-      "response": null
-    },
-    {
-      "stanzaType": "ack",
-      "direction": "outgoing",
-      "moduleName": "WASmaxOutQpSurfacesNotificationClientAckMixin",
-      "exportedFunction": null,
-      "allExports": [],
-      "namespace": null,
-      "subtype": null,
-      "target": null,
-      "attrs": [
-        {
-          "name": "id",
-          "kind": "string",
-          "required": true
-        },
-        {
-          "name": "to",
-          "kind": "user_jid",
-          "required": true
-        },
-        {
-          "name": "class",
-          "kind": "const",
-          "value": "notification",
-          "required": true
-        },
-        {
-          "name": "type",
-          "kind": "string",
-          "required": true
-        }
-      ],
-      "children": [],
-      "response": null
-    },
-    {
-      "stanzaType": "ack",
-      "direction": "outgoing",
-      "moduleName": "WASmaxOutStatusDeliverStatusAckMixin",
-      "exportedFunction": null,
-      "allExports": [],
-      "namespace": null,
-      "subtype": null,
-      "target": null,
-      "attrs": [
-        {
-          "name": "to",
-          "kind": "user_jid",
-          "required": true
-        },
-        {
-          "name": "class",
-          "kind": "const",
-          "value": "status",
-          "required": true
-        },
-        {
-          "name": "id",
-          "kind": "string",
-          "required": true
-        },
-        {
-          "name": "type",
-          "kind": "string",
-          "required": true
-        }
-      ],
-      "children": [],
-      "response": null
-    },
-    {
-      "stanzaType": "ack",
-      "direction": "outgoing",
       "moduleName": "WAWebCreateNackFromStanza",
       "exportedFunction": null,
-      "allExports": [],
+      "allExports": [
+        "NackReason",
+        "createNackFromStanza"
+      ],
       "namespace": null,
       "subtype": null,
       "target": null,
@@ -906,7 +1647,10 @@
       "direction": "outgoing",
       "moduleName": "WAWebCreateNackFromStanza",
       "exportedFunction": null,
-      "allExports": [],
+      "allExports": [
+        "NackReason",
+        "createNackFromStanza"
+      ],
       "namespace": null,
       "subtype": null,
       "target": null,
@@ -951,7 +1695,10 @@
       "direction": "outgoing",
       "moduleName": "WAWebCreateNackFromStanza",
       "exportedFunction": null,
-      "allExports": [],
+      "allExports": [
+        "NackReason",
+        "createNackFromStanza"
+      ],
       "namespace": null,
       "subtype": null,
       "target": null,
@@ -996,7 +1743,10 @@
       "direction": "outgoing",
       "moduleName": "WAWebCreateNackFromStanza",
       "exportedFunction": null,
-      "allExports": [],
+      "allExports": [
+        "NackReason",
+        "createNackFromStanza"
+      ],
       "namespace": null,
       "subtype": null,
       "target": null,
@@ -1041,7 +1791,9 @@
       "direction": "outgoing",
       "moduleName": "WAWebHandleAboutNotification",
       "exportedFunction": null,
-      "allExports": [],
+      "allExports": [
+        "handleAboutNotification"
+      ],
       "namespace": null,
       "subtype": "status",
       "target": null,
@@ -1077,7 +1829,10 @@
       "direction": "outgoing",
       "moduleName": "WAWebHandleAccountSyncNotification",
       "exportedFunction": null,
-      "allExports": [],
+      "allExports": [
+        "getAndUpdateStatus",
+        "handleAccountSyncNotification"
+      ],
       "namespace": null,
       "subtype": "account_sync",
       "target": null,
@@ -1113,7 +1868,9 @@
       "direction": "outgoing",
       "moduleName": "WAWebHandleBotProfileNotification",
       "exportedFunction": null,
-      "allExports": [],
+      "allExports": [
+        "handleBotProfileNotification"
+      ],
       "namespace": null,
       "subtype": null,
       "target": null,
@@ -1148,7 +1905,10 @@
       "direction": "outgoing",
       "moduleName": "WAWebHandleBusinessNotification",
       "exportedFunction": null,
-      "allExports": [],
+      "allExports": [
+        "handleBusinessNotification",
+        "handleBusinessNotificationJob"
+      ],
       "namespace": null,
       "subtype": "business",
       "target": null,
@@ -1198,7 +1958,10 @@
       "direction": "outgoing",
       "moduleName": "WAWebHandleBusinessNotification",
       "exportedFunction": null,
-      "allExports": [],
+      "allExports": [
+        "handleBusinessNotification",
+        "handleBusinessNotificationJob"
+      ],
       "namespace": null,
       "subtype": "business",
       "target": null,
@@ -1234,7 +1997,9 @@
       "direction": "outgoing",
       "moduleName": "WAWebHandleCompanionReqRefreshNotification",
       "exportedFunction": null,
-      "allExports": [],
+      "allExports": [
+        "handleCompanionReqRefreshNotification"
+      ],
       "namespace": null,
       "subtype": "companion_reg_refresh",
       "target": null,
@@ -1270,7 +2035,9 @@
       "direction": "outgoing",
       "moduleName": "WAWebHandleContactNotification",
       "exportedFunction": null,
-      "allExports": [],
+      "allExports": [
+        "default"
+      ],
       "namespace": null,
       "subtype": "contacts",
       "target": null,
@@ -1306,7 +2073,9 @@
       "direction": "outgoing",
       "moduleName": "WAWebHandleDeviceNotification",
       "exportedFunction": null,
-      "allExports": [],
+      "allExports": [
+        "handleDevicesNotification"
+      ],
       "namespace": null,
       "subtype": null,
       "target": null,
@@ -1336,7 +2105,9 @@
       "direction": "outgoing",
       "moduleName": "WAWebHandleDeviceSwitchingNotification",
       "exportedFunction": null,
-      "allExports": [],
+      "allExports": [
+        "default"
+      ],
       "namespace": null,
       "subtype": "registration",
       "target": null,
@@ -1372,7 +2143,9 @@
       "direction": "outgoing",
       "moduleName": "WAWebHandleDigestKey",
       "exportedFunction": null,
-      "allExports": [],
+      "allExports": [
+        "default"
+      ],
       "namespace": null,
       "subtype": null,
       "target": null,
@@ -1402,7 +2175,10 @@
       "direction": "outgoing",
       "moduleName": "WAWebHandleDigitalCommerceSubscriptionNotification",
       "exportedFunction": null,
-      "allExports": [],
+      "allExports": [
+        "handleDigitalCommerceSubscriptionNotification",
+        "handleDigitalCommerceSubscriptionNotificationJob"
+      ],
       "namespace": null,
       "subtype": "digital_commerce_subscription",
       "target": null,
@@ -1438,7 +2214,9 @@
       "direction": "outgoing",
       "moduleName": "WAWebHandleDisappearingModeNotification",
       "exportedFunction": null,
-      "allExports": [],
+      "allExports": [
+        "handleDisappearingModeNotificationJob"
+      ],
       "namespace": null,
       "subtype": "disappearing_mode",
       "target": null,
@@ -1474,7 +2252,10 @@
       "direction": "outgoing",
       "moduleName": "WAWebHandleGroupNotification",
       "exportedFunction": null,
-      "allExports": [],
+      "allExports": [
+        "handleGroupNotification",
+        "handleParsedGroupNotification"
+      ],
       "namespace": null,
       "subtype": "w:gp2",
       "target": null,
@@ -1515,7 +2296,10 @@
       "direction": "outgoing",
       "moduleName": "WAWebHandleGroupNotificationV2",
       "exportedFunction": null,
-      "allExports": [],
+      "allExports": [
+        "isGroupNotificationOptimizationEligible",
+        "handleGroupNotificationV2"
+      ],
       "namespace": null,
       "subtype": "w:gp2",
       "target": null,
@@ -1556,7 +2340,9 @@
       "direction": "outgoing",
       "moduleName": "WAWebHandleGrowthNotification",
       "exportedFunction": null,
-      "allExports": [],
+      "allExports": [
+        "default"
+      ],
       "namespace": null,
       "subtype": null,
       "target": null,
@@ -1591,7 +2377,9 @@
       "direction": "outgoing",
       "moduleName": "WAWebHandleIdentityChange",
       "exportedFunction": null,
-      "allExports": [],
+      "allExports": [
+        "handleE2eIdentityChange"
+      ],
       "namespace": null,
       "subtype": null,
       "target": null,
@@ -1621,7 +2409,9 @@
       "direction": "outgoing",
       "moduleName": "WAWebHandleMediaRetryNotification",
       "exportedFunction": null,
-      "allExports": [],
+      "allExports": [
+        "default"
+      ],
       "namespace": null,
       "subtype": "mediaretry",
       "target": null,
@@ -1662,7 +2452,9 @@
       "direction": "outgoing",
       "moduleName": "WAWebHandleMessageRetryRequest",
       "exportedFunction": null,
-      "allExports": [],
+      "allExports": [
+        "handleMessageRetryRequest"
+      ],
       "namespace": null,
       "subtype": "retry",
       "target": null,
@@ -1703,7 +2495,13 @@
       "direction": "outgoing",
       "moduleName": "WAWebHandleMexNotification",
       "exportedFunction": null,
-      "allExports": [],
+      "allExports": [
+        "name",
+        "operationName",
+        "toString",
+        "handleMexNotification",
+        "MissingMEXNotificationHandler"
+      ],
       "namespace": null,
       "subtype": "mex",
       "target": null,
@@ -1739,7 +2537,10 @@
       "direction": "outgoing",
       "moduleName": "WAWebHandleMsgSendAck",
       "exportedFunction": null,
-      "allExports": [],
+      "allExports": [
+        "sendAck",
+        "sendNack"
+      ],
       "namespace": null,
       "subtype": null,
       "target": null,
@@ -1778,7 +2579,10 @@
       "direction": "outgoing",
       "moduleName": "WAWebHandleMsgSendAck",
       "exportedFunction": null,
-      "allExports": [],
+      "allExports": [
+        "sendAck",
+        "sendNack"
+      ],
       "namespace": null,
       "subtype": null,
       "target": null,
@@ -1822,7 +2626,9 @@
       "direction": "outgoing",
       "moduleName": "WAWebHandlePreKeyLow",
       "exportedFunction": null,
-      "allExports": [],
+      "allExports": [
+        "default"
+      ],
       "namespace": null,
       "subtype": null,
       "target": null,
@@ -1852,7 +2658,9 @@
       "direction": "outgoing",
       "moduleName": "WAWebHandlePrivacyTokensNotification",
       "exportedFunction": null,
-      "allExports": [],
+      "allExports": [
+        "default"
+      ],
       "namespace": null,
       "subtype": "privacy_token",
       "target": null,
@@ -1888,7 +2696,9 @@
       "direction": "outgoing",
       "moduleName": "WAWebHandleProfilePicNotification",
       "exportedFunction": null,
-      "allExports": [],
+      "allExports": [
+        "handleProfilePicNotificationJob"
+      ],
       "namespace": null,
       "subtype": "picture",
       "target": null,
@@ -1924,7 +2734,9 @@
       "direction": "outgoing",
       "moduleName": "WAWebHandlePsa",
       "exportedFunction": null,
-      "allExports": [],
+      "allExports": [
+        "default"
+      ],
       "namespace": null,
       "subtype": "psa",
       "target": null,
@@ -1965,7 +2777,9 @@
       "direction": "outgoing",
       "moduleName": "WAWebHandleServerNotification",
       "exportedFunction": null,
-      "allExports": [],
+      "allExports": [
+        "handleServerNotification"
+      ],
       "namespace": null,
       "subtype": "server",
       "target": null,
@@ -2001,7 +2815,9 @@
       "direction": "outgoing",
       "moduleName": "WAWebHandleServerSyncNotification",
       "exportedFunction": null,
-      "allExports": [],
+      "allExports": [
+        "handleServerSyncNotification"
+      ],
       "namespace": null,
       "subtype": "server_sync",
       "target": null,
@@ -2037,7 +2853,10 @@
       "direction": "outgoing",
       "moduleName": "WAWebHandleVoipCall",
       "exportedFunction": null,
-      "allExports": [],
+      "allExports": [
+        "canUseVoipStackForCallMessage",
+        "handleCall"
+      ],
       "namespace": null,
       "subtype": null,
       "target": null,
@@ -2072,7 +2891,9 @@
       "direction": "outgoing",
       "moduleName": "WAWebHandleVoipCallReceipt",
       "exportedFunction": null,
-      "allExports": [],
+      "allExports": [
+        "handleCallReceipt"
+      ],
       "namespace": null,
       "subtype": null,
       "target": null,
@@ -2107,7 +2928,9 @@
       "direction": "outgoing",
       "moduleName": "WAWebHandleVoipOfferNotice",
       "exportedFunction": null,
-      "allExports": [],
+      "allExports": [
+        "default"
+      ],
       "namespace": null,
       "subtype": null,
       "target": null,
@@ -2142,7 +2965,9 @@
       "direction": "outgoing",
       "moduleName": "WAWebHandleWaChat",
       "exportedFunction": null,
-      "allExports": [],
+      "allExports": [
+        "default"
+      ],
       "namespace": null,
       "subtype": "psa",
       "target": null,
@@ -2178,7 +3003,10 @@
       "direction": "outgoing",
       "moduleName": "WAWebOfflineResumePreAckHandler",
       "exportedFunction": null,
-      "allExports": [],
+      "allExports": [
+        "parseAndSerializeOfflinePreAck",
+        "sendOfflinePreAck"
+      ],
       "namespace": null,
       "subtype": null,
       "target": null,
@@ -2222,7 +3050,13 @@
       "direction": "outgoing",
       "moduleName": "WAWebPaymentNotificationHandler",
       "exportedFunction": null,
-      "allExports": [],
+      "allExports": [
+        "handlePaymentNotification",
+        "processOrphanPaymentNotifications",
+        "processAllOrphanPaymentNotifications",
+        "getMessageFromCollection",
+        "getMessageFromDb"
+      ],
       "namespace": null,
       "subtype": "pay",
       "target": null,
@@ -2258,7 +3092,9 @@
       "direction": "outgoing",
       "moduleName": "WAWebReceiptAck",
       "exportedFunction": null,
-      "allExports": [],
+      "allExports": [
+        "buildReceiptAck"
+      ],
       "namespace": null,
       "subtype": null,
       "target": null,
@@ -2298,7 +3134,13 @@
       "direction": "outgoing",
       "moduleName": "WAWebSendReceiptJobCommon",
       "exportedFunction": null,
-      "allExports": [],
+      "allExports": [
+        "RECEIPT_TYPE",
+        "ReceiptModeBitPosition",
+        "genReceiptMetaModeNode",
+        "sendBotInvokeResponseAcks",
+        "sendAggregateReceipts"
+      ],
       "namespace": null,
       "subtype": "text",
       "target": null,
@@ -2334,7 +3176,13 @@
       "direction": "outgoing",
       "moduleName": "WAWebSendReceiptJobCommon",
       "exportedFunction": null,
-      "allExports": [],
+      "allExports": [
+        "RECEIPT_TYPE",
+        "ReceiptModeBitPosition",
+        "genReceiptMetaModeNode",
+        "sendBotInvokeResponseAcks",
+        "sendAggregateReceipts"
+      ],
       "namespace": null,
       "subtype": "text",
       "target": null,
@@ -2410,7 +3258,9 @@
       "direction": "outgoing",
       "moduleName": "WASmaxOutChatstateClientNotificationRequest",
       "exportedFunction": null,
-      "allExports": [],
+      "allExports": [
+        "makeClientNotificationRequest"
+      ],
       "namespace": null,
       "subtype": null,
       "target": null,
@@ -2425,57 +3275,13 @@
       "response": null
     },
     {
-      "stanzaType": "chatstate",
-      "direction": "outgoing",
-      "moduleName": "WASmaxOutChatstateComposingMixin",
-      "exportedFunction": null,
-      "allExports": [],
-      "namespace": null,
-      "subtype": null,
-      "target": null,
-      "attrs": [],
-      "children": [
-        {
-          "tag": "composing",
-          "attrs": [
-            {
-              "name": "media",
-              "kind": "optional",
-              "required": false
-            }
-          ],
-          "children": [],
-          "repeats": false
-        }
-      ],
-      "response": null
-    },
-    {
-      "stanzaType": "chatstate",
-      "direction": "outgoing",
-      "moduleName": "WASmaxOutChatstatePausedMixin",
-      "exportedFunction": null,
-      "allExports": [],
-      "namespace": null,
-      "subtype": null,
-      "target": null,
-      "attrs": [],
-      "children": [
-        {
-          "tag": "paused",
-          "attrs": [],
-          "children": [],
-          "repeats": false
-        }
-      ],
-      "response": null
-    },
-    {
       "stanzaType": "presence",
       "direction": "outgoing",
       "moduleName": "WASmaxOutPresenceAvailabilityRequest",
       "exportedFunction": null,
-      "allExports": [],
+      "allExports": [
+        "makeAvailabilityRequest"
+      ],
       "namespace": null,
       "subtype": null,
       "target": null,
@@ -2499,7 +3305,9 @@
       "direction": "outgoing",
       "moduleName": "WASmaxOutPresenceSubscribeRequest",
       "exportedFunction": null,
-      "allExports": [],
+      "allExports": [
+        "makeSubscribeRequest"
+      ],
       "namespace": null,
       "subtype": "subscribe",
       "target": null,

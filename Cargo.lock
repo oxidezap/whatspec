@@ -1670,6 +1670,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "wa-tokens"
+version = "0.1.0"
+dependencies = [
+ "oxc_allocator",
+ "oxc_ast",
+ "oxc_ast_visit",
+ "wa-ir",
+ "wa-oxc",
+ "wa-transform",
+]
+
+[[package]]
 name = "wa-transform"
 version = "0.1.0"
 dependencies = [
@@ -1725,6 +1737,7 @@ dependencies = [
  "wa-proto",
  "wa-scan",
  "wa-text",
+ "wa-tokens",
  "wa-transform",
  "wa-wam",
 ]

@@ -20,6 +20,7 @@ pub mod iq;
 pub mod mex;
 pub mod notif;
 pub mod proto;
+pub mod tokens;
 pub mod wam;
 pub mod wap;
 
@@ -30,6 +31,7 @@ pub use iq::*;
 pub use mex::*;
 pub use notif::*;
 pub use proto::*;
+pub use tokens::*;
 pub use wam::*;
 
 use serde::{Deserialize, Serialize};
@@ -108,6 +110,7 @@ pub fn schemas() -> Vec<(&'static str, String)> {
         ("schema/enums.schema.json", dump::<enums::EnumsIr>()),
         ("schema/wam.schema.json", dump::<wam::WamIr>()),
         ("schema/notif.schema.json", dump::<notif::NotifIr>()),
+        ("schema/tokens.schema.json", dump::<tokens::TokensIr>()),
     ]
 }
 
@@ -118,12 +121,17 @@ mod schema_tests {
     #[test]
     fn schemas_are_well_formed_and_versioned() {
         let out = schemas();
-        assert_eq!(out.len(), 8, "one schema per neutral domain");
+        assert_eq!(out.len(), 9, "one schema per neutral domain");
         for (path, json) in &out {
-            // Each schema parses as JSON and is a JSON Schema object with $defs.
+            // Each schema parses as JSON and is a JSON Schema object with a
+            // `properties` map. (`$defs` only appears for domains with nested named
+            // types; a flat domain like `tokens` legitimately has none.)
             let v: serde_json::Value =
                 serde_json::from_str(json).unwrap_or_else(|e| panic!("{path}: {e}"));
-            assert!(v.get("$defs").is_some(), "{path}: expected $defs");
+            assert!(
+                v.get("properties").is_some(),
+                "{path}: expected a JSON Schema object with properties"
+            );
             // The envelope's schemaVersion field is part of the contract.
             let props = &v["properties"];
             assert!(
