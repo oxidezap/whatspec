@@ -36,14 +36,14 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
 use oxc_allocator::Allocator;
-use oxc_ast::ast::{CallExpression, Expression, Function, Statement};
+use oxc_ast::ast::{Argument, CallExpression, Expression, Function, Statement};
 use oxc_span::GetSpan;
 use wa_ir::wap;
 use wa_ir::{
     AssertionKind, ParsedField, ParsedFieldType, ParsedResponse, ResponseAssertion, UnionVariant,
 };
 
-use wa_oxc::{arg_expr, as_call, as_identifier, as_string_lit, callee_method};
+use wa_oxc::{arg_expr, as_call, as_identifier, as_int, as_string_lit, callee_method};
 
 /// A module's local parser functions, keyed by name → re-parsable source. Child
 /// accessors reference these by identifier (`optionalChildWithTag(n, "x", parseX)`).
@@ -191,6 +191,10 @@ enum Binding {
         field_type: ParsedFieldType,
         required: bool,
         byte_length: Option<u32>,
+        /// Inclusive integer bounds from an `attrIntRange(node, name, min, max)`, when
+        /// the accessor was a range check (and not the timestamp-marker range, which is
+        /// surfaced as `field_type: Timestamp` instead).
+        int_range: Option<(i64, i64)>,
         /// The wire attr/content name (the accessor's literal arg), when present.
         wire_name: Option<String>,
         /// Wrapper tags to descend before reading, when the accessor's node arg is a
@@ -438,6 +442,7 @@ fn classify_call(
                     field_type: ft,
                     required: true,
                     byte_length: bl,
+                    int_range: None,
                     wire_name,
                     source_path,
                 },
@@ -467,6 +472,7 @@ fn classify_call(
             field_type: ParsedFieldType::Bytes,
             required: true,
             byte_length: None,
+            int_range: None,
             wire_name: None,
             source_path,
         },
@@ -476,6 +482,7 @@ fn classify_call(
             field_type: ParsedFieldType::String,
             required: false,
             byte_length: None,
+            int_range: None,
             wire_name,
             source_path,
         },
@@ -487,14 +494,18 @@ fn classify_call(
                 .and_then(arg_expr)
                 .and_then(inner_accessor_name);
             match inner.and_then(normalize_accessor) {
-                Some((m, ft, bl)) => Binding::Field {
-                    method: optional_variant(&m),
-                    field_type: ft,
-                    required: false,
-                    byte_length: bl,
-                    wire_name,
-                    source_path,
-                },
+                Some((m, ft, bl)) => {
+                    let (field_type, int_range) = int_range_and_type(inner, args, ft);
+                    Binding::Field {
+                        method: optional_variant(&m),
+                        field_type,
+                        required: false,
+                        byte_length: bl,
+                        int_range,
+                        wire_name,
+                        source_path,
+                    }
+                }
                 None => Binding::None,
             }
         }
@@ -509,14 +520,18 @@ fn classify_call(
         | "flattenedChildWithTag"
         | "mapChildrenWithTag" => classify_child(method, args, locals, resolver, visited, bindings),
         other => match normalize_accessor(other) {
-            Some((m, ft, bl)) => Binding::Field {
-                method: m,
-                field_type: ft,
-                required: true,
-                byte_length: bl,
-                wire_name,
-                source_path,
-            },
+            Some((m, ft, bl)) => {
+                let (field_type, int_range) = int_range_and_type(Some(other), args, ft);
+                Binding::Field {
+                    method: m,
+                    field_type,
+                    required: true,
+                    byte_length: bl,
+                    int_range,
+                    wire_name,
+                    source_path,
+                }
+            }
             None => Binding::None,
         },
     }
@@ -633,6 +648,43 @@ fn classify_child(
         repeats: method == "mapChildrenWithTag",
         optional: matches!(method, "optionalChild" | "optionalChildWithTag"),
         source_path,
+    }
+}
+
+/// The `attrIntRange` bounds WA uses to range-check a Unix timestamp — the window
+/// `2020-01-01T08:00:00Z`…`2100-01-01T08:00:00Z` (08:00 UTC, not midnight), in seconds
+/// and in milliseconds (`15778656e5`/`41024736e5`). A field checked against exactly one
+/// of these windows is a wall-clock time, not a counter.
+const TIMESTAMP_RANGE_SECONDS: (i64, i64) = (1577865600, 4102473600);
+const TIMESTAMP_RANGE_MILLIS: (i64, i64) = (1577865600000, 4102473600000);
+
+/// Refine an integer accessor's type/bounds from an `attrIntRange(node, name, min,
+/// max)` call. Returns the (possibly refined) field type and any integer bounds:
+///  - the timestamp-marker range → [`ParsedFieldType::Timestamp`], no bounds carried;
+///  - any other range → the base type with its `(min, max)` bounds;
+///  - a non-range accessor → the base type, no bounds.
+///
+/// `min`/`max` are the two numeric literals in the call — the only ones present, in
+/// both the direct `attrIntRange(node, name, min, max)` and the wrapped
+/// `optional(attrIntRange, node, name, min, max)` forms.
+fn int_range_and_type(
+    accessor: Option<&str>,
+    args: &[Argument],
+    base: ParsedFieldType,
+) -> (ParsedFieldType, Option<(i64, i64)>) {
+    if accessor != Some("attrIntRange") {
+        return (base, None);
+    }
+    let mut nums = args.iter().filter_map(|a| arg_expr(a).and_then(as_int));
+    match (nums.next(), nums.next()) {
+        (Some(min), Some(max)) if (min, max) == TIMESTAMP_RANGE_SECONDS => {
+            (ParsedFieldType::Timestamp, None)
+        }
+        (Some(min), Some(max)) if (min, max) == TIMESTAMP_RANGE_MILLIS => {
+            (ParsedFieldType::TimestampMillis, None)
+        }
+        (Some(min), Some(max)) => (base, Some((min, max))),
+        _ => (base, None),
     }
 }
 
@@ -958,9 +1010,14 @@ fn collect_object_fields(
                 field_type,
                 required,
                 byte_length,
+                int_range,
                 wire_name,
                 source_path,
             }) => {
+                let (int_min, int_max) = match int_range {
+                    Some((min, max)) => (Some(*min), Some(*max)),
+                    None => (None, None),
+                };
                 out.push(ParsedField {
                     method: method.clone(),
                     name: key.to_string(),
@@ -968,6 +1025,8 @@ fn collect_object_fields(
                     field_type: *field_type,
                     required: *required && !optional,
                     byte_length: *byte_length,
+                    int_min,
+                    int_max,
                     source_path: source_path.clone(),
                     ..Default::default()
                 });
@@ -1404,6 +1463,46 @@ mod tests {
         assert_eq!(ft("pn"), Some(ParsedFieldType::UserJid));
         assert_eq!(ft("pndev"), Some(ParsedFieldType::DeviceJid));
         assert_eq!(ft("pnchat"), Some(ParsedFieldType::Jid));
+    }
+
+    #[test]
+    fn int_range_captures_bounds_and_timestamps() {
+        let module = r#"__d("WASmaxInBarResponseSuccess",["WASmaxParseUtils","WAResultOrError"],(function(t,n,r,o,a,i,l){
+            function s(t){
+                var r = o("WASmaxParseUtils").assertTag(t, "iq"); if(!r.success) return r;
+                var a = o("WASmaxParseUtils").attrIntRange(t, "backoff", 0, 86400); if(!a.success) return a;
+                var b = o("WASmaxParseUtils").attrIntRange(t, "ts", 1577865600, 4102473600); if(!b.success) return b;
+                var c = o("WASmaxParseUtils").attrIntRange(t, "tsms", 15778656e5, 41024736e5); if(!c.success) return c;
+                var d = o("WASmaxParseUtils").optional(o("WASmaxParseUtils").attrIntRange, t, "size", 0, 19999);
+                var e = o("WASmaxParseUtils").attrInt(t, "plain"); if(!e.success) return e;
+                return o("WAResultOrError").makeResult({ backoff: a.value, ts: b.value, tsms: c.value, size: d.value, plain: e.value });
+            }
+            l.parseBarResponseSuccess = s;
+        }), 1);"#;
+        let exports = analyze_mod_local(module);
+        let (_n, pr) = exports
+            .iter()
+            .find(|(n, _)| n == "parseBarResponseSuccess")
+            .expect("parser");
+        let field = |name: &str| pr.fields.iter().find(|f| f.name == name).expect(name);
+        // A bounded integer keeps type Integer and carries its (min, max).
+        let bk = field("backoff");
+        assert_eq!(bk.field_type, ParsedFieldType::Integer);
+        assert_eq!((bk.int_min, bk.int_max), (Some(0), Some(86400)));
+        // The timestamp-marker range (seconds) → Timestamp, no bounds carried.
+        let ts = field("ts");
+        assert_eq!(ts.field_type, ParsedFieldType::Timestamp);
+        assert_eq!((ts.int_min, ts.int_max), (None, None));
+        // The ×1000 window (written in scientific notation) → TimestampMillis.
+        assert_eq!(field("tsms").field_type, ParsedFieldType::TimestampMillis);
+        // `optional(attrIntRange, …)` still captures the bounds and stays optional.
+        let sz = field("size");
+        assert_eq!((sz.int_min, sz.int_max), (Some(0), Some(19999)));
+        assert!(!sz.required);
+        // A plain attrInt has no bounds.
+        let pl = field("plain");
+        assert_eq!(pl.field_type, ParsedFieldType::Integer);
+        assert_eq!((pl.int_min, pl.int_max), (None, None));
     }
 
     #[test]
