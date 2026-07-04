@@ -100,6 +100,30 @@ pub struct WapContent {
     /// The literal value for [`WapContentKind::Const`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub value: Option<String>,
+    /// A fixed byte value (hex-encoded, e.g. `"00"` for a one-byte zero buffer) the
+    /// builder writes as content. Recovered by cross-referencing the smax content
+    /// argument to its unanimous compile-time constant at every call site
+    /// (`{ linkCodePairingNonceElementValue: new Uint8Array(1) }` → one `0x00`
+    /// byte). Kept separate from [`value`] (a `Const` *string*) so a byte constant
+    /// and a text constant can never be confused (`"00"` the string vs `00` the
+    /// byte). When set, [`byte_length`] is its length and [`value_source`] its
+    /// provenance.
+    ///
+    /// [`value`]: WapContent::value
+    /// [`byte_length`]: WapContent::byte_length
+    /// [`value_source`]: WapContent::value_source
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub const_bytes: Option<String>,
+    /// Provenance of a cross-referenced constant [`const_bytes`] (or [`value`]) — the
+    /// smax content-argument name the constant was resolved from, prefixed `const:`
+    /// (e.g. `"const:linkCodePairingNonceElementValue"`). Absent when the value is a
+    /// builder-inline literal, so a consumer can tell a call-site-inferred constant
+    /// from a directly-written one.
+    ///
+    /// [`const_bytes`]: WapContent::const_bytes
+    /// [`value`]: WapContent::value
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value_source: Option<String>,
 }
 
 /// A node in a request stanza tree.

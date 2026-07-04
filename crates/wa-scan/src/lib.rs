@@ -8,6 +8,7 @@
 
 mod alias;
 mod attrs;
+mod const_value_index;
 mod content_length_index;
 mod helper_index;
 mod mixin_index;
@@ -140,6 +141,13 @@ pub fn scan_iq_with_diagnostics(
     // to fill request leaf lengths the builder writes opaquely.
     let content_lengths = content_length_index::build_pass(module_defs, source);
 
+    // Build the constant content-value cross-reference once. A builder writes a leaf
+    // value opaquely (`smax("link_code_pairing_nonce", null, t)`), but the value is a
+    // compile-time constant at the call site (`{…: new Uint8Array(1)}` → one `0x00`
+    // byte). This pins that value so a consumer knows the exact bytes — length alone
+    // can't (`0x00` and `0x30` are both one byte).
+    let const_values = const_value_index::build_pass(module_defs, source);
+
     let mut stanzas = Vec::new();
     let mut unparseable = Vec::new();
     let mut cross = CrossModuleStats::default();
@@ -186,6 +194,10 @@ pub fn scan_iq_with_diagnostics(
     // `w:biz:catalog`) is excluded, so it's never mislabeled.
     let tag_fallback = single_namespace_content_tags(&stanzas);
     for s in &mut stanzas {
+        // Pin constant leaf values first (`<link_code_pairing_nonce>` → one `0x00`
+        // byte). It sets `byteLength` too, which the length cross-reference below then
+        // leaves untouched (it only fills a `None` length), so the two never conflict.
+        const_value_index::enrich(&mut s.request.children, &const_values);
         content_length_index::enrich(
             &mut s.request.children,
             "iq",

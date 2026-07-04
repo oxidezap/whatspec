@@ -581,11 +581,25 @@
             "null"
           ]
         },
+        "constBytes": {
+          "description": "A fixed byte value (hex-encoded, e.g. `\"00\"` for a one-byte zero buffer) the\nbuilder writes as content. Recovered by cross-referencing the smax content\nargument to its unanimous compile-time constant at every call site\n(`{ linkCodePairingNonceElementValue: new Uint8Array(1) }` → one `0x00`\nbyte). Kept separate from [`value`] (a `Const` *string*) so a byte constant\nand a text constant can never be confused (`\"00\"` the string vs `00` the\nbyte). When set, [`byte_length`] is its length and [`value_source`] its\nprovenance.\n\n[`value`]: WapContent::value\n[`byte_length`]: WapContent::byte_length\n[`value_source`]: WapContent::value_source",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "kind": {
           "$ref": "#/$defs/WapContentKind"
         },
         "value": {
           "description": "The literal value for [`WapContentKind::Const`].",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "valueSource": {
+          "description": "Provenance of a cross-referenced constant [`const_bytes`] (or [`value`]) — the\nsmax content-argument name the constant was resolved from, prefixed `const:`\n(e.g. `\"const:linkCodePairingNonceElementValue\"`). Absent when the value is a\nbuilder-inline literal, so a consumer can tell a call-site-inferred constant\nfrom a directly-written one.\n\n[`const_bytes`]: WapContent::const_bytes\n[`value`]: WapContent::value",
           "type": [
             "string",
             "null"
