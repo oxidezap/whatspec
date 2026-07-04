@@ -7,11 +7,14 @@
 //! and emits the generic [`StanzaDef`] (outgoing, no response). Fragment `merge…Mixin`
 //! modules are dropped (as in the IQ scan). The incoming side is out of scope here.
 
+use std::collections::HashSet;
+
 use oxc_allocator::Allocator;
-use oxc_ast::ast::CallExpression;
+use oxc_ast::ast::{AssignmentExpression, CallExpression, Function};
 use oxc_ast_visit::{Visit, walk};
+use oxc_syntax::scope::ScopeFlags;
 use wa_ir::{Direction, StanzaDef, StanzaTag, WapAttrKind};
-use wa_oxc::{arg_expr, define_module_name, parse_cjs};
+use wa_oxc::{arg_expr, as_identifier, define_module_name, parse_cjs};
 use wa_transform::ModuleDefinition;
 
 use crate::alias::{AliasMap, build_alias_map};
@@ -78,12 +81,20 @@ pub fn scan_stanzas_from_modules(source: &str, defs: &[ModuleDefinition]) -> Vec
             .then_with(|| a.subtype.cmp(&b.subtype))
     });
     // A module often builds the same stanza in several code paths; emit each once.
-    // Dedup by full equality rather than `dedup_by` (which only drops adjacent pairs,
-    // so an interleaved `A, B, A` visit order would keep both `A`s). `n` is a few dozen
-    // stanzas per bundle, so the O(n²) `contains` is negligible.
+    // Dedup on the STRUCTURAL fields (tag/module/subtype/attrs/children), not full
+    // equality — the same shape can be built under two different exports, so comparing
+    // `exported_function`/`all_exports` would leak duplicates. `dedup_by` won't do (it
+    // only drops adjacent pairs); `n` is a few dozen per bundle so the O(n²) is fine.
     let mut deduped: Vec<StanzaDef> = Vec::with_capacity(out.len());
     for s in out {
-        if !deduped.contains(&s) {
+        let dup = deduped.iter().any(|d| {
+            d.stanza_type == s.stanza_type
+                && d.module_name == s.module_name
+                && d.subtype == s.subtype
+                && d.attrs == s.attrs
+                && d.children == s.children
+        });
+        if !dup {
             deduped.push(s);
         }
     }
@@ -113,6 +124,7 @@ fn scan_module(source: &str, helpers: &HelperIndex) -> Vec<StanzaDef> {
         module_name,
         current_export: None,
         exports: Vec::new(),
+        factory_params: HashSet::new(),
         out: Vec::new(),
     };
     c.visit_program(&ret.program);
@@ -122,6 +134,11 @@ fn scan_module(source: &str, helpers: &HelperIndex) -> Vec<StanzaDef> {
     // call). The IQ scanner drops these the same way.
     if is_fragment_module(&c.exports) {
         return Vec::new();
+    }
+    // Record the module's exports on each emitted stanza (matches the IQ scanner).
+    let all_exports = c.exports;
+    for s in &mut c.out {
+        s.all_exports = all_exports.clone();
     }
     c.out
 }
@@ -146,19 +163,40 @@ struct StanzaCollector<'s> {
     aliases: &'s AliasMap,
     helpers: &'s HelperIndex,
     module_name: String,
-    /// The `l.<name> = …` export whose body the current call sits in, so an emitted
-    /// stanza records the function that built it.
+    /// The `<exports>.<name> = …` export whose body the current call sits in, so an
+    /// emitted stanza records the function that built it.
     current_export: Option<String>,
-    /// Every `l.<name> = …` export name, to classify a whole module as a fragment.
+    /// Every export name (`<exports>.<name> = …`), to classify a module as a fragment.
     exports: Vec<String>,
+    /// The module factory's parameter names (`function(g,r,d,o,e,i,l){…}`). An
+    /// assignment is only an export when its object is one of these (`l.foo = …`), not
+    /// a write to a local object (`cache.key = …`), which would otherwise pollute
+    /// `exports` and misclassify a fragment.
+    factory_params: HashSet<String>,
     out: Vec<StanzaDef>,
 }
 
 impl<'a> Visit<'a> for StanzaCollector<'_> {
-    fn visit_assignment_expression(&mut self, assign: &oxc_ast::ast::AssignmentExpression<'a>) {
+    fn visit_function(&mut self, func: &Function<'a>, flags: ScopeFlags) {
+        // The first function is the module factory; record its params so exports are
+        // recognized by their binding.
+        if self.factory_params.is_empty() {
+            for p in &func.params.items {
+                for id in p.pattern.get_binding_identifiers() {
+                    self.factory_params.insert(id.name.to_string());
+                }
+            }
+        }
+        walk::walk_function(self, func, flags);
+    }
+
+    fn visit_assignment_expression(&mut self, assign: &AssignmentExpression<'a>) {
+        // An export is `<factoryParam>.<name> = …` (e.g. `l.foo = …`) — not a write to a
+        // local object.
         let export = assign
             .left
             .as_member_expression()
+            .filter(|m| as_identifier(m.object()).is_some_and(|o| self.factory_params.contains(o)))
             .and_then(|m| m.static_property_name())
             .filter(|p| *p != "__esModule" && *p != "prototype")
             .map(str::to_string);
@@ -331,5 +369,23 @@ mod tests {
             "mergeFooMixin".into(),
             "SOME_CONST".into()
         ]));
+    }
+
+    #[test]
+    fn internal_object_write_does_not_pollute_exports() {
+        // A fragment module that also writes to a LOCAL object (`cache.key = …`) must
+        // still be dropped: only `<factoryParam>.x = …` counts as an export, so the
+        // internal write doesn't add a bogus non-mixin export that would save it.
+        let bundle = r#"
+            __d("WASmaxOutBarMixin",["WASmaxJsx","WASmaxMixins"],(function(t,n,r,o,a,i,l){
+                var cache={}; cache.key="v";
+                function e(){ return o("WASmaxJsx").smax("receipt",{type:"read"}); }
+                l.mergeBarMixin=function(t){ return o("WASmaxMixins").mergeStanzas(t,e()); };
+            }),1);
+        "#;
+        assert!(
+            scan(bundle).is_empty(),
+            "internal `cache.key` write must not save the fragment from being dropped"
+        );
     }
 }
