@@ -1,16 +1,20 @@
-//! Outgoing non-IQ stanza scanning: `receipt`, `presence`, `chatstate`, `ack`.
+//! Outgoing non-IQ stanza scanning: `message`, `receipt`, `presence`, `chatstate`,
+//! `ack`.
 //!
 //! Reuses the IQ machinery — `parse_wap_call` for the builder shape, `attrs.rs` for
 //! attribute classification (including the enum-linking), and `resolve_child_node` for
 //! the child tree — but recognizes a stanza by its top-level tag instead of `<iq>`,
-//! and emits the generic [`StanzaDef`] (outgoing, no response). `message` and the
-//! incoming side are deliberately out of scope here.
+//! and emits the generic [`StanzaDef`] (outgoing, no response). Fragment `merge…Mixin`
+//! modules are dropped (as in the IQ scan). The incoming side is out of scope here.
+
+use std::collections::HashSet;
 
 use oxc_allocator::Allocator;
-use oxc_ast::ast::CallExpression;
+use oxc_ast::ast::{AssignmentExpression, CallExpression, Function};
 use oxc_ast_visit::{Visit, walk};
+use oxc_syntax::scope::ScopeFlags;
 use wa_ir::{Direction, StanzaDef, StanzaTag, WapAttrKind};
-use wa_oxc::{arg_expr, define_module_name, parse_cjs};
+use wa_oxc::{arg_expr, as_identifier, define_module_name, parse_cjs};
 use wa_transform::ModuleDefinition;
 
 use crate::alias::{AliasMap, build_alias_map};
@@ -19,9 +23,10 @@ use crate::enum_link::EnumResolver;
 use crate::helper_index::HelperIndex;
 use crate::request::{VarScope, build_var_scope, resolve_child_node};
 
-/// The outgoing fire-and-forget stanzas this scanner recognizes, by top-level tag.
-/// IQ has its own path; `message` (and the incoming dispatch side) come later.
+/// The outgoing stanzas this scanner recognizes, by top-level tag. IQ has its own
+/// path; the incoming dispatch side comes later.
 const STANZA_TAGS: &[(&str, StanzaTag)] = &[
+    ("message", StanzaTag::Message),
     ("receipt", StanzaTag::Receipt),
     ("presence", StanzaTag::Presence),
     ("chatstate", StanzaTag::Chatstate),
@@ -58,9 +63,9 @@ pub fn scan_stanzas_from_modules(source: &str, defs: &[ModuleDefinition]) -> Vec
         }
         out.extend(scan_module(slice, &helpers));
     }
-    // Drop structureless stanzas (no attrs, no children, no subtype): a bare `<ack/>`
-    // carries nothing a consumer can model, and these are mostly response-ack fragments
-    // rather than genuine top-level builders.
+    // Drop structureless stanzas (no attrs, no children, no subtype) — a bare `<ack/>`
+    // carries nothing a consumer can model. (Fragment `merge…Mixin` modules are already
+    // dropped whole in `scan_module`.)
     out.retain(|s| !s.attrs.is_empty() || !s.children.is_empty() || s.subtype.is_some());
     // Fill in the attribute enum links (`receipt.type` → `ENC_RETRY_RECEIPT_ATTRS`, …).
     let mut resolver = EnumResolver::new(defs, source);
@@ -76,12 +81,20 @@ pub fn scan_stanzas_from_modules(source: &str, defs: &[ModuleDefinition]) -> Vec
             .then_with(|| a.subtype.cmp(&b.subtype))
     });
     // A module often builds the same stanza in several code paths; emit each once.
-    // Dedup by full equality rather than `dedup_by` (which only drops adjacent pairs,
-    // so an interleaved `A, B, A` visit order would keep both `A`s). `n` is a few dozen
-    // stanzas per bundle, so the O(n²) `contains` is negligible.
+    // Dedup on the STRUCTURAL fields (tag/module/subtype/attrs/children), not full
+    // equality — the same shape can be built under two different exports, so comparing
+    // `exported_function`/`all_exports` would leak duplicates. `dedup_by` won't do (it
+    // only drops adjacent pairs); `n` is a few dozen per bundle so the O(n²) is fine.
     let mut deduped: Vec<StanzaDef> = Vec::with_capacity(out.len());
     for s in out {
-        if !deduped.contains(&s) {
+        let dup = deduped.iter().any(|d| {
+            d.stanza_type == s.stanza_type
+                && d.module_name == s.module_name
+                && d.subtype == s.subtype
+                && d.attrs == s.attrs
+                && d.children == s.children
+        });
+        if !dup {
             deduped.push(s);
         }
     }
@@ -109,10 +122,39 @@ fn scan_module(source: &str, helpers: &HelperIndex) -> Vec<StanzaDef> {
         aliases: &aliases,
         helpers,
         module_name,
+        current_export: None,
+        exports: Vec::new(),
+        factory_params: HashSet::new(),
         out: Vec::new(),
     };
     c.visit_program(&ret.program);
+    // A module whose function exports are all `merge…Mixin` is a fragment: its stanzas
+    // are partials folded into real ones via `mergeStanzas`, not top-level builders (the
+    // `smax` sits in an inner un-exported helper, so this is judged per-module, not per
+    // call). The IQ scanner drops these the same way.
+    if is_fragment_module(&c.exports) {
+        return Vec::new();
+    }
+    // Record the module's exports on each emitted stanza (matches the IQ scanner).
+    let all_exports = c.exports;
+    for s in &mut c.out {
+        s.all_exports = all_exports.clone();
+    }
     c.out
+}
+
+/// Whether a module's exports are only `merge…Mixin` combinators — a stanza fragment.
+/// Ignores constants (ALL_CAPS) and `default`, matching the IQ fragment heuristic.
+fn is_fragment_module(exports: &[String]) -> bool {
+    let functions: Vec<&str> = exports
+        .iter()
+        .map(String::as_str)
+        .filter(|e| *e != "default" && !e.chars().all(|c| c.is_ascii_uppercase() || c == '_'))
+        .collect();
+    !functions.is_empty()
+        && functions
+            .iter()
+            .all(|e| e.starts_with("merge") && e.contains("Mixin"))
 }
 
 struct StanzaCollector<'s> {
@@ -121,10 +163,52 @@ struct StanzaCollector<'s> {
     aliases: &'s AliasMap,
     helpers: &'s HelperIndex,
     module_name: String,
+    /// The `<exports>.<name> = …` export whose body the current call sits in, so an
+    /// emitted stanza records the function that built it.
+    current_export: Option<String>,
+    /// Every export name (`<exports>.<name> = …`), to classify a module as a fragment.
+    exports: Vec<String>,
+    /// The module factory's parameter names (`function(g,r,d,o,e,i,l){…}`). An
+    /// assignment is only an export when its object is one of these (`l.foo = …`), not
+    /// a write to a local object (`cache.key = …`), which would otherwise pollute
+    /// `exports` and misclassify a fragment.
+    factory_params: HashSet<String>,
     out: Vec<StanzaDef>,
 }
 
 impl<'a> Visit<'a> for StanzaCollector<'_> {
+    fn visit_function(&mut self, func: &Function<'a>, flags: ScopeFlags) {
+        // The first function is the module factory; record its params so exports are
+        // recognized by their binding.
+        if self.factory_params.is_empty() {
+            for p in &func.params.items {
+                for id in p.pattern.get_binding_identifiers() {
+                    self.factory_params.insert(id.name.to_string());
+                }
+            }
+        }
+        walk::walk_function(self, func, flags);
+    }
+
+    fn visit_assignment_expression(&mut self, assign: &AssignmentExpression<'a>) {
+        // An export is `<factoryParam>.<name> = …` (e.g. `l.foo = …`) — not a write to a
+        // local object.
+        let export = assign
+            .left
+            .as_member_expression()
+            .filter(|m| as_identifier(m.object()).is_some_and(|o| self.factory_params.contains(o)))
+            .and_then(|m| m.static_property_name())
+            .filter(|p| *p != "__esModule" && *p != "prototype")
+            .map(str::to_string);
+        let prev = self.current_export.clone();
+        if let Some(e) = &export {
+            self.exports.push(e.clone());
+            self.current_export = export.clone();
+        }
+        walk::walk_assignment_expression(self, assign);
+        self.current_export = prev;
+    }
+
     fn visit_call_expression(&mut self, call: &CallExpression<'a>) {
         if let Some(wap) = parse_wap_call(call, self.aliases)
             && let Some(stanza_type) = stanza_tag(wap.tag)
@@ -157,7 +241,7 @@ impl<'a> Visit<'a> for StanzaCollector<'_> {
                 stanza_type,
                 direction: Direction::Outgoing,
                 module_name: self.module_name.clone(),
-                exported_function: None,
+                exported_function: self.current_export.clone(),
                 all_exports: Vec::new(),
                 namespace: None,
                 subtype,
@@ -228,5 +312,80 @@ mod tests {
             .expect("presence captured");
         assert_eq!(p.subtype.as_deref(), Some("available"));
         assert_eq!(p.direction, Direction::Outgoing);
+    }
+
+    #[test]
+    fn captures_message_with_enc_child_enum_linked() {
+        // A message with an `<enc type=CiphertextType.Skmsg>` child — the enc.type link
+        // resolves through the child tree (FORM A), against the enum in another module.
+        let bundle = r#"
+            __d("WAWebBackendJobs.flow",["$InternalEnum"],(function(g,n,d,o,e,i,l){
+                i.CiphertextType=n("$InternalEnum")({Skmsg:"skmsg",Pkmsg:"pkmsg"});
+            }),1);
+            __d("WAWebSendMsgJob",["WAWap"],(function(g,r,d,o,e,i,l){
+                l.send=function(t){ return o("WAWap").wap("message",{id:o("WAWap").CUSTOM_STRING(t)}, o("WAWap").wap("enc",{type:o("WAWap").CUSTOM_STRING(o("WAWebBackendJobs.flow").CiphertextType.Skmsg)})); };
+            }),1);
+        "#;
+        let stanzas = scan(bundle);
+        let m = stanzas
+            .iter()
+            .find(|s| s.stanza_type == StanzaTag::Message)
+            .expect("message captured");
+        let enc = m
+            .children
+            .iter()
+            .find(|c| c.tag == "enc")
+            .expect("enc child");
+        let er = enc.attrs[0].enum_ref.as_ref().expect("enc.type linked");
+        assert_eq!(er.name, "CiphertextType");
+        assert_eq!(
+            er.variants
+                .iter()
+                .map(|v| v.value.as_str())
+                .collect::<Vec<_>>(),
+            ["skmsg", "pkmsg"]
+        );
+    }
+
+    #[test]
+    fn merge_mixin_fragment_module_is_dropped() {
+        // A module whose only function export is a `merge…Mixin` combinator is a
+        // fragment (its stanza is folded into a real one), so it emits nothing.
+        let bundle = r#"
+            __d("WASmaxOutFooMixin",["WASmaxJsx","WASmaxMixins"],(function(t,n,r,o,a,i,l){
+                function e(){ return o("WASmaxJsx").smax("receipt",{type:"read"}); }
+                function s(t){ return o("WASmaxMixins").mergeStanzas(t,e()); }
+                l.mergeFooMixin=s;
+            }),1);
+        "#;
+        assert!(
+            scan(bundle).is_empty(),
+            "fragment module must emit no stanza"
+        );
+        assert!(is_fragment_module(&["mergeFooMixin".into()]));
+        assert!(!is_fragment_module(&["sendReceipt".into()]));
+        // Constants alongside the mixin don't disqualify it.
+        assert!(is_fragment_module(&[
+            "mergeFooMixin".into(),
+            "SOME_CONST".into()
+        ]));
+    }
+
+    #[test]
+    fn internal_object_write_does_not_pollute_exports() {
+        // A fragment module that also writes to a LOCAL object (`cache.key = …`) must
+        // still be dropped: only `<factoryParam>.x = …` counts as an export, so the
+        // internal write doesn't add a bogus non-mixin export that would save it.
+        let bundle = r#"
+            __d("WASmaxOutBarMixin",["WASmaxJsx","WASmaxMixins"],(function(t,n,r,o,a,i,l){
+                var cache={}; cache.key="v";
+                function e(){ return o("WASmaxJsx").smax("receipt",{type:"read"}); }
+                l.mergeBarMixin=function(t){ return o("WASmaxMixins").mergeStanzas(t,e()); };
+            }),1);
+        "#;
+        assert!(
+            scan(bundle).is_empty(),
+            "internal `cache.key` write must not save the fragment from being dropped"
+        );
     }
 }
