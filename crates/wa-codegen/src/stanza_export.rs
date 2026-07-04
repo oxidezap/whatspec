@@ -13,9 +13,25 @@
 
 use std::collections::{BTreeMap, HashSet};
 
-use wa_ir::{AttrEnumRef, StanzaDef, StanzaIr, WapAttrDef, WapAttrKind, WapChildNode};
+use wa_ir::{AttrEnumRef, StanzaDef, StanzaIr, StanzaTag, WapAttrDef, WapAttrKind, WapChildNode};
 
 use crate::naming::{pascal_case, rust_lit, snake_case, unique_ident};
+
+/// Stable lowercase module/tag name for a stanza type — an explicit map, not the
+/// `Debug` representation (which isn't a serialization contract) and always a valid,
+/// non-keyword Rust ident.
+fn tag_module(t: StanzaTag) -> &'static str {
+    match t {
+        StanzaTag::Iq => "iq",
+        StanzaTag::Message => "message",
+        StanzaTag::Receipt => "receipt",
+        StanzaTag::Ack => "ack",
+        StanzaTag::Notification => "notification",
+        StanzaTag::Call => "call",
+        StanzaTag::Chatstate => "chatstate",
+        StanzaTag::Presence => "presence",
+    }
+}
 
 /// Render the full `stanza.rs` artifact.
 pub fn generate_stanza(ir: &StanzaIr) -> String {
@@ -62,12 +78,9 @@ pub fn generate_stanza(ir: &StanzaIr) -> String {
     }
 
     // ── One module per stanza tag, a struct per builder ──
-    let mut by_tag: BTreeMap<String, Vec<&StanzaDef>> = BTreeMap::new();
+    let mut by_tag: BTreeMap<&str, Vec<&StanzaDef>> = BTreeMap::new();
     for s in &ir.stanzas {
-        by_tag
-            .entry(format!("{:?}", s.stanza_type).to_lowercase())
-            .or_default()
-            .push(s);
+        by_tag.entry(tag_module(s.stanza_type)).or_default().push(s);
     }
     for (tag, stanzas) in &by_tag {
         out.push_str(&format!("\npub mod {tag} {{\n"));
@@ -96,7 +109,7 @@ fn emit_stanza_struct(
     let name = unique_ident(&name, used, "Stanza");
     out.push_str(&format!(
         "    /// Outgoing `<{tag}>` built by `{module}`{sub}.\n",
-        tag = format!("{:?}", s.stanza_type).to_lowercase(),
+        tag = tag_module(s.stanza_type),
         module = s.module_name,
         sub = s
             .subtype
@@ -123,6 +136,11 @@ fn emit_attr_fields(
     used: &mut HashSet<String>,
 ) {
     for a in attrs {
+        // `Const` carries a fixed literal the consumer can't change, and `GeneratedId`
+        // is auto-generated — neither is a settable field, so omit both.
+        if matches!(a.kind, WapAttrKind::Const | WapAttrKind::GeneratedId) {
+            continue;
+        }
         let field = unique_ident(&snake_case(&a.name), used, "f");
         if let Some(er) = &a.enum_ref
             && let Some(cname) = enum_const.get(&(er.module.as_str(), er.name.as_str()))
@@ -131,7 +149,7 @@ fn emit_attr_fields(
                 "        /// Wire value from [`super::enums::{cname}`] (`{}`).\n",
                 er.name
             ));
-            out.push_str(&format!("        pub {field}: String,\n"));
+            out.push_str(&format!("        pub {field}: {},\n", enum_field_ty(a)));
         } else {
             let ty = match a.kind {
                 WapAttrKind::Integer => "u64",
@@ -143,6 +161,16 @@ fn emit_attr_fields(
     }
 }
 
+/// The field type for an enum-linked attribute — `Option<String>` when the attr is
+/// optional, else `String` (the enum's variants live in its table, not the type).
+fn enum_field_ty(a: &WapAttrDef) -> &'static str {
+    if a.kind == WapAttrKind::Optional {
+        "Option<String>"
+    } else {
+        "String"
+    }
+}
+
 /// Emit only the enum-linked attributes of a child (recursively), prefixed by the child
 /// tag, so a struct surfaces e.g. `enc_type` from `<message><enc type=…>`.
 fn emit_child_enum_fields(
@@ -151,20 +179,41 @@ fn emit_child_enum_fields(
     enum_const: &BTreeMap<(&str, &str), String>,
     used: &mut HashSet<String>,
 ) {
-    for a in &node.attrs {
+    emit_enum_attrs(out, &node.tag, &node.attrs, enum_const, used);
+    for c in &node.children {
+        emit_child_enum_fields(out, c, enum_const, used);
+    }
+    // A node's children can also live in mutually-exclusive variant groups; surface any
+    // enum-linked attrs there too.
+    for g in &node.variant_groups {
+        for v in &g.variants {
+            emit_enum_attrs(out, &node.tag, &v.attrs, enum_const, used);
+            for c in &v.children {
+                emit_child_enum_fields(out, c, enum_const, used);
+            }
+        }
+    }
+}
+
+/// Emit `<tag>_<attr>` fields for the enum-linked attributes in `attrs`.
+fn emit_enum_attrs(
+    out: &mut String,
+    tag: &str,
+    attrs: &[WapAttrDef],
+    enum_const: &BTreeMap<(&str, &str), String>,
+    used: &mut HashSet<String>,
+) {
+    for a in attrs {
         if let Some(er) = &a.enum_ref
             && let Some(cname) = enum_const.get(&(er.module.as_str(), er.name.as_str()))
         {
-            let field = unique_ident(&snake_case(&format!("{}_{}", node.tag, a.name)), used, "f");
+            let field = unique_ident(&snake_case(&format!("{}_{}", tag, a.name)), used, "f");
             out.push_str(&format!(
-                "        /// `<{}>` wire value from [`super::enums::{cname}`] (`{}`).\n",
-                node.tag, er.name
+                "        /// `<{tag}>` wire value from [`super::enums::{cname}`] (`{}`).\n",
+                er.name
             ));
-            out.push_str(&format!("        pub {field}: String,\n"));
+            out.push_str(&format!("        pub {field}: {},\n", enum_field_ty(a)));
         }
-    }
-    for c in &node.children {
-        emit_child_enum_fields(out, c, enum_const, used);
     }
 }
 
@@ -188,6 +237,14 @@ fn collect_child_enum_refs<'a>(
     for c in &node.children {
         collect_child_enum_refs(c, out);
     }
+    for g in &node.variant_groups {
+        for v in &g.variants {
+            collect_enum_refs(&v.attrs, out);
+            for c in &v.children {
+                collect_child_enum_refs(c, out);
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -203,9 +260,19 @@ mod tests {
     }
 
     fn enum_attr(name: &str, ename: &str, module: &str, vars: Vec<AttrEnumVariant>) -> WapAttrDef {
+        enum_attr_kind(name, ename, module, vars, WapAttrKind::String)
+    }
+
+    fn enum_attr_kind(
+        name: &str,
+        ename: &str,
+        module: &str,
+        vars: Vec<AttrEnumVariant>,
+        kind: WapAttrKind,
+    ) -> WapAttrDef {
         WapAttrDef {
             name: name.into(),
-            kind: WapAttrKind::String,
+            kind,
             value: None,
             required: true,
             enum_ref: Some(AttrEnumRef {
@@ -293,6 +360,66 @@ mod tests {
         assert!(code.contains("pub mod message"));
         assert!(code.contains("pub count: u64"));
         // The child enc.type link is surfaced on the message struct and doc-links its table.
+        assert!(code.contains("pub enc_type: String"));
+        assert!(code.contains("super::enums::CIPHERTEXT_TYPE"));
+    }
+
+    #[test]
+    fn omits_const_generated_respects_optional_reaches_variant_groups() {
+        let enc = WapChildNode {
+            tag: "enc".into(),
+            // The enum-linked attr lives inside a variant group, not `attrs`/`children`.
+            variant_groups: vec![wa_ir::WapVariantGroup {
+                optional: false,
+                variants: vec![wa_ir::WapVariant {
+                    attrs: vec![enum_attr(
+                        "type",
+                        "CiphertextType",
+                        "M",
+                        vec![variant("Skmsg", "skmsg")],
+                    )],
+                    children: vec![],
+                }],
+            }],
+            ..Default::default()
+        };
+        let ir = StanzaIr {
+            wa_version: "1.0".into(),
+            stanzas: vec![StanzaDef {
+                stanza_type: StanzaTag::Message,
+                direction: Direction::Outgoing,
+                module_name: "WAWebSendMsgJob".into(),
+                exported_function: None,
+                all_exports: vec![],
+                namespace: None,
+                subtype: None,
+                target: None,
+                attrs: vec![
+                    plain_attr("xmlns", WapAttrKind::Const),
+                    plain_attr("id", WapAttrKind::GeneratedId),
+                    enum_attr_kind(
+                        "scope",
+                        "SessionScope",
+                        "M",
+                        vec![variant("Status", "status")],
+                        WapAttrKind::Optional,
+                    ),
+                ],
+                children: vec![enc],
+                response: None,
+            }],
+        };
+        let code = generate_stanza(&ir);
+        syn::parse_file(&code).unwrap_or_else(|e| panic!("invalid Rust: {e}\n{code}"));
+        // Const and GeneratedId attrs are not settable fields → omitted.
+        assert!(!code.contains("pub xmlns"), "Const attr must be omitted");
+        assert!(
+            !code.contains("pub id:"),
+            "GeneratedId attr must be omitted"
+        );
+        // An optional enum-linked attr is `Option<String>`.
+        assert!(code.contains("pub scope: Option<String>"));
+        // The enum-linked attr inside the child's variant group is reached.
         assert!(code.contains("pub enc_type: String"));
         assert!(code.contains("super::enums::CIPHERTEXT_TYPE"));
     }
