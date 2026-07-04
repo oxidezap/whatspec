@@ -36,21 +36,41 @@ fn enum_ref_of(e: &Expression) -> Option<(String, String)> {
     Some((module, enum_name.to_string()))
 }
 
-/// Find an `o("Mod").EnumName.VARIANT` reference anywhere in a guard expression — the
-/// RHS of the `===` in `cond === o("Mod").Enum.VARIANT`, through `&&`/`||`/parens.
-fn find_enum_ref_in(e: &Expression) -> Option<(String, String)> {
-    if let Some(r) = enum_ref_of(e) {
-        return Some(r);
-    }
+/// The single enum a guard tests for equality: an `o("Mod").Enum.VARIANT` operand of a
+/// strict-equality (`===`) comparison, reached through `&&`/`||`/parens. Returns `None`
+/// if the guard tests no enum with `===` (a `!==` guard has inverted semantics — the
+/// value is emitted when it does NOT equal the variant — so it isn't a membership test),
+/// or if it tests two *different* enums (ambiguous which the emitted value belongs to).
+fn guard_enum(e: &Expression) -> Option<(String, String)> {
+    let mut found: Option<(String, String)> = None;
+    let mut ambiguous = false;
+    collect_guard_enums(e, &mut found, &mut ambiguous);
+    if ambiguous { None } else { found }
+}
+
+fn collect_guard_enums(e: &Expression, found: &mut Option<(String, String)>, ambiguous: &mut bool) {
     match e {
-        Expression::BinaryExpression(b) => {
-            find_enum_ref_in(&b.left).or_else(|| find_enum_ref_in(&b.right))
+        // `X === o("Mod").Enum.VARIANT` (either operand). Only `===`: a `!==` test means
+        // the emitted value is used when it is NOT the variant, so it's not a membership.
+        Expression::BinaryExpression(b)
+            if b.operator == oxc_ast::ast::BinaryOperator::StrictEquality =>
+        {
+            if let Some(r) = enum_ref_of(&b.left).or_else(|| enum_ref_of(&b.right)) {
+                match found {
+                    Some(existing) if *existing != r => *ambiguous = true,
+                    None => *found = Some(r),
+                    _ => {}
+                }
+            }
         }
         Expression::LogicalExpression(b) => {
-            find_enum_ref_in(&b.left).or_else(|| find_enum_ref_in(&b.right))
+            collect_guard_enums(&b.left, found, ambiguous);
+            collect_guard_enums(&b.right, found, ambiguous);
         }
-        Expression::ParenthesizedExpression(p) => find_enum_ref_in(&p.expression),
-        _ => None,
+        Expression::ParenthesizedExpression(p) => {
+            collect_guard_enums(&p.expression, found, ambiguous)
+        }
+        _ => {}
     }
 }
 
@@ -68,7 +88,7 @@ fn form_b_link(
     test: &Expression,
     consequent: &Expression,
 ) -> Option<(String, String, Option<String>)> {
-    let (module, ename) = find_enum_ref_in(test)?;
+    let (module, ename) = guard_enum(test)?;
     // The emitted value: the sole arg of the consequent's `CUSTOM_STRING(...)`.
     let arg = as_call(consequent)
         .filter(|c| callee_method(c) == Some("CUSTOM_STRING"))
@@ -407,7 +427,9 @@ mod tests {
             state: cond === o("Mod").CiphertextType.Pkmsg ? o("WAWap").CUSTOM_STRING("false") : o("WAWap").DROP_ATTR,
             addr: x === o("U").USYNC_ADDRESSING_MODE.LID ? o("WAWap").CUSTOM_STRING(o("U").USYNC_ADDRESSING_MODE.LID) : o("WAWap").DROP_ATTR,
             scope: k === o("S").SessionScope.STATUS ? o("WAWap").CUSTOM_STRING("status") : o("WAWap").DROP_ATTR,
-            diff: a === o("A").EnumA.X ? o("WAWap").CUSTOM_STRING(o("B").EnumB.Y) : o("WAWap").DROP_ATTR
+            diff: a === o("A").EnumA.X ? o("WAWap").CUSTOM_STRING(o("B").EnumB.Y) : o("WAWap").DROP_ATTR,
+            compound: a === o("A").EnumA.X && b === o("B").EnumB.Y ? o("WAWap").CUSTOM_STRING("v") : o("WAWap").DROP_ATTR,
+            neq: c !== o("Mod").CiphertextType.Pkmsg ? o("WAWap").CUSTOM_STRING("false") : o("WAWap").DROP_ATTR
         });"#;
         let ret = wa_oxc::parse_cjs(&alloc, code);
         let wap = parse_wap_call(first_call(&ret.program), &no_aliases()).unwrap();
@@ -432,6 +454,10 @@ mod tests {
         // Consequent references a DIFFERENT enum than the guard → not linked.
         assert_eq!(er(by("diff")), None);
         assert_eq!(by("diff").kind, WapAttrKind::Optional);
+        // A compound guard testing two DIFFERENT enums is ambiguous → not linked.
+        assert_eq!(er(by("compound")), None);
+        // A `!==` guard has inverted membership semantics → not linked.
+        assert_eq!(er(by("neq")), None);
     }
 
     #[test]
