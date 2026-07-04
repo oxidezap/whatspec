@@ -1376,7 +1376,10 @@ mod tests {
                 var c = o("WASmaxParseUtils").attrGroupJid(t, "group"); if(!c.success) return c;
                 var d = o("WASmaxParseUtils").attrNewsletterJid(t, "nl"); if(!d.success) return d;
                 var e = o("WASmaxParseUtils").attrJid(t, "any"); if(!e.success) return e;
-                return o("WAResultOrError").makeResult({ from: a.value, lid: b.value, group: c.value, nl: d.value, any: e.value });
+                var f = o("WASmaxParseUtils").attrPhoneUserJid(t, "pn"); if(!f.success) return f;
+                var g = o("WASmaxParseUtils").attrPhoneDeviceJid(t, "pndev"); if(!g.success) return g;
+                var h = o("WASmaxParseUtils").attrPhoneChatJid(t, "pnchat"); if(!h.success) return h;
+                return o("WAResultOrError").makeResult({ from: a.value, lid: b.value, group: c.value, nl: d.value, any: e.value, pn: f.value, pndev: g.value, pnchat: h.value });
             }
             l.parseFooResponseSuccess = s;
         }), 1);"#;
@@ -1397,6 +1400,10 @@ mod tests {
         assert_eq!(ft("nl"), Some(ParsedFieldType::NewsletterJid));
         // A bare `attrJid` (no single flavor) stays a generic Jid.
         assert_eq!(ft("any"), Some(ParsedFieldType::Jid));
+        // The `phone*` aliases are the explicit-PN spelling of the plain accessors.
+        assert_eq!(ft("pn"), Some(ParsedFieldType::UserJid));
+        assert_eq!(ft("pndev"), Some(ParsedFieldType::DeviceJid));
+        assert_eq!(ft("pnchat"), Some(ParsedFieldType::Jid));
     }
 
     #[test]

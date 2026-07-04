@@ -269,10 +269,13 @@ mod tests {
         for m in [ATTR_WAP_JID, ATTR_CHAT_JID, ATTR_FROM_JID] {
             assert_eq!(method_field_type(m), ParsedFieldType::Jid, "{m}");
         }
-        // All flavors report as JID for codegen purposes.
+        // Every JID accessor — specific, `maybe*`, and multi-flavor — reports as JID
+        // for codegen purposes, so a dropped/miswired arm trips this.
         for m in [
             ATTR_USER_JID,
+            MAYBE_ATTR_USER_JID,
             ATTR_LID_USER_JID,
+            MAYBE_ATTR_LID_USER_JID,
             ATTR_DEVICE_JID,
             ATTR_LID_DEVICE_JID,
             ATTR_GROUP_JID,
@@ -281,6 +284,9 @@ mod tests {
             ATTR_BROADCAST_JID,
             ATTR_STATUS_JID,
             ATTR_JID_WITH_TYPE,
+            ATTR_WAP_JID,
+            ATTR_CHAT_JID,
+            ATTR_FROM_JID,
         ] {
             assert!(method_field_type(m).is_jid(), "{m}");
         }
