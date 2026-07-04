@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "IrEnvelope",
+  "description": "Envelope that stamps a domain IR document with [`SCHEMA_VERSION`] at emit\ntime, without altering the inner document's shape.\n\n`#[serde(flatten)]` keeps the document's own fields (`waVersion`, `stanzas`,\n…) at the top level and merely adds `schemaVersion` alongside them — additive,\nso existing consumers that ignore unknown fields are unaffected.",
+  "type": "object",
+  "properties": {
+    "dictVersion": {
+      "description": "WA's `DICT_VERSION` stamp (whatsmeow's `DictVersion`; currently 3).",
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    },
+    "doubleByte": {
+      "description": "The double-byte dictionaries (`DICTIONARY_0..N_TOKEN`) in order;\n`double_byte[dict][index]` is a direct lookup with no offset.",
+      "type": "array",
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    },
+    "schemaVersion": {
+      "description": "The IR contract version — see [`SCHEMA_VERSION`].",
+      "type": "string"
+    },
+    "singleByte": {
+      "description": "Single-byte token table. Index 0 is the reserved empty token, so\n`single_byte[tag]` is a direct lookup; length is WA's raw list + 1.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "waVersion": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "waVersion",
+    "dictVersion",
+    "singleByte",
+    "doubleByte"
+  ]
+}

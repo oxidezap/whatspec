@@ -10,10 +10,10 @@ description = "IR -> Rust source generation (targets wacore IqSpec patterns)."
 
 [dependencies]
 regex = "1"
+serde_json = { workspace = true }
 wa-ir = { workspace = true }
 
 [dev-dependencies]
 anyhow = { workspace = true }
-serde_json = { workspace = true }
 syn = { workspace = true }
 wa-scan = { workspace = true }
