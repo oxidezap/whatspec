@@ -857,6 +857,7 @@ mod tests {
             kind,
             value: value.map(|v| v.into()),
             required: false,
+            enum_ref: None,
         }
     }
     fn leaf(tag: &str) -> WapChildNode {

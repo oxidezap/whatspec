@@ -247,6 +247,7 @@ mod tests {
             kind,
             value: None,
             required: true,
+            enum_ref: None,
         }
     }
 

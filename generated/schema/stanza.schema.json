@@ -11,13 +11,7 @@
     "stanzas": {
       "type": "array",
       "items": {
-        "$ref": "#/$defs/IqStanzaDef"
-      }
-    },
-    "unparseable": {
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/Unparseable"
+        "$ref": "#/$defs/StanzaDef"
       }
     },
     "waVersion": {
@@ -99,97 +93,12 @@
         "nodes"
       ]
     },
-    "IqRequestDef": {
-      "description": "The outgoing request half of an IQ operation.",
-      "type": "object",
-      "properties": {
-        "children": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/WapChildNode"
-          }
-        },
-        "iqType": {
-          "$ref": "#/$defs/IqType"
-        },
-        "namespace": {
-          "type": "string"
-        },
-        "target": {
-          "$ref": "#/$defs/IqTarget"
-        }
-      },
-      "required": [
-        "namespace",
-        "iqType",
-        "target",
-        "children"
-      ]
-    },
-    "IqStanzaDef": {
-      "description": "A complete IQ operation: its request shape and response parser.",
-      "type": "object",
-      "properties": {
-        "allExports": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "exportedFunction": {
-          "description": "Primary exported function name, or `null` when the module default-exports.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "iqType": {
-          "$ref": "#/$defs/IqType"
-        },
-        "moduleName": {
-          "type": "string"
-        },
-        "namespace": {
-          "type": "string"
-        },
-        "parserName": {
-          "type": "string"
-        },
-        "request": {
-          "$ref": "#/$defs/IqRequestDef"
-        },
-        "response": {
-          "$ref": "#/$defs/ParsedResponse"
-        },
-        "target": {
-          "$ref": "#/$defs/IqTarget"
-        }
-      },
-      "required": [
-        "moduleName",
-        "namespace",
-        "iqType",
-        "target",
-        "parserName",
-        "allExports",
-        "request",
-        "response"
-      ]
-    },
-    "IqTarget": {
-      "description": "IQ target server.",
+    "Direction": {
+      "description": "Whether a stanza is constructed (outgoing) or handled (incoming).",
       "type": "string",
       "enum": [
-        "s.whatsapp.net",
-        "g.us"
-      ]
-    },
-    "IqType": {
-      "description": "IQ operation kind.",
-      "type": "string",
-      "enum": [
-        "get",
-        "set"
+        "outgoing",
+        "incoming"
       ]
     },
     "ParsedField": {
@@ -509,6 +418,98 @@
         }
       ]
     },
+    "StanzaDef": {
+      "description": "A generic stanza definition covering IQ and all other stanza types.",
+      "type": "object",
+      "properties": {
+        "allExports": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "attrs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/WapAttrDef"
+          }
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/WapChildNode"
+          }
+        },
+        "direction": {
+          "$ref": "#/$defs/Direction"
+        },
+        "exportedFunction": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "moduleName": {
+          "type": "string"
+        },
+        "namespace": {
+          "description": "IQ `xmlns`, or the type attr / tag classification for other stanzas.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "response": {
+          "description": "Present for IQ stanzas; `null` for fire-and-forget stanzas.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ParsedResponse"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "stanzaType": {
+          "$ref": "#/$defs/StanzaTag"
+        },
+        "subtype": {
+          "description": "IQ `get`/`set`, or the `type` attr value for other stanzas.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "target": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "stanzaType",
+        "direction",
+        "moduleName",
+        "allExports",
+        "attrs",
+        "children"
+      ]
+    },
+    "StanzaTag": {
+      "description": "Top-level WA protocol stanza tag.",
+      "type": "string",
+      "enum": [
+        "iq",
+        "message",
+        "receipt",
+        "ack",
+        "notification",
+        "call",
+        "chatstate",
+        "presence"
+      ]
+    },
     "UnionVariant": {
       "description": "One alternative of a discriminated union (`{name, value}` smax disjunction).",
       "type": "object",
@@ -535,22 +536,6 @@
       "required": [
         "name",
         "fields"
-      ]
-    },
-    "Unparseable": {
-      "description": "A module the scanner recognized as an IQ module but could not fully parse.",
-      "type": "object",
-      "properties": {
-        "moduleName": {
-          "type": "string"
-        },
-        "reason": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "moduleName",
-        "reason"
       ]
     },
     "WapAttrDef": {

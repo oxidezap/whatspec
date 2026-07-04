@@ -6,10 +6,40 @@
 //! `(tag, attrs?, ...children)` shape — we accept both method names here.
 
 use oxc_ast::ast::{Argument, CallExpression, Expression, ObjectPropertyKind, PropertyKey};
-use wa_ir::{WapAttrDef, WapAttrKind};
+use wa_ir::{AttrEnumRef, WapAttrDef, WapAttrKind};
 
 use crate::alias::{AliasMap, resolve_owner};
+use crate::module::require_module_name;
 use wa_oxc::{arg_expr, as_call, as_member, as_string_lit, callee_method, callee_object};
+
+/// `o("Mod").EnumName.VARIANT` → `(module, enumName)`. The specific variant is
+/// dropped — the attribute is linked to the whole enum. Requires the base to be a
+/// `require("Mod")` call (`o("Mod")`), so a plain `x.Y.Z` never matches.
+fn enum_ref_of(e: &Expression) -> Option<(String, String)> {
+    let (obj, _variant) = as_member(e)?;
+    let (base, enum_name) = as_member(obj)?;
+    let module = require_module_name(base)?;
+    Some((module, enum_name.to_string()))
+}
+
+/// Search a (possibly compound) guard expression for an `o("Mod").EnumName.VARIANT`
+/// reference — the RHS of the `===` in `cond === o("Mod").Enum.VARIANT`, reached
+/// through `&&`/`||`/parentheses in guards like `D && P === o("Mod").Enum.VARIANT`.
+fn find_enum_ref_in(e: &Expression) -> Option<(String, String)> {
+    if let Some(r) = enum_ref_of(e) {
+        return Some(r);
+    }
+    match e {
+        Expression::BinaryExpression(b) => {
+            find_enum_ref_in(&b.left).or_else(|| find_enum_ref_in(&b.right))
+        }
+        Expression::LogicalExpression(b) => {
+            find_enum_ref_in(&b.left).or_else(|| find_enum_ref_in(&b.right))
+        }
+        Expression::ParenthesizedExpression(p) => find_enum_ref_in(&p.expression),
+        _ => None,
+    }
+}
 
 /// A parsed `.wap("tag", attrs?, ...children)` / `.smax(...)` call.
 pub(crate) struct WapCall<'a> {
@@ -88,6 +118,21 @@ fn classify_attr_node<'a>(
         kind,
         value: val,
         required,
+        enum_ref: None,
+    };
+    // A pending enum link — only its (name, module) are known here; the variants are
+    // resolved cross-module after the scan (see `crate::enum_link`). `variants` empty
+    // marks it unresolved.
+    let with_enum = |kind: WapAttrKind, required: bool, module: String, ename: String| WapAttrDef {
+        name: name.to_string(),
+        kind,
+        value: None,
+        required,
+        enum_ref: Some(AttrEnumRef {
+            name: ename,
+            module,
+            variants: Vec::new(),
+        }),
     };
 
     // String literal → fixed const.
@@ -109,6 +154,15 @@ fn classify_attr_node<'a>(
             && callee_object(call).and_then(|o| resolve_owner(o, aliases)) == Some("WASmaxAttrs")
         {
             return owned(WapAttrKind::Optional, None, false);
+        }
+        // FORM A: `CUSTOM_STRING(o("Mod").EnumName.VARIANT)` — the wire value is drawn
+        // from that enum. Gated on `CUSTOM_STRING` (a wire builder) so an unrelated
+        // `o(Mod).X.Y` member chain is never mistaken for an enum reference.
+        if method == "CUSTOM_STRING"
+            && let Some(arg) = call.arguments.first().and_then(arg_expr)
+            && let Some((module, ename)) = enum_ref_of(arg)
+        {
+            return with_enum(WapAttrKind::String, true, module, ename);
         }
         let kind = match method {
             "CUSTOM_STRING" | "STANZA_ID" => Some(WapAttrKind::String),
@@ -138,6 +192,12 @@ fn classify_attr_node<'a>(
     if let Expression::ConditionalExpression(cond) = value {
         let s = &source[cond.span.start as usize..cond.span.end as usize];
         if s.contains("DROP_ATTR") {
+            // FORM B: `cond === o("Mod").EnumName.VARIANT ? CUSTOM_STRING(…) : DROP_ATTR`
+            // — the attr is present iff the runtime value equals that enum variant, so
+            // its value is drawn from that enum. Look for the reference in the guard.
+            if let Some((module, ename)) = find_enum_ref_in(&cond.test) {
+                return with_enum(WapAttrKind::Optional, false, module, ename);
+            }
             return owned(WapAttrKind::Optional, None, false);
         }
     }

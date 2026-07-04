@@ -1259,6 +1259,7 @@ mod tests {
                     kind: wa_ir::WapAttrKind::Const,
                     value: None,
                     required: false,
+                    enum_ref: None,
                 })
                 .collect(),
             children: Vec::new(),
