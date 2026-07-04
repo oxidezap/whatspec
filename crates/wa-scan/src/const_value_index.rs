@@ -41,11 +41,13 @@ use wa_transform::ModuleDefinition;
 use wa_oxc::{arg_expr, as_int, as_member, as_string_lit, callee_method, obj_props};
 
 /// Suffix every smax content-argument name carries (`linkCodePairingNonceElementValue`,
-/// `titleElementValue`, …). Used both to gate which object-literal properties are
-/// candidate builder arguments and to filter which modules are re-parsed — a module
-/// mentioning any `*ElementValue` name necessarily contains the substring, so every
-/// occurrence of a candidate argument is seen (no occurrence is filtered away, which
-/// would break the unanimity guard).
+/// `titleElementValue`, …). Identifies a candidate builder argument (an object-literal
+/// property or a `e.<arg>` content reference). In Pass 1 it also gates which modules
+/// are re-parsed — a module mentioning any `*ElementValue` name necessarily contains
+/// the substring, so no assignment of a candidate argument is filtered away (which
+/// would break the global unanimity guard). Pass 2, by contrast, filters by the
+/// *builders* (`.smax(`/`.wap(`), since per-tag unanimity must see every builder of a
+/// tag, not only the ones that happen to use an `…ElementValue` argument.
 const ARG_SUFFIX: &str = "ElementValue";
 
 /// The smax/wap element-content builders whose 3rd argument is the leaf value.
@@ -83,9 +85,16 @@ pub(crate) fn build_pass(defs: &[ModuleDefinition], source: &str) -> ConstValueI
     collect_tag_consts(defs, source, &arg_consts)
 }
 
+/// Upper bound on a recognized constant byte buffer. Real stanza leaves are tiny (a
+/// nonce is one byte; the largest sized wire field is a few hundred bytes), so a
+/// `new Uint8Array(N)` beyond this is a minifier artifact or an intentionally huge
+/// allocation, not a wire constant — treated as unrecognized (never materialized, so
+/// the hex expansion can't allocate an unbounded string).
+const MAX_CONST_BYTES: i64 = 4096;
+
 /// The `new Uint8Array(N)` length of an expression, if it is exactly that (a single
-/// numeric argument). `new Uint8Array(someVar)` / `new Uint8Array([1,2])` / any other
-/// callee return `None`.
+/// numeric argument within [`MAX_CONST_BYTES`]). `new Uint8Array(someVar)` /
+/// `new Uint8Array([1,2])` / an out-of-range `N` / any other callee return `None`.
 fn zero_bytes_of(e: &Expression) -> Option<u32> {
     let Expression::NewExpression(n) = e else {
         return None;
@@ -97,6 +106,9 @@ fn zero_bytes_of(e: &Expression) -> Option<u32> {
         return None;
     }
     let len = n.arguments.first().and_then(arg_expr).and_then(as_int)?;
+    if !(0..=MAX_CONST_BYTES).contains(&len) {
+        return None;
+    }
     u32::try_from(len).ok()
 }
 
@@ -180,9 +192,9 @@ enum Content {
     Dynamic,
 }
 
-/// Scan every `…ElementValue`-mentioning module for `smax("tag", attrs, <content>)`
-/// builders and keep a tag only if every builder feeds it the same constant argument
-/// and none feeds it dynamic content.
+/// Scan every builder-bearing module (`.smax(`/`.wap(`) for `smax("tag", attrs,
+/// <content>)` and keep a tag only if every builder feeds it the same constant
+/// argument and none feeds it dynamic content.
 fn collect_tag_consts(
     defs: &[ModuleDefinition],
     source: &str,
@@ -199,8 +211,13 @@ fn collect_tag_consts(
         if !scanned.insert(m.name.as_str()) {
             continue;
         }
+        // Filter by the *builders* (`.smax(`/`.wap(`), NOT by `ElementValue`. Per-tag
+        // unanimity must see EVERY builder of a candidate tag — including one in a
+        // module with no `…ElementValue` argument that feeds the same tag dynamic
+        // content. Filtering by the argument suffix here would hide that dissenting
+        // builder and could wrongly promote the tag to a constant.
         let slice = &source[m.start..m.end];
-        if !slice.contains(ARG_SUFFIX) {
+        if !slice.contains(".smax(") && !slice.contains(".wap(") {
             continue;
         }
         let alloc = Allocator::default();
@@ -267,6 +284,18 @@ impl<'a> Visit<'a> for TagCollector {
         let outer = self.local_args.clone();
         shadow_params(&mut self.local_args, &arrow.params);
         walk::walk_arrow_function_expression(self, arrow);
+        self.local_args = outer;
+    }
+
+    // Restore the binding map on leaving a nested block so a block-scoped `let`/`const`
+    // alias (`if (x) { let t = e.fooElementValue; }`) can't leak past its block and be
+    // read by a later `smax(…, t)`. A function-scoped `var` at the function's top level
+    // lives in the `FunctionBody` (not a `BlockStatement`), so it is unaffected; a `var`
+    // inside a nested block is conservatively confined too (a false negative — never a
+    // wrong value). Matches the fail-safe stance: ambiguity drops, it never guesses.
+    fn visit_block_statement(&mut self, block: &oxc_ast::ast::BlockStatement<'a>) {
+        let outer = self.local_args.clone();
+        walk::walk_block_statement(self, block);
         self.local_args = outer;
     }
 
@@ -467,6 +496,63 @@ mod tests {
         assert_eq!(index(bundle).get("nonce"), None);
     }
 
+    /// A dissenting builder that emits the tag with dynamic content lives in a module
+    /// with NO `…ElementValue` argument. Pass 2 must still see it (it filters by the
+    /// builder `.smax(`/`.wap(`, not by the argument suffix), so the tag is dropped —
+    /// not wrongly promoted to a constant.
+    #[test]
+    fn dynamic_builder_without_element_value_arg_drops_tag() {
+        let bundle = r#"
+            __d("Builder",[],function(g,r,d,o,e,i,l){ l.a=function(e){ return o("X").smax("nonce",null,e.fooElementValue); }; },1);
+            __d("CallSite",[],function(g,r,d,o,e,i,l){ l.b=function(){ return {fooElementValue:new Uint8Array(1)}; }; },2);
+            __d("OtherBuilder",[],function(g,r,d,o,e,i,l){ l.c=function(x){ return o("X").smax("nonce",null,x.runtimeBuf); }; },3);
+        "#;
+        // `OtherBuilder` mentions no `ElementValue`, but feeds `nonce` dynamic content.
+        assert_eq!(index(bundle).get("nonce"), None);
+    }
+
+    /// A `let` alias declared inside a nested block must not leak out of the block and
+    /// be read by a later `smax(…, t)` in the enclosing scope.
+    #[test]
+    fn block_scoped_let_alias_does_not_leak() {
+        let bundle = r#"
+            __d("Builder",[],function(g,r,d,o,e,i,l){
+                l.a = function(e){ if (e.flag) { let t = e.fooElementValue; use(t); } return o("X").smax("nonce",null,t); };
+            },1);
+            __d("CallSite",[],function(g,r,d,o,e,i,l){ l.b=function(){ return {fooElementValue:new Uint8Array(1)}; }; },2);
+        "#;
+        // The `smax` reads a `t` outside the block that bound it → dynamic → no const.
+        assert_eq!(index(bundle).get("nonce"), None);
+    }
+
+    /// A `var t = e.arg` at the function's top level (the common builder shape) still
+    /// resolves — block-scoping restores only on leaving *nested* blocks, and a function
+    /// body is not one.
+    #[test]
+    fn function_top_level_var_alias_still_resolves() {
+        let bundle = r#"
+            __d("Builder",[],function(g,r,d,o,e,i,l){
+                l.a = function(e){ var t = e.fooElementValue; return o("X").smax("nonce",null,t); };
+            },1);
+            __d("CallSite",[],function(g,r,d,o,e,i,l){ l.b=function(){ return {fooElementValue:new Uint8Array(1)}; }; },2);
+        "#;
+        assert_eq!(
+            index(bundle).get("nonce"),
+            Some((&ConstValue::ZeroBytes(1), "fooElementValue"))
+        );
+    }
+
+    /// An absurdly large `new Uint8Array(N)` is not treated as a wire constant (guards
+    /// the hex expansion against an unbounded allocation).
+    #[test]
+    fn oversized_byte_buffer_is_not_constant() {
+        let bundle = r#"
+            __d("Builder",[],function(g,r,d,o,e,i,l){ l.a=function(e){ return o("X").smax("nonce",null,e.fooElementValue); }; },1);
+            __d("CallSite",[],function(g,r,d,o,e,i,l){ l.b=function(){ return {fooElementValue:new Uint8Array(1000000)}; }; },2);
+        "#;
+        assert_eq!(index(bundle).get("nonce"), None);
+    }
+
     /// The crypto idiom — `new Uint8Array(1)` bound to a *variable* then filled — is a
     /// statement, not an object-property value, so it never registers as a constant.
     #[test]
@@ -545,6 +631,7 @@ mod tests {
         assert_eq!(c.kind, WapContentKind::Bytes);
         assert_eq!(c.const_bytes.as_deref(), Some("00"));
         assert_eq!(c.byte_length, Some(1));
+        assert_eq!(c.value_source.as_deref(), Some("const:fooElementValue"));
     }
 
     #[test]
