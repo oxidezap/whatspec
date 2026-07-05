@@ -698,7 +698,7 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
 
     // The four extractors are independent and read-only over the shared inputs,
     // so run them concurrently on plain scoped threads (no async runtime).
-    // The four extractors are independent and read-only over the shared inputs;
+    // The extractors are independent and read-only over the shared inputs;
     // each returns `Result` so a failure surfaces with context instead of a
     // silent empty artifact or a bare panic.
     let (iq, proto, mex, appstate, abprops, enums, wam, notif, stanza, tokens, incoming) =

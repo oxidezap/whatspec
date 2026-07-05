@@ -11,21 +11,20 @@
 
 use std::collections::HashSet;
 
-use wa_ir::{AssertionKind, IncomingDef, StanzaTag};
+use wa_ir::{AssertionKind, IncomingDef, IncomingTag};
 use wa_transform::ModuleDefinition;
 
 use crate::response::parse_module_wap_parsers;
 
 /// The stanza tags whose incoming read-shape this domain catalogs — content stanzas
 /// only. `None` for everything else (notification/iq/stream-control), which drops it.
-fn incoming_tag(tag: &str) -> Option<StanzaTag> {
+/// Only tags an actual parser asserts are listed (no speculative entries).
+fn incoming_tag(tag: &str) -> Option<IncomingTag> {
     Some(match tag {
-        "message" => StanzaTag::Message,
-        "receipt" => StanzaTag::Receipt,
-        "call" => StanzaTag::Call,
-        "ack" => StanzaTag::Ack,
-        "presence" => StanzaTag::Presence,
-        "chatstate" => StanzaTag::Chatstate,
+        "message" => IncomingTag::Message,
+        "receipt" => IncomingTag::Receipt,
+        "call" => IncomingTag::Call,
+        "ack" => IncomingTag::Ack,
         _ => return None,
     })
 }
@@ -99,7 +98,7 @@ mod tests {
         let got = scan(bundle);
         let r = got
             .iter()
-            .find(|d| d.tag == StanzaTag::Receipt)
+            .find(|d| d.tag == IncomingTag::Receipt)
             .expect("receipt read-shape captured");
         assert_eq!(r.shape.parser_name, "incomingMsgReceiptParser");
         assert_eq!(r.module, "WAWebHandleMsgReceiptParser");
@@ -129,7 +128,7 @@ mod tests {
         let got = scan(bundle);
         // Only the `call` content tag survives; notification and iq are dropped.
         assert_eq!(got.len(), 1);
-        assert_eq!(got[0].tag, StanzaTag::Call);
+        assert_eq!(got[0].tag, IncomingTag::Call);
         assert_eq!(got[0].shape.parser_name, "callParser");
     }
 }

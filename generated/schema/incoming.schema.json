@@ -65,14 +65,24 @@
           "$ref": "#/$defs/ParsedResponse"
         },
         "tag": {
-          "description": "The stanza tag the parser asserts (`message` / `receipt` / `call` / `ack` / …).",
-          "$ref": "#/$defs/StanzaTag"
+          "description": "The content tag the parser asserts (`message` / `receipt` / `call` / `ack`).",
+          "$ref": "#/$defs/IncomingTag"
         }
       },
       "required": [
         "tag",
         "module",
         "shape"
+      ]
+    },
+    "IncomingTag": {
+      "description": "The content-stanza tags that carry a recoverable *incoming* read-shape. A narrow\nenum (not the broad [`StanzaTag`]) so the catalog can only hold tags the domain\nactually recovers — `iq`/`notification` (other domains) and stream-control tags are\nunrepresentable here. New variants are added only when a parser for them appears.\n\n[`StanzaTag`]: crate::iq::StanzaTag",
+      "type": "string",
+      "enum": [
+        "message",
+        "receipt",
+        "call",
+        "ack"
       ]
     },
     "ParsedField": {
@@ -390,22 +400,6 @@
           "type": "string",
           "const": "alternative"
         }
-      ]
-    },
-    "StanzaTag": {
-      "description": "Top-level WA protocol stanza tag.",
-      "type": "string",
-      "enum": [
-        "iq",
-        "message",
-        "receipt",
-        "ack",
-        "notification",
-        "call",
-        "chatstate",
-        "presence",
-        "status",
-        "privacy"
       ]
     },
     "UnionVariant": {

@@ -11,7 +11,23 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::iq::{ParsedResponse, StanzaTag};
+use crate::iq::ParsedResponse;
+
+/// The content-stanza tags that carry a recoverable *incoming* read-shape. A narrow
+/// enum (not the broad [`StanzaTag`]) so the catalog can only hold tags the domain
+/// actually recovers — `iq`/`notification` (other domains) and stream-control tags are
+/// unrepresentable here. New variants are added only when a parser for them appears.
+///
+/// [`StanzaTag`]: crate::iq::StanzaTag
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "lowercase")]
+pub enum IncomingTag {
+    Message,
+    Receipt,
+    Call,
+    Ack,
+}
 
 /// One received stanza's read-shape: which tag it parses, the module that defines the
 /// parser, and the recovered field tree.
@@ -19,8 +35,8 @@ use crate::iq::{ParsedResponse, StanzaTag};
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct IncomingDef {
-    /// The stanza tag the parser asserts (`message` / `receipt` / `call` / `ack` / …).
-    pub tag: StanzaTag,
+    /// The content tag the parser asserts (`message` / `receipt` / `call` / `ack`).
+    pub tag: IncomingTag,
     /// The WA Web module that defines the parser.
     pub module: String,
     /// The recovered read-shape: parser name, assertions, and field tree (the same
