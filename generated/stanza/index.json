@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1042634856",
+  "waVersion": "2.3000.1042638824",
   "stanzas": [
     {
       "stanzaType": "message",
@@ -3254,6 +3254,211 @@
       "response": null
     },
     {
+      "stanzaType": "call",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutVoipLinkCreateRequest",
+      "exportedFunction": null,
+      "allExports": [
+        "makeLinkCreateRequestLinkCreateEvent",
+        "makeLinkCreateRequest"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "generated_id",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "user_jid",
+          "required": true
+        }
+      ],
+      "children": [
+        {
+          "tag": "link_create",
+          "attrs": [
+            {
+              "name": "media",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "link_creator_username",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "waiting_room_enabled",
+              "kind": "optional",
+              "required": false
+            }
+          ],
+          "children": [
+            {
+              "tag": "event",
+              "attrs": [
+                {
+                  "name": "start_time",
+                  "kind": "integer",
+                  "required": true
+                }
+              ],
+              "children": [],
+              "repeats": false
+            }
+          ],
+          "repeats": false
+        }
+      ],
+      "response": null
+    },
+    {
+      "stanzaType": "call",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutVoipLinkQueryRequest",
+      "exportedFunction": null,
+      "allExports": [
+        "makeLinkQueryRequest"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "generated_id",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "user_jid",
+          "required": true
+        }
+      ],
+      "children": [
+        {
+          "tag": "link_query",
+          "attrs": [
+            {
+              "name": "token",
+              "kind": "string",
+              "required": true
+            },
+            {
+              "name": "media",
+              "kind": "string",
+              "required": true
+            },
+            {
+              "name": "action",
+              "kind": "optional",
+              "required": false
+            }
+          ],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null
+    },
+    {
+      "stanzaType": "call",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutVoipWaitingRoomToggleCallLinkRequest",
+      "exportedFunction": null,
+      "allExports": [
+        "makeWaitingRoomToggleCallLinkRequest"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "generated_id",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "user_jid",
+          "required": true
+        }
+      ],
+      "children": [
+        {
+          "tag": "waiting_room_toggle",
+          "attrs": [
+            {
+              "name": "enabled",
+              "kind": "string",
+              "required": true
+            },
+            {
+              "name": "media",
+              "kind": "string",
+              "required": true
+            }
+          ],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null
+    },
+    {
+      "stanzaType": "call",
+      "direction": "outgoing",
+      "moduleName": "WAWebVoipSendSignalingXmpp",
+      "exportedFunction": null,
+      "allExports": [
+        "sendWAWebVoipSignalingXmpp"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "to",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "id",
+          "kind": "dynamic",
+          "required": true
+        }
+      ],
+      "children": [
+        {
+          "tag": "enc",
+          "attrs": [
+            {
+              "name": "v",
+              "kind": "string",
+              "required": true
+            },
+            {
+              "name": "type",
+              "kind": "string",
+              "required": true
+            },
+            {
+              "name": "count",
+              "kind": "integer",
+              "required": true
+            }
+          ],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null
+    },
+    {
       "stanzaType": "chatstate",
       "direction": "outgoing",
       "moduleName": "WASmaxOutChatstateClientNotificationRequest",
@@ -3335,6 +3540,230 @@
         }
       ],
       "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "status",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutStatusPublishPostNewsletterStatusRequest",
+      "exportedFunction": null,
+      "allExports": [
+        "makePostNewsletterStatusRequest"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "to",
+          "kind": "user_jid",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "privacy",
+      "direction": "outgoing",
+      "moduleName": "WAWebQueryPrivacyDisallowedListPnJob",
+      "exportedFunction": null,
+      "allExports": [
+        "queryPrivacyDisallowedListPn"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [],
+      "children": [
+        {
+          "tag": "list",
+          "attrs": [
+            {
+              "name": "name",
+              "kind": "string",
+              "required": true
+            },
+            {
+              "name": "value",
+              "kind": "string",
+              "required": true
+            }
+          ],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null
+    },
+    {
+      "stanzaType": "privacy",
+      "direction": "outgoing",
+      "moduleName": "WAWebSetPrivacyJob",
+      "exportedFunction": null,
+      "allExports": [
+        "PrivacyUserAction",
+        "setPrivacy"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [],
+      "children": [
+        {
+          "tag": "category",
+          "attrs": [
+            {
+              "name": "name",
+              "kind": "string",
+              "required": true
+            },
+            {
+              "name": "value",
+              "kind": "string",
+              "required": true
+            }
+          ],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null
+    },
+    {
+      "stanzaType": "privacy",
+      "direction": "outgoing",
+      "moduleName": "WAWebSetPrivacyJob",
+      "exportedFunction": null,
+      "allExports": [
+        "PrivacyUserAction",
+        "setPrivacy"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "addressing_mode",
+          "kind": "string",
+          "required": true
+        }
+      ],
+      "children": [
+        {
+          "tag": "category",
+          "attrs": [
+            {
+              "name": "name",
+              "kind": "string",
+              "required": true
+            },
+            {
+              "name": "value",
+              "kind": "string",
+              "required": true
+            },
+            {
+              "name": "dhash",
+              "kind": "string",
+              "required": true
+            }
+          ],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null
+    },
+    {
+      "stanzaType": "privacy",
+      "direction": "outgoing",
+      "moduleName": "WAWebSetPrivacyJob",
+      "exportedFunction": null,
+      "allExports": [
+        "PrivacyUserAction",
+        "setPrivacy"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [],
+      "children": [
+        {
+          "tag": "category",
+          "attrs": [
+            {
+              "name": "name",
+              "kind": "string",
+              "required": true
+            },
+            {
+              "name": "value",
+              "kind": "string",
+              "required": true
+            },
+            {
+              "name": "dhash",
+              "kind": "string",
+              "required": true
+            }
+          ],
+          "children": [
+            {
+              "tag": "user",
+              "attrs": [
+                {
+                  "name": "action",
+                  "kind": "string",
+                  "required": true
+                },
+                {
+                  "name": "jid",
+                  "kind": "user_jid",
+                  "required": true
+                }
+              ],
+              "children": [],
+              "repeats": true
+            }
+          ],
+          "repeats": false
+        }
+      ],
+      "response": null
+    },
+    {
+      "stanzaType": "privacy",
+      "direction": "outgoing",
+      "moduleName": "WAWebSetReadReceiptJob",
+      "exportedFunction": null,
+      "allExports": [
+        "default"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [],
+      "children": [
+        {
+          "tag": "category",
+          "attrs": [
+            {
+              "name": "name",
+              "kind": "const",
+              "value": "readreceipts",
+              "required": true
+            },
+            {
+              "name": "value",
+              "kind": "dynamic",
+              "required": true
+            }
+          ],
+          "children": [],
+          "repeats": false
+        }
+      ],
       "response": null
     }
   ]

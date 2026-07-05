@@ -1,0 +1,722 @@
+{
+  "schemaVersion": "1.0.0",
+  "waVersion": "2.3000.1042638824",
+  "incoming": [
+    {
+      "tag": "message",
+      "module": "WAWebHandleMsgParser",
+      "shape": {
+        "parserName": "incomingMsgParser",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "message"
+          }
+        ],
+        "fields": [
+          {
+            "method": "maybeChild",
+            "name": "plaintext",
+            "type": "string",
+            "required": false,
+            "tag": "plaintext",
+            "children": []
+          },
+          {
+            "method": "attrEnumValues",
+            "name": "type",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "maybeAttrString",
+            "name": "mediatype",
+            "type": "string",
+            "required": false
+          },
+          {
+            "method": "contentBytes",
+            "name": "content",
+            "type": "bytes",
+            "required": true
+          },
+          {
+            "method": "maybeAttrInt",
+            "name": "count",
+            "type": "integer",
+            "required": false
+          },
+          {
+            "method": "maybeAttrString",
+            "name": "decrypt-fail",
+            "type": "string",
+            "required": false
+          },
+          {
+            "method": "maybeAttrString",
+            "name": "state",
+            "type": "string",
+            "required": false
+          },
+          {
+            "method": "maybeAttrString",
+            "name": "session_type",
+            "type": "string",
+            "required": false
+          },
+          {
+            "method": "maybeChild",
+            "name": "device-identity",
+            "type": "string",
+            "required": false,
+            "tag": "device-identity",
+            "children": [
+              {
+                "method": "contentBytes",
+                "name": "content",
+                "type": "bytes",
+                "required": true
+              }
+            ],
+            "contentType": "bytes"
+          },
+          {
+            "method": "maybeChild",
+            "name": "rcat",
+            "type": "string",
+            "required": false,
+            "tag": "rcat",
+            "children": []
+          }
+        ]
+      }
+    },
+    {
+      "tag": "message",
+      "module": "WAWebHandleMsgParser",
+      "shape": {
+        "parserName": "incomingMsgParserForAckOnly",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "message"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrEnum",
+            "name": "type",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "attrString",
+            "name": "offline",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "attrString",
+            "name": "id",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "attrJidWithType",
+            "name": "from",
+            "type": "jid_typed",
+            "required": true
+          },
+          {
+            "method": "attrDeviceJid",
+            "name": "participant",
+            "type": "device_jid",
+            "required": true
+          }
+        ]
+      }
+    },
+    {
+      "tag": "receipt",
+      "module": "WAWebHandleVoipCallReceipt",
+      "shape": {
+        "parserName": "callReceiptParser",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "receipt"
+          }
+        ],
+        "fields": [
+          {
+            "method": "maybeChild",
+            "name": "offer",
+            "type": "string",
+            "required": false,
+            "tag": "offer",
+            "children": []
+          },
+          {
+            "method": "maybeChild",
+            "name": "accept",
+            "type": "string",
+            "required": false,
+            "tag": "accept",
+            "children": []
+          },
+          {
+            "method": "maybeChild",
+            "name": "reject",
+            "type": "string",
+            "required": false,
+            "tag": "reject",
+            "children": []
+          },
+          {
+            "method": "attrString",
+            "name": "id",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "maybeAttrString",
+            "name": "type",
+            "type": "string",
+            "required": false
+          },
+          {
+            "method": "attrJidWithType",
+            "name": "from",
+            "type": "jid_typed",
+            "required": true
+          }
+        ]
+      }
+    },
+    {
+      "tag": "receipt",
+      "module": "WAWebHandleMsgReceiptParser",
+      "shape": {
+        "parserName": "incomingMsgReceiptParser",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "receipt"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "id",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "attrJidWithType",
+            "name": "from",
+            "type": "jid_typed",
+            "required": true
+          },
+          {
+            "method": "maybeAttrString",
+            "name": "offline",
+            "type": "string",
+            "required": false
+          },
+          {
+            "method": "maybeAttrString",
+            "name": "type",
+            "type": "string",
+            "required": false
+          },
+          {
+            "method": "maybeChild",
+            "name": "error",
+            "type": "string",
+            "required": false,
+            "tag": "error",
+            "children": [
+              {
+                "method": "attrString",
+                "name": "reason",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "attrString",
+                "name": "type",
+                "type": "string",
+                "required": true
+              }
+            ]
+          },
+          {
+            "method": "maybeChild",
+            "name": "participants",
+            "type": "string",
+            "required": false,
+            "tag": "participants",
+            "children": []
+          }
+        ]
+      }
+    },
+    {
+      "tag": "receipt",
+      "module": "WAWebRetryRequestParser",
+      "shape": {
+        "parserName": "retryRequestParser",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "receipt"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "type",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "attrJidWithType",
+            "name": "from",
+            "type": "jid_typed",
+            "required": true
+          },
+          {
+            "method": "attrDeviceJid",
+            "name": "participant",
+            "type": "device_jid",
+            "required": true
+          },
+          {
+            "method": "attrString",
+            "name": "is_lid",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "attrDeviceJid",
+            "name": "recipient",
+            "type": "device_jid",
+            "required": true
+          },
+          {
+            "method": "child",
+            "name": "retry",
+            "type": "string",
+            "required": true,
+            "tag": "retry",
+            "children": [
+              {
+                "method": "attrString",
+                "name": "id",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "maybeAttrInt",
+                "name": "count",
+                "type": "integer",
+                "required": false
+              }
+            ]
+          },
+          {
+            "method": "maybeChild",
+            "name": "keys",
+            "type": "string",
+            "required": false,
+            "tag": "keys",
+            "children": []
+          },
+          {
+            "method": "child",
+            "name": "identity",
+            "type": "string",
+            "required": true,
+            "tag": "identity",
+            "children": [
+              {
+                "method": "contentBytes",
+                "name": "content",
+                "type": "bytes",
+                "required": true,
+                "byteLength": 32
+              }
+            ]
+          },
+          {
+            "method": "child",
+            "name": "value",
+            "type": "string",
+            "required": true,
+            "tag": "value",
+            "children": [
+              {
+                "method": "contentBytes",
+                "name": "content",
+                "type": "bytes",
+                "required": true,
+                "byteLength": 32
+              }
+            ]
+          },
+          {
+            "method": "child",
+            "name": "signature",
+            "type": "string",
+            "required": true,
+            "tag": "signature",
+            "children": [
+              {
+                "method": "contentBytes",
+                "name": "content",
+                "type": "bytes",
+                "required": true,
+                "byteLength": 64
+              }
+            ]
+          },
+          {
+            "method": "attrString",
+            "name": "id",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "attrTime",
+            "name": "t",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "method": "child",
+            "name": "registration",
+            "type": "string",
+            "required": true,
+            "tag": "registration",
+            "children": []
+          }
+        ]
+      }
+    },
+    {
+      "tag": "call",
+      "module": "WAWebHandleVoipOfferNotice",
+      "shape": {
+        "parserName": "callOfferNoticeParser",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "call"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "id",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "attrJidWithType",
+            "name": "from",
+            "type": "jid_typed",
+            "required": true
+          },
+          {
+            "method": "child",
+            "name": "offer_notice",
+            "type": "string",
+            "required": true,
+            "tag": "offer_notice",
+            "children": [
+              {
+                "method": "attrDeviceJid",
+                "name": "call-creator",
+                "type": "device_jid",
+                "required": true
+              },
+              {
+                "method": "attrString",
+                "name": "call-id",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "attrString",
+                "name": "type",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "attrString",
+                "name": "media",
+                "type": "string",
+                "required": true
+              }
+            ]
+          },
+          {
+            "method": "attrTime",
+            "name": "t",
+            "type": "integer",
+            "required": true
+          }
+        ]
+      }
+    },
+    {
+      "tag": "call",
+      "module": "WAWebVoipCallOfferStanzaParser",
+      "shape": {
+        "parserName": "callOfferPlaceholder",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "call"
+          }
+        ],
+        "fields": [
+          {
+            "method": "maybeAttrTime",
+            "name": "t",
+            "type": "integer",
+            "required": false
+          }
+        ]
+      }
+    },
+    {
+      "tag": "call",
+      "module": "WAWebHandleVoipCall",
+      "shape": {
+        "parserName": "callParser",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "call"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrJidWithType",
+            "name": "from",
+            "type": "jid_typed",
+            "required": true
+          },
+          {
+            "method": "attrJidWithType",
+            "name": "sender_lid",
+            "type": "jid_typed",
+            "required": true
+          },
+          {
+            "method": "maybeAttrString",
+            "name": "push_name",
+            "type": "string",
+            "required": false
+          },
+          {
+            "method": "maybeAttrString",
+            "name": "guest_name",
+            "type": "string",
+            "required": false
+          },
+          {
+            "method": "attrJidWithType",
+            "name": "jid",
+            "type": "jid_typed",
+            "required": true
+          },
+          {
+            "method": "attrJidWithType",
+            "name": "user_pn",
+            "type": "jid_typed",
+            "required": true
+          },
+          {
+            "method": "maybeAttrString",
+            "name": "username",
+            "type": "string",
+            "required": false
+          },
+          {
+            "method": "maybeAttrString",
+            "name": "account_kind",
+            "type": "string",
+            "required": false
+          },
+          {
+            "method": "maybeAttrString",
+            "name": "platform",
+            "type": "string",
+            "required": false
+          },
+          {
+            "method": "maybeAttrString",
+            "name": "version",
+            "type": "string",
+            "required": false
+          },
+          {
+            "method": "maybeAttrTime",
+            "name": "t",
+            "type": "integer",
+            "required": false
+          },
+          {
+            "method": "maybeAttrTime",
+            "name": "e",
+            "type": "integer",
+            "required": false
+          },
+          {
+            "method": "attrString",
+            "name": "id",
+            "type": "string",
+            "required": true
+          }
+        ]
+      }
+    },
+    {
+      "tag": "ack",
+      "module": "WAAckParser",
+      "shape": {
+        "parserName": "ack",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "ack"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "id",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "maybeAttrString",
+            "name": "t",
+            "type": "string",
+            "required": false
+          },
+          {
+            "method": "attrString",
+            "name": "class",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "maybeAttrString",
+            "name": "type",
+            "type": "string",
+            "required": false
+          },
+          {
+            "method": "attrJidWithType",
+            "name": "content",
+            "type": "jid_typed",
+            "required": true
+          },
+          {
+            "method": "attrDeviceJid",
+            "name": "participant",
+            "type": "device_jid",
+            "required": true
+          },
+          {
+            "method": "attrUserJid",
+            "name": "recipient",
+            "type": "user_jid",
+            "required": true
+          }
+        ]
+      }
+    },
+    {
+      "tag": "ack",
+      "module": "WAWebSendReceiptJobCommon",
+      "shape": {
+        "parserName": "readReceiptAckParser",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "ack"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrEnum",
+            "name": "readreceipts",
+            "type": "string",
+            "required": true
+          }
+        ]
+      }
+    },
+    {
+      "tag": "ack",
+      "module": "WAWebSendMsgCommonApi",
+      "shape": {
+        "parserName": "sendMsgAckSyncParser",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "ack"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrTime",
+            "name": "t",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "method": "maybeAttrString",
+            "name": "sync",
+            "type": "string",
+            "required": false
+          },
+          {
+            "method": "maybeAttrString",
+            "name": "phash",
+            "type": "string",
+            "required": false
+          },
+          {
+            "method": "attrString",
+            "name": "refresh_lid",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "maybeAttrString",
+            "name": "addressing_mode",
+            "type": "string",
+            "required": false
+          },
+          {
+            "method": "maybeAttrInt",
+            "name": "count",
+            "type": "integer",
+            "required": false
+          },
+          {
+            "method": "maybeAttrInt",
+            "name": "error",
+            "type": "integer",
+            "required": false
+          }
+        ]
+      }
+    }
+  ]
+}
