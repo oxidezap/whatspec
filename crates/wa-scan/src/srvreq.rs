@@ -72,11 +72,18 @@ pub fn scan_server_requests_from_modules(
         let exports = analyze_module_exports(&source[m.start..m.end], &resolver);
         for (name, shape) in &exports {
             // Skip inner child parsers: their export name extends another export's
-            // (`<root><ChildSuffix>`), and their fields are already nested in the
-            // root's tree. Only a root (prefixed by no sibling) is a candidate.
-            let is_child = exports
-                .iter()
-                .any(|(other, _)| other != name && name.starts_with(other.as_str()));
+            // at a word boundary (`<root><ChildSuffix>`, PascalCase), and their fields
+            // are already nested in the root's tree. Requiring the suffix to start on a
+            // word boundary (an uppercase char) keeps a bare-substring sibling — e.g.
+            // `parseFoobar` vs `parseFoo` — from being misread as a child; only a root
+            // (extended by no sibling) is a candidate.
+            let is_child = exports.iter().any(|(other, _)| {
+                if other == name {
+                    return false;
+                }
+                name.strip_prefix(other.as_str())
+                    .is_some_and(|suffix| suffix.starts_with(char::is_uppercase))
+            });
             if is_child {
                 continue;
             }
@@ -213,6 +220,24 @@ mod tests {
                 && x.value.as_deref() == Some("acme")),
             "the distinct type discriminator is preserved"
         );
+    }
+
+    #[test]
+    fn word_boundary_keeps_bare_prefix_sibling() {
+        // Two independent roots in one module whose names share a leading substring
+        // that is *not* a word boundary (`parseThing` vs `parseThingy`): the child
+        // check must not treat `parseThingy` as an extension of `parseThing` (the
+        // suffix `y` is lowercase, not a `<root><ChildSuffix>` boundary), so both
+        // survive. A raw `starts_with` would have silently dropped one.
+        let bundle = r#"__d("WASmaxInAcmeThingNotificationRequest",["WASmaxParseUtils"],(function(t,n,r,o,a,i,l){function e(e){var t=o("WASmaxParseUtils").assertTag(e,"notification");if(!t.success)return t;var n=o("WASmaxParseUtils").attrString(e,"a");return n.success?o("WAResultOrError").makeResult({a:n.value}):n}function s(e){var t=o("WASmaxParseUtils").assertTag(e,"ib");if(!t.success)return t;var n=o("WASmaxParseUtils").attrString(e,"b");return n.success?o("WAResultOrError").makeResult({b:n.value}):n}l.parseThing=e,l.parseThingy=s}),1);"#;
+        let got = scan(bundle);
+        assert_eq!(
+            got.len(),
+            2,
+            "a bare-substring sibling is not dropped as a child"
+        );
+        let names: Vec<&str> = got.iter().map(|d| d.shape.parser_name.as_str()).collect();
+        assert!(names.contains(&"parseThing") && names.contains(&"parseThingy"));
     }
 
     #[test]
