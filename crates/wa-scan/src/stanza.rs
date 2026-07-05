@@ -320,7 +320,7 @@ mod tests {
             stanzas
                 .iter()
                 .find(|s| s.stanza_type == t)
-                .unwrap_or_else(|| panic!("{t:?} captured"))
+                .unwrap_or_else(|| panic!("expected a {t:?} stanza to be captured"))
         };
         let has = |s: &StanzaDef, n: &str| s.attrs.iter().any(|a| a.name == n);
         // Each tag is recognized AND its attributes are extracted (not just discovered).
