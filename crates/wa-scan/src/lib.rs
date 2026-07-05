@@ -12,6 +12,7 @@ mod const_value_index;
 mod content_length_index;
 mod enum_link;
 mod helper_index;
+mod incoming;
 mod mixin_index;
 mod module;
 mod request;
@@ -20,6 +21,7 @@ mod response_index;
 mod response_smax;
 mod stanza;
 
+pub use incoming::scan_incoming_from_modules;
 pub use mixin_index::MixinIndex;
 pub use module::{CrossModuleStat, DropReason, scan_module_outcome, scan_module_source};
 pub use response::parse_module_wap_parsers;

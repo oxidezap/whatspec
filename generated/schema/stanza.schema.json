@@ -507,7 +507,9 @@
         "notification",
         "call",
         "chatstate",
-        "presence"
+        "presence",
+        "status",
+        "privacy"
       ]
     },
     "UnionVariant": {
