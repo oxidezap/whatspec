@@ -176,7 +176,7 @@ fn update(args: &[String]) -> Result<()> {
 
     eprintln!(
         "wrote artifacts to {}: {} iq modules, {} proto entities, {} mex ops, {} appstate actions, \
-         {} abprops, {} enums, {} wam events, {} notif types, {} stanzas, {}+{} tokens",
+         {} abprops, {} enums, {} wam events, {} notif types, {} stanzas, {} incoming, {}+{} tokens",
         opts.out.display(),
         counts.iq_modules,
         counts.proto_entities,
@@ -187,6 +187,7 @@ fn update(args: &[String]) -> Result<()> {
         counts.wam_events,
         counts.notif_types,
         counts.stanza_defs,
+        counts.incoming_defs,
         counts.token_single_byte,
         counts.token_double_byte
     );
@@ -480,6 +481,9 @@ struct Counts {
     iq_typed_responses: usize,
     /// Outgoing non-IQ stanzas (receipt/presence/chatstate/ack) the scanner recovers.
     stanza_defs: usize,
+    /// Incoming content-stanza read-shapes (message/receipt/call/ack) recovered from
+    /// their `WADeprecatedWapParser` bodies.
+    incoming_defs: usize,
     /// Binary-protocol token tables: single-byte entries (incl. the leading empty
     /// token) and the total across all double-byte dictionaries.
     token_single_byte: usize,
@@ -697,7 +701,7 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
     // The four extractors are independent and read-only over the shared inputs;
     // each returns `Result` so a failure surfaces with context instead of a
     // silent empty artifact or a bare panic.
-    let (iq, proto, mex, appstate, abprops, enums, wam, notif, stanza, tokens) =
+    let (iq, proto, mex, appstate, abprops, enums, wam, notif, stanza, tokens, incoming) =
         std::thread::scope(|s| {
             let iq = s.spawn(|| -> Result<_> {
                 let mut a = Vec::new();
@@ -749,6 +753,11 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
                 let c = push_tokens(&mut a, wa_version, source, &module_defs)?;
                 Ok((a, c))
             });
+            let incoming = s.spawn(|| -> Result<_> {
+                let mut a = Vec::new();
+                let c = push_incoming(&mut a, wa_version, source, &module_defs)?;
+                Ok((a, c))
+            });
             (
                 iq.join().expect("iq extractor panicked"),
                 proto.join().expect("proto extractor panicked"),
@@ -760,6 +769,7 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
                 notif.join().expect("notif extractor panicked"),
                 stanza.join().expect("stanza extractor panicked"),
                 tokens.join().expect("tokens extractor panicked"),
+                incoming.join().expect("incoming extractor panicked"),
             )
         });
     let (iq_arts, (iq_count, iq_diag)) = iq.context("iq codegen")?;
@@ -772,6 +782,7 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
     let (notif_arts, (notif_count, notif_typed, notif_tags)) = notif.context("notif extraction")?;
     let (stanza_arts, stanza_count) = stanza.context("stanza extraction")?;
     let (tokens_arts, (token_single, token_double)) = tokens.context("tokens extraction")?;
+    let (incoming_arts, incoming_count) = incoming.context("incoming extraction")?;
 
     // Fail loud if any domain extracted nothing — a real WA bundle always yields
     // all of these, so a zero means the bundle is incomplete or that extractor
@@ -785,6 +796,7 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
         ("wam events", wam_count),
         ("notif types", notif_count),
         ("stanza defs", stanza_count),
+        ("incoming defs", incoming_count),
         ("token single-byte entries", token_single),
     ] {
         if n == 0 {
@@ -807,6 +819,7 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
     artifacts.extend(notif_arts);
     artifacts.extend(stanza_arts);
     artifacts.extend(tokens_arts);
+    artifacts.extend(incoming_arts);
 
     // JSON Schema of the IR contract (one per domain), for cross-language
     // consumers to validate the `index.json` files and auto-generate IR types.
@@ -831,6 +844,7 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
         iq_stanzas: iq_diag.stanzas,
         iq_typed_responses: iq_diag.typed_responses,
         stanza_defs: stanza_count,
+        incoming_defs: incoming_count,
         token_single_byte: token_single,
         token_double_byte: token_double,
     };
@@ -856,6 +870,11 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
         ("notif", "notif/index.json", "schema/notif.schema.json"),
         ("stanza", "stanza/index.json", "schema/stanza.schema.json"),
         ("tokens", "tokens/index.json", "schema/tokens.schema.json"),
+        (
+            "incoming",
+            "incoming/index.json",
+            "schema/incoming.schema.json",
+        ),
     ];
     let domains: serde_json::Map<String, serde_json::Value> =
         neutral
@@ -896,6 +915,7 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
         "wamEvents": counts.wam_events,
         "notifTypes": counts.notif_types,
         "stanzaDefs": counts.stanza_defs,
+        "incomingDefs": counts.incoming_defs,
         "tokenSingleByte": counts.token_single_byte,
         "tokenDoubleByte": counts.token_double_byte,
         "domains": domains,
@@ -954,6 +974,7 @@ fn check_floor(out: &Path, counts: &Counts) -> Result<Vec<String>> {
         ("wamEvents", counts.wam_events),
         ("notifTypes", counts.notif_types),
         ("stanzaDefs", counts.stanza_defs),
+        ("incomingDefs", counts.incoming_defs),
         ("tokenSingleByte", counts.token_single_byte),
         ("tokenDoubleByte", counts.token_double_byte),
     ];
@@ -1033,6 +1054,27 @@ fn push_stanza(
     artifacts.push(Artifact {
         rel_path: PathBuf::from("stanza/stanza.rs"),
         content: wa_codegen::generate_stanza(&ir),
+    });
+    Ok(count)
+}
+
+/// Emit the incoming content-stanza read-shape catalog (`incoming/index.json`) — the
+/// field trees WA Web parses out of received message/receipt/call/ack stanzas. Neutral
+/// IR only; the codegen is a later phase.
+fn push_incoming(
+    artifacts: &mut Vec<Artifact>,
+    wa_version: &str,
+    source: &str,
+    module_defs: &[wa_transform::ModuleDefinition],
+) -> Result<usize> {
+    let ir = wa_ir::IncomingIr {
+        wa_version: wa_version.to_string(),
+        incoming: wa_scan::scan_incoming_from_modules(source, module_defs),
+    };
+    let count = ir.incoming.len();
+    artifacts.push(Artifact {
+        rel_path: PathBuf::from("incoming/index.json"),
+        content: serde_json::to_string_pretty(&wa_ir::IrEnvelope::new(&ir))? + "\n",
     });
     Ok(count)
 }
@@ -1444,6 +1486,7 @@ mod tests {
             iq_stanzas: 0,
             iq_typed_responses: 0,
             stanza_defs: 0,
+            incoming_defs: 0,
             token_single_byte: 0,
             token_double_byte: 0,
         };
