@@ -19,12 +19,14 @@ mod request;
 mod response;
 mod response_index;
 mod response_smax;
+mod srvreq;
 mod stanza;
 
 pub use incoming::scan_incoming_from_modules;
 pub use mixin_index::MixinIndex;
 pub use module::{CrossModuleStat, DropReason, scan_module_outcome, scan_module_source};
 pub use response::parse_module_wap_parsers;
+pub use srvreq::scan_server_requests_from_modules;
 pub use stanza::scan_stanzas_from_modules;
 
 use std::collections::{HashMap, HashSet};
