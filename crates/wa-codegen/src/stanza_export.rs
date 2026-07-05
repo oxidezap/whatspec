@@ -30,6 +30,8 @@ fn tag_module(t: StanzaTag) -> &'static str {
         StanzaTag::Call => "call",
         StanzaTag::Chatstate => "chatstate",
         StanzaTag::Presence => "presence",
+        StanzaTag::Status => "status",
+        StanzaTag::Privacy => "privacy",
     }
 }
 
