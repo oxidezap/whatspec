@@ -21,6 +21,7 @@ pub mod iq;
 pub mod mex;
 pub mod notif;
 pub mod proto;
+pub mod srvreq;
 pub mod tokens;
 pub mod wam;
 pub mod wap;
@@ -33,6 +34,7 @@ pub use iq::*;
 pub use mex::*;
 pub use notif::*;
 pub use proto::*;
+pub use srvreq::*;
 pub use tokens::*;
 pub use wam::*;
 
@@ -117,6 +119,10 @@ pub fn schemas() -> Vec<(&'static str, String)> {
             "schema/incoming.schema.json",
             dump::<incoming::IncomingIr>(),
         ),
+        (
+            "schema/srvreq.schema.json",
+            dump::<srvreq::ServerRequestIr>(),
+        ),
     ]
 }
 
@@ -127,7 +133,7 @@ mod schema_tests {
     #[test]
     fn schemas_are_well_formed_and_versioned() {
         let out = schemas();
-        assert_eq!(out.len(), 10, "one schema per neutral domain");
+        assert_eq!(out.len(), 11, "one schema per neutral domain");
         for (path, json) in &out {
             // Each schema parses as JSON and is a JSON Schema object with a
             // `properties` map. (`$defs` only appears for domains with nested named

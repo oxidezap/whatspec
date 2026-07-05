@@ -1,0 +1,437 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "IrEnvelope",
+  "description": "Envelope that stamps a domain IR document with [`SCHEMA_VERSION`] at emit\ntime, without altering the inner document's shape.\n\n`#[serde(flatten)]` keeps the document's own fields (`waVersion`, `stanzas`,\n…) at the top level and merely adds `schemaVersion` alongside them — additive,\nso existing consumers that ignore unknown fields are unaffected.",
+  "type": "object",
+  "properties": {
+    "requests": {
+      "description": "Server-initiated request read-shapes, sorted by `(tag, module, parser name)`.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ServerRequestDef"
+      }
+    },
+    "schemaVersion": {
+      "description": "The IR contract version — see [`SCHEMA_VERSION`].",
+      "type": "string"
+    },
+    "waVersion": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "waVersion",
+    "requests"
+  ],
+  "$defs": {
+    "AssertionKind": {
+      "description": "What a response parser asserts before accepting a node as its variant.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "tag",
+            "attr",
+            "from_server"
+          ]
+        },
+        {
+          "description": "The node's text content is pinned to a fixed value (`literalContent(content,\nnode, \"admin_add\")`) — a discriminator for marker union variants. The value is\nin [`ResponseAssertion::value`]; `name` is unused.",
+          "type": "string",
+          "const": "content"
+        }
+      ]
+    },
+    "ContentType": {
+      "description": "How a child/leaf node's content is accessed in the response parser.",
+      "type": "string",
+      "enum": [
+        "string",
+        "bytes",
+        "nodes"
+      ]
+    },
+    "ParsedField": {
+      "description": "One field extracted from a response stanza by a parser.\n\n`method` is the parser accessor used (e.g. `attrString`, `maybeChild`,\n`forEachChildWithTag`) and is left open-ended (free-form string) to track the\nreal WA accessor surface; the codegen switches on it.",
+      "type": "object",
+      "properties": {
+        "byteLength": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "children": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/ParsedField"
+          }
+        },
+        "contentType": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ContentType"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "enumKeys": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "intMax": {
+          "description": "Inclusive upper bound from the same `attrIntRange` check (see [`int_min`]).\n\n[`int_min`]: ParsedField::int_min",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64"
+        },
+        "intMin": {
+          "description": "Inclusive lower bound the parser enforces via `attrIntRange(node, name, min,\nmax)`. Present only for a bounded [`ParsedFieldType::Integer`]; a consumer can\nvalidate or pick a narrower Rust width from these. The timestamp-marker range is\nnot carried here — it is surfaced as [`ParsedFieldType::Timestamp`] instead.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64"
+        },
+        "method": {
+          "type": "string"
+        },
+        "name": {
+          "description": "The output (struct field) name — the camelCase `makeResult` key in smax.",
+          "type": "string"
+        },
+        "repeats": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "sameNode": {
+          "description": "The field's attrs/content are read off the PARENT node, not a child named\n`tag` (a smax payload mixin spread inline) — codegen must not descend.",
+          "type": "boolean"
+        },
+        "sourcePath": {
+          "description": "Wrapper tags to descend (in order) before reading this field — e.g. a\n`flattenedChildWithTag(\"groups\")` ancestor for a repeated `<group>`.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "tag": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "type": {
+          "$ref": "#/$defs/ParsedFieldType"
+        },
+        "unionVariants": {
+          "description": "Alternatives for a [`ParsedFieldType::Union`] field.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/UnionVariant"
+          }
+        },
+        "wireName": {
+          "description": "The wire attribute/content name (snake_case), when it differs from `name`.\nCodegen reads the attribute by this name; falls back to `name` when absent.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "method",
+        "name",
+        "type",
+        "required"
+      ]
+    },
+    "ParsedFieldType": {
+      "description": "Scalar type a parsed response field decodes to.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "string",
+            "integer",
+            "enum",
+            "bytes"
+          ]
+        },
+        {
+          "description": "An integer the parser range-checks as a Unix timestamp in **seconds** —\nrecognized by the `attrIntRange(t, 1577865600, 4102473600)` bound, i.e.\n`2020-01-01T08:00:00Z`…`2100-01-01T08:00:00Z` (the exact constants; both are\n08:00 UTC, not midnight). WA uses this to tell a wall-clock time apart from a\nplain counter. A consumer can decode it as a date/time rather than a bare integer.",
+          "type": "string",
+          "const": "timestamp"
+        },
+        {
+          "description": "A Unix timestamp in **milliseconds** — the same window range-checked ×1000\n(`attrIntRange(t, 15778656e5, 41024736e5)`). Distinct from [`Timestamp`] so a\nconsumer applies the right scale.\n\n[`Timestamp`]: ParsedFieldType::Timestamp",
+          "type": "string",
+          "const": "timestamp_millis"
+        },
+        {
+          "description": "A JID with no flavor-specific validation (`attrJid`/`attrWapJid`/`attrFromJid`).",
+          "type": "string",
+          "const": "jid"
+        },
+        {
+          "description": "`<user>@s.whatsapp.net` — a phone-number (PN) user JID (`attrUserJid`).\nDistinct from [`LidUserJid`]: the two are different identities for the same\nperson and must never be conflated — a protocol-safety-critical distinction.\n\n[`LidUserJid`]: ParsedFieldType::LidUserJid",
+          "type": "string",
+          "const": "user_jid"
+        },
+        {
+          "description": "`<user>@lid` — a LID (privacy) user JID (`attrLidUserJid`). See [`UserJid`].\n\n[`UserJid`]: ParsedFieldType::UserJid",
+          "type": "string",
+          "const": "lid_user_jid"
+        },
+        {
+          "description": "`<user>:<device>@s.whatsapp.net` (`attrDeviceJid`).",
+          "type": "string",
+          "const": "device_jid"
+        },
+        {
+          "description": "`<user>:<device>@lid` — a LID device JID (`attrLidDeviceJid`).",
+          "type": "string",
+          "const": "lid_device_jid"
+        },
+        {
+          "description": "`<group>@g.us` (`attrGroupJid`).",
+          "type": "string",
+          "const": "group_jid"
+        },
+        {
+          "description": "`<id>@newsletter` (`attrNewsletterJid`).",
+          "type": "string",
+          "const": "newsletter_jid"
+        },
+        {
+          "description": "`<id>@call` (`attrCallJid`).",
+          "type": "string",
+          "const": "call_jid"
+        },
+        {
+          "description": "`<target>@broadcast` (`attrBroadcastJid`).",
+          "type": "string",
+          "const": "broadcast_jid"
+        },
+        {
+          "description": "`status@broadcast` (`attrStatusJid`).",
+          "type": "string",
+          "const": "status_jid"
+        },
+        {
+          "description": "A JID validated against a server-kind enum arg but with no single flavor\n(`attrJidWithType`/`attrJidEnum`).",
+          "type": "string",
+          "const": "jid_typed"
+        },
+        {
+          "description": "A presence boolean (`{hasX: child.success}` in smax) — true iff a sub-node\nor attr is present. The presence target is carried in `tag`.",
+          "type": "string",
+          "const": "bool"
+        },
+        {
+          "description": "A discriminated union (`{name, value}` smax disjunction) — the alternatives\nare carried in [`ParsedField::union_variants`].",
+          "type": "string",
+          "const": "union"
+        }
+      ]
+    },
+    "ParsedResponse": {
+      "description": "The parsed response half of an IQ operation.\n\nWhen `variants` is non-empty the response is a discriminated union (the RPC\ntries each in order, first success wins); `fields` then mirrors the primary\nsuccess variant for back-compatible single-shape consumers. When `variants` is\nempty, `fields` is the single response shape.",
+      "type": "object",
+      "properties": {
+        "assertions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ResponseAssertion"
+          }
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ParsedField"
+          }
+        },
+        "parserName": {
+          "type": "string"
+        },
+        "variants": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ResponseVariant"
+          }
+        }
+      },
+      "required": [
+        "parserName",
+        "assertions",
+        "fields"
+      ]
+    },
+    "ResponseAssertion": {
+      "description": "A single guard a response parser applies.",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/AssertionKind"
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "value": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "kind"
+      ]
+    },
+    "ResponseVariant": {
+      "description": "One alternative of a response-root discriminated union (an `WASmaxIn<X>Response<V>`\nvariant aggregated by the `WASmax<X>RPC` orchestrator).",
+      "type": "object",
+      "properties": {
+        "assertions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ResponseAssertion"
+          }
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ParsedField"
+          }
+        },
+        "kind": {
+          "$ref": "#/$defs/ResponseVariantKind"
+        },
+        "moduleName": {
+          "type": "string"
+        },
+        "tag": {
+          "description": "The RPC discriminator tag (parser export minus `parse`, e.g.\n`GetResponseSuccessPictureURL`).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tag",
+        "moduleName",
+        "kind",
+        "assertions",
+        "fields"
+      ]
+    },
+    "ResponseVariantKind": {
+      "description": "How a response-root union variant classifies (drives codegen `Ok`/`Err` arms).",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "success",
+            "error"
+          ]
+        },
+        {
+          "description": "A structured non-happy outcome that still parses (Nack, Conflict, …).",
+          "type": "string",
+          "const": "alternative"
+        }
+      ]
+    },
+    "ServerRequestDef": {
+      "description": "One server-initiated request's read-shape: the tag it dispatches on, the module\nthat defines the parser, and the recovered field tree. Mirrors [`IncomingDef`],\ndiffering only in the (broader) tag universe of server-pushed control stanzas.\n\n[`IncomingDef`]: crate::incoming::IncomingDef",
+      "type": "object",
+      "properties": {
+        "module": {
+          "description": "The WA Web `WASmaxIn<X>Request` module that defines the parser.",
+          "type": "string"
+        },
+        "shape": {
+          "description": "The recovered read-shape: root parser name, assertions (the tag plus any\npinned `type` discriminator), and field tree — the same [`ParsedResponse`]\nthe iq/incoming domains use.",
+          "$ref": "#/$defs/ParsedResponse"
+        },
+        "tag": {
+          "description": "The top-level stanza tag the parser asserts.",
+          "$ref": "#/$defs/ServerRequestTag"
+        }
+      },
+      "required": [
+        "tag",
+        "module",
+        "shape"
+      ]
+    },
+    "ServerRequestTag": {
+      "description": "The top-level stanza tag a server-initiated request asserts. A narrow enum (not\nthe broad [`StanzaTag`]) so the catalog can only hold the tags these RPCs\nactually dispatch on; child-element tags (`action`, `ref`, `group`, …) asserted\nby inner parsers are unrepresentable here. New variants are added only when a\nserver-request parser for them appears.\n\n[`StanzaTag`]: crate::iq::StanzaTag",
+      "type": "string",
+      "enum": [
+        "notification",
+        "iq",
+        "ib",
+        "presence",
+        "chatstate",
+        "message",
+        "status"
+      ]
+    },
+    "UnionVariant": {
+      "description": "One alternative of a discriminated union (`{name, value}` smax disjunction).",
+      "type": "object",
+      "properties": {
+        "assertions": {
+          "description": "The same-node guards the variant's parser enforces (`assertTag`,\n`literal(attr,value)`, `literalContent(value)`) — how a consumer tells this\nvariant apart from its siblings. Empty when the parser carries no fixed guard.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ResponseAssertion"
+          }
+        },
+        "fields": {
+          "description": "The variant's payload fields (empty for a marker/unit variant).",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ParsedField"
+          }
+        },
+        "name": {
+          "description": "The discriminator tag (the disjunction `name`, e.g. `GroupInfo`).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "fields"
+      ]
+    }
+  }
+}
