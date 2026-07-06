@@ -905,7 +905,63 @@
     {
       "type": "mex",
       "handlerModule": "WAWebHandleMexNotification",
-      "handlerFunction": "handleMexNotification"
+      "handlerFunction": "handleMexNotification",
+      "content": {
+        "parserName": "mexNotificationParser",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "notification"
+          },
+          {
+            "kind": "attr",
+            "name": "type",
+            "value": "mex"
+          }
+        ],
+        "fields": [
+          {
+            "method": "child",
+            "name": "update",
+            "type": "string",
+            "required": true,
+            "tag": "update",
+            "children": [
+              {
+                "method": "attrString",
+                "name": "op_name",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "contentString",
+                "name": "content",
+                "type": "string",
+                "required": true
+              }
+            ],
+            "contentType": "string"
+          },
+          {
+            "method": "attrString",
+            "name": "id",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "attrWapJid",
+            "name": "from",
+            "type": "jid",
+            "required": true
+          },
+          {
+            "method": "maybeAttrString",
+            "name": "offline",
+            "type": "string",
+            "required": false
+          }
+        ]
+      }
     },
     {
       "type": "newsletter",

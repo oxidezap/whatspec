@@ -20,9 +20,9 @@
       "unparseable": 63
     },
     "notif": {
-      "degraded": 9,
+      "degraded": 8,
       "stanzaTags": 13,
-      "typedContent": 18,
+      "typedContent": 19,
       "types": 27
     }
   },
@@ -60,7 +60,7 @@
     "notif": {
       "file": "notif/index.json",
       "schema": "schema/notif.schema.json",
-      "sha256": "b05a6fde725e6d6ec824a304a885dca4751c5c9a8a6e2667e00a888d3a87c6bb"
+      "sha256": "075c05c06f418d996f4c9caab193bebe642ead68aa4c719dfdfd6304884d741f"
     },
     "proto": {
       "file": "proto/WAProto.proto",

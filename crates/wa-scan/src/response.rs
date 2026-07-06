@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 
 use oxc_allocator::Allocator;
-use oxc_ast::ast::{CallExpression, Expression, NewExpression, VariableDeclaration};
+use oxc_ast::ast::{Argument, CallExpression, Expression, NewExpression, VariableDeclaration};
 use oxc_ast_visit::{Visit, walk};
 use oxc_span::GetSpan;
 use wa_ir::wap;
@@ -35,7 +35,7 @@ pub(crate) fn parsed_response_from_new_expr(
     if new_expr.arguments.len() < 2 {
         return None;
     }
-    let name = arg_expr(&new_expr.arguments[0]).and_then(as_string_lit)?;
+    let name = resolve_parser_name(&new_expr.arguments[0], source)?;
     let Some(Expression::FunctionExpression(cb)) = arg_expr(&new_expr.arguments[1]) else {
         return None;
     };
@@ -54,11 +54,67 @@ pub(crate) fn parsed_response_from_new_expr(
     let cb_body = &source[body.span.start as usize..body.span.end as usize];
     let result = analyze_parser_ast(cb_body, param.as_str());
     Some(ParsedResponse {
-        parser_name: name.to_string(),
+        parser_name: name,
         assertions: result.assertions,
         fields: result.fields,
         ..Default::default()
     })
+}
+
+/// The parser's name: the inline string literal (the common case), or — when the
+/// constructor is `new WADeprecatedWapParser(d, fn)` with the name hoisted into a
+/// variable (`d = "mexNotificationParser"`, as `WAWebHandleMexNotification` does) —
+/// the string that variable is bound to in the module. Recovering the variable form
+/// keeps the mex-notification envelope from being dropped for lack of an inline name.
+fn resolve_parser_name(arg: &Argument, source: &str) -> Option<String> {
+    let expr = arg_expr(arg)?;
+    if let Some(lit) = as_string_lit(expr) {
+        return Some(lit.to_string());
+    }
+    resolve_string_binding(source, as_identifier(expr)?)
+}
+
+/// The unique string literal bound to `name` via a `var name = "literal"`
+/// declaration in `source`. Returns `None` when the name is unbound or bound to more
+/// than one distinct string — an ambiguous name is not worth risking a wrong label.
+fn resolve_string_binding(source: &str, name: &str) -> Option<String> {
+    let alloc = Allocator::default();
+    let ret = wa_oxc::parse_cjs(&alloc, source);
+    if ret.panicked {
+        return None;
+    }
+    let mut finder = StringBindingFinder {
+        name,
+        values: Vec::new(),
+    };
+    finder.visit_program(&ret.program);
+    finder.values.sort();
+    finder.values.dedup();
+    match finder.values.as_slice() {
+        [only] => Some(only.clone()),
+        _ => None,
+    }
+}
+
+/// Collects the string literals bound to `name` by `var name = "literal"` anywhere in
+/// a module, so [`resolve_string_binding`] can require a unique value.
+struct StringBindingFinder<'a> {
+    name: &'a str,
+    values: Vec<String>,
+}
+
+impl<'a> Visit<'a> for StringBindingFinder<'_> {
+    fn visit_variable_declaration(&mut self, decl: &VariableDeclaration<'a>) {
+        for d in &decl.declarations {
+            if let (Some(id), Some(init)) = (d.id.get_identifier_name(), d.init.as_ref())
+                && id.as_str() == self.name
+                && let Some(lit) = as_string_lit(init)
+            {
+                self.values.push(lit.to_string());
+            }
+        }
+        walk::walk_variable_declaration(self, decl);
+    }
 }
 
 /// Collect every `new WADeprecatedWapParser("name", fn)` in a module slice as a
@@ -726,5 +782,38 @@ mod tests {
     fn invalid_body_is_empty() {
         let r = analyze_parser_ast("{ this is not js ", "e");
         assert!(r.fields.is_empty() && r.assertions.is_empty());
+    }
+
+    #[test]
+    fn recovers_variable_named_parser() {
+        // `WAWebHandleMexNotification` hoists the parser name into a variable
+        // (`d = "mexNotificationParser", m = new WADeprecatedWapParser(d, fn)`); the
+        // name must be resolved from the binding or the parser is silently dropped.
+        let module = r#"__d("WAWebHandleMexNotification",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            var d="mexNotificationParser",m=new(r("WADeprecatedWapParser"))(d,function(e){
+                e.assertTag("notification"), e.assertAttr("type","mex");
+                return { id: e.attrString("id") };
+            });
+        }), 1);"#;
+        let parsers = parse_module_wap_parsers(module);
+        assert_eq!(
+            parsers.len(),
+            1,
+            "variable-named parser should be recovered"
+        );
+        assert_eq!(parsers[0].parser_name, "mexNotificationParser");
+        assert!(parsers[0].fields.iter().any(|f| f.name == "id"));
+    }
+
+    #[test]
+    fn ambiguous_variable_name_is_not_guessed() {
+        // The same short name bound to two different strings → don't risk a wrong
+        // label; the parser is left unnamed (dropped) rather than mislabeled.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            var d="one";
+            var d="two";
+            var m=new(r("WADeprecatedWapParser"))(d,function(e){ return { id: e.attrString("id") }; });
+        }), 1);"#;
+        assert!(parse_module_wap_parsers(module).is_empty());
     }
 }
