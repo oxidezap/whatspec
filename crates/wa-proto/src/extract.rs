@@ -668,12 +668,15 @@ fn build_field(
         flags.push(FLAG_OPTIONAL.to_string());
     }
 
-    // A proto2 default applies only to a singular message field — never a oneof
-    // member (`message_member` is false there) nor a `repeated` field (protoc rejects
-    // that). All of WA's `internalDefaults` target singular optional fields.
-    let default = (message_member && !flags.iter().any(|fl| fl == FLAG_REPEATED))
-        .then(|| defaults.get(&f.name).cloned())
-        .flatten();
+    // A proto2 default applies only to a singular scalar/enum/message field — never a
+    // oneof member (`message_member` is false there), a `repeated` field, or a `map`
+    // (protoc rejects a default on the latter two). All of WA's `internalDefaults`
+    // target singular optional fields; the guards keep a future stray one valid.
+    let default = (message_member
+        && !flags.iter().any(|fl| fl == FLAG_REPEATED)
+        && !type_name.contains(TYPE_MAP))
+    .then(|| defaults.get(&f.name).cloned())
+    .flatten();
 
     ProtoField {
         name: f.name.clone(),
@@ -1216,9 +1219,9 @@ mod tests {
     // (proto2 forbids oneof defaults).
     const DEFAULTS: &str = r#"__d("ModD.pb",["$InternalEnum","WAProtoConst"],(function(t,n,r,o,a,i,l){
         var e, s=n("$InternalEnum")({UNKNOWN:0,ON:1}), u={};
-        u.internalDefaults={mode:s.ON,flag:!1,on:!0,count:5,delta:-1,pick:s.ON};
+        u.internalDefaults={mode:s.ON,flag:!1,on:!0,count:5,delta:-1,pick:s.ON,tags:5};
         u.name="Thing";
-        u.internalSpec={mode:[1,(e=r("WAProtoConst")).TYPES.ENUM,s],flag:[2,e.TYPES.BOOL],on:[6,e.TYPES.BOOL],count:[3,e.TYPES.INT32],delta:[4,e.TYPES.INT32],pick:[5,e.TYPES.ENUM,s],__oneofs__:{choice:["pick"]}};
+        u.internalSpec={mode:[1,(e=r("WAProtoConst")).TYPES.ENUM,s],flag:[2,e.TYPES.BOOL],on:[6,e.TYPES.BOOL],count:[3,e.TYPES.INT32],delta:[4,e.TYPES.INT32],pick:[5,e.TYPES.ENUM,s],tags:[7,e.TYPES.MAP,[e.TYPES.STRING,e.TYPES.STRING]],__oneofs__:{choice:["pick"]}};
         l.Mode=s,l.ThingSpec=u;
     }),1);"#;
 
@@ -1244,6 +1247,12 @@ mod tests {
         );
         assert!(
             out.contains("optional int32 delta = 4 [default = -1];"),
+            "{out}"
+        );
+        // A `map` field never carries a default (protoc rejects it), even with an
+        // `internalDefaults` entry.
+        assert!(
+            out.contains("map<string, string> tags = 7;") && !out.contains("tags = 7 [default"),
             "{out}"
         );
         // `pick` is a oneof member → no default (proto2 forbids it).
