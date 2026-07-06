@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1042658636",
+  "waVersion": "2.3000.1042675222",
   "operations": {
     "ACSServerProviderConfig": {
       "originalName": "WAWebACSServerProviderConfigQuery",
@@ -1434,7 +1434,7 @@
     },
     "FetchGroupInfo": {
       "originalName": "WAWebMexFetchGroupInfoJobQuery",
-      "docId": "25830934356604858",
+      "docId": "27508847222068472",
       "operationKind": "query",
       "variables": [
         "id",
@@ -1481,10 +1481,128 @@
           "participants": {
             "edges": [
               {
+                "group_history_sent": "string",
                 "join_time": "number",
                 "node": {
                   "display_name": "string",
                   "id": "string",
+                  "lid": "string",
+                  "pn": "string",
+                  "username_info": {
+                    "__typename": "string",
+                    "username": "string"
+                  }
+                },
+                "role": "string"
+              }
+            ],
+            "participants_phash_match": "string"
+          },
+          "properties": {
+            "allow_admin_reports": "boolean",
+            "allow_non_admin_sub_group_creation": "boolean",
+            "announcement": "string",
+            "appeal_status": "string",
+            "appeal_update_time": "number",
+            "auto_add_disabled": "boolean",
+            "capi": "string",
+            "closed_by_membership_approval_mode": "string",
+            "ephemeral": {
+              "expiration_time_in_sec": "string"
+            },
+            "general_chat": "string",
+            "growth_locked2": {
+              "locked": "string"
+            },
+            "hidden_group": "string",
+            "lid_migration_state": {
+              "addressing_mode": "string"
+            },
+            "limit_sharing": {
+              "limit_sharing_enabled": "boolean"
+            },
+            "locked": "string",
+            "member_add_mode": "string",
+            "member_link_mode": "string",
+            "member_share_group_history_mode": "string",
+            "membership_approval_mode_enabled": "boolean",
+            "parent_group_jid": "string",
+            "support": "string"
+          },
+          "state": "string",
+          "subject": {
+            "creation_time": "number",
+            "creator": {
+              "id": "string",
+              "lid": "string",
+              "pn": "string",
+              "username_info": {
+                "__typename": "string",
+                "username": "string"
+              }
+            },
+            "value": "string"
+          },
+          "total_participants_count": "number"
+        }
+      }
+    },
+    "FetchGroupInfoIncludBots": {
+      "originalName": "WAWebMexFetchGroupInfoIncludBotsJobQuery",
+      "docId": "27795062750123057",
+      "operationKind": "query",
+      "variables": [
+        "id",
+        "include_username",
+        "participants_phash",
+        "query_context"
+      ],
+      "variablesShape": {
+        "id": "string",
+        "include_username": "boolean",
+        "participants_phash": "string",
+        "query_context": "string"
+      },
+      "response": {
+        "xwa2_group_query_by_id": {
+          "__typename": "string",
+          "creation_time": "number",
+          "creator": {
+            "id": "string",
+            "lid": "string",
+            "pn": "string",
+            "username_info": {
+              "__typename": "string",
+              "username": "string"
+            }
+          },
+          "description": {
+            "creation_time": "number",
+            "creator": {
+              "id": "string",
+              "lid": "string",
+              "pn": "string",
+              "username_info": {
+                "__typename": "string",
+                "username": "string"
+              }
+            },
+            "id": "string",
+            "value": "string"
+          },
+          "id": "string",
+          "membership_approval_request": "string",
+          "missing_participant_identification": "string",
+          "participants": {
+            "edges": [
+              {
+                "group_history_sent": "string",
+                "join_time": "number",
+                "participant": {
+                  "__typename": "string",
+                  "display_name": "string",
+                  "id": "string",
+                  "jid": "string",
                   "lid": "string",
                   "pn": "string",
                   "username_info": {
@@ -1526,123 +1644,6 @@
             "member_link_mode": "string",
             "member_share_group_history_mode": "string",
             "membership_approval_mode_enabled": "boolean",
-            "parent_group_jid": "string",
-            "support": "string"
-          },
-          "state": "string",
-          "subject": {
-            "creation_time": "number",
-            "creator": {
-              "id": "string",
-              "lid": "string",
-              "pn": "string",
-              "username_info": {
-                "__typename": "string",
-                "username": "string"
-              }
-            },
-            "value": "string"
-          },
-          "total_participants_count": "number"
-        }
-      }
-    },
-    "FetchGroupInfoIncludBots": {
-      "originalName": "WAWebMexFetchGroupInfoIncludBotsJobQuery",
-      "docId": "27611314235130306",
-      "operationKind": "query",
-      "variables": [
-        "id",
-        "include_username",
-        "participants_phash",
-        "query_context"
-      ],
-      "variablesShape": {
-        "id": "string",
-        "include_username": "boolean",
-        "participants_phash": "string",
-        "query_context": "string"
-      },
-      "response": {
-        "xwa2_group_query_by_id": {
-          "__typename": "string",
-          "creation_time": "number",
-          "creator": {
-            "id": "string",
-            "lid": "string",
-            "pn": "string",
-            "username_info": {
-              "__typename": "string",
-              "username": "string"
-            }
-          },
-          "description": {
-            "creation_time": "number",
-            "creator": {
-              "id": "string",
-              "lid": "string",
-              "pn": "string",
-              "username_info": {
-                "__typename": "string",
-                "username": "string"
-              }
-            },
-            "id": "string",
-            "value": "string"
-          },
-          "id": "string",
-          "membership_approval_request": "string",
-          "missing_participant_identification": "string",
-          "participants": {
-            "edges": [
-              {
-                "join_time": "number",
-                "participant": {
-                  "__typename": "string",
-                  "display_name": "string",
-                  "id": "string",
-                  "jid": "string",
-                  "lid": "string",
-                  "pn": "string",
-                  "username_info": {
-                    "__typename": "string",
-                    "username": "string"
-                  }
-                },
-                "role": "string"
-              }
-            ],
-            "participants_phash_match": "string"
-          },
-          "properties": {
-            "allow_admin_reports": "boolean",
-            "allow_non_admin_sub_group_creation": "boolean",
-            "announcement": "string",
-            "appeal_status": "string",
-            "appeal_update_time": "number",
-            "auto_add_disabled": "boolean",
-            "capi": "string",
-            "closed_by_membership_approval_mode": "string",
-            "ephemeral": {
-              "expiration_time_in_sec": "string"
-            },
-            "general_chat": "string",
-            "growth_locked2": {
-              "locked": "string"
-            },
-            "hidden_group": "string",
-            "lid_migration_state": {
-              "addressing_mode": "string"
-            },
-            "limit_sharing": {
-              "limit_sharing_enabled": "boolean"
-            },
-            "locked": "string",
-            "member_add_mode": "string",
-            "member_link_mode": "string",
-            "member_share_group_history_mode": "string",
-            "membership_approval_mode_enabled": "boolean",
-            "parent_group_jid": "string",
             "support": "string"
           },
           "state": "string",

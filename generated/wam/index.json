@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1042658636",
+  "waVersion": "2.3000.1042675222",
   "events": [
     {
       "name": "GroupCreateC",
@@ -47782,6 +47782,107 @@
       "consumers": [
         "WAWebQuickActionLogging"
       ]
+    },
+    {
+      "name": "GroupHistorySenderUserJourney",
+      "code": 8378,
+      "module": "WAWebGroupHistorySenderUserJourneyWamEvent",
+      "channel": "regular",
+      "weights": [
+        1,
+        1,
+        1
+      ],
+      "fields": [
+        {
+          "name": "bundleSendSource",
+          "id": 1,
+          "kind": "enum",
+          "module": "WAWebWamEnumBundleSendSource"
+        },
+        {
+          "name": "groupHistoryMessagesCount",
+          "id": 2,
+          "kind": "integer"
+        },
+        {
+          "name": "groupHistoryOutWindowPinsCount",
+          "id": 3,
+          "kind": "integer"
+        },
+        {
+          "name": "groupHistoryPinsCount",
+          "id": 4,
+          "kind": "integer"
+        },
+        {
+          "name": "groupHistorySenderActionType",
+          "id": 5,
+          "kind": "enum",
+          "module": "WAWebWamEnumGroupHistorySenderActionType"
+        },
+        {
+          "name": "groupHistorySystemMessageType",
+          "id": 6,
+          "kind": "enum",
+          "module": "WAWebWamEnumGroupHistorySystemMessageType"
+        },
+        {
+          "name": "groupHistoryUncountedMessagesCount",
+          "id": 7,
+          "kind": "integer"
+        },
+        {
+          "name": "groupSize",
+          "id": 8,
+          "kind": "integer"
+        },
+        {
+          "name": "ineligibleReason",
+          "id": 9,
+          "kind": "enum",
+          "module": "WAWebWamEnumGroupHistoryIneligibilityReason"
+        },
+        {
+          "name": "isGroupHistoryToggledOn",
+          "id": 15,
+          "kind": "boolean"
+        },
+        {
+          "name": "isTeeBotNoticeOnly",
+          "id": 14,
+          "kind": "boolean"
+        },
+        {
+          "name": "recipientCount",
+          "id": 10,
+          "kind": "integer"
+        },
+        {
+          "name": "uiSurface",
+          "id": 11,
+          "kind": "enum",
+          "module": "WAWebWamEnumTsSurface"
+        },
+        {
+          "name": "unifiedSessionId",
+          "id": 12,
+          "kind": "string"
+        },
+        {
+          "name": "userJourneyTs",
+          "id": 13,
+          "kind": "integer"
+        },
+        {
+          "name": "xIneligibleReasons",
+          "id": 16,
+          "kind": "string"
+        }
+      ],
+      "consumers": [
+        "WAWebGroupHistorySenderUserJourneyLogger"
+      ]
     }
   ],
   "enums": [
@@ -59204,6 +59305,10 @@
         {
           "key": "DEEP_LINK_CHANGE_NUMBER",
           "value": 251
+        },
+        {
+          "key": "DEEP_LINK_AI_MAGIC_CUE_SETTING",
+          "value": 252
         }
       ]
     },
@@ -62802,6 +62907,48 @@
       ]
     },
     {
+      "name": "GROUP_HISTORY_INELIGIBILITY_REASON",
+      "module": "WAWebWamEnumGroupHistoryIneligibilityReason",
+      "variants": [
+        {
+          "key": "NO_SHAREABLE_MESSAGES",
+          "value": 0
+        },
+        {
+          "key": "NOT_IN_GROUP",
+          "value": 1
+        },
+        {
+          "key": "RECEIVER_NOT_ELIGIBLE",
+          "value": 2
+        },
+        {
+          "key": "SENDER_NOT_ELIGIBLE",
+          "value": 3
+        },
+        {
+          "key": "NOT_NEW_OR_ALREADY_SENT",
+          "value": 4
+        },
+        {
+          "key": "GROUP_NOT_FOUND",
+          "value": 5
+        },
+        {
+          "key": "EXPERIMENT_DISABLED",
+          "value": 6
+        },
+        {
+          "key": "GROUP_TYPE_NOT_ELIGIBLE",
+          "value": 7
+        },
+        {
+          "key": "UNKNOWN",
+          "value": 8
+        }
+      ]
+    },
+    {
       "name": "GROUP_HISTORY_RECEIVER_USER_JOURNEY_ACTION_TYPE",
       "module": "WAWebWamEnumGroupHistoryReceiverUserJourneyActionType",
       "variants": [
@@ -62852,6 +62999,118 @@
         {
           "key": "GROUP_HISTORY_FOOTER_INLINE_SHOWN",
           "value": 11
+        }
+      ]
+    },
+    {
+      "name": "GROUP_HISTORY_SENDER_ACTION_TYPE",
+      "module": "WAWebWamEnumGroupHistorySenderActionType",
+      "variants": [
+        {
+          "key": "VIEW_OPTIONS_SYSTEM_MESSAGE_CLICKED",
+          "value": 0
+        },
+        {
+          "key": "SEND_MESSAGE_HISTORY_SYSTEM_MESSAGE_CLICKED",
+          "value": 1
+        },
+        {
+          "key": "CONTACT_CARD_LAUNCHED",
+          "value": 2
+        },
+        {
+          "key": "GROUP_HISTORY_SELECTABLE_MESSAGES_LOADED",
+          "value": 3
+        },
+        {
+          "key": "GROUP_HISTORY_CONTACT_CARD_ENTRY_POINT_DISPLAYED",
+          "value": 4
+        },
+        {
+          "key": "GROUP_HISTORY_CONTACT_CARD_ENTRY_POINT_CLICKED",
+          "value": 5
+        },
+        {
+          "key": "GROUP_HISTORY_COUNT_CHANGE_ENTRY_POINT_CLICKED",
+          "value": 6
+        },
+        {
+          "key": "GROUP_HISTORY_COUNT_CHANGED",
+          "value": 7
+        },
+        {
+          "key": "GROUP_HISTORY_BUNDLE_MESSAGE_SENT",
+          "value": 8
+        },
+        {
+          "key": "GROUP_HISTORY_NOTICE_MESSAGE_SENT",
+          "value": 9
+        },
+        {
+          "key": "GROUP_HISTORY_BUNDLE_MESSAGE_ACKED",
+          "value": 10
+        },
+        {
+          "key": "GROUP_HISTORY_NOTICE_MESSAGE_ACKED",
+          "value": 11
+        },
+        {
+          "key": "GROUP_HISTORY_SEND_INELIGIBLE_AT_CTA_CLICK",
+          "value": 12
+        },
+        {
+          "key": "GROUP_HISTORY_SEND_INELIGIBLE_AT_BOTTOM_SHEET_OPEN",
+          "value": 13
+        },
+        {
+          "key": "GROUP_HISTORY_SEND_INELIGIBLE_AT_SEND_CLICK",
+          "value": 14
+        },
+        {
+          "key": "GROUP_HISTORY_DROPDOWN_MENU_ITEM_DISPLAYED",
+          "value": 15
+        },
+        {
+          "key": "GROUP_HISTORY_DROPDOWN_MENU_ITEM_CLICKED",
+          "value": 16
+        },
+        {
+          "key": "SEND_MESSAGE_HISTORY_CTA_SYSTEM_MESSAGE_DISPLAY",
+          "value": 17
+        },
+        {
+          "key": "SEND_MESSAGE_HISTORY_CTA_SYSTEM_MESSAGE_NOT_DISPLAYED",
+          "value": 18
+        }
+      ]
+    },
+    {
+      "name": "GROUP_HISTORY_SYSTEM_MESSAGE_TYPE",
+      "module": "WAWebWamEnumGroupHistorySystemMessageType",
+      "variants": [
+        {
+          "key": "MANUALLY_ADD",
+          "value": 0
+        },
+        {
+          "key": "INVITE_LINK",
+          "value": 1
+        },
+        {
+          "key": "COMMUNITY",
+          "value": 2
+        },
+        {
+          "key": "INVITE_ACCEPT",
+          "value": 3
+        },
+        {
+          "key": "INVITE_AUTO_ADD",
+          "value": 4
+        },
+        {
+          "key": "UNKNOWN",
+          "value": 5
         }
       ]
     },

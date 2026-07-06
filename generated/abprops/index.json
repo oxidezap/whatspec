@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1042658636",
+  "waVersion": "2.3000.1042675222",
   "configs": [
     {
       "module": "WAWebABPropsConfigs",
@@ -1796,6 +1796,14 @@
       "code": 23880,
       "valueType": "bool",
       "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "biz_ai_fab_confirm_modal_enabled",
+      "code": 32846,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -3743,14 +3751,6 @@
       "code": 28529,
       "valueType": "int",
       "default": 1320
-    },
-    {
-      "module": "WAWebABPropsConfigs",
-      "name": "contacts_from_common_groups_section_enabled",
-      "code": 25817,
-      "valueType": "bool",
-      "default": false,
-      "altDefault": true
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -6906,6 +6906,13 @@
       "module": "WAWebABPropsConfigs",
       "name": "may_have_messages_enabled",
       "code": 25303,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "mc_enabled",
+      "code": 32843,
       "valueType": "bool",
       "default": false
     },
@@ -11557,6 +11564,13 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "wa_web_chat_themes_solid_wallpaper_sync_encode",
+      "code": 32878,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "wa_web_chatlist_render_chat_open",
       "code": 27947,
       "valueType": "bool",
@@ -14740,6 +14754,13 @@
       "module": "WAWebABPropsConfigs",
       "name": "wmi_async_await_prep",
       "code": 29197,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "wmi_jm_to_ts_m1",
+      "code": 32880,
       "valueType": "bool",
       "default": false
     },
