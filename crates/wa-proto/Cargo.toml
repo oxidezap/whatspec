@@ -18,3 +18,9 @@ wa-transform = { workspace = true }
 
 [dev-dependencies]
 anyhow = { workspace = true }
+# Dev-only: a pure-Rust protoc that parses AND fully type-resolves the emitted
+# `WAProto.proto`, so a broken extraction (dangling type ref, duplicate name, bad
+# enum scoping) fails `cargo test` instead of being silently auto-committed. Kept a
+# dev-dep of this native-only crate so it never enters the wasm/shipped surface, and
+# it is C-free (no ring/aws-lc/openssl-sys) so the C-free CI guard still holds.
+protox = "0.9"
