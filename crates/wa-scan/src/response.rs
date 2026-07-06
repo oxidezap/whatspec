@@ -828,11 +828,11 @@ mod tests {
             function other(){ var d="unrelatedLabel"; return d; }
             l.p=build(), l.o=other;
         }), 1);"#;
-        // No parser is ever produced with the wrong `"unrelatedLabel"` name.
-        assert!(
-            parse_module_wap_parsers(module)
-                .iter()
-                .all(|p| p.parser_name != "unrelatedLabel")
-        );
+        // Two distinct bindings for `d` → ambiguous → the parser is dropped entirely
+        // (not attached with either label). Asserting emptiness — rather than just the
+        // absence of the wrong name — keeps this from passing vacuously.
+        let parsers = parse_module_wap_parsers(module);
+        assert!(parsers.is_empty());
+        assert!(parsers.iter().all(|p| p.parser_name != "unrelatedLabel"));
     }
 }

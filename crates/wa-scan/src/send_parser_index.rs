@@ -15,21 +15,24 @@
 //! from the one that built the `<iq>` (the iq expression is threaded across a module
 //! boundary) is left for the scanner's `unknown` fallback.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use oxc_allocator::Allocator;
-use oxc_ast::ast::CallExpression;
+use oxc_ast::ast::{CallExpression, Expression, VariableDeclaration};
 use oxc_ast_visit::{Visit, walk};
 use wa_ir::ParsedResponse;
-use wa_oxc::{arg_expr, as_call, as_identifier, as_member, callee_method, first_string_arg};
+use wa_oxc::{arg_expr, as_call, as_identifier, as_member, first_string_arg};
 use wa_transform::ModuleDefinition;
 
 use crate::response::parse_module_wap_parsers;
 
-/// The name `deprecatedSendIq` is called under: the common member form
-/// `o("WADeprecatedSendIq").deprecatedSendIq(...)`, or a bare identifier
-/// `deprecatedSendIq(...)` when the export was hoisted into a local.
+/// The `deprecatedSendIq` export method name.
 const SEND_IQ: &str = "deprecatedSendIq";
+
+/// The module the `deprecatedSendIq` helper is exported from — the provenance a
+/// bare-identifier call must trace back to (so a same-named local helper isn't
+/// mistaken for it).
+const SEND_IQ_MODULE: &str = "WADeprecatedSendIq";
 
 /// Sending module name → the typed response resolved from its `deprecatedSendIq`
 /// parser reference. A `BTreeMap` keeps the build deterministic.
@@ -79,21 +82,48 @@ fn find_send_parser_ref(slice: &str) -> Option<String> {
     if ret.panicked {
         return None;
     }
-    let mut finder = SendFinder { target: None };
+    let mut finder = SendFinder {
+        aliases: HashSet::new(),
+        target: None,
+    };
     finder.visit_program(&ret.program);
     finder.target
 }
 
+/// Whether `e` is the `deprecatedSendIq` helper reference
+/// `o("WADeprecatedSendIq").deprecatedSendIq` (a static member whose object requires
+/// the [`SEND_IQ_MODULE`]) — the provenance that qualifies a call as a real send.
+fn is_send_iq_ref(e: &Expression) -> bool {
+    matches!(as_member(e), Some((obj, prop))
+        if prop == SEND_IQ
+            && as_call(obj).and_then(first_string_arg) == Some(SEND_IQ_MODULE))
+}
+
 struct SendFinder {
+    /// Locals bound to the helper (`var d = o("WADeprecatedSendIq").deprecatedSendIq`),
+    /// so a bare `d(iq, parser)` call is only accepted when `d` provably traces back to
+    /// `WADeprecatedSendIq` — not a same-named local helper.
+    aliases: HashSet<String>,
     target: Option<String>,
 }
 
 impl<'a> Visit<'a> for SendFinder {
+    fn visit_variable_declaration(&mut self, decl: &VariableDeclaration<'a>) {
+        for d in &decl.declarations {
+            if let (Some(name), Some(init)) = (d.id.get_identifier_name(), d.init.as_ref())
+                && is_send_iq_ref(init)
+            {
+                self.aliases.insert(name.to_string());
+            }
+        }
+        walk::walk_variable_declaration(self, decl);
+    }
+
     fn visit_call_expression(&mut self, call: &CallExpression<'a>) {
-        // Match both `o("…").deprecatedSendIq(…)` (member) and a bare
-        // `deprecatedSendIq(…)` (identifier) callee.
-        let is_send =
-            callee_method(call) == Some(SEND_IQ) || as_identifier(&call.callee) == Some(SEND_IQ);
+        // Accept `o("WADeprecatedSendIq").deprecatedSendIq(…)` (provenance verified
+        // inline) or a bare `<alias>(…)` where the alias was bound from that helper.
+        let is_send = is_send_iq_ref(&call.callee)
+            || as_identifier(&call.callee).is_some_and(|n| self.aliases.contains(n));
         if self.target.is_none()
             && is_send
             && let Some(arg1) = call.arguments.get(1).and_then(arg_expr)
@@ -163,6 +193,23 @@ mod tests {
             idx.get("Job").map(|r| r.parser_name.as_str()),
             Some("theParser"),
         );
+    }
+
+    #[test]
+    fn bare_call_to_unrelated_local_helper_is_ignored() {
+        // A module-local helper that happens to be named `deprecatedSendIq` but isn't
+        // the `WADeprecatedSendIq` export must NOT attach a response — the bare path
+        // only fires for identifiers provably bound from that module.
+        let bundle = r#"
+            __d("Job",["P"],(function(t,n,r,o,a,i,l){
+                function deprecatedSendIq(x,y){ return x; }
+                l.query=function(){ var m=o("WAWap").wap("iq",{}); return deprecatedSendIq(m,o("P").theParser); };
+            }),1);
+            __d("P",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+                l.theParser=new(r("WADeprecatedWapParser"))("theParser",function(e){ return { id: e.attrString("id") }; });
+            }),1);
+        "#;
+        assert!(!index(bundle).contains_key("Job"));
     }
 
     #[test]
