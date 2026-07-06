@@ -697,11 +697,17 @@ fn maybe_save_bundles(opts: &Options, bundles: &[wa_fetch::Bundle]) -> Result<()
     Ok(())
 }
 
-/// Run every extractor + codegen and collect the resulting files in memory.
 /// Join a domain extractor's scoped thread, turning a panic into a recoverable
 /// diagnostic (naming the domain) instead of re-panicking the whole run. One broken
 /// extractor then surfaces as a clear, named error — collected alongside the others by
-/// the caller — rather than aborting all twelve opaquely with a raw backtrace.
+/// the caller — so the run ends with one actionable message instead of unwinding the
+/// whole scope on the first panic.
+///
+/// The panicking thread's own message (and a backtrace under `RUST_BACKTRACE`) still
+/// prints to stderr via the default panic hook; that is deliberate — it points at where
+/// the bug is — while the returned error drives the clean, aggregated exit. We don't
+/// install a scoped panic hook to silence it: that's process-global state and the raw
+/// stderr trace is worth keeping for the abnormal (real-bug) case this guards.
 fn joined<T>(name: &str, handle: std::thread::ScopedJoinHandle<'_, Result<T>>) -> Result<T> {
     match handle.join() {
         Ok(result) => result.with_context(|| format!("{name} extraction")),
@@ -718,6 +724,7 @@ fn joined<T>(name: &str, handle: std::thread::ScopedJoinHandle<'_, Result<T>>) -
     }
 }
 
+/// Run every extractor + codegen and collect the resulting files in memory.
 fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Counts)> {
     // Split the ~71MB concatenation into Metro modules exactly once; every
     // AST-based extractor re-parses only the slices it cares about.

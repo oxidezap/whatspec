@@ -227,13 +227,22 @@ pub fn scan_module_outcome(
 
     // A module that exports a `merge…Mixin` combinator is a fragment: its `<iq>` is a
     // partial skeleton folded into the concrete request consumers via the mixin index,
-    // never a standalone stanza. Only genuine mixin modules export such a combinator
-    // (a real request builder never does), so its presence classifies the module —
-    // even alongside `make…` payload helpers (`WASmaxOutSpamFRXMixin`) or when it
-    // resolved to a skeleton `<iq>` rather than to nothing. Otherwise the skeleton
-    // leaks into the stanza set as a bogus "degraded" duplicate of data that already
-    // lives in the real requests, and a fragment that resolved empty is mislabeled a
-    // genuine namespace/type failure.
+    // never a standalone stanza. Otherwise the skeleton leaks into the stanza set as a
+    // bogus "degraded" duplicate of data that already lives in the real requests, and a
+    // fragment that resolved empty is mislabeled a genuine namespace/type failure.
+    //
+    // `any` (not `all`), and checked before the resolution guard, on purpose: a genuine
+    // mixin often exports a `merge…Mixin` combinator *alongside* `make…` payload helpers
+    // (`WASmaxOutSpamFRXMixin`) and often resolves its own `<iq>` to a skeleton rather
+    // than to nothing — an `all`/`resolved.is_empty()` gate misses exactly those.
+    //
+    // Soundness of keying on the export name: `merge…Mixin` is WA's *exclusive*
+    // cross-module mixin-export convention — sibling modules fold a mixin in by name via
+    // `o("WASmaxOut…Mixin").merge<Name>Mixin(dst, …)`, so a real request builder never
+    // defines a member with that name (internally or as an export). So although
+    // `function_exports` is derived from every member assignment (not only verified
+    // factory exports), the convention makes a false positive impossible here — borne
+    // out by a full regen showing zero typed stanzas lost.
     let is_fragment = function_exports
         .iter()
         .any(|e| e.starts_with("merge") && e.contains("Mixin"));
