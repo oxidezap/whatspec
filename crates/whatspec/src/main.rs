@@ -1445,6 +1445,38 @@ mod tests {
     }
 
     #[test]
+    fn iq_extraction_is_input_order_independent() {
+        // The README's byte-identical-output guarantee: extraction is a pure function
+        // of the module SET, not their order in the bundle. The iq domain is the most
+        // order-sensitive (stanza ordering, dedup, the cross-module mixin/response
+        // indices), so serialize its whole IR from two bundle orderings and require
+        // byte-for-byte equality — an end-to-end guard against input-order-dependent
+        // output. (The `byteLengthSource` first-wins tie-break that regressed once is
+        // additionally pinned by a unit test in `content_length_index`.)
+        let modules = [
+            r#"__d("WAWebReqA",["WAWap"],function(g,r,d,o,e,i){ e.a = function(){ return i.wap("iq", { xmlns: "w:a", type: "get" }); }; });"#,
+            r#"__d("WAWebReqB",["WAWap"],function(g,r,d,o,e,i){ e.b = function(){ return i.wap("iq", { xmlns: "w:a", type: "set" }); }; });"#,
+            r#"__d("WAWebDigestKeyJob",[],function(g,r,d,o,e,i,l){ l.p = function(u){ return u.child("skey").child("value").contentBytes(32); }; },1);"#,
+            r#"__d("WAWebRetryRequestParser",[],function(g,r,d,o,e,i,l){ l.p = function(u){ return u.child("skey").child("value").contentBytes(32); }; },1);"#,
+        ];
+        let extract = |order: &[usize]| -> String {
+            let src = order
+                .iter()
+                .map(|&i| modules[i])
+                .collect::<Vec<_>>()
+                .join("\n");
+            let defs = wa_transform::extract_module_definitions(&src);
+            let ir = wa_scan::extract_iq_from_modules(&src, &defs, "2.3000.test");
+            serde_json::to_string_pretty(&ir).expect("serialize iq IR")
+        };
+        assert_eq!(
+            extract(&[0, 1, 2, 3]),
+            extract(&[3, 2, 1, 0]),
+            "iq extraction output depends on bundle module order"
+        );
+    }
+
+    #[test]
     fn missing_flag_value_errors() {
         let args = vec![FLAG_OUT.to_string()];
         assert!(parse_update_args(&args).is_err());
