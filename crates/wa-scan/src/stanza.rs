@@ -411,6 +411,34 @@ mod tests {
     }
 
     #[test]
+    fn conditionally_built_child_is_recovered() {
+        // The aggregate receipt/ack builder attaches its `<list>` child conditionally
+        // (`a.length > 0 ? wap("list", …) : null`). The child must be recovered from the
+        // ternary, not dropped.
+        let bundle = r#"
+            __d("WAWebSendAckJob",["WAWap"],(function(g,r,d,o,e,i,l){
+                l.send=function(ids){
+                    var extra = ids.length>0 ? o("WAWap").wap("list",null, o("WAWap").wap("item",{id:o("WAWap").CUSTOM_STRING(ids[0])})) : null;
+                    return o("WAWap").wap("ack",{id:o("WAWap").CUSTOM_STRING(ids[0]),type:"text"}, extra);
+                };
+            }),1);
+        "#;
+        let ack = scan(bundle)
+            .into_iter()
+            .find(|s| s.stanza_type == StanzaTag::Ack)
+            .expect("ack captured");
+        let list = ack
+            .children
+            .iter()
+            .find(|c| c.tag == "list")
+            .expect("conditional <list> child recovered");
+        assert!(
+            list.children.iter().any(|c| c.tag == "item"),
+            "nested <item> under the conditional list recovered"
+        );
+    }
+
+    #[test]
     fn standalone_stanza_is_not_marked_fragment() {
         // A real top-level builder (non-mixin export) stays `fragment: false`.
         let bundle = r#"

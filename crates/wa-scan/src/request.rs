@@ -216,6 +216,37 @@ pub(crate) fn resolve_child_node(
         );
     }
 
+    // Case 0: a conditional child `cond ? A : B` (e.g. an optional child built as
+    // `a.length > 0 ? wap("list", …) : null`, as the aggregate receipt/ack builder does).
+    // Take the branch that resolves to children — the non-`null` one — so a
+    // conditionally-attached child isn't lost. Consequent first (the common
+    // `cond ? node : null`); fall back to the alternate (`cond ? null : node`).
+    if let Expression::ConditionalExpression(cond) = node {
+        let c = resolve_child_node(
+            &cond.consequent,
+            node_source,
+            scope,
+            module_source,
+            aliases,
+            contributions,
+            helpers,
+            depth,
+        );
+        if !c.is_empty() {
+            return c;
+        }
+        return resolve_child_node(
+            &cond.alternate,
+            node_source,
+            scope,
+            module_source,
+            aliases,
+            contributions,
+            helpers,
+            depth,
+        );
+    }
+
     // Case 1: direct wap()/smax() call.
     if let Some(call) = as_call(node)
         && let Some(wap) = parse_wap_call(call, aliases)

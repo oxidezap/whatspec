@@ -32758,7 +32758,25 @@
         "namespace": "urn:xmpp:whatsapp:account",
         "iqType": "get",
         "target": "s.whatsapp.net",
-        "children": []
+        "children": [
+          {
+            "tag": "gdpr",
+            "attrs": [
+              {
+                "name": "action",
+                "kind": "dynamic",
+                "required": true
+              },
+              {
+                "name": "report_type",
+                "kind": "dynamic",
+                "required": true
+              }
+            ],
+            "children": [],
+            "repeats": false
+          }
+        ]
       },
       "response": {
         "parserName": "unknown",
@@ -36123,7 +36141,241 @@
                 "required": true
               }
             ],
-            "children": [],
+            "children": [
+              {
+                "tag": "address",
+                "attrs": [],
+                "children": [
+                  {
+                    "tag": "iq",
+                    "attrs": [
+                      {
+                        "name": "to",
+                        "kind": "dynamic",
+                        "required": true
+                      },
+                      {
+                        "name": "xmlns",
+                        "kind": "const",
+                        "value": "w:biz",
+                        "required": true
+                      },
+                      {
+                        "name": "id",
+                        "kind": "generated_id",
+                        "required": true
+                      },
+                      {
+                        "name": "type",
+                        "kind": "const",
+                        "value": "set",
+                        "required": true
+                      }
+                    ],
+                    "children": [
+                      {
+                        "tag": "business_profile",
+                        "attrs": [
+                          {
+                            "name": "v",
+                            "kind": "const",
+                            "value": "3",
+                            "required": true
+                          },
+                          {
+                            "name": "mutation_type",
+                            "kind": "const",
+                            "value": "delta",
+                            "required": true
+                          }
+                        ],
+                        "children": [
+                          {
+                            "tag": "cover_photo",
+                            "attrs": [
+                              {
+                                "name": "op",
+                                "kind": "const",
+                                "value": "delete",
+                                "required": true
+                              },
+                              {
+                                "name": "id",
+                                "kind": "string",
+                                "required": true
+                              }
+                            ],
+                            "children": [],
+                            "repeats": false
+                          }
+                        ],
+                        "repeats": false
+                      }
+                    ],
+                    "repeats": false
+                  }
+                ],
+                "repeats": false
+              },
+              {
+                "tag": "latitude",
+                "attrs": [],
+                "children": [],
+                "repeats": false
+              },
+              {
+                "tag": "longitude",
+                "attrs": [],
+                "children": [],
+                "repeats": false
+              },
+              {
+                "tag": "description",
+                "attrs": [],
+                "children": [],
+                "repeats": false
+              },
+              {
+                "tag": "email",
+                "attrs": [],
+                "children": [],
+                "repeats": false
+              },
+              {
+                "tag": "website",
+                "attrs": [],
+                "children": [],
+                "repeats": false
+              },
+              {
+                "tag": "website",
+                "attrs": [],
+                "children": [],
+                "content": {
+                  "kind": "dynamic"
+                },
+                "repeats": false
+              },
+              {
+                "tag": "website",
+                "attrs": [],
+                "children": [],
+                "content": {
+                  "kind": "dynamic"
+                },
+                "repeats": false
+              },
+              {
+                "tag": "categories",
+                "attrs": [],
+                "children": [
+                  {
+                    "tag": "category",
+                    "attrs": [
+                      {
+                        "name": "id",
+                        "kind": "string",
+                        "required": true
+                      }
+                    ],
+                    "children": [],
+                    "repeats": true
+                  }
+                ],
+                "repeats": false
+              },
+              {
+                "tag": "business_hours_note",
+                "attrs": [],
+                "children": [],
+                "repeats": false
+              },
+              {
+                "tag": "business_hours_config",
+                "attrs": [
+                  {
+                    "name": "day_of_week",
+                    "kind": "string",
+                    "required": true
+                  },
+                  {
+                    "name": "mode",
+                    "kind": "string",
+                    "required": true
+                  },
+                  {
+                    "name": "open_time",
+                    "kind": "optional",
+                    "required": false
+                  },
+                  {
+                    "name": "close_time",
+                    "kind": "optional",
+                    "required": false
+                  }
+                ],
+                "children": [],
+                "repeats": false
+              },
+              {
+                "tag": "business_hours",
+                "attrs": [
+                  {
+                    "name": "timezone",
+                    "kind": "optional",
+                    "required": false
+                  }
+                ],
+                "children": [],
+                "repeats": false
+              },
+              {
+                "tag": "service_areas",
+                "attrs": [],
+                "children": [
+                  {
+                    "tag": "service_area",
+                    "attrs": [],
+                    "children": [],
+                    "repeats": true
+                  },
+                  {
+                    "tag": "area_description",
+                    "attrs": [],
+                    "children": [],
+                    "content": {
+                      "kind": "dynamic"
+                    },
+                    "repeats": true
+                  },
+                  {
+                    "tag": "area_radius_meters",
+                    "attrs": [],
+                    "children": [],
+                    "repeats": true
+                  },
+                  {
+                    "tag": "area_center",
+                    "attrs": [],
+                    "children": [],
+                    "repeats": true
+                  },
+                  {
+                    "tag": "latitude",
+                    "attrs": [],
+                    "children": [],
+                    "repeats": true
+                  },
+                  {
+                    "tag": "longitude",
+                    "attrs": [],
+                    "children": [],
+                    "repeats": true
+                  }
+                ],
+                "repeats": false
+              }
+            ],
             "repeats": false
           }
         ]
@@ -76305,7 +76557,21 @@
         "namespace": "w:profile:picture",
         "iqType": "set",
         "target": "s.whatsapp.net",
-        "children": []
+        "children": [
+          {
+            "tag": "picture",
+            "attrs": [
+              {
+                "name": "type",
+                "kind": "const",
+                "value": "image",
+                "required": true
+              }
+            ],
+            "children": [],
+            "repeats": false
+          }
+        ]
       },
       "response": {
         "parserName": "photoResponseParser",
