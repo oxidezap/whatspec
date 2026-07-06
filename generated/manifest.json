@@ -73,7 +73,7 @@
     "stanza": {
       "file": "stanza/index.json",
       "schema": "schema/stanza.schema.json",
-      "sha256": "0090b71e4cc5f17b4d321fbe5881e230727294d4aef481d2bc2c0b9b6b48b4e9"
+      "sha256": "9fe2c5ad0c4293faa3436f181f6c3aa5200504d381764027183001ec8b5f849a"
     },
     "tokens": {
       "file": "tokens/index.json",
@@ -95,7 +95,7 @@
   "protoEntities": 257,
   "schemaVersion": "1.0.0",
   "serverRequestDefs": 22,
-  "stanzaDefs": 84,
+  "stanzaDefs": 174,
   "tokenDoubleByte": 1024,
   "tokenSingleByte": 236,
   "waVersion": "2.3000.1042654758",

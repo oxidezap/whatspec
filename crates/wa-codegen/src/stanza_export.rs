@@ -334,6 +334,7 @@ mod tests {
                     ],
                     children: vec![],
                     response: None,
+                    fragment: false,
                 },
                 StanzaDef {
                     stanza_type: StanzaTag::Message,
@@ -347,6 +348,7 @@ mod tests {
                     attrs: vec![plain_attr("id", WapAttrKind::String)],
                     children: vec![enc],
                     response: None,
+                    fragment: false,
                 },
             ],
         };
@@ -409,6 +411,7 @@ mod tests {
                 ],
                 children: vec![enc],
                 response: None,
+                fragment: false,
             }],
         };
         let code = generate_stanza(&ir);

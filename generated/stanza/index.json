@@ -5,6 +5,284 @@
     {
       "stanzaType": "message",
       "direction": "outgoing",
+      "moduleName": "WASmaxOutMessagePublishAdminEditMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeAdminEditMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "edit",
+          "kind": "const",
+          "value": "3",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutMessagePublishAdminRevokeMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeAdminRevokeMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "edit",
+          "kind": "const",
+          "value": "8",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutMessagePublishContentTypeMediaMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeContentTypeMediaMixin"
+      ],
+      "namespace": null,
+      "subtype": "media",
+      "target": null,
+      "attrs": [
+        {
+          "name": "type",
+          "kind": "const",
+          "value": "media",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutMessagePublishContentTypePollCreationMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeContentTypePollCreationMixin"
+      ],
+      "namespace": null,
+      "subtype": "poll",
+      "target": null,
+      "attrs": [
+        {
+          "name": "type",
+          "kind": "const",
+          "value": "poll",
+          "required": true
+        }
+      ],
+      "children": [
+        {
+          "tag": "meta",
+          "attrs": [
+            {
+              "name": "polltype",
+              "kind": "const",
+              "value": "creation",
+              "required": true
+            },
+            {
+              "name": "contenttype",
+              "kind": "optional",
+              "required": false
+            }
+          ],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutMessagePublishContentTypePollResultSnapshotMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeContentTypePollResultSnapshotMixin"
+      ],
+      "namespace": null,
+      "subtype": "poll",
+      "target": null,
+      "attrs": [
+        {
+          "name": "type",
+          "kind": "const",
+          "value": "poll",
+          "required": true
+        }
+      ],
+      "children": [
+        {
+          "tag": "meta",
+          "attrs": [
+            {
+              "name": "polltype",
+              "kind": "const",
+              "value": "result_snapshot",
+              "required": true
+            }
+          ],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutMessagePublishContentTypePollVoteMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeContentTypePollVoteMixin"
+      ],
+      "namespace": null,
+      "subtype": "poll",
+      "target": null,
+      "attrs": [
+        {
+          "name": "type",
+          "kind": "const",
+          "value": "poll",
+          "required": true
+        }
+      ],
+      "children": [
+        {
+          "tag": "meta",
+          "attrs": [
+            {
+              "name": "polltype",
+              "kind": "const",
+              "value": "vote",
+              "required": true
+            },
+            {
+              "name": "contenttype",
+              "kind": "optional",
+              "required": false
+            }
+          ],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutMessagePublishContentTypeQuizCreationMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeContentTypeQuizCreationMixin"
+      ],
+      "namespace": null,
+      "subtype": "poll",
+      "target": null,
+      "attrs": [
+        {
+          "name": "type",
+          "kind": "const",
+          "value": "poll",
+          "required": true
+        }
+      ],
+      "children": [
+        {
+          "tag": "meta",
+          "attrs": [
+            {
+              "name": "polltype",
+              "kind": "const",
+              "value": "quiz_creation",
+              "required": true
+            },
+            {
+              "name": "contenttype",
+              "kind": "optional",
+              "required": false
+            }
+          ],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutMessagePublishContentTypeReactionMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeContentTypeReactionMixin"
+      ],
+      "namespace": null,
+      "subtype": "reaction",
+      "target": null,
+      "attrs": [
+        {
+          "name": "type",
+          "kind": "const",
+          "value": "reaction",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutMessagePublishContentTypeTextMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeContentTypeTextMixin"
+      ],
+      "namespace": null,
+      "subtype": "text",
+      "target": null,
+      "attrs": [
+        {
+          "name": "type",
+          "kind": "const",
+          "value": "text",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
       "moduleName": "WASmaxOutMessagePublishCtwaAttributionMixin",
       "exportedFunction": null,
       "allExports": [
@@ -24,6 +302,239 @@
         }
       ],
       "response": null
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutMessagePublishMediaMetaMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeMediaMetaMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [],
+      "children": [
+        {
+          "tag": "meta",
+          "attrs": [
+            {
+              "name": "contenttype",
+              "kind": "optional",
+              "required": false
+            }
+          ],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutMessagePublishMessageAssociationTypeMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeMessageAssociationTypeMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [],
+      "children": [
+        {
+          "tag": "meta",
+          "attrs": [
+            {
+              "name": "message_association_type",
+              "kind": "string",
+              "required": true
+            }
+          ],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutMessagePublishMsgMetaOriginMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeMsgMetaOriginMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [],
+      "children": [
+        {
+          "tag": "meta",
+          "attrs": [
+            {
+              "name": "origin",
+              "kind": "string",
+              "required": true
+            }
+          ],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutMessagePublishNewsletterClientAndServerIDMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeNewsletterClientAndServerIDMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "server_id",
+          "kind": "integer",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutMessagePublishNewsletterClientIDMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeNewsletterClientIDMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutMessagePublishNewsletterMediaMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeNewsletterMediaMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [],
+      "children": [
+        {
+          "tag": "plaintext",
+          "attrs": [
+            {
+              "name": "mediatype",
+              "kind": "string",
+              "required": true
+            }
+          ],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutMessagePublishNewsletterMediaPublishMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeNewsletterMediaPublishMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "media_id",
+          "kind": "optional",
+          "required": false
+        }
+      ],
+      "children": [],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutMessagePublishNewsletterPollCreationMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeNewsletterPollCreationMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [],
+      "children": [
+        {
+          "tag": "plaintext",
+          "attrs": [],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutMessagePublishNewsletterPollResultSnapshotMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeNewsletterPollResultSnapshotMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [],
+      "children": [
+        {
+          "tag": "plaintext",
+          "attrs": [],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null,
+      "fragment": true
     },
     {
       "stanzaType": "message",
@@ -58,6 +569,104 @@
     {
       "stanzaType": "message",
       "direction": "outgoing",
+      "moduleName": "WASmaxOutMessagePublishNewsletterQuestionResponsePublishMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeNewsletterQuestionResponsePublishMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [],
+      "children": [
+        {
+          "tag": "plaintext",
+          "attrs": [],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutMessagePublishNewsletterQuizCreationMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeNewsletterQuizCreationMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [],
+      "children": [
+        {
+          "tag": "plaintext",
+          "attrs": [],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutMessagePublishNewsletterReactionMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeNewsletterReactionMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [],
+      "children": [
+        {
+          "tag": "reaction",
+          "attrs": [
+            {
+              "name": "code",
+              "kind": "string",
+              "required": true
+            }
+          ],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutMessagePublishNewsletterReactionRevokeMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeNewsletterReactionRevokeMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [],
+      "children": [
+        {
+          "tag": "reaction",
+          "attrs": [],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
       "moduleName": "WASmaxOutMessagePublishNewsletterRequest",
       "exportedFunction": null,
       "allExports": [
@@ -75,6 +684,421 @@
       ],
       "children": [],
       "response": null
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutMessagePublishNewsletterRevokeMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeNewsletterRevokeMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [],
+      "children": [
+        {
+          "tag": "plaintext",
+          "attrs": [],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutMessagePublishNewsletterTextMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeNewsletterTextMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [],
+      "children": [
+        {
+          "tag": "plaintext",
+          "attrs": [],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutMessagePublishParentAndResponseServerIDMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeParentAndResponseServerIDMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [],
+      "children": [
+        {
+          "tag": "meta",
+          "attrs": [
+            {
+              "name": "parent_server_id",
+              "kind": "integer",
+              "required": true
+            },
+            {
+              "name": "response_server_id",
+              "kind": "string",
+              "required": true
+            }
+          ],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutMessagePublishQuestionTypeQuestionMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeQuestionTypeQuestionMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [],
+      "children": [
+        {
+          "tag": "meta",
+          "attrs": [
+            {
+              "name": "questiontype",
+              "kind": "const",
+              "value": "question",
+              "required": true
+            }
+          ],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutMessagePublishQuestionTypeReplyMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeQuestionTypeReplyMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [],
+      "children": [
+        {
+          "tag": "meta",
+          "attrs": [
+            {
+              "name": "questiontype",
+              "kind": "const",
+              "value": "reply",
+              "required": true
+            }
+          ],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutMessagePublishQuestionTypeResponseMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeQuestionTypeResponseMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [],
+      "children": [
+        {
+          "tag": "meta",
+          "attrs": [
+            {
+              "name": "questiontype",
+              "kind": "const",
+              "value": "response",
+              "required": true
+            }
+          ],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutMessagePublishRevokeMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeRevokeMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "edit",
+          "kind": "const",
+          "value": "7",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutMessagePublishSenderContentTypeMediaRCATMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeSenderContentTypeMediaRCATMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [],
+      "children": [
+        {
+          "tag": "plaintext",
+          "attrs": [
+            {
+              "name": "mediatype",
+              "kind": "const",
+              "value": "url",
+              "required": true
+            },
+            {
+              "name": "content_id",
+              "kind": "optional",
+              "required": false
+            }
+          ],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutMessagePublishWAMOSubMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeWAMOSubMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [],
+      "children": [
+        {
+          "tag": "meta",
+          "attrs": [
+            {
+              "name": "is_wamo_sub",
+              "kind": "const",
+              "value": "true",
+              "required": true
+            }
+          ],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutSpamAdminRevokeMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeAdminRevokeMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "edit",
+          "kind": "const",
+          "value": "8",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutSpamAutomatedMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeAutomatedMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [],
+      "children": [
+        {
+          "tag": "automated",
+          "attrs": [],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutSpamContentTypeMediaMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeContentTypeMediaMixin"
+      ],
+      "namespace": null,
+      "subtype": "media",
+      "target": null,
+      "attrs": [
+        {
+          "name": "type",
+          "kind": "const",
+          "value": "media",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutSpamContentTypePayMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeContentTypePayMixin"
+      ],
+      "namespace": null,
+      "subtype": "pay",
+      "target": null,
+      "attrs": [
+        {
+          "name": "type",
+          "kind": "const",
+          "value": "pay",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutSpamContentTypePollCreationMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeContentTypePollCreationMixin"
+      ],
+      "namespace": null,
+      "subtype": "poll",
+      "target": null,
+      "attrs": [
+        {
+          "name": "type",
+          "kind": "const",
+          "value": "poll",
+          "required": true
+        }
+      ],
+      "children": [
+        {
+          "tag": "meta",
+          "attrs": [
+            {
+              "name": "polltype",
+              "kind": "const",
+              "value": "creation",
+              "required": true
+            },
+            {
+              "name": "contenttype",
+              "kind": "optional",
+              "required": false
+            }
+          ],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutSpamContentTypeTextMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeContentTypeTextMixin"
+      ],
+      "namespace": null,
+      "subtype": "text",
+      "target": null,
+      "attrs": [
+        {
+          "name": "type",
+          "kind": "const",
+          "value": "text",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null,
+      "fragment": true
     },
     {
       "stanzaType": "message",
@@ -126,6 +1150,58 @@
       ],
       "children": [],
       "response": null
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutSpamIABReportLinkMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeIABReportLinkMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [],
+      "children": [
+        {
+          "tag": "iab",
+          "attrs": [
+            {
+              "name": "reported_link",
+              "kind": "string",
+              "required": true
+            }
+          ],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutSpamMessageEditMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeMessageEditMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "edit",
+          "kind": "const",
+          "value": "1",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null,
+      "fragment": true
     },
     {
       "stanzaType": "message",
@@ -214,6 +1290,219 @@
     {
       "stanzaType": "message",
       "direction": "outgoing",
+      "moduleName": "WASmaxOutSpamMessageParticipantMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeMessageParticipantMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "participant",
+          "kind": "user_jid",
+          "required": true
+        },
+        {
+          "name": "participant_type",
+          "kind": "optional",
+          "required": false
+        },
+        {
+          "name": "member_tag",
+          "kind": "optional",
+          "required": false
+        },
+        {
+          "name": "member_tag_ts_s",
+          "kind": "optional",
+          "required": false
+        }
+      ],
+      "children": [],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutSpamMessagePlaceholderMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeMessagePlaceholderMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [],
+      "children": [
+        {
+          "tag": "meta",
+          "attrs": [
+            {
+              "name": "placeholder_type",
+              "kind": "const",
+              "value": "call",
+              "required": true
+            }
+          ],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutSpamMessageRecipientMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeMessageRecipientMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "to",
+          "kind": "user_jid",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutSpamMessageSenderMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeMessageSenderMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "from",
+          "kind": "user_jid",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutSpamMessageWithHsmTemplateMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeMessageWithHsmTemplateMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [],
+      "children": [
+        {
+          "tag": "hsm",
+          "attrs": [
+            {
+              "name": "tid",
+              "kind": "string",
+              "required": true
+            }
+          ],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutSpamMessageWithNewsletterQuestionResponseMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeMessageWithNewsletterQuestionResponseMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "server_id",
+          "kind": "integer",
+          "required": true
+        },
+        {
+          "name": "response_server_id",
+          "kind": "string",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutSpamMessageWithPaymentReportMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeMessageWithPaymentReportMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [],
+      "children": [
+        {
+          "tag": "pay",
+          "attrs": [],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutSpamMulticastMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeMulticastMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [],
+      "children": [
+        {
+          "tag": "multicast",
+          "attrs": [],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
       "moduleName": "WASmaxOutSpamNewsletterReportRequest",
       "exportedFunction": null,
       "allExports": [
@@ -232,6 +1521,126 @@
       ],
       "children": [],
       "response": null
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutSpamPreFilledNumberMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergePreFilledNumberMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [],
+      "children": [
+        {
+          "tag": "url_number",
+          "attrs": [],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutSpamPreFilledTextMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergePreFilledTextMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [],
+      "children": [
+        {
+          "tag": "url_text",
+          "attrs": [],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutSpamReportedPushNameMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeReportedPushNameMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "reported_push_name",
+          "kind": "string",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutSpamRevokeMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeRevokeMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "edit",
+          "kind": "const",
+          "value": "7",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutSpamSMBBroadcastSourceMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeSMBBroadcastSourceMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [],
+      "children": [
+        {
+          "tag": "meta",
+          "attrs": [
+            {
+              "name": "biz_source",
+              "kind": "string",
+              "required": true
+            }
+          ],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null,
+      "fragment": true
     },
     {
       "stanzaType": "message",
@@ -1017,6 +2426,28 @@
     {
       "stanzaType": "receipt",
       "direction": "outgoing",
+      "moduleName": "WASmaxOutReceiptNewsletterMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeNewsletterMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "to",
+          "kind": "user_jid",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "receipt",
+      "direction": "outgoing",
       "moduleName": "WASmaxOutReceiptSenderAggregatedViewPublishMixin",
       "exportedFunction": null,
       "allExports": [
@@ -1055,6 +2486,52 @@
         }
       ],
       "response": null
+    },
+    {
+      "stanzaType": "receipt",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutReceiptStatusClassMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeStatusClassMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "class",
+          "kind": "const",
+          "value": "status",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "receipt",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutReceiptViewTypeMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeViewTypeMixin"
+      ],
+      "namespace": null,
+      "subtype": "view",
+      "target": null,
+      "attrs": [
+        {
+          "name": "type",
+          "kind": "const",
+          "value": "view",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null,
+      "fragment": true
     },
     {
       "stanzaType": "receipt",
@@ -1529,6 +3006,120 @@
     {
       "stanzaType": "ack",
       "direction": "outgoing",
+      "moduleName": "WASmaxOutGroupsNotificationClientAckMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeNotificationClientAckMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "user_jid",
+          "required": true
+        },
+        {
+          "name": "class",
+          "kind": "const",
+          "value": "notification",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "string",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutMdNotificationClientAckMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeNotificationClientAckMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "user_jid",
+          "required": true
+        },
+        {
+          "name": "class",
+          "kind": "const",
+          "value": "notification",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "string",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutMessageDeliverCommonAckMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeCommonAckMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "to",
+          "kind": "user_jid",
+          "required": true
+        },
+        {
+          "name": "class",
+          "kind": "const",
+          "value": "message",
+          "required": true
+        },
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "string",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
       "moduleName": "WASmaxOutMessageDeliverNewsletterResponseError",
       "exportedFunction": null,
       "allExports": [
@@ -1594,6 +3185,158 @@
       ],
       "children": [],
       "response": null
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutNewslettersNotificationClientAckMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeNotificationClientAckMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "user_jid",
+          "required": true
+        },
+        {
+          "name": "class",
+          "kind": "const",
+          "value": "notification",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "string",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutPsaNotificationClientAckMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeNotificationClientAckMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "user_jid",
+          "required": true
+        },
+        {
+          "name": "class",
+          "kind": "const",
+          "value": "notification",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "string",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutQpSurfacesNotificationClientAckMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeNotificationClientAckMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "user_jid",
+          "required": true
+        },
+        {
+          "name": "class",
+          "kind": "const",
+          "value": "notification",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "string",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutStatusDeliverStatusAckMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeStatusAckMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "to",
+          "kind": "user_jid",
+          "required": true
+        },
+        {
+          "name": "class",
+          "kind": "const",
+          "value": "status",
+          "required": true
+        },
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "string",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null,
+      "fragment": true
     },
     {
       "stanzaType": "ack",
@@ -3256,6 +4999,86 @@
     {
       "stanzaType": "call",
       "direction": "outgoing",
+      "moduleName": "WASmaxOutSpamCallReportMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeCallReportMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "to",
+          "kind": "user_jid",
+          "required": true
+        },
+        {
+          "name": "from",
+          "kind": "user_jid",
+          "required": true
+        },
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        }
+      ],
+      "children": [
+        {
+          "tag": "call_info",
+          "attrs": [
+            {
+              "name": "duration",
+              "kind": "integer",
+              "required": true
+            },
+            {
+              "name": "terminate_reason",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "reason",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "terminator",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "start_time",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "adder",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "creator",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "mediatype",
+              "kind": "optional",
+              "required": false
+            }
+          ],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "call",
+      "direction": "outgoing",
       "moduleName": "WASmaxOutVoipLinkCreateRequest",
       "exportedFunction": null,
       "allExports": [
@@ -3480,6 +5303,58 @@
       "response": null
     },
     {
+      "stanzaType": "chatstate",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutChatstateComposingMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeComposingMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [],
+      "children": [
+        {
+          "tag": "composing",
+          "attrs": [
+            {
+              "name": "media",
+              "kind": "optional",
+              "required": false
+            }
+          ],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "chatstate",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutChatstatePausedMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergePausedMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [],
+      "children": [
+        {
+          "tag": "paused",
+          "attrs": [],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null,
+      "fragment": true
+    },
+    {
       "stanzaType": "presence",
       "direction": "outgoing",
       "moduleName": "WASmaxOutPresenceAvailabilityRequest",
@@ -3545,6 +5420,180 @@
     {
       "stanzaType": "status",
       "direction": "outgoing",
+      "moduleName": "WASmaxOutSpamReportableNewsletterStatusMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeReportableNewsletterStatusMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "server_id",
+          "kind": "integer",
+          "required": true
+        },
+        {
+          "name": "t",
+          "kind": "integer",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "status",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutSpamStatusContentTypeMediaMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeStatusContentTypeMediaMixin"
+      ],
+      "namespace": null,
+      "subtype": "media",
+      "target": null,
+      "attrs": [
+        {
+          "name": "type",
+          "kind": "const",
+          "value": "media",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "status",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutSpamStatusContentTypeTextMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeStatusContentTypeTextMixin"
+      ],
+      "namespace": null,
+      "subtype": "text",
+      "target": null,
+      "attrs": [
+        {
+          "name": "type",
+          "kind": "const",
+          "value": "text",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "status",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutSpamStatusNewsletterMediaMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeStatusNewsletterMediaMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [],
+      "children": [
+        {
+          "tag": "plaintext",
+          "attrs": [
+            {
+              "name": "mediatype",
+              "kind": "string",
+              "required": true
+            }
+          ],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "status",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutSpamStatusNewsletterTextMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeStatusNewsletterTextMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [],
+      "children": [
+        {
+          "tag": "plaintext",
+          "attrs": [],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "status",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutStatusPublishPostNewsletterStatusClientAndServerIDMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergePostNewsletterStatusClientAndServerIDMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "server_id",
+          "kind": "integer",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "status",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutStatusPublishPostNewsletterStatusClientIDMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergePostNewsletterStatusClientIDMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "status",
+      "direction": "outgoing",
       "moduleName": "WASmaxOutStatusPublishPostNewsletterStatusRequest",
       "exportedFunction": null,
       "allExports": [
@@ -3562,6 +5611,494 @@
       ],
       "children": [],
       "response": null
+    },
+    {
+      "stanzaType": "status",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutStatusPublishStatusAdminRevokeMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeStatusAdminRevokeMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "edit",
+          "kind": "const",
+          "value": "8",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "status",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutStatusPublishStatusContentTypeMediaMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeStatusContentTypeMediaMixin"
+      ],
+      "namespace": null,
+      "subtype": "media",
+      "target": null,
+      "attrs": [
+        {
+          "name": "type",
+          "kind": "const",
+          "value": "media",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "status",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutStatusPublishStatusContentTypeReactionMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeStatusContentTypeReactionMixin"
+      ],
+      "namespace": null,
+      "subtype": "reaction",
+      "target": null,
+      "attrs": [
+        {
+          "name": "type",
+          "kind": "const",
+          "value": "reaction",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "status",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutStatusPublishStatusContentTypeTextMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeStatusContentTypeTextMixin"
+      ],
+      "namespace": null,
+      "subtype": "text",
+      "target": null,
+      "attrs": [
+        {
+          "name": "type",
+          "kind": "const",
+          "value": "text",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "status",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutStatusPublishStatusNewsletterInteractionTypeQuestionMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeStatusNewsletterInteractionTypeQuestionMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [],
+      "children": [
+        {
+          "tag": "meta",
+          "attrs": [
+            {
+              "name": "interaction_type",
+              "kind": "const",
+              "value": "question",
+              "required": true
+            }
+          ],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "status",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutStatusPublishStatusNewsletterInteractionTypeQuestionReshareMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeStatusNewsletterInteractionTypeQuestionReshareMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [],
+      "children": [
+        {
+          "tag": "meta",
+          "attrs": [
+            {
+              "name": "interaction_type",
+              "kind": "const",
+              "value": "question_reshare",
+              "required": true
+            },
+            {
+              "name": "parent_server_id",
+              "kind": "integer",
+              "required": true
+            },
+            {
+              "name": "response_server_id",
+              "kind": "string",
+              "required": true
+            }
+          ],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "status",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutStatusPublishStatusNewsletterInteractionTypeQuestionResponseMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeStatusNewsletterInteractionTypeQuestionResponseMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [],
+      "children": [
+        {
+          "tag": "meta",
+          "attrs": [
+            {
+              "name": "interaction_type",
+              "kind": "const",
+              "value": "question_response",
+              "required": true
+            },
+            {
+              "name": "response_server_id",
+              "kind": "optional",
+              "required": false
+            }
+          ],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "status",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutStatusPublishStatusNewsletterMediaMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeStatusNewsletterMediaMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [],
+      "children": [
+        {
+          "tag": "plaintext",
+          "attrs": [
+            {
+              "name": "mediatype",
+              "kind": "string",
+              "required": true
+            }
+          ],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "status",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutStatusPublishStatusNewsletterMediaPublishMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeStatusNewsletterMediaPublishMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "media_id",
+          "kind": "optional",
+          "required": false
+        }
+      ],
+      "children": [],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "status",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutStatusPublishStatusNewsletterQuestionResponseMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeStatusNewsletterQuestionResponseMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "server_id",
+          "kind": "integer",
+          "required": true
+        }
+      ],
+      "children": [
+        {
+          "tag": "plaintext",
+          "attrs": [],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "status",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutStatusPublishStatusNewsletterReactionMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeStatusNewsletterReactionMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [],
+      "children": [
+        {
+          "tag": "reaction",
+          "attrs": [
+            {
+              "name": "code",
+              "kind": "string",
+              "required": true
+            }
+          ],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "status",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutStatusPublishStatusNewsletterReactionRevokeMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeStatusNewsletterReactionRevokeMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [],
+      "children": [
+        {
+          "tag": "reaction",
+          "attrs": [],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "status",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutStatusPublishStatusNewsletterRevokeMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeStatusNewsletterRevokeMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [],
+      "children": [
+        {
+          "tag": "plaintext",
+          "attrs": [],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "status",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutStatusPublishStatusNewsletterTextMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeStatusNewsletterTextMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [],
+      "children": [
+        {
+          "tag": "plaintext",
+          "attrs": [],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "status",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutStatusPublishStatusRevokeMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeStatusRevokeMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "edit",
+          "kind": "const",
+          "value": "7",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "privacy",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutBizSettingsSmbDataSharingSettingMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeSmbDataSharingSettingMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [],
+      "children": [
+        {
+          "tag": "smb_data_sharing_with_meta_consent",
+          "attrs": [],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "privacy",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutPrivacyGetContactBlacklistGetContactBlacklistLIDMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeGetContactBlacklistGetContactBlacklistLIDMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "addressing_mode",
+          "kind": "const",
+          "value": "lid",
+          "required": true
+        }
+      ],
+      "children": [
+        {
+          "tag": "list",
+          "attrs": [
+            {
+              "name": "value",
+              "kind": "const",
+              "value": "contact_blacklist",
+              "required": true
+            }
+          ],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "privacy",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutPrivacyGetContactBlacklistGetContactBlacklistPNMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeGetContactBlacklistGetContactBlacklistPNMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [],
+      "children": [
+        {
+          "tag": "list",
+          "attrs": [
+            {
+              "name": "value",
+              "kind": "const",
+              "value": "contact_blacklist",
+              "required": true
+            }
+          ],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null,
+      "fragment": true
     },
     {
       "stanzaType": "privacy",
