@@ -3137,16 +3137,6 @@
                           {
                             "kind": "tag",
                             "name": "message"
-                          },
-                          {
-                            "kind": "attr",
-                            "name": "edit",
-                            "value": "8"
-                          },
-                          {
-                            "kind": "attr",
-                            "name": "edit",
-                            "value": "3"
                           }
                         ]
                       }
@@ -4971,11 +4961,6 @@
           {
             "kind": "tag",
             "name": "message"
-          },
-          {
-            "kind": "attr",
-            "name": "type",
-            "value": "media"
           }
         ],
         "fields": [
@@ -6984,16 +6969,6 @@
                   {
                     "kind": "tag",
                     "name": "message"
-                  },
-                  {
-                    "kind": "attr",
-                    "name": "edit",
-                    "value": "8"
-                  },
-                  {
-                    "kind": "attr",
-                    "name": "edit",
-                    "value": "3"
                   }
                 ]
               }
