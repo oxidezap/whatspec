@@ -63,7 +63,7 @@
     },
     "proto": {
       "file": "proto/WAProto.proto",
-      "sha256": "bc53415bf23d0bb9cec94a36a767b766872ee9c04887519aff8f98b5030336a7"
+      "sha256": "5e183105862dd250f2cc7bdb70d5a336e56b2e6b1cc158b351afb7a7a6c3f507"
     },
     "srvreq": {
       "file": "srvreq/index.json",

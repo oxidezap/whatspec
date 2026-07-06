@@ -23,7 +23,9 @@ members = [
 
 [workspace.package]
 edition = "2024"
-rust-version = "1.85"
+# The crates use let-chains (`if let … && let …`), stabilized in Rust 1.88, so 1.85
+# would not compile them — declare the real floor rather than an aspirational one.
+rust-version = "1.88"
 license = "MIT"
 authors = ["João Lucas <jlucaso@hotmail.com>"]
 repository = "https://github.com/oxidezap/whatspec"

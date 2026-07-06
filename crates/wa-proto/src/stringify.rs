@@ -86,8 +86,53 @@ fn member_lines(member: &ProtoMember) -> Vec<String> {
 fn field_line(f: &ProtoField) -> String {
     let flags = f.flags.join(" ");
     let sep = if f.flags.is_empty() { "" } else { " " };
-    let packed = if f.packed { " [packed = true]" } else { "" };
-    format!("{flags}{sep}{} {} = {}{packed};", f.type_name, f.name, f.id)
+    let mut opts: Vec<String> = Vec::new();
+    if f.packed {
+        opts.push("packed = true".to_string());
+    }
+    if let Some(d) = &f.default {
+        // A proto2 `string`/`bytes` default is a quoted string literal; enum/bool/numeric
+        // defaults are bare. (No WA field currently has a string/bytes default, but the
+        // handling keeps a future one valid rather than emitting a bare `[default = x]`
+        // that protoc rejects.) (packed and default never co-occur — packed is for
+        // repeated scalars, defaults for singular optionals — but the joined-options form
+        // handles either alone.)
+        if f.type_name == "string" || f.type_name == "bytes" {
+            // Escape the proto2 string literal so a default stays valid `.proto` instead of
+            // terminating the string or splitting the line: `\` and `"` are escaped, newline /
+            // CR / tab get their named escapes, and any other *ASCII* control falls back to a
+            // 3-digit octal escape (proto reads at most 3 octal digits, so zero-padding keeps
+            // the boundary unambiguous). The octal path is deliberately ASCII-only: proto's
+            // octal escape encodes a single raw byte, so applying it to a C1 control's code
+            // point (U+0080–U+009F) would emit one byte instead of that char's two UTF-8 bytes
+            // — invalid UTF-8 for a `string`, a silent value change for `bytes`. Non-ASCII
+            // (printable or C1 control) passes through as its raw UTF-8, which protoc accepts.
+            let escaped = d.chars().fold(String::new(), |mut out, c| {
+                match c {
+                    '\\' => out.push_str("\\\\"),
+                    '"' => out.push_str("\\\""),
+                    '\n' => out.push_str("\\n"),
+                    '\r' => out.push_str("\\r"),
+                    '\t' => out.push_str("\\t"),
+                    c if c.is_ascii_control() => out.push_str(&format!("\\{:03o}", c as u32)),
+                    c => out.push(c),
+                }
+                out
+            });
+            opts.push(format!("default = \"{escaped}\""));
+        } else {
+            opts.push(format!("default = {d}"));
+        }
+    }
+    let options = if opts.is_empty() {
+        String::new()
+    } else {
+        format!(" [{}]", opts.join(", "))
+    };
+    format!(
+        "{flags}{sep}{} {} = {}{options};",
+        f.type_name, f.name, f.id
+    )
 }
 
 /// Prefix every non-empty line with one indent level. Blank lines stay empty
@@ -117,7 +162,72 @@ mod tests {
             type_name: ftype.to_string(),
             flags: flags.iter().map(|s| s.to_string()).collect(),
             packed,
+            default: None,
         })
+    }
+
+    #[test]
+    fn emits_proto2_defaults() {
+        fn defaulted(name: &str, ftype: &str, id: i64, default: &str) -> ProtoMember {
+            ProtoMember::Field(ProtoField {
+                name: name.to_string(),
+                id,
+                type_name: ftype.to_string(),
+                flags: vec!["optional".to_string()],
+                packed: false,
+                default: Some(default.to_string()),
+            })
+        }
+        let file = ProtoFile {
+            wa_version: "1".to_string(),
+            entities: vec![ProtoEntity::Message(ProtoMessage {
+                name: "M".to_string(),
+                members: vec![
+                    defaulted("accountType", "ADVEncryptionType", 1, "E2EE"),
+                    defaulted("count", "int32", 2, "1"),
+                    defaulted("flag", "bool", 3, "false"),
+                    defaulted("label", "string", 4, "hi"),
+                    // A string default with a backslash and a quote must be proto-escaped.
+                    defaulted("path", "string", 5, "a\\b\"c"),
+                    // Control chars would split or invalidate the line: newline/CR/tab get
+                    // named escapes, other ASCII controls (here a bell, 0x07) an octal escape.
+                    // A C1 control (here NEL, U+0085) is non-ASCII, so it passes through as its
+                    // raw UTF-8 — octal-escaping its code point would corrupt the byte sequence.
+                    defaulted("ctrl", "string", 6, "x\n\r\t\u{07}\u{85}y"),
+                ],
+                nested: vec![],
+            })],
+        };
+        let out = stringify(&file);
+        // enum / int / bool defaults are bare; a `string` default is quoted.
+        assert!(
+            out.contains("optional ADVEncryptionType accountType = 1 [default = E2EE];"),
+            "{out}"
+        );
+        assert!(
+            out.contains("optional int32 count = 2 [default = 1];"),
+            "{out}"
+        );
+        assert!(
+            out.contains("optional bool flag = 3 [default = false];"),
+            "{out}"
+        );
+        // A string default with a backslash and a quote is escaped into a valid literal.
+        assert!(
+            out.contains("optional string path = 5 [default = \"a\\\\b\\\"c\"];"),
+            "{out}"
+        );
+        assert!(
+            out.contains(r#"optional string label = 4 [default = "hi"];"#),
+            "{out}"
+        );
+        // ASCII control chars are escaped (named where proto has one, else 3-digit octal) so
+        // the emitted line stays on one line and parses; the C1 control (U+0085) passes
+        // through as raw UTF-8 rather than a code-point octal escape.
+        assert!(
+            out.contains("optional string ctrl = 6 [default = \"x\\n\\r\\t\\007\u{85}y\"];"),
+            "{out}"
+        );
     }
 
     #[test]
@@ -209,6 +319,7 @@ message ADVKeyIndexList {\n\
                                 type_name: "string".to_string(),
                                 flags: vec![],
                                 packed: false,
+                                default: None,
                             },
                             ProtoField {
                                 name: "num".to_string(),
@@ -216,6 +327,7 @@ message ADVKeyIndexList {\n\
                                 type_name: "int32".to_string(),
                                 flags: vec![],
                                 packed: false,
+                                default: None,
                             },
                         ],
                     }),

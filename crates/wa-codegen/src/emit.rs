@@ -790,7 +790,7 @@ fn emit_node_content(
 /// `const_bytes` degrades to no content rather than panicking codegen. The
 /// `is_ascii` gate also keeps the byte-index slicing below on char boundaries.
 fn decode_hex(s: &str) -> Option<Vec<u8>> {
-    if s.len() % 2 != 0 || !s.is_ascii() {
+    if !s.len().is_multiple_of(2) || !s.is_ascii() {
         return None;
     }
     (0..s.len())
