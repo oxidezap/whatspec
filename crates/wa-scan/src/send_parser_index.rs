@@ -21,14 +21,14 @@ use oxc_allocator::Allocator;
 use oxc_ast::ast::CallExpression;
 use oxc_ast_visit::{Visit, walk};
 use wa_ir::ParsedResponse;
-use wa_oxc::{arg_expr, as_call, as_member, callee_method, first_string_arg};
+use wa_oxc::{arg_expr, as_call, as_identifier, as_member, callee_method, first_string_arg};
 use wa_transform::ModuleDefinition;
 
 use crate::response::parse_module_wap_parsers;
 
-/// The name `deprecatedSendIq` is called under (bare, or the common
-/// `o("WADeprecatedSendIq").deprecatedSendIq` member form — both surface as this
-/// property name via [`callee_method`]).
+/// The name `deprecatedSendIq` is called under: the common member form
+/// `o("WADeprecatedSendIq").deprecatedSendIq(...)`, or a bare identifier
+/// `deprecatedSendIq(...)` when the export was hoisted into a local.
 const SEND_IQ: &str = "deprecatedSendIq";
 
 /// Sending module name → the typed response resolved from its `deprecatedSendIq`
@@ -90,8 +90,12 @@ struct SendFinder {
 
 impl<'a> Visit<'a> for SendFinder {
     fn visit_call_expression(&mut self, call: &CallExpression<'a>) {
+        // Match both `o("…").deprecatedSendIq(…)` (member) and a bare
+        // `deprecatedSendIq(…)` (identifier) callee.
+        let is_send =
+            callee_method(call) == Some(SEND_IQ) || as_identifier(&call.callee) == Some(SEND_IQ);
         if self.target.is_none()
-            && callee_method(call) == Some(SEND_IQ)
+            && is_send
             && let Some(arg1) = call.arguments.get(1).and_then(arg_expr)
             // The parser reference is a static member `o("Mod").parser`.
             && let Some((obj, _parser)) = as_member(arg1)
@@ -139,6 +143,26 @@ mod tests {
         assert_eq!(resp.parser_name, "mediaConnParser");
         // The `<media_conn>` child is recovered (its `auth` attr nests inside it).
         assert!(resp.fields.iter().any(|f| f.name == "media_conn"));
+    }
+
+    #[test]
+    fn resolves_bare_identifier_send_site() {
+        // `deprecatedSendIq` imported as a bare local of the same name and called
+        // directly, not via `o("…").deprecatedSendIq(…)`.
+        let bundle = r#"
+            __d("Job",["WADeprecatedSendIq","P"],(function(t,n,r,o,a,i,l){
+                var deprecatedSendIq=o("WADeprecatedSendIq").deprecatedSendIq;
+                l.query=function(){ var m=o("WAWap").wap("iq",{}); return deprecatedSendIq(m,o("P").theParser); };
+            }),1);
+            __d("P",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+                l.theParser=new(r("WADeprecatedWapParser"))("theParser",function(e){ return { id: e.attrString("id") }; });
+            }),1);
+        "#;
+        let idx = index(bundle);
+        assert_eq!(
+            idx.get("Job").map(|r| r.parser_name.as_str()),
+            Some("theParser"),
+        );
     }
 
     #[test]
