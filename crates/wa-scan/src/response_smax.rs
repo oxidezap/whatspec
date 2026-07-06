@@ -1244,11 +1244,31 @@ fn tail_make_result_arg<'a>(tail: &'a Expression<'a>) -> Option<&'a Expression<'
     arg_expr(call.arguments.first()?)
 }
 
+/// `X.success ? X.value : null` → `"X"`. Requires the test to be the *same* var's
+/// `.success` bit as the consequent's `.value` (a plain `cond ? X.value : y` is not an
+/// optional read of `X`, so it must not match — that would wrongly suppress `X`'s
+/// discriminator).
+fn optional_ternary_var<'a>(e: &'a Expression<'a>) -> Option<&'a str> {
+    let Expression::ConditionalExpression(c) = e else {
+        return None;
+    };
+    match value_member(&c.consequent) {
+        Some((var, "value")) if value_member(&c.test) == Some((var, "success")) => Some(var),
+        _ => None,
+    }
+}
+
 /// Walk a `makeResult` argument (an object literal, or a `babelHelpers.extends(a, b, …)`
 /// of them) collecting vars consumed as an optional-value ternary or a presence flag. A
 /// plain `X.value` (or a positional `extends(…, X.value, …)` spread) is required, so it
 /// is not collected.
 fn collect_optional_vars(arg: &Expression, out: &mut HashSet<String>) {
+    // A bare `X.success ? X.value : null` — e.g. an optional mixin spread straight into
+    // `extends(…, X.success ? X.value : null)`, not wrapped in an object literal.
+    if let Some(var) = optional_ternary_var(arg) {
+        out.insert(var.to_string());
+        return;
+    }
     if let Some(call) = as_call(arg)
         && callee_method(call) == Some("extends")
     {
@@ -1267,9 +1287,7 @@ fn collect_optional_vars(arg: &Expression, out: &mut HashSet<String>) {
             continue;
         };
         // `key: X.success ? X.value : null` → X is optional.
-        if let Expression::ConditionalExpression(c) = &p.value
-            && let Some((var, "value")) = value_member(&c.consequent)
-        {
+        if let Some(var) = optional_ternary_var(&p.value) {
             out.insert(var.to_string());
             continue;
         }
@@ -2276,6 +2294,32 @@ mod tests {
         assert!(
             has_addressable(&req),
             "a required (guarded) same-node mixin still bubbles its discriminator: {req:?}"
+        );
+    }
+
+    #[test]
+    fn optional_mixin_spread_bare_into_extends_is_suppressed() {
+        // An optional discriminator-bearing mixin passed as a *bare* ternary spread into
+        // `babelHelpers.extends(…, m.success ? m.value : null)` — not wrapped in an object
+        // literal — must still be recognized as optional, so its `disc="x"` does not bubble.
+        let mixin = r#"__d("WASmaxInFooDiscMixin",["WASmaxParseUtils","WAResultOrError"],(function(t,n,r,o,a,i,l){
+            function e(e){var t=o("WASmaxParseUtils").assertTag(e,"ack");if(!t.success)return t;var n=o("WASmaxParseUtils").literal(o("WASmaxParseUtils").attrString,e,"disc","x");return n.success?o("WAResultOrError").makeResult({disc:n.value}):n;}
+            l.parseDiscMixin=e;
+        }),1);"#;
+        let root = r#"__d("WASmaxInFooSpreadMixin",["WASmaxParseUtils","WASmaxInFooDiscMixin","WAResultOrError"],(function(t,n,r,o,a,i,l){
+            function e(e){var t=o("WASmaxParseUtils").assertTag(e,"ack");if(!t.success)return t;var s=o("WASmaxParseUtils").attrString(e,"id");if(!s.success)return s;var m=o("WASmaxInFooDiscMixin").parseDiscMixin(e);return o("WAResultOrError").makeResult(babelHelpers.extends({id:s.value},m.success?m.value:null));}
+            l.parseSpreadMixin=e;
+        }),1);"#;
+        let slices = HashMap::from([
+            ("WASmaxInFooDiscMixin", mixin),
+            ("WASmaxInFooSpreadMixin", root),
+        ]);
+        let resolver = Resolver::new(&slices);
+        let a = resolver.assertions("WASmaxInFooSpreadMixin", "parseSpreadMixin");
+        assert!(
+            !a.iter()
+                .any(|x| x.kind == AssertionKind::Attr && x.name.as_deref() == Some("disc")),
+            "an optional mixin spread bare into extends must not bubble its discriminator: {a:?}"
         );
     }
 
