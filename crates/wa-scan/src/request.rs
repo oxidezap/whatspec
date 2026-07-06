@@ -18,10 +18,12 @@ use std::collections::{BTreeMap, HashMap};
 
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
-    Argument, AssignmentExpression, Expression, Function, Program, Statement, VariableDeclaration,
+    Argument, ArrowFunctionExpression, AssignmentExpression, Expression, Function, Program,
+    Statement, VariableDeclaration,
 };
 use oxc_ast_visit::{Visit, walk};
 use oxc_span::GetSpan;
+use oxc_syntax::scope::ScopeFlags;
 use wa_ir::{WapChildNode, WapContent, WapContentKind};
 
 use crate::alias::{AliasMap, build_alias_map, resolve_owner};
@@ -115,6 +117,11 @@ struct VarInit {
     init_end: usize,
     /// `{...}` body span if the initializer (or declaration) is a function.
     fn_body: Option<(usize, usize)>,
+    /// The enclosing function's span for a *reassignment* (`… = init`); `None` for a
+    /// declaration/function-decl (hoisted, module-visible). A reassignment applies only
+    /// to references inside its owning function, so [`resolve_child_node`] won't let a
+    /// `<foo>` assigned to `x` in one function leak into an unrelated function's `x`.
+    owner_fn: Option<(usize, usize)>,
 }
 
 /// Variable/function name → all initializers seen (offset-based, lifetime-free).
@@ -134,6 +141,7 @@ impl VarScope {
 pub(crate) fn build_var_scope(program: &Program) -> VarScope {
     let mut b = ScopeBuilder {
         scope: VarScope::default(),
+        fn_stack: Vec::new(),
     };
     b.visit_program(program);
     b.scope
@@ -141,6 +149,11 @@ pub(crate) fn build_var_scope(program: &Program) -> VarScope {
 
 struct ScopeBuilder {
     scope: VarScope,
+    /// Spans of the function bodies currently being walked (outermost → innermost).
+    /// The innermost is the lexical owner of any reassignment recorded here, so a
+    /// `x = init` is tagged with the function it lives in and can't leak to a
+    /// same-named `x` in an unrelated function.
+    fn_stack: Vec<(usize, usize)>,
 }
 
 impl<'a> Visit<'a> for ScopeBuilder {
@@ -158,6 +171,7 @@ impl<'a> Visit<'a> for ScopeBuilder {
                         init_start: span.start as usize,
                         init_end: span.end as usize,
                         fn_body,
+                        owner_fn: None,
                     },
                 );
             }
@@ -175,10 +189,32 @@ impl<'a> Visit<'a> for ScopeBuilder {
                     init_start: func.span.start as usize,
                     init_end: func.span.end as usize,
                     fn_body: fn_body_span(func),
+                    owner_fn: None,
                 },
             );
         }
         walk::walk_statement(self, stmt);
+    }
+
+    /// Track the function whose body we are inside so [`Self::visit_assignment_expression`]
+    /// can tag each reassignment with its lexical owner. Covers function declarations
+    /// and function expressions; arrows are handled by the sibling override below.
+    fn visit_function(&mut self, func: &Function<'a>, flags: ScopeFlags) {
+        let pushed = fn_body_span(func);
+        if let Some(span) = pushed {
+            self.fn_stack.push(span);
+        }
+        walk::walk_function(self, func, flags);
+        if pushed.is_some() {
+            self.fn_stack.pop();
+        }
+    }
+
+    fn visit_arrow_function_expression(&mut self, arrow: &ArrowFunctionExpression<'a>) {
+        let span = (arrow.body.span.start as usize, arrow.body.span.end as usize);
+        self.fn_stack.push(span);
+        walk::walk_arrow_function_expression(self, arrow);
+        self.fn_stack.pop();
     }
 
     fn visit_assignment_expression(&mut self, a: &AssignmentExpression<'a>) {
@@ -199,6 +235,7 @@ impl<'a> Visit<'a> for ScopeBuilder {
                     init_start: span.start as usize,
                     init_end: span.end as usize,
                     fn_body,
+                    owner_fn: self.fn_stack.last().copied(),
                 },
             );
         }
@@ -331,8 +368,22 @@ pub(crate) fn resolve_child_node(
 
     // Case 2: variable reference — try every initializer (re-parsing its slice).
     if let Some(name) = as_identifier(node) {
+        // Offset of this reference within the module, when `node` was parsed from the
+        // module source itself (rather than a re-parsed slice). Used to discard a
+        // reassignment recorded inside an *unrelated* function: a `x = wap(...)` only
+        // initializes the `x` referenced from within its owning function. When the
+        // reference comes from a slice (offset unknown), we conservatively skip
+        // function-scoped reassignments rather than risk importing a foreign one.
+        let ref_off = (node_source.as_ptr() == module_source.as_ptr()
+            && node_source.len() == module_source.len())
+        .then(|| node.span().start as usize);
         if let Some(inits) = scope.vars.get(name) {
             for init in inits {
+                if let Some((s, e)) = init.owner_fn
+                    && !matches!(ref_off, Some(o) if s <= o && o < e)
+                {
+                    continue;
+                }
                 let slice = &module_source[init.init_start..init.init_end];
                 let alloc = Allocator::default();
                 let ret = wa_oxc::parse_cjs(&alloc, slice);

@@ -266,12 +266,21 @@ pub(crate) fn analyze_parser_ast_in_module(
     param: &str,
     module_source: &str,
 ) -> ParserResult {
+    analyze_with_scope(code, param, &ModuleScope::from_source(module_source))
+}
+
+/// Analyze a parser callback body against a *pre-extracted* [`ModuleScope`]. Every
+/// module-scope lookup (a sibling helper's params/body, an enum value map's keys) reads
+/// the scope built once by [`ModuleScope::from_source`] instead of re-parsing the whole
+/// module per lookup — and the recursive callback analysis (`process_child_method`) reuses
+/// the same scope, so a module is parsed exactly once per top-level parser.
+fn analyze_with_scope(code: &str, param: &str, module: &ModuleScope) -> ParserResult {
     let alloc = Allocator::default();
     let ret = wa_oxc::parse_cjs(&alloc, code);
     let mut a = ParserAnalyzer {
         code,
         param,
-        module_source,
+        module,
         assertions: Vec::new(),
         fields: Vec::new(),
         child_vars: HashMap::new(),
@@ -286,11 +295,12 @@ pub(crate) fn analyze_parser_ast_in_module(
     }
 }
 
-struct ParserAnalyzer<'src> {
+struct ParserAnalyzer<'src, 'ms> {
     code: &'src str,
     param: &'src str,
-    /// The enclosing module source (or `""`), for resolving module-scope helpers/maps.
-    module_source: &'src str,
+    /// The enclosing module's pre-extracted helpers/maps (empty when there is no module),
+    /// for resolving module-scope sibling helpers and enum value maps.
+    module: &'ms ModuleScope,
     assertions: Vec<ResponseAssertion>,
     fields: Vec<ParsedField>,
     /// local var name → tag, for `var t = param.child("tag")`. Also pre-seeded when a
@@ -305,7 +315,7 @@ struct ParserAnalyzer<'src> {
     helper_depth: u32,
 }
 
-impl<'a> Visit<'a> for ParserAnalyzer<'_> {
+impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
     fn visit_variable_declaration(&mut self, decl: &VariableDeclaration<'a>) {
         for d in &decl.declarations {
             // Track `var t = param.child("tag")` (or chained off another child var).
@@ -342,7 +352,7 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_> {
     }
 }
 
-impl ParserAnalyzer<'_> {
+impl ParserAnalyzer<'_, '_> {
     fn handle_call(&mut self, call: &CallExpression) {
         let Some(method) = callee_method(call) else {
             return;
@@ -397,7 +407,7 @@ impl ParserAnalyzer<'_> {
                 .get(1)
                 .and_then(arg_expr)
                 .and_then(as_identifier)
-                .and_then(|m| resolve_module_map_keys(self.module_source, m))
+                .and_then(|m| self.module.maps.get(m).cloned())
             {
                 self.pending_enum_keys
                     .entry(wire.to_string())
@@ -451,14 +461,7 @@ impl ParserAnalyzer<'_> {
             && let Some(parent_tag) = arg_str(inner, 0)
         {
             let pt = parent_tag.to_string();
-            process_child_method(
-                method,
-                call,
-                &pt,
-                &mut self.fields,
-                self.code,
-                self.module_source,
-            );
+            process_child_method(method, call, &pt, &mut self.fields, self.code, self.module);
             return;
         }
 
@@ -474,7 +477,7 @@ impl ParserAnalyzer<'_> {
                 &parent_tag,
                 &mut self.fields,
                 self.code,
-                self.module_source,
+                self.module,
             );
             return;
         }
@@ -540,7 +543,7 @@ impl ParserAnalyzer<'_> {
     /// inline; descend into it — binding the helper parameter at the child's argument
     /// position to that child — and merge the recovered `<tag>` shape into the local field.
     fn try_helper_descent(&mut self, call: &CallExpression) {
-        if self.helper_depth >= 2 || self.module_source.is_empty() {
+        if self.helper_depth >= 2 || self.module.functions.is_empty() {
             return;
         }
         // Callee must be a bare identifier (`m(…)`), not `obj.method(…)`.
@@ -554,17 +557,17 @@ impl ParserAnalyzer<'_> {
         }) else {
             return;
         };
-        let Some((params, body_src)) = find_module_function(self.module_source, name) else {
+        let Some((params, body_src)) = self.module.functions.get(name) else {
             return;
         };
         let Some(bound_param) = params.get(arg_idx) else {
             return;
         };
         let recovered = analyze_child_node(
-            &body_src,
+            body_src,
             bound_param,
             &tag,
-            self.module_source,
+            self.module,
             self.helper_depth + 1,
         );
         merge_child_shape(&mut self.fields, &tag, recovered);
@@ -602,35 +605,106 @@ impl ParserAnalyzer<'_> {
     }
 }
 
-/// The keys, in source order, of a module-scope object map `var name = { key: val, … }` in
-/// `module_source` — the allowed value set an enum accessor validates an attr against.
-fn resolve_module_map_keys(module_source: &str, name: &str) -> Option<Vec<String>> {
-    if module_source.is_empty() {
-        return None;
-    }
-    let alloc = Allocator::default();
-    let ret = wa_oxc::parse_cjs(&alloc, module_source);
-    if ret.panicked {
-        return None;
-    }
-    let mut finder = MapKeyFinder { name, keys: None };
-    finder.visit_program(&ret.program);
-    finder.keys
+/// The module-scope symbols the (otherwise intra-procedural) parser analyzer reaches into,
+/// extracted **once** from the enclosing module source rather than re-parsed per lookup.
+/// Empty when there is no enclosing module (the direct-callback tests) or the module fails
+/// to parse.
+#[derive(Default)]
+struct ModuleScope {
+    /// helper name → (parameter names, body source). Covers both `function name(p){body}`
+    /// declarations and `var name = function(p){body}` expressions, so a sibling helper the
+    /// parser hands a child node to is reachable in either the un-minified or minified form.
+    functions: HashMap<String, (Vec<String>, String)>,
+    /// object-map name → its keys in source order — the allowed value set an enum accessor
+    /// (`attrEnumOrNullIfUnknown("attr", map)`) validates a wire attr against.
+    maps: HashMap<String, Vec<String>>,
 }
 
-struct MapKeyFinder<'a> {
-    name: &'a str,
-    keys: Option<Vec<String>>,
+impl ModuleScope {
+    fn from_source(module_source: &str) -> Self {
+        if module_source.is_empty() {
+            return Self::default();
+        }
+        let alloc = Allocator::default();
+        let ret = wa_oxc::parse_cjs(&alloc, module_source);
+        if ret.panicked {
+            return Self::default();
+        }
+        let mut b = ModuleScopeBuilder {
+            module_source,
+            functions: HashMap::new(),
+            maps: HashMap::new(),
+        };
+        b.visit_program(&ret.program);
+        Self {
+            functions: b.functions,
+            maps: b.maps,
+        }
+    }
 }
 
-impl<'a> Visit<'a> for MapKeyFinder<'_> {
-    fn visit_variable_declarator(&mut self, d: &VariableDeclarator<'a>) {
-        if self.keys.is_none()
-            && d.id.get_identifier_name().as_deref() == Some(self.name)
-            && let Some(init) = d.init.as_ref()
-            && let Some(obj) = wa_oxc::as_object(init)
+struct ModuleScopeBuilder<'a> {
+    module_source: &'a str,
+    functions: HashMap<String, (Vec<String>, String)>,
+    maps: HashMap<String, Vec<String>>,
+}
+
+impl ModuleScopeBuilder<'_> {
+    /// Record `name`'s params + body source, first declaration wins (matching the prior
+    /// first-match-in-visit-order `FnFinder` behavior for a shadowed name).
+    fn record_fn(
+        &mut self,
+        name: &str,
+        params: &oxc_ast::ast::FormalParameters,
+        body: oxc_span::Span,
+    ) {
+        if self.functions.contains_key(name) {
+            return;
+        }
+        let param_names = params
+            .items
+            .iter()
+            .filter_map(|p| p.pattern.get_identifier_name().map(|n| n.to_string()))
+            .collect();
+        let body_src = self.module_source[body.start as usize..body.end as usize].to_string();
+        self.functions
+            .insert(name.to_string(), (param_names, body_src));
+    }
+}
+
+impl<'a> Visit<'a> for ModuleScopeBuilder<'_> {
+    fn visit_function(&mut self, func: &Function<'a>, flags: ScopeFlags) {
+        if let Some(id) = func.id.as_ref()
+            && let Some(body) = func.body.as_ref()
         {
-            self.keys = Some(wa_oxc::obj_props(obj).map(|(k, _)| k.to_string()).collect());
+            self.record_fn(id.name.as_str(), &func.params, body.span);
+        }
+        walk::walk_function(self, func, flags);
+    }
+
+    fn visit_variable_declarator(&mut self, d: &VariableDeclarator<'a>) {
+        if let Some(name) = d.id.get_identifier_name()
+            && let Some(init) = d.init.as_ref()
+        {
+            match init {
+                // `var name = function(p){ body }` — the common minified helper form the
+                // old declaration-only finder missed.
+                Expression::FunctionExpression(f) => {
+                    if let Some(body) = f.body.as_ref() {
+                        self.record_fn(name.as_str(), &f.params, body.span);
+                    }
+                }
+                // `var name = { key: val, … }` — an enum value map.
+                _ => {
+                    if let Some(obj) = wa_oxc::as_object(init) {
+                        self.maps
+                            .entry(name.as_str().to_string())
+                            .or_insert_with(|| {
+                                wa_oxc::obj_props(obj).map(|(k, _)| k.to_string()).collect()
+                            });
+                    }
+                }
+            }
         }
         walk::walk_variable_declarator(self, d);
     }
@@ -643,7 +717,7 @@ fn analyze_child_node(
     body_src: &str,
     node_param: &str,
     tag: &str,
-    module_source: &str,
+    module: &ModuleScope,
     depth: u32,
 ) -> Vec<ParsedField> {
     let alloc = Allocator::default();
@@ -656,7 +730,7 @@ fn analyze_child_node(
         // No stanza param — only the seeded child var is tracked, so the helper's other
         // parameters (the base result it also carries) contribute nothing.
         param: "",
-        module_source,
+        module,
         assertions: Vec::new(),
         fields: Vec::new(),
         child_vars: HashMap::from([(node_param.to_string(), tag.to_string())]),
@@ -689,53 +763,6 @@ fn merge_child_shape(fields: &mut [ParsedField], tag: &str, new_children: Vec<Pa
     }
 }
 
-/// Find a module-scope `function name(params){ body }` in `module_source`; returns its
-/// parameter names and its body source. `None` if `module_source` is empty, unparseable,
-/// or has no such function. Lets the analyzer descend into a sibling helper.
-fn find_module_function(module_source: &str, name: &str) -> Option<(Vec<String>, String)> {
-    if module_source.is_empty() {
-        return None;
-    }
-    let alloc = Allocator::default();
-    let ret = wa_oxc::parse_cjs(&alloc, module_source);
-    if ret.panicked {
-        return None;
-    }
-    let mut finder = FnFinder {
-        name,
-        module_source,
-        result: None,
-    };
-    finder.visit_program(&ret.program);
-    finder.result
-}
-
-struct FnFinder<'a> {
-    name: &'a str,
-    module_source: &'a str,
-    result: Option<(Vec<String>, String)>,
-}
-
-impl<'a> Visit<'a> for FnFinder<'_> {
-    fn visit_function(&mut self, func: &Function<'a>, flags: ScopeFlags) {
-        if self.result.is_none()
-            && func.id.as_ref().map(|id| id.name.as_str()) == Some(self.name)
-            && let Some(body) = func.body.as_ref()
-        {
-            let params = func
-                .params
-                .items
-                .iter()
-                .filter_map(|p| p.pattern.get_identifier_name().map(|n| n.to_string()))
-                .collect();
-            let body_src =
-                self.module_source[body.span.start as usize..body.span.end as usize].to_string();
-            self.result = Some((params, body_src));
-        }
-        walk::walk_function(self, func, flags);
-    }
-}
-
 fn content_kind(method: &str) -> ContentType {
     if method == "contentBytes" {
         ContentType::Bytes
@@ -760,7 +787,7 @@ fn process_child_method(
     parent_tag: &str,
     fields: &mut Vec<ParsedField>,
     code: &str,
-    module_source: &str,
+    module: &ModuleScope,
 ) {
     match method {
         "forEachChildWithTag" | "mapChildrenWithTag" => {
@@ -781,8 +808,7 @@ fn process_child_method(
             };
             let Some(body) = cb.body.as_ref() else { return };
             let cb_body = &code[body.span.start as usize..body.span.end as usize];
-            let child_result =
-                analyze_parser_ast_in_module(cb_body, cb_param.as_str(), module_source);
+            let child_result = analyze_with_scope(cb_body, cb_param.as_str(), module);
 
             let idx = find_or_create_field(fields, parent_tag, "child", true);
             let mut f = mk_field(method, child_tag, ParsedFieldType::String, true);
@@ -807,8 +833,7 @@ fn process_child_method(
             };
             let Some(body) = cb.body.as_ref() else { return };
             let cb_body = &code[body.span.start as usize..body.span.end as usize];
-            let child_result =
-                analyze_parser_ast_in_module(cb_body, cb_param.as_str(), module_source);
+            let child_result = analyze_with_scope(cb_body, cb_param.as_str(), module);
 
             let idx = find_or_create_field(fields, parent_tag, "child", true);
             let mut f = mk_field("mapChildren", "children", ParsedFieldType::String, true);
@@ -1138,6 +1163,46 @@ mod tests {
             .iter()
             .find(|c| c.tag.as_deref() == Some("user"))
             .expect("user grandchild recovered via helper descent");
+        let attrs: Vec<&str> = user
+            .children
+            .as_ref()
+            .unwrap()
+            .iter()
+            .map(|c| c.name.as_str())
+            .collect();
+        assert!(
+            attrs.contains(&"jid") && attrs.contains(&"t"),
+            "user attrs: {attrs:?}"
+        );
+    }
+
+    #[test]
+    fn descends_into_function_expression_helper() {
+        // Same as above, but the sibling helper is bound as a *function expression*
+        // (`var d = function(e,t){…}`) — the minified form WA ships. The pre-extracted
+        // module scope must find it just like a `function d(){…}` declaration.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            var d=function(e,t){ t.mapChildrenWithTag("user", function(u){ u.attrDeviceJid("jid"); u.attrTime("t"); }); return {}; };
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                var i=e.maybeChild("participants");
+                return d(e, i);
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let participants = p
+            .fields
+            .iter()
+            .find(|f| f.tag.as_deref() == Some("participants"))
+            .expect("participants field");
+        let user = participants
+            .children
+            .as_ref()
+            .unwrap()
+            .iter()
+            .find(|c| c.tag.as_deref() == Some("user"))
+            .expect("user grandchild recovered via fn-expression helper descent");
         let attrs: Vec<&str> = user
             .children
             .as_ref()
