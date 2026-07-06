@@ -296,6 +296,21 @@ fn analyze_function(
     visited: &mut HashSet<String>,
 ) -> Option<(Vec<ResponseAssertion>, Vec<ParsedField>)> {
     let body = func.body.as_ref()?;
+    // Same-node cross-module mixins bubble their discriminators up by default (so an
+    // error variant inherits the `type:"error"` its mixin asserts). But a mixin whose
+    // result the tail consumes *optionally* (`X.success ? X.value : null`) does not
+    // constrain the node, so its asserts must be suppressed — else e.g. the optional
+    // `ReceiverContentTypeMediaRCATMixin` pins a bogus `type="media"` on a newsletter
+    // message whose real type is the 14-way content disjunction. A var that is also
+    // hard-guarded (`if(!X.success) return X`) is genuinely required despite an
+    // (redundant) optional read, so it is kept. See [`classify_call`]'s same-node branch.
+    let guarded = guarded_success_vars(body);
+    let suppressed: HashSet<String> = tail_return(body)
+        .map(optionally_consumed_vars)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|v| !guarded.contains(v))
+        .collect();
     let mut assertions: Vec<ResponseAssertion> = Vec::new();
     let mut bindings: HashMap<String, Binding> = HashMap::new();
 
@@ -315,6 +330,7 @@ fn analyze_function(
                             resolver,
                             visited,
                             &bindings,
+                            suppressed.contains(name.as_str()),
                         );
                         bindings.insert(name.to_string(), b);
                     }
@@ -342,6 +358,9 @@ fn classify_call(
     resolver: &Resolver,
     visited: &mut HashSet<String>,
     bindings: &HashMap<String, Binding>,
+    // Whether this binding's var is consumed optionally by the tail, so a same-node
+    // mixin it binds must not bubble its discriminators (see `analyze_function`).
+    suppress_bubble: bool,
 ) -> Binding {
     let Some(call) = as_call(init) else {
         return Binding::None;
@@ -357,8 +376,12 @@ fn classify_call(
             // A mixin parsed on the SAME node (no descend) enforces its own asserts on
             // that node — bubble them up so an error variant inherits the `type:"error"`
             // its `parseIQErrorResponseMixin(e, …)` asserts. Child-descend mixins assert
-            // on the child, not the variant's node, so don't bubble those.
-            if node_path.is_empty() {
+            // on the child, not the variant's node, so don't bubble those. Nor does an
+            // *optionally-consumed* same-node mixin constrain the node (see `suppressed`
+            // in [`analyze_function`]): bubbling it would pin a discriminator the message
+            // need not satisfy — e.g. the optional `ReceiverContentTypeMediaRCATMixin`
+            // stamping a bogus `type="media"` on a newsletter whose type is a disjunction.
+            if node_path.is_empty() && !suppress_bubble {
                 let bubbled = resolver.assertions(&module, &func);
                 assertions.extend(bubbled);
             }
@@ -1137,6 +1160,142 @@ fn value_member<'a>(e: &'a Expression<'a>) -> Option<(&'a str, &'a str)> {
     let (obj, prop) = wa_oxc::as_member(e)?;
     let var = as_identifier(obj)?;
     Some((var, prop))
+}
+
+/// The bound vars whose railway success the whole parse depends on: those hard-guarded
+/// by `if (!X.success) return X;`, plus the tail-ternary gate `return X.success ?
+/// makeResult(…) : X`. A same-node cross-module mixin bound to such a var is REQUIRED, so
+/// the discriminators it asserts on the node may legitimately bubble to the caller. A var
+/// absent here is consumed optionally (`X.success ? X.value : null` in an otherwise-gated
+/// `makeResult`), so the mixin does not constrain the node and its asserts must not bubble.
+fn guarded_success_vars(body: &oxc_ast::ast::FunctionBody) -> HashSet<String> {
+    let mut out = HashSet::new();
+    for stmt in &body.statements {
+        // `if (!X.success) return X;`
+        if let Statement::IfStatement(if_stmt) = stmt
+            && let Some(var) = negated_success_var(&if_stmt.test)
+            && consequent_returns(&if_stmt.consequent, var)
+        {
+            out.insert(var.to_string());
+        }
+        // Tail `return X.success ? makeResult(…) : X;` — X gates the whole result.
+        if let Statement::ReturnStatement(ret) = stmt
+            && let Some(Expression::ConditionalExpression(c)) = ret.argument.as_ref()
+            && let Some((var, "success")) = value_member(&c.test)
+            && as_identifier(&c.alternate) == Some(var)
+        {
+            out.insert(var.to_string());
+        }
+    }
+    out
+}
+
+/// `!X.success` → `"X"` (the negated railway-success test of an `if` guard).
+fn negated_success_var<'a>(e: &'a Expression<'a>) -> Option<&'a str> {
+    let Expression::UnaryExpression(u) = e else {
+        return None;
+    };
+    if u.operator != oxc_ast::ast::UnaryOperator::LogicalNot {
+        return None;
+    }
+    match value_member(&u.argument) {
+        Some((var, "success")) => Some(var),
+        _ => None,
+    }
+}
+
+/// Whether an `if` consequent is `return <var>;` (bare or wrapped in a block).
+fn consequent_returns(stmt: &Statement, var: &str) -> bool {
+    match stmt {
+        Statement::ReturnStatement(r) => r.argument.as_ref().and_then(as_identifier) == Some(var),
+        Statement::BlockStatement(b) => b.body.iter().any(|s| consequent_returns(s, var)),
+        _ => false,
+    }
+}
+
+/// The function's tail return argument (the last top-level `return …`).
+fn tail_return<'a>(body: &'a oxc_ast::ast::FunctionBody<'a>) -> Option<&'a Expression<'a>> {
+    body.statements.iter().rev().find_map(|s| match s {
+        Statement::ReturnStatement(r) => r.argument.as_ref(),
+        _ => None,
+    })
+}
+
+/// The bound vars the tail `makeResult(…)` consumes *optionally* — as a
+/// `X.success ? X.value : null` value or an `X.success` / `X.value != null` presence
+/// flag. Such a mixin need not match, so its same-node discriminators must not bubble.
+fn optionally_consumed_vars(tail: &Expression) -> HashSet<String> {
+    let mut out = HashSet::new();
+    if let Some(arg) = tail_make_result_arg(tail) {
+        collect_optional_vars(arg, &mut out);
+    }
+    out
+}
+
+/// The single argument of the tail `makeResult(ARG)`, unwrapping a
+/// `G.success ? makeResult(ARG) : G` guard. `None` if the tail is not a `makeResult`.
+fn tail_make_result_arg<'a>(tail: &'a Expression<'a>) -> Option<&'a Expression<'a>> {
+    let expr = match tail {
+        Expression::ConditionalExpression(c) => &c.consequent,
+        other => other,
+    };
+    let call = as_call(expr)?;
+    (callee_method(call)? == "makeResult").then_some(())?;
+    arg_expr(call.arguments.first()?)
+}
+
+/// `X.success ? X.value : null` → `"X"`. Requires the test to be the *same* var's
+/// `.success` bit as the consequent's `.value` (a plain `cond ? X.value : y` is not an
+/// optional read of `X`, so it must not match — that would wrongly suppress `X`'s
+/// discriminator).
+fn optional_ternary_var<'a>(e: &'a Expression<'a>) -> Option<&'a str> {
+    let Expression::ConditionalExpression(c) = e else {
+        return None;
+    };
+    match value_member(&c.consequent) {
+        Some((var, "value")) if value_member(&c.test) == Some((var, "success")) => Some(var),
+        _ => None,
+    }
+}
+
+/// Walk a `makeResult` argument (an object literal, or a `babelHelpers.extends(a, b, …)`
+/// of them) collecting vars consumed as an optional-value ternary or a presence flag. A
+/// plain `X.value` (or a positional `extends(…, X.value, …)` spread) is required, so it
+/// is not collected.
+fn collect_optional_vars(arg: &Expression, out: &mut HashSet<String>) {
+    // A bare `X.success ? X.value : null` — e.g. an optional mixin spread straight into
+    // `extends(…, X.success ? X.value : null)`, not wrapped in an object literal.
+    if let Some(var) = optional_ternary_var(arg) {
+        out.insert(var.to_string());
+        return;
+    }
+    if let Some(call) = as_call(arg)
+        && callee_method(call) == Some("extends")
+    {
+        for a in &call.arguments {
+            if let Some(e) = arg_expr(a) {
+                collect_optional_vars(e, out);
+            }
+        }
+        return;
+    }
+    let Some(obj) = wa_oxc::as_object(arg) else {
+        return;
+    };
+    for prop in &obj.properties {
+        let oxc_ast::ast::ObjectPropertyKind::ObjectProperty(p) = prop else {
+            continue;
+        };
+        // `key: X.success ? X.value : null` → X is optional.
+        if let Some(var) = optional_ternary_var(&p.value) {
+            out.insert(var.to_string());
+            continue;
+        }
+        // `key: X.success` / `key: X.value != null` → a presence flag, X is optional.
+        if let Some(var) = bool_flag_var(&p.value) {
+            out.insert(var.to_string());
+        }
+    }
 }
 
 /// A makeResult value that is a boolean *presence* flag → the underlying var:
@@ -2091,6 +2250,76 @@ mod tests {
                 .count(),
             1,
             "duplicate tag assertion deduped: {ea:?}"
+        );
+    }
+
+    #[test]
+    fn optional_same_node_mixin_does_not_bubble_discriminator() {
+        // A discriminator-bearing mixin (`addressable="false"`) reused two ways. A root
+        // that consumes it *optionally* (`a.success ? a.value : null`) must NOT inherit the
+        // discriminator — the node need not satisfy it (the real newsletter `type="media"`
+        // / participant `addressable="false"` bleed). A root that *requires* it (guarded by
+        // `if(!a.success) return a`) still does.
+        let mixin = r#"__d("WASmaxInFooNotAddressableMixin",["WASmaxParseUtils","WAResultOrError"],(function(t,n,r,o,a,i,l){
+            function e(e){var t=o("WASmaxParseUtils").assertTag(e,"participant");if(!t.success)return t;var n=o("WASmaxParseUtils").literal(o("WASmaxParseUtils").attrString,e,"addressable","false");return n.success?o("WAResultOrError").makeResult({addressable:n.value}):n;}
+            l.parseNotAddressableMixin=e;
+        }),1);"#;
+        let optional_root = r#"__d("WASmaxInFooAddedMixin",["WASmaxParseUtils","WASmaxInFooNotAddressableMixin","WAResultOrError"],(function(t,n,r,o,a,i,l){
+            function e(e){var t=o("WASmaxParseUtils").assertTag(e,"participant");if(!t.success)return t;var a=o("WASmaxInFooNotAddressableMixin").parseNotAddressableMixin(e);return o("WAResultOrError").makeResult({notAddressable:a.success?a.value:null});}
+            l.parseAddedMixin=e;
+        }),1);"#;
+        let required_root = r#"__d("WASmaxInFooBlockedMixin",["WASmaxParseUtils","WASmaxInFooNotAddressableMixin","WAResultOrError"],(function(t,n,r,o,a,i,l){
+            function e(e){var t=o("WASmaxParseUtils").assertTag(e,"participant");if(!t.success)return t;var a=o("WASmaxInFooNotAddressableMixin").parseNotAddressableMixin(e);if(!a.success)return a;return o("WAResultOrError").makeResult(babelHelpers.extends({},a.value));}
+            l.parseBlockedMixin=e;
+        }),1);"#;
+        let slices = HashMap::from([
+            ("WASmaxInFooNotAddressableMixin", mixin),
+            ("WASmaxInFooAddedMixin", optional_root),
+            ("WASmaxInFooBlockedMixin", required_root),
+        ]);
+        let resolver = Resolver::new(&slices);
+        let has_addressable = |asserts: &[ResponseAssertion]| {
+            asserts.iter().any(|a| {
+                a.kind == AssertionKind::Attr
+                    && a.name.as_deref() == Some("addressable")
+                    && a.value.as_deref() == Some("false")
+            })
+        };
+        let opt = resolver.assertions("WASmaxInFooAddedMixin", "parseAddedMixin");
+        assert!(
+            !has_addressable(&opt),
+            "optionally-consumed same-node mixin must not bubble its discriminator: {opt:?}"
+        );
+        let req = resolver.assertions("WASmaxInFooBlockedMixin", "parseBlockedMixin");
+        assert!(
+            has_addressable(&req),
+            "a required (guarded) same-node mixin still bubbles its discriminator: {req:?}"
+        );
+    }
+
+    #[test]
+    fn optional_mixin_spread_bare_into_extends_is_suppressed() {
+        // An optional discriminator-bearing mixin passed as a *bare* ternary spread into
+        // `babelHelpers.extends(…, m.success ? m.value : null)` — not wrapped in an object
+        // literal — must still be recognized as optional, so its `disc="x"` does not bubble.
+        let mixin = r#"__d("WASmaxInFooDiscMixin",["WASmaxParseUtils","WAResultOrError"],(function(t,n,r,o,a,i,l){
+            function e(e){var t=o("WASmaxParseUtils").assertTag(e,"ack");if(!t.success)return t;var n=o("WASmaxParseUtils").literal(o("WASmaxParseUtils").attrString,e,"disc","x");return n.success?o("WAResultOrError").makeResult({disc:n.value}):n;}
+            l.parseDiscMixin=e;
+        }),1);"#;
+        let root = r#"__d("WASmaxInFooSpreadMixin",["WASmaxParseUtils","WASmaxInFooDiscMixin","WAResultOrError"],(function(t,n,r,o,a,i,l){
+            function e(e){var t=o("WASmaxParseUtils").assertTag(e,"ack");if(!t.success)return t;var s=o("WASmaxParseUtils").attrString(e,"id");if(!s.success)return s;var m=o("WASmaxInFooDiscMixin").parseDiscMixin(e);return o("WAResultOrError").makeResult(babelHelpers.extends({id:s.value},m.success?m.value:null));}
+            l.parseSpreadMixin=e;
+        }),1);"#;
+        let slices = HashMap::from([
+            ("WASmaxInFooDiscMixin", mixin),
+            ("WASmaxInFooSpreadMixin", root),
+        ]);
+        let resolver = Resolver::new(&slices);
+        let a = resolver.assertions("WASmaxInFooSpreadMixin", "parseSpreadMixin");
+        assert!(
+            !a.iter()
+                .any(|x| x.kind == AssertionKind::Attr && x.name.as_deref() == Some("disc")),
+            "an optional mixin spread bare into extends must not bubble its discriminator: {a:?}"
         );
     }
 

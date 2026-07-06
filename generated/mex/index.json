@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1042675222",
+  "waVersion": "2.3000.1042692684",
   "operations": {
     "ACSServerProviderConfig": {
       "originalName": "WAWebACSServerProviderConfigQuery",
@@ -1214,34 +1214,6 @@
                 "text": "string"
               }
             ]
-          }
-        ]
-      }
-    },
-    "FetchAdEntryPointsConfiguration": {
-      "originalName": "WAWebFetchAdEntryPointsConfigurationQuery",
-      "docId": "9656368401073090",
-      "operationKind": "query",
-      "response": {
-        "ctwa_client_entry_point_entitlement": [
-          {
-            "entry_point_or_experience": "string",
-            "should_show": "boolean"
-          }
-        ]
-      }
-    },
-    "FetchAdEntryPointsConfigurationM1": {
-      "originalName": "WAWebFetchAdEntryPointsConfigurationM1Query",
-      "docId": "9737776042983782",
-      "operationKind": "query",
-      "response": {
-        "ctwa_client_entry_point_entitlement": [
-          {
-            "content": "string",
-            "entry_point_or_experience": "string",
-            "should_show": "boolean",
-            "sub_content": "string"
           }
         ]
       }
