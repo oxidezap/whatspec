@@ -86,8 +86,18 @@ pub(crate) fn build_pass(defs: &[ModuleDefinition], source: &str) -> ContentLeng
         }
         for (parent, tag, len) in collect_module(slice) {
             let key = (parent, tag);
+            // Keep the lexicographically-smallest module name as the provenance, not
+            // the first one *seen* — the scan order follows bundle file order, so a
+            // first-wins tie-break makes `byteLengthSource` depend on input ordering
+            // and breaks the byte-identical-output guarantee when two modules pin the
+            // same (parent,tag,len).
             source_module
                 .entry(key.clone())
+                .and_modify(|existing| {
+                    if m.name < *existing {
+                        *existing = m.name.clone();
+                    }
+                })
                 .or_insert_with(|| m.name.clone());
             seen_lengths.entry(key).or_default().insert(len);
         }
@@ -346,6 +356,20 @@ mod tests {
         assert_eq!(idx.get("skey", "nope"), None);
         // Tag-only would be wrong: the same tag under a different parent isn't shared.
         assert_eq!(idx.get("product_list", "value"), None);
+    }
+
+    #[test]
+    fn byte_length_source_is_order_independent() {
+        // Two modules pin the same (parent, tag, length); the recorded provenance must
+        // be the lexicographically-smallest module name regardless of bundle order, so
+        // the generated `byteLengthSource` is byte-identical across a reordering of the
+        // input bundles (the byte-identical-output guarantee).
+        let a = r#"__d("Aaa",[],function(g,r,d,o,e,i,l){ l.p = function(u){ return u.child("skey").child("value").contentBytes(32); };},1);"#;
+        let z = r#"__d("Zzz",[],function(g,r,d,o,e,i,l){ l.p = function(u){ return u.child("skey").child("value").contentBytes(32); };},1);"#;
+        let az = format!("{a}\n{z}");
+        let za = format!("{z}\n{a}");
+        assert_eq!(index(&az).get("skey", "value"), Some((32, "Aaa")));
+        assert_eq!(index(&za).get("skey", "value"), Some((32, "Aaa")));
     }
 
     #[test]
