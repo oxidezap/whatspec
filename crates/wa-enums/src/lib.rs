@@ -41,11 +41,21 @@ pub fn extract_enums_from_modules(
 ) -> EnumsIr {
     let mut enums = Vec::new();
     for m in module_defs {
-        // Only modules that actually depend on $InternalEnum can define one.
-        if !m.deps.iter().any(|d| d == DEP) {
-            continue;
+        let slice = &source[m.start..m.end];
+        if m.deps.iter().any(|d| d == DEP) {
+            // The reliable, cheap path: `$InternalEnum({…})` definitions.
+            enums.extend(extract_from_module(slice, &m.name));
+        } else if is_protocol_enum_module(&m.name) {
+            // Some wire enums are plain object literals exported by name
+            // (`var e={INACTIVE:-6,…}; i.ACK=e`) with no `$InternalEnum` dep. A plain
+            // object is ambiguous (every `{a:1,b:2}` config/UI/i18n map looks like one),
+            // so this path is scoped to modules WA names by its *protocol* enum-bag
+            // convention — `WASmax<In|Out>…Enums` plus the two ack/receipt level modules —
+            // never the app's infra constants (loggers, locales, JPEG markers, …). Within
+            // those, [`extract_plain_object_enums`] still keeps only `CONSTANT_CASE`
+            // members so a stray helper export can't leak in.
+            enums.extend(extract_plain_object_enums(slice, &m.name));
         }
-        enums.extend(extract_from_module(&source[m.start..m.end], &m.name));
     }
     // Deterministic order independent of bundle layout.
     enums.sort_by(|a, b| a.module.cmp(&b.module).then_with(|| a.name.cmp(&b.name)));
@@ -130,6 +140,64 @@ pub fn resolve_named_enum(module_slice: &str, module: &str, name: &str) -> Optio
 /// An enum-body object: either `$InternalEnum({…})` or a bare object literal.
 fn enum_object<'b, 'a>(e: &'b Expression<'a>) -> Option<&'b ObjectExpression<'a>> {
     internal_enum_object(e).or_else(|| as_object(e))
+}
+
+/// Whether `name` is `CONSTANT_CASE` (`[A-Z][A-Z0-9_]*`) — the member-name shape WA
+/// uses for its plain-object wire enums (`INACTIVE`, `READ_SELF`, `CONTENT_TOO_BIG`),
+/// as opposed to the `camelCase` keys of config/lookup maps.
+fn is_constant_case(name: &str) -> bool {
+    let mut chars = name.chars();
+    matches!(chars.next(), Some(c) if c.is_ascii_uppercase())
+        && chars.all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+}
+
+/// Whether `module` is one WA declares its *wire-protocol* enums in as plain object
+/// literals (no `$InternalEnum`): the `WASmax<In|Out>…Enums` smax enum bags, plus the
+/// two ack/receipt-level modules that predate that convention. Deliberately narrow —
+/// the app has thousands of `CONSTANT_CASE` infra objects (loggers, locales, JPEG
+/// markers, UI constants) that are not part of the protocol surface.
+fn is_protocol_enum_module(module: &str) -> bool {
+    (module.starts_with("WASmax") && module.ends_with("Enums"))
+        || module == "WAWebAck"
+        || module == "WAAckLevel"
+}
+
+/// Extract plain-object-literal enums exported by name from a non-`$InternalEnum`
+/// module (`i.ACK = {INACTIVE:-6,…}` or `var e={…}; i.ACK=e`). Kept deliberately strict
+/// — only exports with ≥2 members, all-literal single-kind values ([`parse_enum`]), and
+/// all-`CONSTANT_CASE` member names — so config/lookup maps don't leak into the catalog.
+fn extract_plain_object_enums(slice: &str, module: &str) -> Vec<InternalEnumDef> {
+    let alloc = Allocator::default();
+    let ret = parse_cjs(&alloc, slice);
+    if ret.panicked {
+        return Vec::new();
+    }
+    let mut r = NamedResolver {
+        locals: HashMap::new(),
+        exports: HashMap::new(),
+        pending: Vec::new(),
+    };
+    r.visit_program(&ret.program);
+    for (export, local) in &r.pending {
+        if let Some(data) = r.locals.get(local) {
+            r.exports
+                .entry(export.clone())
+                .or_insert_with(|| data.clone());
+        }
+    }
+    let mut out: Vec<InternalEnumDef> = Vec::new();
+    for (name, (value_kind, variants)) in r.exports {
+        if variants.len() >= 2 && variants.iter().all(|v| is_constant_case(&v.name)) {
+            out.push(InternalEnumDef {
+                name,
+                module: module.to_string(),
+                value_kind,
+                variants,
+            });
+        }
+    }
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    out
 }
 
 struct NamedResolver {
@@ -368,5 +436,40 @@ mod tests {
         // Contains the call text but doesn't declare the dep → not scanned.
         let src = r#"__d("Nope",[],function(g,r,d,o,e,i,l){ l.X=r("$InternalEnum")({A:1}); },1);"#;
         assert!(run(src).is_empty());
+    }
+
+    #[test]
+    fn plain_object_wire_enums_captured_only_from_protocol_modules() {
+        // WA's ack/receipt level enums and smax `*Enums` bags are plain object literals
+        // with no `$InternalEnum` dep — captured via the protocol-module convention.
+        let src = r#"
+            __d("WAWebAck",[],(function(t,n,r,o,a,i){var e={INACTIVE:-6,SENT:1,READ:3};i.ACK=e}),1);
+            __d("WASmaxInReceiptEnums",["WAJids"],(function(t,n,r,o,a,i,l){var e={CBP:"cbp",NBP:"nbp"};i.ENUM_CBP_NBP=e}),1);
+        "#;
+        let enums = run(src);
+        let ack = enums
+            .iter()
+            .find(|e| e.module == "WAWebAck")
+            .expect("WAWebAck.ACK");
+        assert_eq!(ack.name, "ACK");
+        assert_eq!(ack.value_kind, EnumValueKind::Int);
+        assert_eq!(ack.variants.len(), 3);
+        assert!(
+            enums
+                .iter()
+                .any(|e| e.module == "WASmaxInReceiptEnums" && e.name == "ENUM_CBP_NBP")
+        );
+    }
+
+    #[test]
+    fn plain_object_non_protocol_and_camelcase_are_not_enums() {
+        // Same plain-object shape, but a non-protocol infra module → not scanned
+        // (would otherwise flood the catalog with loggers/locales/UI constants).
+        let infra = r#"__d("WAWebLog",[],(function(t,n,r,o,a,i){var e={DEBUG:0,INFO:1,ERROR:2};i.Level=e}),1);"#;
+        assert!(run(infra).iter().all(|e| e.module != "WAWebLog"));
+        // A protocol module, but a `camelCase`-keyed (non-enum) map is still rejected by
+        // the CONSTANT_CASE guard.
+        let cfg = r#"__d("WASmaxInFooEnums",[],(function(t,n,r,o,a,i){var e={maxRetries:3,timeoutMs:5};i.config=e}),1);"#;
+        assert!(run(cfg).iter().all(|e| e.module != "WASmaxInFooEnums"));
     }
 }
