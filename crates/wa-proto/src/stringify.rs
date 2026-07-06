@@ -98,9 +98,23 @@ fn field_line(f: &ProtoField) -> String {
         // repeated scalars, defaults for singular optionals — but the joined-options form
         // handles either alone.)
         if f.type_name == "string" || f.type_name == "bytes" {
-            // Escape the proto2 string literal (backslashes before quotes) so a default
-            // containing `"` or `\` stays valid `.proto` instead of terminating the string.
-            let escaped = d.replace('\\', "\\\\").replace('"', "\\\"");
+            // Escape the proto2 string literal so a default stays valid `.proto` instead of
+            // terminating the string or splitting the line: `\` and `"` are escaped, newline /
+            // CR / tab get their named escapes, and any other control char falls back to a
+            // 3-digit octal escape (proto reads at most 3 octal digits, so zero-padding keeps
+            // the boundary unambiguous). Printable text — ASCII or Unicode — passes through.
+            let escaped = d.chars().fold(String::new(), |mut out, c| {
+                match c {
+                    '\\' => out.push_str("\\\\"),
+                    '"' => out.push_str("\\\""),
+                    '\n' => out.push_str("\\n"),
+                    '\r' => out.push_str("\\r"),
+                    '\t' => out.push_str("\\t"),
+                    c if c.is_control() => out.push_str(&format!("\\{:03o}", c as u32)),
+                    c => out.push(c),
+                }
+                out
+            });
             opts.push(format!("default = \"{escaped}\""));
         } else {
             opts.push(format!("default = {d}"));
@@ -171,6 +185,9 @@ mod tests {
                     defaulted("label", "string", 4, "hi"),
                     // A string default with a backslash and a quote must be proto-escaped.
                     defaulted("path", "string", 5, "a\\b\"c"),
+                    // Control chars would split or invalidate the line: newline/CR/tab get
+                    // named escapes, other controls (here a bell, 0x07) an octal escape.
+                    defaulted("ctrl", "string", 6, "x\n\r\t\u{07}y"),
                 ],
                 nested: vec![],
             })],
@@ -196,6 +213,12 @@ mod tests {
         );
         assert!(
             out.contains(r#"optional string label = 4 [default = "hi"];"#),
+            "{out}"
+        );
+        // Control chars are escaped (named where proto has one, else 3-digit octal) so the
+        // emitted line stays on one line and parses.
+        assert!(
+            out.contains(r#"optional string ctrl = 6 [default = "x\n\r\t\007y"];"#),
             "{out}"
         );
     }
