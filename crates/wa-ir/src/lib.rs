@@ -179,38 +179,57 @@ mod roundtrip_tests {
     use std::path::Path;
 
     /// Deserialize a committed `generated/<rel>` document into its IR envelope and
-    /// re-serialize it, asserting value-for-value equality. A field the IR can't model
-    /// is dropped on the round-trip, so the comparison fails — catching a hand-edit or
-    /// an IR change that wasn't regenerated.
-    fn assert_round_trips<T: DeserializeOwned + Serialize>(rel: &str) {
+    /// re-serialize it, returning an error message on any mismatch instead of
+    /// panicking. A field the IR can't model is dropped on the round-trip, so the
+    /// comparison fails — catching a hand-edit or an IR change that wasn't regenerated.
+    /// Returning `Result` (rather than asserting) lets the caller exercise every domain
+    /// in one run, so a single failing test names all drifting domains at once.
+    fn round_trips<T: DeserializeOwned + Serialize>(rel: &str) -> Result<(), String> {
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../generated")
             .join(rel);
-        let raw = std::fs::read_to_string(&path)
-            .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+        let raw =
+            std::fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
         let committed: serde_json::Value =
-            serde_json::from_str(&raw).unwrap_or_else(|e| panic!("{rel}: not valid JSON: {e}"));
+            serde_json::from_str(&raw).map_err(|e| format!("{rel}: not valid JSON: {e}"))?;
         let typed: IrEnvelope<T> = serde_json::from_value(committed.clone())
-            .unwrap_or_else(|e| panic!("{rel}: does not deserialize into its IR type: {e}"));
-        let reserialized = serde_json::to_value(&typed).expect("serialize IR");
-        assert_eq!(
-            committed, reserialized,
-            "{rel}: committed output does not round-trip through its IR type (schema/IR drift)"
-        );
+            .map_err(|e| format!("{rel}: does not deserialize into its IR type: {e}"))?;
+        let reserialized =
+            serde_json::to_value(&typed).map_err(|e| format!("{rel}: serialize IR: {e}"))?;
+        if committed != reserialized {
+            return Err(format!(
+                "{rel}: committed output does not round-trip through its IR type (schema/IR drift)"
+            ));
+        }
+        Ok(())
     }
 
     #[test]
     fn committed_output_round_trips_through_the_ir() {
-        assert_round_trips::<iq::IqIr>("iq/index.json");
-        assert_round_trips::<iq::StanzaIr>("stanza/index.json");
-        assert_round_trips::<mex::MexIr>("mex/index.json");
-        assert_round_trips::<appstate::AppstateIr>("appstate/index.json");
-        assert_round_trips::<abprops::AbPropsIr>("abprops/index.json");
-        assert_round_trips::<enums::EnumsIr>("enums/index.json");
-        assert_round_trips::<wam::WamIr>("wam/index.json");
-        assert_round_trips::<notif::NotifIr>("notif/index.json");
-        assert_round_trips::<tokens::TokensIr>("tokens/index.json");
-        assert_round_trips::<incoming::IncomingIr>("incoming/index.json");
-        assert_round_trips::<srvreq::ServerRequestIr>("srvreq/index.json");
+        // Evaluate every domain (no `?`/short-circuit) so one run reports every drifting
+        // domain, not just the first — a failure in `iq` must not hide drift in `tokens`.
+        let results = [
+            round_trips::<iq::IqIr>("iq/index.json"),
+            round_trips::<iq::StanzaIr>("stanza/index.json"),
+            round_trips::<mex::MexIr>("mex/index.json"),
+            round_trips::<appstate::AppstateIr>("appstate/index.json"),
+            round_trips::<abprops::AbPropsIr>("abprops/index.json"),
+            round_trips::<enums::EnumsIr>("enums/index.json"),
+            round_trips::<wam::WamIr>("wam/index.json"),
+            round_trips::<notif::NotifIr>("notif/index.json"),
+            round_trips::<tokens::TokensIr>("tokens/index.json"),
+            round_trips::<incoming::IncomingIr>("incoming/index.json"),
+            round_trips::<srvreq::ServerRequestIr>("srvreq/index.json"),
+        ];
+        let failures: Vec<&str> = results
+            .iter()
+            .filter_map(|r| r.as_ref().err().map(String::as_str))
+            .collect();
+        assert!(
+            failures.is_empty(),
+            "IR round-trip drift in {} domain(s):\n  - {}",
+            failures.len(),
+            failures.join("\n  - ")
+        );
     }
 }
