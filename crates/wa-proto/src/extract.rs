@@ -1216,9 +1216,9 @@ mod tests {
     // (proto2 forbids oneof defaults).
     const DEFAULTS: &str = r#"__d("ModD.pb",["$InternalEnum","WAProtoConst"],(function(t,n,r,o,a,i,l){
         var e, s=n("$InternalEnum")({UNKNOWN:0,ON:1}), u={};
-        u.internalDefaults={mode:s.ON,flag:!1,count:5,delta:-1,pick:s.ON};
+        u.internalDefaults={mode:s.ON,flag:!1,on:!0,count:5,delta:-1,pick:s.ON};
         u.name="Thing";
-        u.internalSpec={mode:[1,(e=r("WAProtoConst")).TYPES.ENUM,s],flag:[2,e.TYPES.BOOL],count:[3,e.TYPES.INT32],delta:[4,e.TYPES.INT32],pick:[5,e.TYPES.ENUM,s],__oneofs__:{choice:["pick"]}};
+        u.internalSpec={mode:[1,(e=r("WAProtoConst")).TYPES.ENUM,s],flag:[2,e.TYPES.BOOL],on:[6,e.TYPES.BOOL],count:[3,e.TYPES.INT32],delta:[4,e.TYPES.INT32],pick:[5,e.TYPES.ENUM,s],__oneofs__:{choice:["pick"]}};
         l.Mode=s,l.ThingSpec=u;
     }),1);"#;
 
@@ -1231,6 +1231,11 @@ mod tests {
         );
         assert!(
             out.contains("optional bool flag = 2 [default = false];"),
+            "{out}"
+        );
+        // `!0` is JS-truthy → `true` (the complement of the `!1` case above).
+        assert!(
+            out.contains("optional bool on = 6 [default = true];"),
             "{out}"
         );
         assert!(

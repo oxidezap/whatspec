@@ -91,10 +91,12 @@ fn field_line(f: &ProtoField) -> String {
         opts.push("packed = true".to_string());
     }
     if let Some(d) = &f.default {
-        // A proto2 `string` default is quoted; enum/bool/numeric defaults are bare.
+        // A proto2 `string`/`bytes` default is a quoted string literal; enum/bool/numeric
+        // defaults are bare. (No WA field currently has a bytes default, but quoting it
+        // keeps a future one valid rather than emitting `[default = x]` that protoc rejects.)
         // (packed and default never co-occur — packed is for repeated scalars, defaults
         // for singular optionals — but the joined-options form handles either alone.)
-        if f.type_name == "string" {
+        if f.type_name == "string" || f.type_name == "bytes" {
             opts.push(format!("default = \"{d}\""));
         } else {
             opts.push(format!("default = {d}"));

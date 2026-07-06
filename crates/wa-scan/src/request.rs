@@ -376,26 +376,26 @@ pub(crate) fn resolve_child_node(
         let repeated = owner == Some("WASmaxChildren") && method == "REPEATED_CHILD";
         let optional = owner == Some("WASmaxChildren")
             && matches!(method, "OPTIONAL_CHILD" | "HAS_OPTIONAL_CHILD");
-        if repeated || optional {
-            if let Some(first) = call.arguments.first().and_then(arg_expr) {
-                let mut r = resolve_template_arg(
-                    first,
-                    node_source,
-                    scope,
-                    module_source,
-                    aliases,
-                    contributions,
-                    helpers,
-                    depth,
-                );
-                if repeated {
-                    for c in &mut r {
-                        c.repeats = true;
-                    }
+        if (repeated || optional)
+            && let Some(first) = call.arguments.first().and_then(arg_expr)
+        {
+            let mut r = resolve_template_arg(
+                first,
+                node_source,
+                scope,
+                module_source,
+                aliases,
+                contributions,
+                helpers,
+                depth,
+            );
+            if repeated {
+                for c in &mut r {
+                    c.repeats = true;
                 }
-                if !r.is_empty() {
-                    return r;
-                }
+            }
+            if !r.is_empty() {
+                return r;
             }
         }
         // `merge…Mixin` and the disjunction `merge…MixinGroup` both wrap a stanza.
