@@ -1867,7 +1867,43 @@
           "required": true
         }
       ],
-      "children": [],
+      "children": [
+        {
+          "tag": "meta",
+          "attrs": [
+            {
+              "name": "status_setting",
+              "kind": "dynamic",
+              "required": true
+            },
+            {
+              "name": "session_scope",
+              "kind": "optional",
+              "required": false,
+              "enumRef": {
+                "name": "SessionScope",
+                "module": "WAWebSessionScope",
+                "variants": [
+                  {
+                    "name": "DEFAULT",
+                    "value": "default"
+                  },
+                  {
+                    "name": "STATUS",
+                    "value": "status"
+                  },
+                  {
+                    "name": "PQ",
+                    "value": "pq"
+                  }
+                ]
+              }
+            }
+          ],
+          "children": [],
+          "repeats": false
+        }
+      ],
       "response": null
     },
     {
@@ -2008,6 +2044,12 @@
               "required": true
             }
           ],
+          "children": [],
+          "repeats": false
+        },
+        {
+          "tag": "device-identity",
+          "attrs": [],
           "children": [],
           "repeats": false
         }
@@ -2370,6 +2412,12 @@
           "repeats": false
         },
         {
+          "tag": "device-identity",
+          "attrs": [],
+          "children": [],
+          "repeats": false
+        },
+        {
           "tag": "meta",
           "attrs": [
             {
@@ -2501,6 +2549,83 @@
       ],
       "children": [
         {
+          "tag": "enc",
+          "attrs": [
+            {
+              "name": "v",
+              "kind": "string",
+              "required": true
+            },
+            {
+              "name": "type",
+              "kind": "string",
+              "required": true,
+              "enumRef": {
+                "name": "CiphertextType",
+                "module": "WAWebBackendJobs.flow",
+                "variants": [
+                  {
+                    "name": "Skmsg",
+                    "value": "skmsg"
+                  },
+                  {
+                    "name": "Pkmsg",
+                    "value": "pkmsg"
+                  },
+                  {
+                    "name": "Msg",
+                    "value": "msg"
+                  },
+                  {
+                    "name": "Msmsg",
+                    "value": "msmsg"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "mediatype",
+              "kind": "dynamic",
+              "required": true
+            }
+          ],
+          "children": [],
+          "repeats": false
+        },
+        {
+          "tag": "device-identity",
+          "attrs": [],
+          "children": [],
+          "repeats": false
+        },
+        {
+          "tag": "biz",
+          "attrs": [
+            {
+              "name": "host_storage",
+              "kind": "integer",
+              "required": true
+            },
+            {
+              "name": "actual_actors",
+              "kind": "integer",
+              "required": true
+            },
+            {
+              "name": "privacy_mode_ts",
+              "kind": "integer",
+              "required": true
+            },
+            {
+              "name": "native_flow_name",
+              "kind": "dynamic",
+              "required": true
+            }
+          ],
+          "children": [],
+          "repeats": false
+        },
+        {
           "tag": "meta",
           "attrs": [
             {
@@ -2610,6 +2735,38 @@
         {
           "tag": "sender_content_binding",
           "attrs": [],
+          "children": [],
+          "repeats": false
+        },
+        {
+          "tag": "bot",
+          "attrs": [
+            {
+              "name": "type",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "local_automated_type",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "client_thread_id",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "mode_selection",
+              "kind": "optional",
+              "required": false
+            },
+            {
+              "name": "mode_selected",
+              "kind": "optional",
+              "required": false
+            }
+          ],
           "children": [],
           "repeats": false
         }
@@ -2751,7 +2908,14 @@
           "required": true
         }
       ],
-      "children": [],
+      "children": [
+        {
+          "tag": "offer",
+          "attrs": [],
+          "children": [],
+          "repeats": false
+        }
+      ],
       "response": null
     },
     {
@@ -2975,6 +3139,25 @@
         }
       ],
       "children": [
+        {
+          "tag": "list",
+          "attrs": [],
+          "children": [
+            {
+              "tag": "item",
+              "attrs": [
+                {
+                  "name": "id",
+                  "kind": "string",
+                  "required": true
+                }
+              ],
+              "children": [],
+              "repeats": true
+            }
+          ],
+          "repeats": false
+        },
         {
           "tag": "bot",
           "attrs": [
@@ -4593,7 +4776,20 @@
           "required": true
         }
       ],
-      "children": [],
+      "children": [
+        {
+          "tag": "meta",
+          "attrs": [
+            {
+              "name": "failure_reason",
+              "kind": "integer",
+              "required": true
+            }
+          ],
+          "children": [],
+          "repeats": false
+        }
+      ],
       "response": null
     },
     {

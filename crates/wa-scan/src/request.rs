@@ -180,6 +180,30 @@ impl<'a> Visit<'a> for ScopeBuilder {
         }
         walk::walk_statement(self, stmt);
     }
+
+    fn visit_assignment_expression(&mut self, a: &AssignmentExpression<'a>) {
+        // A later reassignment `x = init` is also an initializer of `x` — WA builds some
+        // children this way (`var r=null; cond&&(r=wap("list",…))`), and a declaration-only
+        // scope would resolve `x` to just its `null` seed and drop the real child. Record
+        // plain-identifier assignments too; child resolution already unions every recorded
+        // init and keeps the first non-empty (member-expression targets stay excluded).
+        if let Some(name) = wa_oxc::assignment_target_name(&a.left) {
+            let fn_body = match &a.right {
+                Expression::FunctionExpression(f) => fn_body_span(f),
+                _ => None,
+            };
+            let span = a.right.span();
+            self.scope.push(
+                name,
+                VarInit {
+                    init_start: span.start as usize,
+                    init_end: span.end as usize,
+                    fn_body,
+                },
+            );
+        }
+        walk::walk_assignment_expression(self, a);
+    }
 }
 
 fn fn_body_span(f: &Function) -> Option<(usize, usize)> {
@@ -1232,6 +1256,31 @@ mod tests {
             helpers,
             0,
         )
+    }
+
+    #[test]
+    fn short_circuit_reassigned_child_is_recovered() {
+        // `var r=null; cond && (r=wap("list",…))` — a child built by conditional
+        // reassignment (the aggregate receipt builder's shape), not a declaration
+        // initializer. Its `<list>` must still be recovered; a declaration-only scope
+        // resolves `r` to its `null` seed and drops the real child.
+        let code = r#"
+            var r = null;
+            cond && (r = o("WAWap").wap("list", null, o("WAWap").wap("item", {id: x})));
+            var S = o("WAWap").wap("receipt", {to: y}, r);
+        "#;
+        let out = resolve(code, "S");
+        assert_eq!(out.len(), 1, "{out:?}");
+        let list = out[0]
+            .children
+            .iter()
+            .find(|c| c.tag == "list")
+            .expect("list child recovered from the &&-reassignment");
+        assert!(
+            list.children.iter().any(|c| c.tag == "item"),
+            "item under list: {:?}",
+            list.children
+        );
     }
 
     #[test]

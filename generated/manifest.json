@@ -40,7 +40,7 @@
     "enums": {
       "file": "enums/index.json",
       "schema": "schema/enums.schema.json",
-      "sha256": "ecaa92fe7b45110a7a53812c576fb0312965f981f6a56b654fb8eb080662b7d1"
+      "sha256": "eb376ffa91a88e2e20b23d6fce7720a294f489ee471883b97a662c08d699e655"
     },
     "incoming": {
       "file": "incoming/index.json",
@@ -74,7 +74,7 @@
     "stanza": {
       "file": "stanza/index.json",
       "schema": "schema/stanza.schema.json",
-      "sha256": "e7cd6659cc6a2dfd9255c9db4ca14c5ae1502015c818ffb4c1a0b27428964346"
+      "sha256": "0f4b009f7d3ebc2644b36145c47f6f2b0db53fd9c105b646c53a0c988f7c4dbf"
     },
     "tokens": {
       "file": "tokens/index.json",
@@ -87,7 +87,7 @@
       "sha256": "2111d888a0472cbee6b2bf6e47028feebad17ae522855c6299bc2a60cfc2c326"
     }
   },
-  "enumDefs": 288,
+  "enumDefs": 289,
   "generatorVersion": "0.1.0",
   "incomingDefs": 16,
   "iqModules": 33,
