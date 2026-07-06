@@ -576,6 +576,13 @@ pub struct StanzaDef {
     pub children: Vec<WapChildNode>,
     /// Present for IQ stanzas; `null` for fire-and-forget stanzas.
     pub response: Option<ParsedResponse>,
+    /// True for a `merge…Mixin` fragment: a partial stanza (e.g. a message
+    /// content-type mixin `smax("message",{type:"reaction"})`) that WA folds into a
+    /// concrete stanza via `mergeStanzas`, not a standalone sendable stanza. Catalogued
+    /// so the full set of message/receipt content types is visible; consumers building a
+    /// stanza to send should filter these out.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub fragment: bool,
 }
 
 /// An entry in the incoming stanza dispatch table.

@@ -39,7 +39,7 @@
     "enums": {
       "file": "enums/index.json",
       "schema": "schema/enums.schema.json",
-      "sha256": "2ba237d3d2284038a0e0bf69a30246a56f764051623f1ed372518c0ca905a5ae"
+      "sha256": "bb380e5c92b6db125d329369014618ea64203df259cfa735f941aae6186dc80b"
     },
     "incoming": {
       "file": "incoming/index.json",
@@ -49,7 +49,7 @@
     "iq": {
       "file": "iq/index.json",
       "schema": "schema/iq.schema.json",
-      "sha256": "2b7f2b993f2f9e29a4f15942d65d50d748d698ba0d8a954d3477c2223deb3c77"
+      "sha256": "ed1005774897100c39444903b6c050dc0583bff96c9a79ffec408af7226ac5f7"
     },
     "mex": {
       "file": "mex/index.json",
@@ -73,7 +73,7 @@
     "stanza": {
       "file": "stanza/index.json",
       "schema": "schema/stanza.schema.json",
-      "sha256": "0090b71e4cc5f17b4d321fbe5881e230727294d4aef481d2bc2c0b9b6b48b4e9"
+      "sha256": "2cbead85dca203f02b6c6b76fce9a69bf30db9ff6a16da1658f91d7125bd705a"
     },
     "tokens": {
       "file": "tokens/index.json",
@@ -86,7 +86,7 @@
       "sha256": "8f1b34fb608679ad4cb3a09303291842d0e4c7b4fd50c0e378a4eb481f290069"
     }
   },
-  "enumDefs": 257,
+  "enumDefs": 288,
   "generatorVersion": "0.1.0",
   "incomingDefs": 11,
   "iqModules": 33,
@@ -95,7 +95,7 @@
   "protoEntities": 257,
   "schemaVersion": "1.0.0",
   "serverRequestDefs": 22,
-  "stanzaDefs": 84,
+  "stanzaDefs": 174,
   "tokenDoubleByte": 1024,
   "tokenSingleByte": 236,
   "waVersion": "2.3000.1042654758",

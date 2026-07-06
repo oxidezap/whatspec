@@ -67,8 +67,9 @@ pub fn scan_stanzas_from_modules(source: &str, defs: &[ModuleDefinition]) -> Vec
         out.extend(scan_module(slice, &helpers));
     }
     // Drop structureless stanzas (no attrs, no children, no subtype) — a bare `<ack/>`
-    // carries nothing a consumer can model. (Fragment `merge…Mixin` modules are already
-    // dropped whole in `scan_module`.)
+    // carries nothing a consumer can model. Fragment `merge…Mixin` modules are kept and
+    // marked via `StanzaDef::fragment` in `scan_module`, so they're only dropped here if
+    // genuinely structureless.
     out.retain(|s| !s.attrs.is_empty() || !s.children.is_empty() || s.subtype.is_some());
     // Fill in the attribute enum links (`receipt.type` → `ENC_RETRY_RECEIPT_ATTRS`, …).
     let mut resolver = EnumResolver::new(defs, source);
@@ -134,30 +135,31 @@ fn scan_module(source: &str, helpers: &HelperIndex) -> Vec<StanzaDef> {
     // A module whose function exports are all `merge…Mixin` is a fragment: its stanzas
     // are partials folded into real ones via `mergeStanzas`, not top-level builders (the
     // `smax` sits in an inner un-exported helper, so this is judged per-module, not per
-    // call). The IQ scanner drops these the same way.
-    if is_fragment_module(&c.exports) {
-        return Vec::new();
-    }
+    // call). We keep them, marked `fragment`, so the message/receipt content-type mixin
+    // catalog (`{type:"reaction"}`, `{type:"media"}`, …) is captured rather than dropped;
+    // a consumer building a sendable stanza filters them out.
+    let fragment = is_fragment_module(&c.exports);
     // Record the module's exports on each emitted stanza (matches the IQ scanner).
     let all_exports = c.exports;
     for s in &mut c.out {
         s.all_exports = all_exports.clone();
+        s.fragment = fragment;
     }
     c.out
 }
 
-/// Whether a module's exports are only `merge…Mixin` combinators — a stanza fragment.
-/// Ignores constants (ALL_CAPS) and `default`, matching the IQ fragment heuristic.
+/// Whether a module exports a `merge…Mixin` combinator — a stanza fragment. `any`, not
+/// `all` (and matching the IQ scanner, `wa-scan::module`): a genuine mixin often exports
+/// a `merge…Mixin` *alongside* a `make…` helper, so requiring every export to be a mixin
+/// would misclassify it as a standalone sendable stanza. `merge…Mixin` is WA's exclusive
+/// cross-module mixin-export convention, so a real standalone builder never carries one.
+/// Ignores constants (ALL_CAPS) and `default`.
 fn is_fragment_module(exports: &[String]) -> bool {
-    let functions: Vec<&str> = exports
+    exports
         .iter()
         .map(String::as_str)
         .filter(|e| *e != "default" && !e.chars().all(|c| c.is_ascii_uppercase() || c == '_'))
-        .collect();
-    !functions.is_empty()
-        && functions
-            .iter()
-            .all(|e| e.starts_with("merge") && e.contains("Mixin"))
+        .any(|e| e.starts_with("merge") && e.contains("Mixin"))
 }
 
 struct StanzaCollector<'s> {
@@ -252,6 +254,7 @@ impl<'a> Visit<'a> for StanzaCollector<'_> {
                 attrs,
                 children,
                 response: None,
+                fragment: false,
             });
             // The stanza's children are already recovered by `resolve_child_node`
             // above; don't descend into this call's args and re-capture a nested
@@ -380,9 +383,11 @@ mod tests {
     }
 
     #[test]
-    fn merge_mixin_fragment_module_is_dropped() {
+    fn merge_mixin_fragment_module_is_catalogued_as_fragment() {
         // A module whose only function export is a `merge…Mixin` combinator is a
-        // fragment (its stanza is folded into a real one), so it emits nothing.
+        // fragment (its stanza is folded into a real one). It's kept — so the
+        // message/receipt content-type mixin catalog is captured — but marked `fragment`
+        // so a consumer building a sendable stanza can filter it out.
         let bundle = r#"
             __d("WASmaxOutFooMixin",["WASmaxJsx","WASmaxMixins"],(function(t,n,r,o,a,i,l){
                 function e(){ return o("WASmaxJsx").smax("receipt",{type:"read"}); }
@@ -390,10 +395,13 @@ mod tests {
                 l.mergeFooMixin=s;
             }),1);
         "#;
-        assert!(
-            scan(bundle).is_empty(),
-            "fragment module must emit no stanza"
-        );
+        let stanzas = scan(bundle);
+        let frag = stanzas
+            .iter()
+            .find(|s| s.stanza_type == StanzaTag::Receipt)
+            .expect("fragment receipt catalogued");
+        assert!(frag.fragment, "must be marked as a fragment");
+        assert_eq!(frag.subtype.as_deref(), Some("read"));
         assert!(is_fragment_module(&["mergeFooMixin".into()]));
         assert!(!is_fragment_module(&["sendReceipt".into()]));
         // Constants alongside the mixin don't disqualify it.
@@ -401,13 +409,88 @@ mod tests {
             "mergeFooMixin".into(),
             "SOME_CONST".into()
         ]));
+        // A `make…` helper exported *alongside* the mixin must NOT reclassify it as a
+        // standalone stanza (`any`, not `all` — matching the IQ scanner).
+        assert!(is_fragment_module(&[
+            "mergeFooMixin".into(),
+            "makeFooRequest".into()
+        ]));
+        // A pure helper module (no mixin) is not a fragment.
+        assert!(!is_fragment_module(&["makeFooRequest".into()]));
+    }
+
+    #[test]
+    fn conditionally_built_child_is_recovered() {
+        // The aggregate receipt/ack builder attaches its `<list>` child conditionally
+        // (`a.length > 0 ? wap("list", …) : null`). The child must be recovered from the
+        // ternary, not dropped.
+        let bundle = r#"
+            __d("WAWebSendAckJob",["WAWap"],(function(g,r,d,o,e,i,l){
+                l.send=function(ids){
+                    var extra = ids.length>0 ? o("WAWap").wap("list",null, o("WAWap").wap("item",{id:o("WAWap").CUSTOM_STRING(ids[0])})) : null;
+                    return o("WAWap").wap("ack",{id:o("WAWap").CUSTOM_STRING(ids[0]),type:"text"}, extra);
+                };
+            }),1);
+        "#;
+        let ack = scan(bundle)
+            .into_iter()
+            .find(|s| s.stanza_type == StanzaTag::Ack)
+            .expect("ack captured");
+        let list = ack
+            .children
+            .iter()
+            .find(|c| c.tag == "list")
+            .expect("conditional <list> child recovered");
+        assert!(
+            list.children.iter().any(|c| c.tag == "item"),
+            "nested <item> under the conditional list recovered"
+        );
+    }
+
+    #[test]
+    fn both_ternary_branches_children_are_captured() {
+        // A genuinely divergent `cond ? wap("a") : wap("b")` child catalogs BOTH shapes,
+        // not just the consequent — the static schema should reflect every possible child.
+        let bundle = r#"
+            __d("WAWebSendAckJob2",["WAWap"],(function(g,r,d,o,e,i,l){
+                l.send=function(x){
+                    var c = x ? o("WAWap").wap("a",{k:o("WAWap").CUSTOM_STRING(x)}) : o("WAWap").wap("b",{k:o("WAWap").CUSTOM_STRING(x)});
+                    return o("WAWap").wap("ack",{id:o("WAWap").CUSTOM_STRING(x),type:"text"}, c);
+                };
+            }),1);
+        "#;
+        let ack = scan(bundle)
+            .into_iter()
+            .find(|s| s.stanza_type == StanzaTag::Ack)
+            .expect("ack captured");
+        let tags: Vec<&str> = ack.children.iter().map(|c| c.tag.as_str()).collect();
+        assert!(
+            tags.contains(&"a") && tags.contains(&"b"),
+            "both ternary branches captured, got {tags:?}"
+        );
+    }
+
+    #[test]
+    fn standalone_stanza_is_not_marked_fragment() {
+        // A real top-level builder (non-mixin export) stays `fragment: false`.
+        let bundle = r#"
+            __d("WAWebSendPresence",["WAWap"],(function(g,r,d,o,e,i,l){
+                l.send=function(t){ return o("WAWap").wap("presence",{type:"available"}); };
+            }),98);
+        "#;
+        let p = scan(bundle)
+            .into_iter()
+            .find(|s| s.stanza_type == StanzaTag::Presence)
+            .expect("presence captured");
+        assert!(!p.fragment);
     }
 
     #[test]
     fn internal_object_write_does_not_pollute_exports() {
         // A fragment module that also writes to a LOCAL object (`cache.key = …`) must
-        // still be dropped: only `<factoryParam>.x = …` counts as an export, so the
-        // internal write doesn't add a bogus non-mixin export that would save it.
+        // still be classified as a fragment: only `<factoryParam>.x = …` counts as an
+        // export, so the internal write doesn't add a bogus non-mixin export that would
+        // reclassify it as a standalone stanza.
         let bundle = r#"
             __d("WASmaxOutBarMixin",["WASmaxJsx","WASmaxMixins"],(function(t,n,r,o,a,i,l){
                 var cache={}; cache.key="v";
@@ -415,9 +498,13 @@ mod tests {
                 l.mergeBarMixin=function(t){ return o("WASmaxMixins").mergeStanzas(t,e()); };
             }),1);
         "#;
+        let frag = scan(bundle)
+            .into_iter()
+            .find(|s| s.stanza_type == StanzaTag::Receipt)
+            .expect("fragment catalogued");
         assert!(
-            scan(bundle).is_empty(),
-            "internal `cache.key` write must not save the fragment from being dropped"
+            frag.fragment,
+            "internal `cache.key` write must not reclassify the fragment as standalone"
         );
     }
 }

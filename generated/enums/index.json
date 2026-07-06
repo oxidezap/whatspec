@@ -548,6 +548,61 @@
       ]
     },
     {
+      "name": "ACK",
+      "module": "WAAckLevel",
+      "valueKind": "int",
+      "variants": [
+        {
+          "name": "SENDER_BACKFILL_SENT",
+          "value": -7
+        },
+        {
+          "name": "INACTIVE_RECEIVED",
+          "value": -6
+        },
+        {
+          "name": "CONTENT_UNUPLOADABLE",
+          "value": -5
+        },
+        {
+          "name": "CONTENT_TOO_BIG",
+          "value": -4
+        },
+        {
+          "name": "CONTENT_GONE",
+          "value": -3
+        },
+        {
+          "name": "EXPIRED",
+          "value": -2
+        },
+        {
+          "name": "FAILED",
+          "value": -1
+        },
+        {
+          "name": "CLOCK",
+          "value": 0
+        },
+        {
+          "name": "SENT",
+          "value": 1
+        },
+        {
+          "name": "RECEIVED",
+          "value": 2
+        },
+        {
+          "name": "READ",
+          "value": 3
+        },
+        {
+          "name": "PLAYED",
+          "value": 4
+        }
+      ]
+    },
+    {
       "name": "HostedState",
       "module": "WAFingerprint.pb",
       "valueKind": "int",
@@ -643,6 +698,587 @@
         {
           "name": "BEST_EFFORT",
           "value": "BEST_EFFORT"
+        }
+      ]
+    },
+    {
+      "name": "ENUM_FBPAY_NOVI_UPI",
+      "module": "WASmaxInAccountEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "FBPAY",
+          "value": "FBPAY"
+        },
+        {
+          "name": "NOVI",
+          "value": "NOVI"
+        },
+        {
+          "name": "UPI",
+          "value": "UPI"
+        }
+      ]
+    },
+    {
+      "name": "ENUM_CITY_COUNTRY_CUSTOMLOCATION_NEIGHBORHOOD_REGION_ZIP",
+      "module": "WASmaxInBizCtwaNativeAdEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "CITY",
+          "value": "CITY"
+        },
+        {
+          "name": "COUNTRY",
+          "value": "COUNTRY"
+        },
+        {
+          "name": "CUSTOM_LOCATION",
+          "value": "CUSTOM_LOCATION"
+        },
+        {
+          "name": "NEIGHBORHOOD",
+          "value": "NEIGHBORHOOD"
+        },
+        {
+          "name": "REGION",
+          "value": "REGION"
+        },
+        {
+          "name": "ZIP",
+          "value": "ZIP"
+        }
+      ]
+    },
+    {
+      "name": "ENUM_FACEBOOK_INSTAGRAM",
+      "module": "WASmaxInBizCtwaNativeAdEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "FACEBOOK",
+          "value": "FACEBOOK"
+        },
+        {
+          "name": "INSTAGRAM",
+          "value": "INSTAGRAM"
+        }
+      ]
+    },
+    {
+      "name": "ENUM_FAIL_PAUSED_SUCCESS_WARNING",
+      "module": "WASmaxInBizMarketingMessageEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "FAIL",
+          "value": "FAIL"
+        },
+        {
+          "name": "PAUSED",
+          "value": "PAUSED"
+        },
+        {
+          "name": "SUCCESS",
+          "value": "SUCCESS"
+        },
+        {
+          "name": "WARNING",
+          "value": "WARNING"
+        }
+      ]
+    },
+    {
+      "name": "ENUM_FAIL_SUCCESS",
+      "module": "WASmaxInBizMarketingMessageEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "FAIL",
+          "value": "FAIL"
+        },
+        {
+          "name": "SUCCESS",
+          "value": "SUCCESS"
+        }
+      ]
+    },
+    {
+      "name": "ENUM_DISCOVERABLE_HIDDEN_UNDEFINED",
+      "module": "WASmaxInBizSettingsEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "DISCOVERABLE",
+          "value": "DISCOVERABLE"
+        },
+        {
+          "name": "HIDDEN",
+          "value": "HIDDEN"
+        },
+        {
+          "name": "UNDEFINED",
+          "value": "UNDEFINED"
+        }
+      ]
+    },
+    {
+      "name": "ENUM_ACCOUNTPENDINGLINKING_ACTIVE_EXTERNALLYDISABLED_HARDBLOCKED_INACTIVE_INITED_INTEGRITYBLOCKED_PENDING_SOFTBLOCKED",
+      "module": "WASmaxInBrPaymentEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "ACCOUNT_PENDING_LINKING",
+          "value": "ACCOUNT_PENDING_LINKING"
+        },
+        {
+          "name": "ACTIVE",
+          "value": "ACTIVE"
+        },
+        {
+          "name": "EXTERNALLY_DISABLED",
+          "value": "EXTERNALLY_DISABLED"
+        },
+        {
+          "name": "HARD_BLOCKED",
+          "value": "HARD_BLOCKED"
+        },
+        {
+          "name": "INACTIVE",
+          "value": "INACTIVE"
+        },
+        {
+          "name": "INITED",
+          "value": "INITED"
+        },
+        {
+          "name": "INTEGRITY_BLOCKED",
+          "value": "INTEGRITY_BLOCKED"
+        },
+        {
+          "name": "PENDING",
+          "value": "PENDING"
+        },
+        {
+          "name": "SOFT_BLOCKED",
+          "value": "SOFT_BLOCKED"
+        }
+      ]
+    },
+    {
+      "name": "ENUM_ACTIVE_DELETED_INACTIVE_NEEDSRETOKENIZATION_NEEDSRETOKENIZATIONDELETED_SUSPENDED",
+      "module": "WASmaxInBrPaymentEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "ACTIVE",
+          "value": "ACTIVE"
+        },
+        {
+          "name": "DELETED",
+          "value": "DELETED"
+        },
+        {
+          "name": "INACTIVE",
+          "value": "INACTIVE"
+        },
+        {
+          "name": "NEEDS_RETOKENIZATION",
+          "value": "NEEDS_RETOKENIZATION"
+        },
+        {
+          "name": "NEEDS_RETOKENIZATION_DELETED",
+          "value": "NEEDS_RETOKENIZATION_DELETED"
+        },
+        {
+          "name": "SUSPENDED",
+          "value": "SUSPENDED"
+        }
+      ]
+    },
+    {
+      "name": "ENUM_ACTIVE_EXPIRED_SUSPENDED_VOIDED",
+      "module": "WASmaxInBrPaymentEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "ACTIVE",
+          "value": "ACTIVE"
+        },
+        {
+          "name": "EXPIRED",
+          "value": "EXPIRED"
+        },
+        {
+          "name": "SUSPENDED",
+          "value": "SUSPENDED"
+        },
+        {
+          "name": "VOIDED",
+          "value": "VOIDED"
+        }
+      ]
+    },
+    {
+      "name": "ENUM_ACTIVE_INACTIVE",
+      "module": "WASmaxInBrPaymentEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "ACTIVE",
+          "value": "ACTIVE"
+        },
+        {
+          "name": "INACTIVE",
+          "value": "INACTIVE"
+        }
+      ]
+    },
+    {
+      "name": "ENUM_BANK_PREPAID_SUPPORT",
+      "module": "WASmaxInBrPaymentEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "BANK",
+          "value": "BANK"
+        },
+        {
+          "name": "PREPAID",
+          "value": "PREPAID"
+        },
+        {
+          "name": "SUPPORT",
+          "value": "SUPPORT"
+        }
+      ]
+    },
+    {
+      "name": "ENUM_DISABLED_ENABLED_REQUIRESVERIFICATION",
+      "module": "WASmaxInBrPaymentEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "DISABLED",
+          "value": "DISABLED"
+        },
+        {
+          "name": "ENABLED",
+          "value": "ENABLED"
+        },
+        {
+          "name": "REQUIRES_VERIFICATION",
+          "value": "REQUIRES_VERIFICATION"
+        }
+      ]
+    },
+    {
+      "name": "ENUM_ELO_MASTERCARD_VISA",
+      "module": "WASmaxInBrPaymentEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "ELO",
+          "value": "ELO"
+        },
+        {
+          "name": "MASTERCARD",
+          "value": "MASTERCARD"
+        },
+        {
+          "name": "VISA",
+          "value": "VISA"
+        }
+      ]
+    },
+    {
+      "name": "ENUM_EMAIL_PUSH_SMS_VACAT",
+      "module": "WASmaxInBrPaymentEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "EMAIL",
+          "value": "EMAIL"
+        },
+        {
+          "name": "PUSH",
+          "value": "PUSH"
+        },
+        {
+          "name": "SMS",
+          "value": "SMS"
+        },
+        {
+          "name": "VACAT",
+          "value": "VACAT"
+        }
+      ]
+    },
+    {
+      "name": "ENUM_FAILED_PENDING_VERIFIED",
+      "module": "WASmaxInBrPaymentEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "FAILED",
+          "value": "FAILED"
+        },
+        {
+          "name": "PENDING",
+          "value": "PENDING"
+        },
+        {
+          "name": "VERIFIED",
+          "value": "VERIFIED"
+        }
+      ]
+    },
+    {
+      "name": "ENUM_MASTERCARD_VISA",
+      "module": "WASmaxInBrPaymentEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "MASTERCARD",
+          "value": "MASTERCARD"
+        },
+        {
+          "name": "VISA",
+          "value": "VISA"
+        }
+      ]
+    },
+    {
+      "name": "ENUM_ACCEPT_REJECT_UNKNOWN",
+      "module": "WASmaxInMessageDeliverEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "ACCEPT",
+          "value": "ACCEPT"
+        },
+        {
+          "name": "REJECT",
+          "value": "REJECT"
+        },
+        {
+          "name": "UNKNOWN",
+          "value": "UNKNOWN"
+        }
+      ]
+    },
+    {
+      "name": "ENUM_ASPRESENTED_BIMONTHLY_DAILY_FORTNIGHTLY_HALFYEARLY_MONTHLY_ONETIME_QUARTERLY_UNKNOWN_WEEKLY_YEARLY",
+      "module": "WASmaxInMessageDeliverEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "ASPRESENTED",
+          "value": "ASPRESENTED"
+        },
+        {
+          "name": "BIMONTHLY",
+          "value": "BIMONTHLY"
+        },
+        {
+          "name": "DAILY",
+          "value": "DAILY"
+        },
+        {
+          "name": "FORTNIGHTLY",
+          "value": "FORTNIGHTLY"
+        },
+        {
+          "name": "HALFYEARLY",
+          "value": "HALFYEARLY"
+        },
+        {
+          "name": "MONTHLY",
+          "value": "MONTHLY"
+        },
+        {
+          "name": "ONETIME",
+          "value": "ONETIME"
+        },
+        {
+          "name": "QUARTERLY",
+          "value": "QUARTERLY"
+        },
+        {
+          "name": "UNKNOWN",
+          "value": "UNKNOWN"
+        },
+        {
+          "name": "WEEKLY",
+          "value": "WEEKLY"
+        },
+        {
+          "name": "YEARLY",
+          "value": "YEARLY"
+        }
+      ]
+    },
+    {
+      "name": "ENUM_DEREGISTER_INITTOPUP_PAY_TOPUP",
+      "module": "WASmaxInMessageDeliverEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "DEREGISTER",
+          "value": "DEREGISTER"
+        },
+        {
+          "name": "INIT_TOP_UP",
+          "value": "INIT_TOP_UP"
+        },
+        {
+          "name": "PAY",
+          "value": "PAY"
+        },
+        {
+          "name": "TOP_UP",
+          "value": "TOP_UP"
+        }
+      ]
+    },
+    {
+      "name": "ENUM_EXACT_MAX",
+      "module": "WASmaxInMessageDeliverEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "EXACT",
+          "value": "EXACT"
+        },
+        {
+          "name": "MAX",
+          "value": "MAX"
+        }
+      ]
+    },
+    {
+      "name": "ENUM_FAILED_PENDING_SUCCESS",
+      "module": "WASmaxInMessageDeliverEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "FAILED",
+          "value": "FAILED"
+        },
+        {
+          "name": "PENDING",
+          "value": "PENDING"
+        },
+        {
+          "name": "SUCCESS",
+          "value": "SUCCESS"
+        }
+      ]
+    },
+    {
+      "name": "ENUM_FAILURE_INIT_SUCCESS",
+      "module": "WASmaxInMessageDeliverEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "FAILURE",
+          "value": "FAILURE"
+        },
+        {
+          "name": "INIT",
+          "value": "INIT"
+        },
+        {
+          "name": "SUCCESS",
+          "value": "SUCCESS"
+        }
+      ]
+    },
+    {
+      "name": "ENUM_FBPAY_UPI",
+      "module": "WASmaxInMessageDeliverEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "FBPAY",
+          "value": "FBPAY"
+        },
+        {
+          "name": "UPI",
+          "value": "UPI"
+        }
+      ]
+    },
+    {
+      "name": "ENUM_FULL_MISSINGFIELDNOTPARTIAL_PARTIAL",
+      "module": "WASmaxInMessageDeliverEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "FULL",
+          "value": "FULL"
+        },
+        {
+          "name": "MISSING_FIELD_NOT_PARTIAL",
+          "value": "MISSING_FIELD_NOT_PARTIAL"
+        },
+        {
+          "name": "PARTIAL",
+          "value": "PARTIAL"
+        }
+      ]
+    },
+    {
+      "name": "ENUM_CBP_NBP_PMP",
+      "module": "WASmaxInMessagePublishEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "CBP",
+          "value": "CBP"
+        },
+        {
+          "name": "NBP",
+          "value": "NBP"
+        },
+        {
+          "name": "PMP",
+          "value": "PMP"
+        }
+      ]
+    },
+    {
+      "name": "ENUM_CBP_NBP_PMP",
+      "module": "WASmaxInReceiptEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "CBP",
+          "value": "CBP"
+        },
+        {
+          "name": "NBP",
+          "value": "NBP"
+        },
+        {
+          "name": "PMP",
+          "value": "PMP"
+        }
+      ]
+    },
+    {
+      "name": "ENUM_INTEGRITYNOTCLEARED_OK",
+      "module": "WASmaxInSmbMeteredMessagesCampaignEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "INTEGRITY_NOT_CLEARED",
+          "value": "INTEGRITY_NOT_CLEARED"
+        },
+        {
+          "name": "OK",
+          "value": "OK"
         }
       ]
     },
@@ -1206,6 +1842,127 @@
         {
           "name": "TEXT_STATUS",
           "value": "text_status"
+        }
+      ]
+    },
+    {
+      "name": "ACK",
+      "module": "WAWebAck",
+      "valueKind": "int",
+      "variants": [
+        {
+          "name": "INACTIVE",
+          "value": -6
+        },
+        {
+          "name": "CONTENT_UNUPLOADABLE",
+          "value": -5
+        },
+        {
+          "name": "CONTENT_TOO_BIG",
+          "value": -4
+        },
+        {
+          "name": "CONTENT_GONE",
+          "value": -3
+        },
+        {
+          "name": "EXPIRED",
+          "value": -2
+        },
+        {
+          "name": "FAILED",
+          "value": -1
+        },
+        {
+          "name": "CLOCK",
+          "value": 0
+        },
+        {
+          "name": "SENT",
+          "value": 1
+        },
+        {
+          "name": "RECEIVED",
+          "value": 2
+        },
+        {
+          "name": "READ",
+          "value": 3
+        },
+        {
+          "name": "PLAYED",
+          "value": 4
+        },
+        {
+          "name": "PEER",
+          "value": 5
+        }
+      ]
+    },
+    {
+      "name": "ACK_STRING",
+      "module": "WAWebAck",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "SENDER",
+          "value": "sender"
+        },
+        {
+          "name": "DELIVERY",
+          "value": "delivery"
+        },
+        {
+          "name": "READ",
+          "value": "read"
+        },
+        {
+          "name": "PLAYED",
+          "value": "played"
+        },
+        {
+          "name": "INACTIVE",
+          "value": "inactive"
+        },
+        {
+          "name": "READ_SELF",
+          "value": "read-self"
+        },
+        {
+          "name": "PLAYED_SELF",
+          "value": "played-self"
+        }
+      ]
+    },
+    {
+      "name": "EDIT_ATTR",
+      "module": "WAWebAck",
+      "valueKind": "int",
+      "variants": [
+        {
+          "name": "NONE",
+          "value": -1
+        },
+        {
+          "name": "MESSAGE_EDIT",
+          "value": 1
+        },
+        {
+          "name": "PIN_IN_CHAT",
+          "value": 2
+        },
+        {
+          "name": "NEWSLETTER_MSG_EDIT",
+          "value": 3
+        },
+        {
+          "name": "SENDER_REVOKE",
+          "value": 7
+        },
+        {
+          "name": "ADMIN_REVOKE",
+          "value": 8
         }
       ]
     },
