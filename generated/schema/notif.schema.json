@@ -125,6 +125,24 @@
           "format": "uint32",
           "minimum": 0
         },
+        "byteMax": {
+          "description": "Inclusive upper bound from the same `contentBytesRange` check (see [`byte_min`]).\n\n[`byte_min`]: ParsedField::byte_min",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "byteMin": {
+          "description": "Inclusive lower bound on the byte-content length, enforced via\n`contentBytesRange(node, min, max)` when `min != max` — a payload-size *limit*\n(a media buffer capped at 1 MiB, a token capped at 128 bytes), as opposed to a\nfixed [`byte_length`] (the `min == max` case). Present only for a\n[`ParsedFieldType::Bytes`] field with a true range; a consumer can enforce the\nbound rather than guessing an unbounded buffer.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
         "children": {
           "type": [
             "array",

@@ -50,7 +50,7 @@
     "iq": {
       "file": "iq/index.json",
       "schema": "schema/iq.schema.json",
-      "sha256": "474d12db03d7a5fca1226661c76202146e37f1df8a4a184173167876e88b9086"
+      "sha256": "2ebcea4d5307027d50fc7054bb1ef6651050965567aa446df31d681cbd4a23e7"
     },
     "mex": {
       "file": "mex/index.json",
@@ -69,7 +69,7 @@
     "srvreq": {
       "file": "srvreq/index.json",
       "schema": "schema/srvreq.schema.json",
-      "sha256": "03e96c1fd1209d662c7c858de2187e343182012abf8a693c64a4ac118817f158"
+      "sha256": "47668a3c9414924b1bb96cc4e519f70fee7c58e0c71cce8461f5441281b6d6a5"
     },
     "stanza": {
       "file": "stanza/index.json",

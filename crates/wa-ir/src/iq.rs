@@ -397,6 +397,19 @@ pub struct ParsedField {
     pub required: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub byte_length: Option<u32>,
+    /// Inclusive lower bound on the byte-content length, enforced via
+    /// `contentBytesRange(node, min, max)` when `min != max` — a payload-size *limit*
+    /// (a media buffer capped at 1 MiB, a token capped at 128 bytes), as opposed to a
+    /// fixed [`byte_length`] (the `min == max` case). Present only for a
+    /// [`ParsedFieldType::Bytes`] field with a true range; a consumer can enforce the
+    /// bound rather than guessing an unbounded buffer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub byte_min: Option<u32>,
+    /// Inclusive upper bound from the same `contentBytesRange` check (see [`byte_min`]).
+    ///
+    /// [`byte_min`]: ParsedField::byte_min
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub byte_max: Option<u32>,
     /// Inclusive lower bound the parser enforces via `attrIntRange(node, name, min,
     /// max)`. Present only for a bounded [`ParsedFieldType::Integer`]; a consumer can
     /// validate or pick a narrower Rust width from these. The timestamp-marker range is
