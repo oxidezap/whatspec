@@ -399,7 +399,9 @@ impl ParserAnalyzer<'_> {
                 .and_then(as_identifier)
                 .and_then(|m| resolve_module_map_keys(self.module_source, m))
             {
-                self.pending_enum_keys.entry(wire.to_string()).or_insert(keys);
+                self.pending_enum_keys
+                    .entry(wire.to_string())
+                    .or_insert(keys);
             }
             return;
         }
@@ -449,7 +451,14 @@ impl ParserAnalyzer<'_> {
             && let Some(parent_tag) = arg_str(inner, 0)
         {
             let pt = parent_tag.to_string();
-            process_child_method(method, call, &pt, &mut self.fields, self.code, self.module_source);
+            process_child_method(
+                method,
+                call,
+                &pt,
+                &mut self.fields,
+                self.code,
+                self.module_source,
+            );
             return;
         }
 
@@ -566,8 +575,9 @@ impl ParserAnalyzer<'_> {
     /// optional-string field carrying the keys when the attr is read only via the enum
     /// accessor. Sorted for a deterministic synthesized-field order.
     fn attach_pending_enum_keys(&mut self) {
-        let mut pending: Vec<(String, Vec<String>)> =
-            std::mem::take(&mut self.pending_enum_keys).into_iter().collect();
+        let mut pending: Vec<(String, Vec<String>)> = std::mem::take(&mut self.pending_enum_keys)
+            .into_iter()
+            .collect();
         pending.sort_by(|a, b| a.0.cmp(&b.0));
         for (wire, keys) in pending {
             if let Some(f) = self
@@ -579,8 +589,12 @@ impl ParserAnalyzer<'_> {
                     f.enum_keys = Some(keys);
                 }
             } else {
-                let mut f =
-                    mk_field("attrEnumOrNullIfUnknown", &wire, ParsedFieldType::String, false);
+                let mut f = mk_field(
+                    "attrEnumOrNullIfUnknown",
+                    &wire,
+                    ParsedFieldType::String,
+                    false,
+                );
                 f.enum_keys = Some(keys);
                 self.fields.push(f);
             }
@@ -616,11 +630,7 @@ impl<'a> Visit<'a> for MapKeyFinder<'_> {
             && let Some(init) = d.init.as_ref()
             && let Some(obj) = wa_oxc::as_object(init)
         {
-            self.keys = Some(
-                wa_oxc::obj_props(obj)
-                    .map(|(k, _)| k.to_string())
-                    .collect(),
-            );
+            self.keys = Some(wa_oxc::obj_props(obj).map(|(k, _)| k.to_string()).collect());
         }
         walk::walk_variable_declarator(self, d);
     }

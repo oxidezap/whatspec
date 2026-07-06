@@ -258,7 +258,9 @@ impl<'a> Visit<'a> for Collector<'_> {
     fn visit_variable_declarator(&mut self, d: &VariableDeclarator<'a>) {
         if let (Some(name), Some(obj)) = (
             d.id.get_identifier_name(),
-            d.init.as_ref().and_then(|e| collector_enum_object(e, self.module)),
+            d.init
+                .as_ref()
+                .and_then(|e| collector_enum_object(e, self.module)),
         ) && let Some(data) = parse_enum(obj)
         {
             self.locals.insert(name.to_string(), data);
