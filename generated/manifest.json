@@ -7,17 +7,16 @@
       "crossModule": {
         "fieldsRecovered": 88,
         "requestsEnriched": 11,
-        "requestsWithMixins": 108
+        "requestsWithMixins": 95
       },
-      "degradedResponses": 18,
+      "degradedResponses": 4,
       "dropsByReason": {
         "iq builder substring present but no AST iq call": 5,
-        "mixin fragment (folded into requests, not a standalone stanza)": 56,
-        "namespace/type unresolved (dropped by guard)": 2
+        "mixin fragment (folded into requests, not a standalone stanza)": 72
       },
-      "stanzas": 159,
+      "stanzas": 145,
       "typedResponses": 141,
-      "unparseable": 63
+      "unparseable": 77
     },
     "notif": {
       "degraded": 5,
@@ -50,7 +49,7 @@
     "iq": {
       "file": "iq/index.json",
       "schema": "schema/iq.schema.json",
-      "sha256": "3b6d45ea11b29bc38b0720f32e6eeb803e74d53ee2f27166a17c863ae8501483"
+      "sha256": "2b7f2b993f2f9e29a4f15942d65d50d748d698ba0d8a954d3477c2223deb3c77"
     },
     "mex": {
       "file": "mex/index.json",

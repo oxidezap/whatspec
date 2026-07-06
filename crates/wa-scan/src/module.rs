@@ -225,20 +225,25 @@ pub fn scan_module_outcome(
         })
         .collect();
 
+    // A module that exports a `merge…Mixin` combinator is a fragment: its `<iq>` is a
+    // partial skeleton folded into the concrete request consumers via the mixin index,
+    // never a standalone stanza. Only genuine mixin modules export such a combinator
+    // (a real request builder never does), so its presence classifies the module —
+    // even alongside `make…` payload helpers (`WASmaxOutSpamFRXMixin`) or when it
+    // resolved to a skeleton `<iq>` rather than to nothing. Otherwise the skeleton
+    // leaks into the stanza set as a bogus "degraded" duplicate of data that already
+    // lives in the real requests, and a fragment that resolved empty is mislabeled a
+    // genuine namespace/type failure.
+    let is_fragment = function_exports
+        .iter()
+        .any(|e| e.starts_with("merge") && e.contains("Mixin"));
+    if is_fragment {
+        return Err(DropReason::MixinFragment);
+    }
     if resolved.is_empty() {
-        // A module whose only functions are `merge…Mixin` combinators is a fragment
-        // (a partial `<iq>` folded into real requests), not a dropped stanza — its data
-        // already lives in the concrete request consumers. Record it as such so the
-        // benign fragments don't masquerade as genuine namespace/type failures.
-        let is_fragment = !function_exports.is_empty()
-            && function_exports
-                .iter()
-                .all(|e| e.starts_with("merge") && e.contains("Mixin"));
-        return Err(if is_fragment {
-            DropReason::MixinFragment
-        } else {
-            DropReason::Unresolved
-        });
+        // A non-fragment module that built an iq-shaped call but couldn't pin a
+        // namespace/type (even after the mixin union) is a genuine guard drop.
+        return Err(DropReason::Unresolved);
     }
 
     let primary: Option<&str> = function_exports
@@ -677,6 +682,35 @@ mod tests {
         assert_eq!(s.len(), 1);
         assert_eq!(s[0].parser_name, "unknown");
         assert!(s[0].response.fields.is_empty());
+    }
+
+    #[test]
+    fn mixin_skeleton_is_dropped_as_fragment_not_a_degraded_stanza() {
+        // A `merge*Mixin` module that builds a namespace/type skeleton `<iq>` is a
+        // fragment folded into the concrete request consumers — not a standalone,
+        // degraded stanza. It must be classified as MixinFragment, not emitted.
+        let m = r#"__d("WASmaxOutFooIQMixin",["WAWap"],function(g,r,d,o,e,i){
+            e.mergeFooIQMixin = function(){ return i.wap("iq", { xmlns: "foo", type: "get" }); };
+        });"#;
+        assert_eq!(
+            scan_module_outcome(m, &mi(), &ri(), &hi()).unwrap_err(),
+            DropReason::MixinFragment
+        );
+    }
+
+    #[test]
+    fn mixin_with_make_helper_export_is_still_a_fragment() {
+        // A mixin module that also exports a `make*` payload helper (as the real
+        // `WASmaxOutSpamFRXMixin` does) must still classify as a fragment — the presence
+        // of the `merge*Mixin` combinator is the signal, not a pure-mixin export set.
+        let m = r#"__d("WASmaxOutFooIQMixin",["WAWap"],function(g,r,d,o,e,i){
+            e.makeFooToken = function(){ return 1; };
+            e.mergeFooIQMixin = function(){ return i.wap("iq", { xmlns: "foo", type: "get" }); };
+        });"#;
+        assert_eq!(
+            scan_module_outcome(m, &mi(), &ri(), &hi()).unwrap_err(),
+            DropReason::MixinFragment
+        );
     }
 
     #[test]
