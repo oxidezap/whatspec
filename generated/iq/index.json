@@ -124,7 +124,9 @@
                 "method": "contentBytes",
                 "name": "elementValue",
                 "type": "bytes",
-                "required": true
+                "required": true,
+                "byteMin": 1,
+                "byteMax": 100
               }
             ],
             "repeats": false
@@ -305,7 +307,9 @@
                     "method": "contentBytes",
                     "name": "elementValue",
                     "type": "bytes",
-                    "required": true
+                    "required": true,
+                    "byteMin": 1,
+                    "byteMax": 100
                   }
                 ],
                 "repeats": false
@@ -4015,6 +4019,8 @@
                 "name": "paddingElementValue",
                 "type": "bytes",
                 "required": true,
+                "byteMin": 0,
+                "byteMax": 524288,
                 "sourcePath": [
                   "padding"
                 ]
@@ -4443,6 +4449,8 @@
                     "name": "paddingElementValue",
                     "type": "bytes",
                     "required": true,
+                    "byteMin": 0,
+                    "byteMax": 524288,
                     "sourcePath": [
                       "padding"
                     ]
@@ -5145,6 +5153,8 @@
                 "name": "paddingElementValue",
                 "type": "bytes",
                 "required": true,
+                "byteMin": 0,
+                "byteMax": 524288,
                 "sourcePath": [
                   "padding"
                 ]
@@ -5547,6 +5557,8 @@
                     "name": "paddingElementValue",
                     "type": "bytes",
                     "required": true,
+                    "byteMin": 0,
+                    "byteMax": 524288,
                     "sourcePath": [
                       "padding"
                     ]
@@ -6244,7 +6256,7 @@
                 "content": {
                   "kind": "bytes",
                   "byteLength": 32,
-                  "byteLengthSource": "parse:WAWebRetryRequestParser"
+                  "byteLengthSource": "parse:WAWebDigestKeyJob"
                 },
                 "repeats": false
               },
@@ -6255,7 +6267,7 @@
                 "content": {
                   "kind": "bytes",
                   "byteLength": 64,
-                  "byteLengthSource": "parse:WAWebRetryRequestParser"
+                  "byteLengthSource": "parse:WAWebDigestKeyJob"
                 },
                 "repeats": false
               }
@@ -7492,7 +7504,7 @@
                     "content": {
                       "kind": "bytes",
                       "byteLength": 32,
-                      "byteLengthSource": "parse:WAWebRetryRequestParser"
+                      "byteLengthSource": "parse:WAWebDigestKeyJob"
                     },
                     "repeats": false
                   },
@@ -7503,7 +7515,7 @@
                     "content": {
                       "kind": "bytes",
                       "byteLength": 64,
-                      "byteLengthSource": "parse:WAWebRetryRequestParser"
+                      "byteLengthSource": "parse:WAWebDigestKeyJob"
                     },
                     "repeats": false
                   }
@@ -7631,7 +7643,7 @@
                 "content": {
                   "kind": "bytes",
                   "byteLength": 32,
-                  "byteLengthSource": "parse:WAWebRetryRequestParser"
+                  "byteLengthSource": "parse:WAWebDigestKeyJob"
                 },
                 "repeats": false
               },
@@ -7642,7 +7654,7 @@
                 "content": {
                   "kind": "bytes",
                   "byteLength": 64,
-                  "byteLengthSource": "parse:WAWebRetryRequestParser"
+                  "byteLengthSource": "parse:WAWebDigestKeyJob"
                 },
                 "repeats": false
               }
@@ -11728,7 +11740,9 @@
                 "method": "contentBytes",
                 "name": "elementValue",
                 "type": "bytes",
-                "required": true
+                "required": true,
+                "byteMin": 1,
+                "byteMax": 4096
               }
             ],
             "repeats": false
@@ -11769,7 +11783,9 @@
                     "method": "contentBytes",
                     "name": "elementValue",
                     "type": "bytes",
-                    "required": true
+                    "required": true,
+                    "byteMin": 1,
+                    "byteMax": 4096
                   }
                 ],
                 "repeats": false
@@ -13007,7 +13023,9 @@
                                         "method": "contentBytes",
                                         "name": "elementValue",
                                         "type": "bytes",
-                                        "required": true
+                                        "required": true,
+                                        "byteMin": 1,
+                                        "byteMax": 1048576
                                       }
                                     ],
                                     "repeats": false
@@ -13075,7 +13093,9 @@
                                         "method": "contentBytes",
                                         "name": "elementValue",
                                         "type": "bytes",
-                                        "required": true
+                                        "required": true,
+                                        "byteMin": 1,
+                                        "byteMax": 1048576
                                       }
                                     ],
                                     "repeats": false
@@ -13254,7 +13274,9 @@
                                                 "method": "contentBytes",
                                                 "name": "elementValue",
                                                 "type": "bytes",
-                                                "required": true
+                                                "required": true,
+                                                "byteMin": 1,
+                                                "byteMax": 1048576
                                               }
                                             ],
                                             "repeats": false
@@ -13322,7 +13344,9 @@
                                                 "method": "contentBytes",
                                                 "name": "elementValue",
                                                 "type": "bytes",
-                                                "required": true
+                                                "required": true,
+                                                "byteMin": 1,
+                                                "byteMax": 1048576
                                               }
                                             ],
                                             "repeats": false
@@ -13428,7 +13452,9 @@
                                         "method": "contentBytes",
                                         "name": "elementValue",
                                         "type": "bytes",
-                                        "required": true
+                                        "required": true,
+                                        "byteMin": 1,
+                                        "byteMax": 1048576
                                       }
                                     ],
                                     "repeats": false
@@ -13496,7 +13522,9 @@
                                         "method": "contentBytes",
                                         "name": "elementValue",
                                         "type": "bytes",
-                                        "required": true
+                                        "required": true,
+                                        "byteMin": 1,
+                                        "byteMax": 1048576
                                       }
                                     ],
                                     "repeats": false
@@ -13645,7 +13673,9 @@
                                         "method": "contentBytes",
                                         "name": "elementValue",
                                         "type": "bytes",
-                                        "required": true
+                                        "required": true,
+                                        "byteMin": 1,
+                                        "byteMax": 1048576
                                       }
                                     ],
                                     "repeats": false
@@ -13713,7 +13743,9 @@
                                         "method": "contentBytes",
                                         "name": "elementValue",
                                         "type": "bytes",
-                                        "required": true
+                                        "required": true,
+                                        "byteMin": 1,
+                                        "byteMax": 1048576
                                       }
                                     ],
                                     "repeats": false
@@ -13873,7 +13905,9 @@
                                 "method": "contentBytes",
                                 "name": "elementValue",
                                 "type": "bytes",
-                                "required": true
+                                "required": true,
+                                "byteMin": 1,
+                                "byteMax": 1048576
                               }
                             ],
                             "repeats": false
@@ -13941,7 +13975,9 @@
                                 "method": "contentBytes",
                                 "name": "elementValue",
                                 "type": "bytes",
-                                "required": true
+                                "required": true,
+                                "byteMin": 1,
+                                "byteMax": 1048576
                               }
                             ],
                             "repeats": false
@@ -14037,7 +14073,9 @@
                                 "method": "contentBytes",
                                 "name": "elementValue",
                                 "type": "bytes",
-                                "required": true
+                                "required": true,
+                                "byteMin": 1,
+                                "byteMax": 1048576
                               }
                             ],
                             "repeats": false
@@ -14115,7 +14153,9 @@
                                 "method": "contentBytes",
                                 "name": "elementValue",
                                 "type": "bytes",
-                                "required": true
+                                "required": true,
+                                "byteMin": 1,
+                                "byteMax": 1048576
                               }
                             ],
                             "repeats": false
@@ -14193,7 +14233,9 @@
                                 "method": "contentBytes",
                                 "name": "elementValue",
                                 "type": "bytes",
-                                "required": true
+                                "required": true,
+                                "byteMin": 1,
+                                "byteMax": 1048576
                               }
                             ],
                             "repeats": false
@@ -15073,7 +15115,9 @@
                                             "method": "contentBytes",
                                             "name": "elementValue",
                                             "type": "bytes",
-                                            "required": true
+                                            "required": true,
+                                            "byteMin": 1,
+                                            "byteMax": 1048576
                                           }
                                         ],
                                         "repeats": false
@@ -15141,7 +15185,9 @@
                                             "method": "contentBytes",
                                             "name": "elementValue",
                                             "type": "bytes",
-                                            "required": true
+                                            "required": true,
+                                            "byteMin": 1,
+                                            "byteMax": 1048576
                                           }
                                         ],
                                         "repeats": false
@@ -15320,7 +15366,9 @@
                                                     "method": "contentBytes",
                                                     "name": "elementValue",
                                                     "type": "bytes",
-                                                    "required": true
+                                                    "required": true,
+                                                    "byteMin": 1,
+                                                    "byteMax": 1048576
                                                   }
                                                 ],
                                                 "repeats": false
@@ -15388,7 +15436,9 @@
                                                     "method": "contentBytes",
                                                     "name": "elementValue",
                                                     "type": "bytes",
-                                                    "required": true
+                                                    "required": true,
+                                                    "byteMin": 1,
+                                                    "byteMax": 1048576
                                                   }
                                                 ],
                                                 "repeats": false
@@ -15494,7 +15544,9 @@
                                             "method": "contentBytes",
                                             "name": "elementValue",
                                             "type": "bytes",
-                                            "required": true
+                                            "required": true,
+                                            "byteMin": 1,
+                                            "byteMax": 1048576
                                           }
                                         ],
                                         "repeats": false
@@ -15562,7 +15614,9 @@
                                             "method": "contentBytes",
                                             "name": "elementValue",
                                             "type": "bytes",
-                                            "required": true
+                                            "required": true,
+                                            "byteMin": 1,
+                                            "byteMax": 1048576
                                           }
                                         ],
                                         "repeats": false
@@ -15711,7 +15765,9 @@
                                             "method": "contentBytes",
                                             "name": "elementValue",
                                             "type": "bytes",
-                                            "required": true
+                                            "required": true,
+                                            "byteMin": 1,
+                                            "byteMax": 1048576
                                           }
                                         ],
                                         "repeats": false
@@ -15779,7 +15835,9 @@
                                             "method": "contentBytes",
                                             "name": "elementValue",
                                             "type": "bytes",
-                                            "required": true
+                                            "required": true,
+                                            "byteMin": 1,
+                                            "byteMax": 1048576
                                           }
                                         ],
                                         "repeats": false
@@ -15939,7 +15997,9 @@
                                     "method": "contentBytes",
                                     "name": "elementValue",
                                     "type": "bytes",
-                                    "required": true
+                                    "required": true,
+                                    "byteMin": 1,
+                                    "byteMax": 1048576
                                   }
                                 ],
                                 "repeats": false
@@ -16007,7 +16067,9 @@
                                     "method": "contentBytes",
                                     "name": "elementValue",
                                     "type": "bytes",
-                                    "required": true
+                                    "required": true,
+                                    "byteMin": 1,
+                                    "byteMax": 1048576
                                   }
                                 ],
                                 "repeats": false
@@ -16103,7 +16165,9 @@
                                     "method": "contentBytes",
                                     "name": "elementValue",
                                     "type": "bytes",
-                                    "required": true
+                                    "required": true,
+                                    "byteMin": 1,
+                                    "byteMax": 1048576
                                   }
                                 ],
                                 "repeats": false
@@ -16181,7 +16245,9 @@
                                     "method": "contentBytes",
                                     "name": "elementValue",
                                     "type": "bytes",
-                                    "required": true
+                                    "required": true,
+                                    "byteMin": 1,
+                                    "byteMax": 1048576
                                   }
                                 ],
                                 "repeats": false
@@ -16259,7 +16325,9 @@
                                     "method": "contentBytes",
                                     "name": "elementValue",
                                     "type": "bytes",
-                                    "required": true
+                                    "required": true,
+                                    "byteMin": 1,
+                                    "byteMax": 1048576
                                   }
                                 ],
                                 "repeats": false
@@ -17547,7 +17615,9 @@
                                         "method": "contentBytes",
                                         "name": "elementValue",
                                         "type": "bytes",
-                                        "required": true
+                                        "required": true,
+                                        "byteMin": 1,
+                                        "byteMax": 1048576
                                       }
                                     ],
                                     "repeats": false
@@ -17615,7 +17685,9 @@
                                         "method": "contentBytes",
                                         "name": "elementValue",
                                         "type": "bytes",
-                                        "required": true
+                                        "required": true,
+                                        "byteMin": 1,
+                                        "byteMax": 1048576
                                       }
                                     ],
                                     "repeats": false
@@ -17794,7 +17866,9 @@
                                                 "method": "contentBytes",
                                                 "name": "elementValue",
                                                 "type": "bytes",
-                                                "required": true
+                                                "required": true,
+                                                "byteMin": 1,
+                                                "byteMax": 1048576
                                               }
                                             ],
                                             "repeats": false
@@ -17862,7 +17936,9 @@
                                                 "method": "contentBytes",
                                                 "name": "elementValue",
                                                 "type": "bytes",
-                                                "required": true
+                                                "required": true,
+                                                "byteMin": 1,
+                                                "byteMax": 1048576
                                               }
                                             ],
                                             "repeats": false
@@ -17968,7 +18044,9 @@
                                         "method": "contentBytes",
                                         "name": "elementValue",
                                         "type": "bytes",
-                                        "required": true
+                                        "required": true,
+                                        "byteMin": 1,
+                                        "byteMax": 1048576
                                       }
                                     ],
                                     "repeats": false
@@ -18036,7 +18114,9 @@
                                         "method": "contentBytes",
                                         "name": "elementValue",
                                         "type": "bytes",
-                                        "required": true
+                                        "required": true,
+                                        "byteMin": 1,
+                                        "byteMax": 1048576
                                       }
                                     ],
                                     "repeats": false
@@ -18185,7 +18265,9 @@
                                         "method": "contentBytes",
                                         "name": "elementValue",
                                         "type": "bytes",
-                                        "required": true
+                                        "required": true,
+                                        "byteMin": 1,
+                                        "byteMax": 1048576
                                       }
                                     ],
                                     "repeats": false
@@ -18253,7 +18335,9 @@
                                         "method": "contentBytes",
                                         "name": "elementValue",
                                         "type": "bytes",
-                                        "required": true
+                                        "required": true,
+                                        "byteMin": 1,
+                                        "byteMax": 1048576
                                       }
                                     ],
                                     "repeats": false
@@ -18413,7 +18497,9 @@
                                 "method": "contentBytes",
                                 "name": "elementValue",
                                 "type": "bytes",
-                                "required": true
+                                "required": true,
+                                "byteMin": 1,
+                                "byteMax": 1048576
                               }
                             ],
                             "repeats": false
@@ -18481,7 +18567,9 @@
                                 "method": "contentBytes",
                                 "name": "elementValue",
                                 "type": "bytes",
-                                "required": true
+                                "required": true,
+                                "byteMin": 1,
+                                "byteMax": 1048576
                               }
                             ],
                             "repeats": false
@@ -18577,7 +18665,9 @@
                                 "method": "contentBytes",
                                 "name": "elementValue",
                                 "type": "bytes",
-                                "required": true
+                                "required": true,
+                                "byteMin": 1,
+                                "byteMax": 1048576
                               }
                             ],
                             "repeats": false
@@ -18655,7 +18745,9 @@
                                 "method": "contentBytes",
                                 "name": "elementValue",
                                 "type": "bytes",
-                                "required": true
+                                "required": true,
+                                "byteMin": 1,
+                                "byteMax": 1048576
                               }
                             ],
                             "repeats": false
@@ -18733,7 +18825,9 @@
                                 "method": "contentBytes",
                                 "name": "elementValue",
                                 "type": "bytes",
-                                "required": true
+                                "required": true,
+                                "byteMin": 1,
+                                "byteMax": 1048576
                               }
                             ],
                             "repeats": false
@@ -19617,7 +19711,9 @@
                                             "method": "contentBytes",
                                             "name": "elementValue",
                                             "type": "bytes",
-                                            "required": true
+                                            "required": true,
+                                            "byteMin": 1,
+                                            "byteMax": 1048576
                                           }
                                         ],
                                         "repeats": false
@@ -19685,7 +19781,9 @@
                                             "method": "contentBytes",
                                             "name": "elementValue",
                                             "type": "bytes",
-                                            "required": true
+                                            "required": true,
+                                            "byteMin": 1,
+                                            "byteMax": 1048576
                                           }
                                         ],
                                         "repeats": false
@@ -19864,7 +19962,9 @@
                                                     "method": "contentBytes",
                                                     "name": "elementValue",
                                                     "type": "bytes",
-                                                    "required": true
+                                                    "required": true,
+                                                    "byteMin": 1,
+                                                    "byteMax": 1048576
                                                   }
                                                 ],
                                                 "repeats": false
@@ -19932,7 +20032,9 @@
                                                     "method": "contentBytes",
                                                     "name": "elementValue",
                                                     "type": "bytes",
-                                                    "required": true
+                                                    "required": true,
+                                                    "byteMin": 1,
+                                                    "byteMax": 1048576
                                                   }
                                                 ],
                                                 "repeats": false
@@ -20038,7 +20140,9 @@
                                             "method": "contentBytes",
                                             "name": "elementValue",
                                             "type": "bytes",
-                                            "required": true
+                                            "required": true,
+                                            "byteMin": 1,
+                                            "byteMax": 1048576
                                           }
                                         ],
                                         "repeats": false
@@ -20106,7 +20210,9 @@
                                             "method": "contentBytes",
                                             "name": "elementValue",
                                             "type": "bytes",
-                                            "required": true
+                                            "required": true,
+                                            "byteMin": 1,
+                                            "byteMax": 1048576
                                           }
                                         ],
                                         "repeats": false
@@ -20255,7 +20361,9 @@
                                             "method": "contentBytes",
                                             "name": "elementValue",
                                             "type": "bytes",
-                                            "required": true
+                                            "required": true,
+                                            "byteMin": 1,
+                                            "byteMax": 1048576
                                           }
                                         ],
                                         "repeats": false
@@ -20323,7 +20431,9 @@
                                             "method": "contentBytes",
                                             "name": "elementValue",
                                             "type": "bytes",
-                                            "required": true
+                                            "required": true,
+                                            "byteMin": 1,
+                                            "byteMax": 1048576
                                           }
                                         ],
                                         "repeats": false
@@ -20483,7 +20593,9 @@
                                     "method": "contentBytes",
                                     "name": "elementValue",
                                     "type": "bytes",
-                                    "required": true
+                                    "required": true,
+                                    "byteMin": 1,
+                                    "byteMax": 1048576
                                   }
                                 ],
                                 "repeats": false
@@ -20551,7 +20663,9 @@
                                     "method": "contentBytes",
                                     "name": "elementValue",
                                     "type": "bytes",
-                                    "required": true
+                                    "required": true,
+                                    "byteMin": 1,
+                                    "byteMax": 1048576
                                   }
                                 ],
                                 "repeats": false
@@ -20647,7 +20761,9 @@
                                     "method": "contentBytes",
                                     "name": "elementValue",
                                     "type": "bytes",
-                                    "required": true
+                                    "required": true,
+                                    "byteMin": 1,
+                                    "byteMax": 1048576
                                   }
                                 ],
                                 "repeats": false
@@ -20725,7 +20841,9 @@
                                     "method": "contentBytes",
                                     "name": "elementValue",
                                     "type": "bytes",
-                                    "required": true
+                                    "required": true,
+                                    "byteMin": 1,
+                                    "byteMax": 1048576
                                   }
                                 ],
                                 "repeats": false
@@ -20803,7 +20921,9 @@
                                     "method": "contentBytes",
                                     "name": "elementValue",
                                     "type": "bytes",
-                                    "required": true
+                                    "required": true,
+                                    "byteMin": 1,
+                                    "byteMax": 1048576
                                   }
                                 ],
                                 "repeats": false
@@ -21910,7 +22030,9 @@
                         "method": "contentBytes",
                         "name": "elementValue",
                         "type": "bytes",
-                        "required": true
+                        "required": true,
+                        "byteMin": 1,
+                        "byteMax": 1048576
                       }
                     ],
                     "repeats": false
@@ -22102,7 +22224,9 @@
                             "method": "contentBytes",
                             "name": "elementValue",
                             "type": "bytes",
-                            "required": true
+                            "required": true,
+                            "byteMin": 1,
+                            "byteMax": 1048576
                           }
                         ],
                         "repeats": false
@@ -22716,7 +22840,9 @@
                                     "method": "contentBytes",
                                     "name": "elementValue",
                                     "type": "bytes",
-                                    "required": true
+                                    "required": true,
+                                    "byteMin": 1,
+                                    "byteMax": 1048576
                                   }
                                 ],
                                 "repeats": false
@@ -22765,7 +22891,9 @@
                                     "method": "contentBytes",
                                     "name": "elementValue",
                                     "type": "bytes",
-                                    "required": true
+                                    "required": true,
+                                    "byteMin": 1,
+                                    "byteMax": 1048576
                                   }
                                 ],
                                 "repeats": false
@@ -23224,7 +23352,9 @@
                                         "method": "contentBytes",
                                         "name": "elementValue",
                                         "type": "bytes",
-                                        "required": true
+                                        "required": true,
+                                        "byteMin": 1,
+                                        "byteMax": 1048576
                                       }
                                     ],
                                     "repeats": false
@@ -23273,7 +23403,9 @@
                                         "method": "contentBytes",
                                         "name": "elementValue",
                                         "type": "bytes",
-                                        "required": true
+                                        "required": true,
+                                        "byteMin": 1,
+                                        "byteMax": 1048576
                                       }
                                     ],
                                     "repeats": false
@@ -24140,7 +24272,9 @@
                                     "method": "contentBytes",
                                     "name": "elementValue",
                                     "type": "bytes",
-                                    "required": true
+                                    "required": true,
+                                    "byteMin": 1,
+                                    "byteMax": 1048576
                                   }
                                 ],
                                 "repeats": false
@@ -24189,7 +24323,9 @@
                                     "method": "contentBytes",
                                     "name": "elementValue",
                                     "type": "bytes",
-                                    "required": true
+                                    "required": true,
+                                    "byteMin": 1,
+                                    "byteMax": 1048576
                                   }
                                 ],
                                 "repeats": false
@@ -24652,7 +24788,9 @@
                                         "method": "contentBytes",
                                         "name": "elementValue",
                                         "type": "bytes",
-                                        "required": true
+                                        "required": true,
+                                        "byteMin": 1,
+                                        "byteMax": 1048576
                                       }
                                     ],
                                     "repeats": false
@@ -24701,7 +24839,9 @@
                                         "method": "contentBytes",
                                         "name": "elementValue",
                                         "type": "bytes",
-                                        "required": true
+                                        "required": true,
+                                        "byteMin": 1,
+                                        "byteMax": 1048576
                                       }
                                     ],
                                     "repeats": false
@@ -75210,7 +75350,7 @@
       "namespace": "w:m",
       "iqType": "set",
       "target": "s.whatsapp.net",
-      "parserName": "unknown",
+      "parserName": "mediaConnParser",
       "exportedFunction": "mapParsedMediaConn",
       "allExports": [
         "mapParsedMediaConn",
@@ -75230,9 +75370,43 @@
         ]
       },
       "response": {
-        "parserName": "unknown",
+        "parserName": "mediaConnParser",
         "assertions": [],
-        "fields": []
+        "fields": [
+          {
+            "method": "child",
+            "name": "media_conn",
+            "type": "string",
+            "required": true,
+            "tag": "media_conn",
+            "children": [
+              {
+                "method": "attrString",
+                "name": "auth",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "attrInt",
+                "name": "max_buckets",
+                "type": "integer",
+                "required": true
+              },
+              {
+                "method": "maybeAttrInt",
+                "name": "max_manual_retry",
+                "type": "integer",
+                "required": false
+              },
+              {
+                "method": "maybeAttrInt",
+                "name": "max_auto_download_retry",
+                "type": "integer",
+                "required": false
+              }
+            ]
+          }
+        ]
       }
     },
     {
@@ -76906,6 +77080,8 @@
                 "name": "encryptedKeyElementValue",
                 "type": "bytes",
                 "required": true,
+                "byteMin": 1,
+                "byteMax": 2048,
                 "sourcePath": [
                   "encrypted_key"
                 ]
@@ -76915,6 +77091,8 @@
                 "name": "nonceElementValue",
                 "type": "bytes",
                 "required": true,
+                "byteMin": 1,
+                "byteMax": 128,
                 "sourcePath": [
                   "nonce"
                 ]
@@ -76924,6 +77102,8 @@
                 "name": "encryptedDataElementValue",
                 "type": "bytes",
                 "required": true,
+                "byteMin": 1,
+                "byteMax": 8192,
                 "sourcePath": [
                   "encrypted_data"
                 ]
@@ -76933,6 +77113,8 @@
                 "name": "authTagElementValue",
                 "type": "bytes",
                 "required": true,
+                "byteMin": 1,
+                "byteMax": 128,
                 "sourcePath": [
                   "auth_tag"
                 ]
@@ -77007,6 +77189,8 @@
                     "name": "encryptedKeyElementValue",
                     "type": "bytes",
                     "required": true,
+                    "byteMin": 1,
+                    "byteMax": 2048,
                     "sourcePath": [
                       "encrypted_key"
                     ]
@@ -77016,6 +77200,8 @@
                     "name": "nonceElementValue",
                     "type": "bytes",
                     "required": true,
+                    "byteMin": 1,
+                    "byteMax": 128,
                     "sourcePath": [
                       "nonce"
                     ]
@@ -77025,6 +77211,8 @@
                     "name": "encryptedDataElementValue",
                     "type": "bytes",
                     "required": true,
+                    "byteMin": 1,
+                    "byteMax": 8192,
                     "sourcePath": [
                       "encrypted_data"
                     ]
@@ -77034,6 +77222,8 @@
                     "name": "authTagElementValue",
                     "type": "bytes",
                     "required": true,
+                    "byteMin": 1,
+                    "byteMax": 128,
                     "sourcePath": [
                       "auth_tag"
                     ]
@@ -78234,6 +78424,8 @@
                 "name": "encryptedKeyElementValue",
                 "type": "bytes",
                 "required": true,
+                "byteMin": 1,
+                "byteMax": 2048,
                 "sourcePath": [
                   "encrypted_key"
                 ]
@@ -78243,6 +78435,8 @@
                 "name": "nonceElementValue",
                 "type": "bytes",
                 "required": true,
+                "byteMin": 1,
+                "byteMax": 128,
                 "sourcePath": [
                   "nonce"
                 ]
@@ -78252,6 +78446,8 @@
                 "name": "encryptedDataElementValue",
                 "type": "bytes",
                 "required": true,
+                "byteMin": 1,
+                "byteMax": 8192,
                 "sourcePath": [
                   "encrypted_data"
                 ]
@@ -78261,6 +78457,8 @@
                 "name": "authTagElementValue",
                 "type": "bytes",
                 "required": true,
+                "byteMin": 1,
+                "byteMax": 128,
                 "sourcePath": [
                   "auth_tag"
                 ]
@@ -78328,6 +78526,8 @@
                     "name": "encryptedKeyElementValue",
                     "type": "bytes",
                     "required": true,
+                    "byteMin": 1,
+                    "byteMax": 2048,
                     "sourcePath": [
                       "encrypted_key"
                     ]
@@ -78337,6 +78537,8 @@
                     "name": "nonceElementValue",
                     "type": "bytes",
                     "required": true,
+                    "byteMin": 1,
+                    "byteMax": 128,
                     "sourcePath": [
                       "nonce"
                     ]
@@ -78346,6 +78548,8 @@
                     "name": "encryptedDataElementValue",
                     "type": "bytes",
                     "required": true,
+                    "byteMin": 1,
+                    "byteMax": 8192,
                     "sourcePath": [
                       "encrypted_data"
                     ]
@@ -78355,6 +78559,8 @@
                     "name": "authTagElementValue",
                     "type": "bytes",
                     "required": true,
+                    "byteMin": 1,
+                    "byteMax": 128,
                     "sourcePath": [
                       "auth_tag"
                     ]
@@ -78886,6 +79092,8 @@
                 "name": "encryptedKeyElementValue",
                 "type": "bytes",
                 "required": true,
+                "byteMin": 1,
+                "byteMax": 2048,
                 "sourcePath": [
                   "encrypted_key"
                 ]
@@ -78895,6 +79103,8 @@
                 "name": "nonceElementValue",
                 "type": "bytes",
                 "required": true,
+                "byteMin": 1,
+                "byteMax": 128,
                 "sourcePath": [
                   "nonce"
                 ]
@@ -78904,6 +79114,8 @@
                 "name": "encryptedDataElementValue",
                 "type": "bytes",
                 "required": true,
+                "byteMin": 1,
+                "byteMax": 8192,
                 "sourcePath": [
                   "encrypted_data"
                 ]
@@ -78913,6 +79125,8 @@
                 "name": "authTagElementValue",
                 "type": "bytes",
                 "required": true,
+                "byteMin": 1,
+                "byteMax": 128,
                 "sourcePath": [
                   "auth_tag"
                 ]
@@ -78971,6 +79185,8 @@
                     "name": "encryptedKeyElementValue",
                     "type": "bytes",
                     "required": true,
+                    "byteMin": 1,
+                    "byteMax": 2048,
                     "sourcePath": [
                       "encrypted_key"
                     ]
@@ -78980,6 +79196,8 @@
                     "name": "nonceElementValue",
                     "type": "bytes",
                     "required": true,
+                    "byteMin": 1,
+                    "byteMax": 128,
                     "sourcePath": [
                       "nonce"
                     ]
@@ -78989,6 +79207,8 @@
                     "name": "encryptedDataElementValue",
                     "type": "bytes",
                     "required": true,
+                    "byteMin": 1,
+                    "byteMax": 8192,
                     "sourcePath": [
                       "encrypted_data"
                     ]
@@ -78998,6 +79218,8 @@
                     "name": "authTagElementValue",
                     "type": "bytes",
                     "required": true,
+                    "byteMin": 1,
+                    "byteMax": 128,
                     "sourcePath": [
                       "auth_tag"
                     ]
@@ -79456,7 +79678,9 @@
                     "method": "contentBytes",
                     "name": "elementValue",
                     "type": "bytes",
-                    "required": true
+                    "required": true,
+                    "byteMin": 1,
+                    "byteMax": 4092
                   }
                 ],
                 "repeats": false
@@ -79479,7 +79703,9 @@
                     "method": "contentBytes",
                     "name": "elementValue",
                     "type": "bytes",
-                    "required": true
+                    "required": true,
+                    "byteMin": 1,
+                    "byteMax": 4092
                   }
                 ],
                 "repeats": false
@@ -79509,7 +79735,9 @@
                     "method": "contentBytes",
                     "name": "elementValue",
                     "type": "bytes",
-                    "required": true
+                    "required": true,
+                    "byteMin": 1,
+                    "byteMax": 4092
                   }
                 ],
                 "repeats": false
@@ -79574,7 +79802,9 @@
                         "method": "contentBytes",
                         "name": "elementValue",
                         "type": "bytes",
-                        "required": true
+                        "required": true,
+                        "byteMin": 1,
+                        "byteMax": 4092
                       }
                     ],
                     "repeats": false
@@ -79597,7 +79827,9 @@
                         "method": "contentBytes",
                         "name": "elementValue",
                         "type": "bytes",
-                        "required": true
+                        "required": true,
+                        "byteMin": 1,
+                        "byteMax": 4092
                       }
                     ],
                     "repeats": false
@@ -79627,7 +79859,9 @@
                         "method": "contentBytes",
                         "name": "elementValue",
                         "type": "bytes",
-                        "required": true
+                        "required": true,
+                        "byteMin": 1,
+                        "byteMax": 4092
                       }
                     ],
                     "repeats": false
@@ -79958,6 +80192,8 @@
                 "name": "encryptedKeyElementValue",
                 "type": "bytes",
                 "required": true,
+                "byteMin": 1,
+                "byteMax": 2048,
                 "sourcePath": [
                   "encrypted_key"
                 ]
@@ -79967,6 +80203,8 @@
                 "name": "nonceElementValue",
                 "type": "bytes",
                 "required": true,
+                "byteMin": 1,
+                "byteMax": 128,
                 "sourcePath": [
                   "nonce"
                 ]
@@ -79976,6 +80214,8 @@
                 "name": "encryptedDataElementValue",
                 "type": "bytes",
                 "required": true,
+                "byteMin": 1,
+                "byteMax": 8192,
                 "sourcePath": [
                   "encrypted_data"
                 ]
@@ -79985,6 +80225,8 @@
                 "name": "authTagElementValue",
                 "type": "bytes",
                 "required": true,
+                "byteMin": 1,
+                "byteMax": 128,
                 "sourcePath": [
                   "auth_tag"
                 ]
@@ -80043,6 +80285,8 @@
                     "name": "encryptedKeyElementValue",
                     "type": "bytes",
                     "required": true,
+                    "byteMin": 1,
+                    "byteMax": 2048,
                     "sourcePath": [
                       "encrypted_key"
                     ]
@@ -80052,6 +80296,8 @@
                     "name": "nonceElementValue",
                     "type": "bytes",
                     "required": true,
+                    "byteMin": 1,
+                    "byteMax": 128,
                     "sourcePath": [
                       "nonce"
                     ]
@@ -80061,6 +80307,8 @@
                     "name": "encryptedDataElementValue",
                     "type": "bytes",
                     "required": true,
+                    "byteMin": 1,
+                    "byteMax": 8192,
                     "sourcePath": [
                       "encrypted_data"
                     ]
@@ -80070,6 +80318,8 @@
                     "name": "authTagElementValue",
                     "type": "bytes",
                     "required": true,
+                    "byteMin": 1,
+                    "byteMax": 128,
                     "sourcePath": [
                       "auth_tag"
                     ]

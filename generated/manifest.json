@@ -9,20 +9,20 @@
         "requestsEnriched": 11,
         "requestsWithMixins": 108
       },
-      "degradedResponses": 19,
+      "degradedResponses": 18,
       "dropsByReason": {
         "iq builder substring present but no AST iq call": 5,
         "mixin fragment (folded into requests, not a standalone stanza)": 56,
         "namespace/type unresolved (dropped by guard)": 2
       },
       "stanzas": 159,
-      "typedResponses": 140,
+      "typedResponses": 141,
       "unparseable": 63
     },
     "notif": {
-      "degraded": 9,
+      "degraded": 5,
       "stanzaTags": 13,
-      "typedContent": 18,
+      "typedContent": 22,
       "types": 27
     }
   },
@@ -50,7 +50,7 @@
     "iq": {
       "file": "iq/index.json",
       "schema": "schema/iq.schema.json",
-      "sha256": "7f4f6e2666e69affee79965d5e670445669cffc0c70ab9af6e845c859e3c7226"
+      "sha256": "3b6d45ea11b29bc38b0720f32e6eeb803e74d53ee2f27166a17c863ae8501483"
     },
     "mex": {
       "file": "mex/index.json",
@@ -60,7 +60,7 @@
     "notif": {
       "file": "notif/index.json",
       "schema": "schema/notif.schema.json",
-      "sha256": "b05a6fde725e6d6ec824a304a885dca4751c5c9a8a6e2667e00a888d3a87c6bb"
+      "sha256": "74e564b675d215285ba0f89dd8d862c15752922b9beb407fbdea8f074244301e"
     },
     "proto": {
       "file": "proto/WAProto.proto",
@@ -69,7 +69,7 @@
     "srvreq": {
       "file": "srvreq/index.json",
       "schema": "schema/srvreq.schema.json",
-      "sha256": "03e96c1fd1209d662c7c858de2187e343182012abf8a693c64a4ac118817f158"
+      "sha256": "47668a3c9414924b1bb96cc4e519f70fee7c58e0c71cce8461f5441281b6d6a5"
     },
     "stanza": {
       "file": "stanza/index.json",

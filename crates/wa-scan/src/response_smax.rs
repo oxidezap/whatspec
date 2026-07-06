@@ -191,6 +191,10 @@ enum Binding {
         field_type: ParsedFieldType,
         required: bool,
         byte_length: Option<u32>,
+        /// Inclusive byte-length bounds from a `contentBytesRange(node, min, max)` when
+        /// `min != max` (a payload-size limit). The `min == max` case is a fixed length
+        /// and is carried in `byte_length` instead, so the two are mutually exclusive.
+        byte_range: Option<(u32, u32)>,
         /// Inclusive integer bounds from an `attrIntRange(node, name, min, max)`, when
         /// the accessor was a range check (and not the timestamp-marker range, which is
         /// surfaced as `field_type: Timestamp` instead).
@@ -442,6 +446,7 @@ fn classify_call(
                     field_type: ft,
                     required: true,
                     byte_length: bl,
+                    byte_range: None,
                     int_range: None,
                     wire_name,
                     source_path,
@@ -472,6 +477,7 @@ fn classify_call(
             field_type: ParsedFieldType::Bytes,
             required: true,
             byte_length: None,
+            byte_range: None,
             int_range: None,
             wire_name: None,
             source_path,
@@ -482,6 +488,7 @@ fn classify_call(
             field_type: ParsedFieldType::String,
             required: false,
             byte_length: None,
+            byte_range: None,
             int_range: None,
             wire_name,
             source_path,
@@ -496,11 +503,13 @@ fn classify_call(
             match inner.and_then(normalize_accessor) {
                 Some((m, ft, bl)) => {
                     let (field_type, int_range) = int_range_and_type(inner, args, ft);
+                    let (cbl, byte_range) = content_byte_length(inner, args);
                     Binding::Field {
                         method: optional_variant(&m),
                         field_type,
                         required: false,
-                        byte_length: bl.or_else(|| content_byte_length(inner, args)),
+                        byte_length: bl.or(cbl),
+                        byte_range,
                         int_range,
                         wire_name,
                         source_path,
@@ -522,11 +531,13 @@ fn classify_call(
         other => match normalize_accessor(other) {
             Some((m, ft, bl)) => {
                 let (field_type, int_range) = int_range_and_type(Some(other), args, ft);
+                let (cbl, byte_range) = content_byte_length(Some(other), args);
                 Binding::Field {
                     method: m,
                     field_type,
                     required: true,
-                    byte_length: bl.or_else(|| content_byte_length(Some(other), args)),
+                    byte_length: bl.or(cbl),
+                    byte_range,
                     int_range,
                     wire_name,
                     source_path,
@@ -688,18 +699,28 @@ fn int_range_and_type(
     }
 }
 
-/// The fixed byte length pinned by a `contentBytesRange(node, min, max)` when `min ==
-/// max` — a hard wire-contract length (a 32-byte key, a 64-byte signature). A true
-/// range (`min != max`) is a max-payload size limit, not a fixed length, so it yields
-/// `None` (never a bogus `byteLength`). `contentBytes(node)` carries no length at all.
-fn content_byte_length(accessor: Option<&str>, args: &[Argument]) -> Option<u32> {
+/// Interpret a `contentBytesRange(node, min, max)` accessor, returning
+/// `(fixed_length, range)`:
+///  - `min == max` → a hard wire-contract length (a 32-byte key, a 64-byte signature)
+///    as `(Some(len), None)`;
+///  - `min != max` → a max-payload size *limit* (a media buffer 1..1048576, a token
+///    1..128) as `(None, Some((min, max)))` — previously this was silently dropped;
+///  - any other accessor (`contentBytes(node)` carries no length) → `(None, None)`.
+fn content_byte_length(
+    accessor: Option<&str>,
+    args: &[Argument],
+) -> (Option<u32>, Option<(u32, u32)>) {
     if accessor != Some("contentBytesRange") {
-        return None;
+        return (None, None);
     }
     let mut nums = args.iter().filter_map(|a| arg_expr(a).and_then(as_int));
     match (nums.next(), nums.next()) {
-        (Some(min), Some(max)) if min == max => u32::try_from(min).ok(),
-        _ => None,
+        (Some(min), Some(max)) if min == max => (u32::try_from(min).ok(), None),
+        (Some(min), Some(max)) => match (u32::try_from(min), u32::try_from(max)) {
+            (Ok(min), Ok(max)) => (None, Some((min, max))),
+            _ => (None, None),
+        },
+        _ => (None, None),
     }
 }
 
@@ -1025,11 +1046,16 @@ fn collect_object_fields(
                 field_type,
                 required,
                 byte_length,
+                byte_range,
                 int_range,
                 wire_name,
                 source_path,
             }) => {
                 let (int_min, int_max) = match int_range {
+                    Some((min, max)) => (Some(*min), Some(*max)),
+                    None => (None, None),
+                };
+                let (byte_min, byte_max) = match byte_range {
                     Some((min, max)) => (Some(*min), Some(*max)),
                     None => (None, None),
                 };
@@ -1040,6 +1066,8 @@ fn collect_object_fields(
                     field_type: *field_type,
                     required: *required && !optional,
                     byte_length: *byte_length,
+                    byte_min,
+                    byte_max,
                     int_min,
                     int_max,
                     source_path: source_path.clone(),
@@ -1521,14 +1549,15 @@ mod tests {
     }
 
     #[test]
-    fn content_bytes_range_pins_fixed_length_only() {
+    fn content_bytes_range_pins_fixed_length_and_captures_range_bounds() {
         let module = r#"__d("WASmaxInBazResponseSuccess",["WASmaxParseUtils","WAResultOrError"],(function(t,n,r,o,a,i,l){
             function s(t){
                 var r = o("WASmaxParseUtils").assertTag(t, "iq"); if(!r.success) return r;
                 var a = o("WASmaxParseUtils").contentBytesRange(t, 32, 32); if(!a.success) return a;
                 var b = o("WASmaxParseUtils").contentBytesRange(t, 1, 1048576); if(!b.success) return b;
                 var c = o("WASmaxParseUtils").contentBytes(t); if(!c.success) return c;
-                return o("WAResultOrError").makeResult({ key: a.value, blob: b.value, raw: c.value });
+                var d = o("WASmaxParseUtils").optional(o("WASmaxParseUtils").contentBytesRange, t, 1, 128);
+                return o("WAResultOrError").makeResult({ key: a.value, blob: b.value, raw: c.value, tok: d.value });
             }
             l.parseBazResponseSuccess = s;
         }), 1);"#;
@@ -1538,14 +1567,24 @@ mod tests {
             .find(|(n, _)| n == "parseBazResponseSuccess")
             .expect("parser");
         let field = |name: &str| pr.fields.iter().find(|f| f.name == name).expect(name);
-        // Fixed range (min == max) → a pinned wire length.
+        // Fixed range (min == max) → a pinned wire length, no range bounds.
         let key = field("key");
         assert_eq!(key.field_type, ParsedFieldType::Bytes);
         assert_eq!(key.byte_length, Some(32));
-        // A true range is a max-size limit, not a fixed length → no byteLength.
-        assert_eq!(field("blob").byte_length, None);
-        // Plain contentBytes carries no length.
-        assert_eq!(field("raw").byte_length, None);
+        assert_eq!((key.byte_min, key.byte_max), (None, None));
+        // A true range is a max-size limit, not a fixed length → the bounds are kept
+        // as byteMin/byteMax (previously silently dropped), with no bogus byteLength.
+        let blob = field("blob");
+        assert_eq!(blob.byte_length, None);
+        assert_eq!((blob.byte_min, blob.byte_max), (Some(1), Some(1048576)));
+        // Plain contentBytes carries neither a length nor bounds.
+        let raw = field("raw");
+        assert_eq!(raw.byte_length, None);
+        assert_eq!((raw.byte_min, raw.byte_max), (None, None));
+        // `optional(contentBytesRange, …)` still captures the bounds and stays optional.
+        let tok = field("tok");
+        assert_eq!((tok.byte_min, tok.byte_max), (Some(1), Some(128)));
+        assert!(!tok.required);
     }
 
     #[test]

@@ -37,8 +37,8 @@ use oxc_allocator::Allocator;
 use oxc_ast::ast::{Expression, Statement, SwitchCase, SwitchStatement, VariableDeclaration};
 use oxc_ast_visit::{Visit, walk};
 use wa_ir::{
-    AssertionKind, NotifIr, NotificationDef, ParsedResponse, StanzaTagDef, SubCase,
-    SubDiscriminant, SubDiscriminantOn,
+    AssertionKind, NotifIr, NotificationDef, ParsedResponse, ServerRequestTag, StanzaTagDef,
+    SubCase, SubDiscriminant, SubDiscriminantOn,
 };
 use wa_oxc::{
     arg_expr, as_call, as_identifier, as_int, as_member, as_string_lit, callee_method,
@@ -121,6 +121,22 @@ pub fn extract_notif_from_modules(
         };
         let notif_type = n.notif_type.clone();
         n.content = notification_content(slice, &notif_type);
+    }
+
+    // Phase 2b: a type still degraded here has a handler that delegates parsing to
+    // the smax receive-RPC path rather than an inline `WADeprecatedWapParser`, so its
+    // field tree lives in a `WASmaxIn<X>...Request` module (the srvreq domain).
+    // Recover it by matching the server-request read-shape whose asserted `type`
+    // equals the notification's, keeping only unambiguous single-shape types.
+    if dispatch.notifications.iter().any(|n| n.content.is_none()) {
+        let srvreq_shapes = srvreq_notification_shapes(source, module_defs);
+        for n in &mut dispatch.notifications {
+            if n.content.is_none()
+                && let Some(shape) = srvreq_shapes.get(&n.notif_type)
+            {
+                n.content = Some(shape.clone());
+            }
+        }
     }
 
     NotifIr {
@@ -215,6 +231,41 @@ fn module_slice_index<'s>(
 fn notification_content(handler_slice: &str, notif_type: &str) -> Option<ParsedResponse> {
     let parsers = wa_scan::parse_module_wap_parsers(handler_slice);
     pick_notification_parser(parsers, notif_type)
+}
+
+/// Typed notification content recovered from the server-request read-shapes (the
+/// srvreq domain): notification `type` → the `WASmaxIn<X>...Request` shape whose
+/// parser asserts that `type`. Only types with a single matching shape are kept, so
+/// a type parsed by several distinct request modules stays degraded rather than being
+/// bound to one arbitrary shape (mirroring [`pick_notification_parser`]'s caution).
+fn srvreq_notification_shapes(
+    source: &str,
+    module_defs: &[ModuleDefinition],
+) -> std::collections::HashMap<String, ParsedResponse> {
+    let asserted_type = |p: &ParsedResponse| -> Option<String> {
+        p.assertions.iter().find_map(|a| {
+            (a.kind == AssertionKind::Attr && a.name.as_deref() == Some("type"))
+                .then(|| a.value.clone())
+                .flatten()
+        })
+    };
+    let mut by_type: std::collections::HashMap<String, Vec<ParsedResponse>> =
+        std::collections::HashMap::new();
+    for def in wa_scan::scan_server_requests_from_modules(source, module_defs) {
+        if def.tag != ServerRequestTag::Notification {
+            continue;
+        }
+        if let Some(t) = asserted_type(&def.shape) {
+            by_type.entry(t).or_default().push(def.shape);
+        }
+    }
+    by_type
+        .into_iter()
+        .filter_map(|(t, mut shapes)| match shapes.len() {
+            1 => Some((t, shapes.pop().expect("len checked"))),
+            _ => None,
+        })
+        .collect()
 }
 
 /// Choose the parser for `notif_type` from a handler module's parsers.
