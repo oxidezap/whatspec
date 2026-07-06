@@ -17,10 +17,20 @@ fn committed_waproto_compiles_and_resolves() {
     let proto_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../generated/proto");
     let proto_file = proto_dir.join("WAProto.proto");
 
-    // The artifact is committed and produced by the generator, but tolerate its absence
-    // (e.g. a partial checkout) rather than fail spuriously.
+    // The artifact is committed, so in CI it is always present — a missing file there
+    // means the guard silently isn't being exercised, which defeats its whole purpose, so
+    // fail loudly. Locally (e.g. a sparse/partial checkout) tolerate its absence, since
+    // `cargo test` hides a passing test's stderr and a spurious failure would be noise.
     if !proto_file.exists() {
-        eprintln!("skipping: {} not present", proto_file.display());
+        assert!(
+            std::env::var_os("CI").is_none(),
+            "{} is absent under CI — the proto compile guard would be silently skipped",
+            proto_file.display()
+        );
+        eprintln!(
+            "skipping: {} not present (local only; CI requires it)",
+            proto_file.display()
+        );
         return;
     }
 

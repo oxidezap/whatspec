@@ -32775,6 +32775,18 @@
             ],
             "children": [],
             "repeats": false
+          },
+          {
+            "tag": "gdpr",
+            "attrs": [
+              {
+                "name": "action",
+                "kind": "dynamic",
+                "required": true
+              }
+            ],
+            "children": [],
+            "repeats": false
           }
         ]
       },

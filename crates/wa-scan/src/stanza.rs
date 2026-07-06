@@ -67,8 +67,9 @@ pub fn scan_stanzas_from_modules(source: &str, defs: &[ModuleDefinition]) -> Vec
         out.extend(scan_module(slice, &helpers));
     }
     // Drop structureless stanzas (no attrs, no children, no subtype) — a bare `<ack/>`
-    // carries nothing a consumer can model. (Fragment `merge…Mixin` modules are already
-    // dropped whole in `scan_module`.)
+    // carries nothing a consumer can model. Fragment `merge…Mixin` modules are kept and
+    // marked via `StanzaDef::fragment` in `scan_module`, so they're only dropped here if
+    // genuinely structureless.
     out.retain(|s| !s.attrs.is_empty() || !s.children.is_empty() || s.subtype.is_some());
     // Fill in the attribute enum links (`receipt.type` → `ENC_RETRY_RECEIPT_ATTRS`, …).
     let mut resolver = EnumResolver::new(defs, source);
@@ -147,18 +148,18 @@ fn scan_module(source: &str, helpers: &HelperIndex) -> Vec<StanzaDef> {
     c.out
 }
 
-/// Whether a module's exports are only `merge…Mixin` combinators — a stanza fragment.
-/// Ignores constants (ALL_CAPS) and `default`, matching the IQ fragment heuristic.
+/// Whether a module exports a `merge…Mixin` combinator — a stanza fragment. `any`, not
+/// `all` (and matching the IQ scanner, `wa-scan::module`): a genuine mixin often exports
+/// a `merge…Mixin` *alongside* a `make…` helper, so requiring every export to be a mixin
+/// would misclassify it as a standalone sendable stanza. `merge…Mixin` is WA's exclusive
+/// cross-module mixin-export convention, so a real standalone builder never carries one.
+/// Ignores constants (ALL_CAPS) and `default`.
 fn is_fragment_module(exports: &[String]) -> bool {
-    let functions: Vec<&str> = exports
+    exports
         .iter()
         .map(String::as_str)
         .filter(|e| *e != "default" && !e.chars().all(|c| c.is_ascii_uppercase() || c == '_'))
-        .collect();
-    !functions.is_empty()
-        && functions
-            .iter()
-            .all(|e| e.starts_with("merge") && e.contains("Mixin"))
+        .any(|e| e.starts_with("merge") && e.contains("Mixin"))
 }
 
 struct StanzaCollector<'s> {
@@ -408,6 +409,14 @@ mod tests {
             "mergeFooMixin".into(),
             "SOME_CONST".into()
         ]));
+        // A `make…` helper exported *alongside* the mixin must NOT reclassify it as a
+        // standalone stanza (`any`, not `all` — matching the IQ scanner).
+        assert!(is_fragment_module(&[
+            "mergeFooMixin".into(),
+            "makeFooRequest".into()
+        ]));
+        // A pure helper module (no mixin) is not a fragment.
+        assert!(!is_fragment_module(&["makeFooRequest".into()]));
     }
 
     #[test]
@@ -435,6 +444,29 @@ mod tests {
         assert!(
             list.children.iter().any(|c| c.tag == "item"),
             "nested <item> under the conditional list recovered"
+        );
+    }
+
+    #[test]
+    fn both_ternary_branches_children_are_captured() {
+        // A genuinely divergent `cond ? wap("a") : wap("b")` child catalogs BOTH shapes,
+        // not just the consequent — the static schema should reflect every possible child.
+        let bundle = r#"
+            __d("WAWebSendAckJob2",["WAWap"],(function(g,r,d,o,e,i,l){
+                l.send=function(x){
+                    var c = x ? o("WAWap").wap("a",{k:o("WAWap").CUSTOM_STRING(x)}) : o("WAWap").wap("b",{k:o("WAWap").CUSTOM_STRING(x)});
+                    return o("WAWap").wap("ack",{id:o("WAWap").CUSTOM_STRING(x),type:"text"}, c);
+                };
+            }),1);
+        "#;
+        let ack = scan(bundle)
+            .into_iter()
+            .find(|s| s.stanza_type == StanzaTag::Ack)
+            .expect("ack captured");
+        let tags: Vec<&str> = ack.children.iter().map(|c| c.tag.as_str()).collect();
+        assert!(
+            tags.contains(&"a") && tags.contains(&"b"),
+            "both ternary branches captured, got {tags:?}"
         );
     }
 

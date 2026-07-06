@@ -301,7 +301,8 @@
           "repeats": false
         }
       ],
-      "response": null
+      "response": null,
+      "fragment": true
     },
     {
       "stanzaType": "message",
@@ -564,7 +565,8 @@
           "repeats": false
         }
       ],
-      "response": null
+      "response": null,
+      "fragment": true
     },
     {
       "stanzaType": "message",
@@ -1121,7 +1123,8 @@
           "repeats": true
         }
       ],
-      "response": null
+      "response": null,
+      "fragment": true
     },
     {
       "stanzaType": "message",
@@ -1224,7 +1227,8 @@
           "repeats": false
         }
       ],
-      "response": null
+      "response": null,
+      "fragment": true
     },
     {
       "stanzaType": "message",
@@ -1285,7 +1289,8 @@
           "repeats": false
         }
       ],
-      "response": null
+      "response": null,
+      "fragment": true
     },
     {
       "stanzaType": "message",
@@ -1684,7 +1689,8 @@
           "repeats": false
         }
       ],
-      "response": null
+      "response": null,
+      "fragment": true
     },
     {
       "stanzaType": "message",
@@ -2219,6 +2225,18 @@
                 "kind": "dynamic"
               },
               "repeats": false
+            },
+            {
+              "tag": "key",
+              "attrs": [
+                {
+                  "name": "rkid",
+                  "kind": "string",
+                  "required": true
+                }
+              ],
+              "children": [],
+              "repeats": false
             }
           ],
           "repeats": false
@@ -2573,6 +2591,18 @@
                 "kind": "dynamic"
               },
               "repeats": false
+            },
+            {
+              "tag": "key",
+              "attrs": [
+                {
+                  "name": "rkid",
+                  "kind": "string",
+                  "required": true
+                }
+              ],
+              "children": [],
+              "repeats": false
             }
           ],
           "repeats": false
@@ -2648,7 +2678,8 @@
           "repeats": false
         }
       ],
-      "response": null
+      "response": null,
+      "fragment": true
     },
     {
       "stanzaType": "receipt",

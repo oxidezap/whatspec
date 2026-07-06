@@ -218,33 +218,32 @@ pub(crate) fn resolve_child_node(
 
     // Case 0: a conditional child `cond ? A : B` (e.g. an optional child built as
     // `a.length > 0 ? wap("list", …) : null`, as the aggregate receipt/ack builder does).
-    // Take the branch that resolves to children — the non-`null` one — so a
-    // conditionally-attached child isn't lost. Consequent first (the common
-    // `cond ? node : null`); fall back to the alternate (`cond ? null : node`).
+    // Resolve BOTH branches and union their children: the common `cond ? node : null`
+    // yields just `node` (the `null` side resolves to nothing), while a genuinely
+    // divergent `cond ? wap("a", …) : wap("b", …)` catalogs both possible children
+    // rather than silently dropping one — the schema should reflect every shape a child
+    // can take. Identical children (e.g. `cond ? x : x`) are collapsed so the union
+    // doesn't duplicate.
     if let Expression::ConditionalExpression(cond) = node {
-        let c = resolve_child_node(
-            &cond.consequent,
-            node_source,
-            scope,
-            module_source,
-            aliases,
-            contributions,
-            helpers,
-            depth,
-        );
-        if !c.is_empty() {
-            return c;
+        let resolve = |branch| {
+            resolve_child_node(
+                branch,
+                node_source,
+                scope,
+                module_source,
+                aliases,
+                contributions,
+                helpers,
+                depth,
+            )
+        };
+        let mut out = resolve(&cond.consequent);
+        for child in resolve(&cond.alternate) {
+            if !out.contains(&child) {
+                out.push(child);
+            }
         }
-        return resolve_child_node(
-            &cond.alternate,
-            node_source,
-            scope,
-            module_source,
-            aliases,
-            contributions,
-            helpers,
-            depth,
-        );
+        return out;
     }
 
     // Case 1: direct wap()/smax() call.

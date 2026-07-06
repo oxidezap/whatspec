@@ -100,6 +100,19 @@ fn extract_from_module(slice: &str, module: &str) -> Vec<InternalEnumDef> {
     out
 }
 
+/// Resolve `X.Name = local` bindings against the locals captured by var-init, filling
+/// `exports` (first binding wins). Shared by [`resolve_named_enum`] and the plain-object
+/// catalog pass so the two resolution sites can't drift.
+fn resolve_pending(r: &mut NamedResolver) {
+    for (export, local) in &r.pending {
+        if let Some(data) = r.locals.get(local) {
+            r.exports
+                .entry(export.clone())
+                .or_insert_with(|| data.clone());
+        }
+    }
+}
+
 /// Resolve one named enum export from a single module, for the IQ attribute
 /// enum-linking. Unlike the catalog extractor this also accepts a **plain
 /// object-literal** export (`X.Name = {KEY:"val"}` or `var l = {…}; X.Name = l`) —
@@ -120,14 +133,7 @@ pub fn resolve_named_enum(module_slice: &str, module: &str, name: &str) -> Optio
         pending: Vec::new(),
     };
     r.visit_program(&ret.program);
-    // `X.Name = local` bindings resolve against the locals captured by var-init.
-    for (export, local) in &r.pending {
-        if let Some(data) = r.locals.get(local) {
-            r.exports
-                .entry(export.clone())
-                .or_insert_with(|| data.clone());
-        }
-    }
+    resolve_pending(&mut r);
     let (value_kind, variants) = r.exports.get(name)?.clone();
     Some(InternalEnumDef {
         name: name.to_string(),
@@ -157,7 +163,8 @@ fn is_constant_case(name: &str) -> bool {
 /// the app has thousands of `CONSTANT_CASE` infra objects (loggers, locales, JPEG
 /// markers, UI constants) that are not part of the protocol surface.
 fn is_protocol_enum_module(module: &str) -> bool {
-    (module.starts_with("WASmax") && module.ends_with("Enums"))
+    ((module.starts_with("WASmaxIn") || module.starts_with("WASmaxOut"))
+        && module.ends_with("Enums"))
         || module == "WAWebAck"
         || module == "WAAckLevel"
 }
@@ -178,13 +185,7 @@ fn extract_plain_object_enums(slice: &str, module: &str) -> Vec<InternalEnumDef>
         pending: Vec::new(),
     };
     r.visit_program(&ret.program);
-    for (export, local) in &r.pending {
-        if let Some(data) = r.locals.get(local) {
-            r.exports
-                .entry(export.clone())
-                .or_insert_with(|| data.clone());
-        }
-    }
+    resolve_pending(&mut r);
     let mut out: Vec<InternalEnumDef> = Vec::new();
     for (name, (value_kind, variants)) in r.exports {
         if variants.len() >= 2 && variants.iter().all(|v| is_constant_case(&v.name)) {
@@ -471,5 +472,9 @@ mod tests {
         // the CONSTANT_CASE guard.
         let cfg = r#"__d("WASmaxInFooEnums",[],(function(t,n,r,o,a,i){var e={maxRetries:3,timeoutMs:5};i.config=e}),1);"#;
         assert!(run(cfg).iter().all(|e| e.module != "WASmaxInFooEnums"));
+        // A protocol module whose plain-object export mixes int and string values is
+        // rejected (single value-kind), mirroring the `$InternalEnum` mixed-skip path.
+        let mixed = r#"__d("WASmaxInBarEnums",[],(function(t,n,r,o,a,i){var e={A:1,B:"two"};i.MIXED=e}),1);"#;
+        assert!(run(mixed).iter().all(|e| e.module != "WASmaxInBarEnums"));
     }
 }
