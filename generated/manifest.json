@@ -14,9 +14,10 @@
         "iq builder substring present but no AST iq call": 5,
         "mixin fragment (folded into requests, not a standalone stanza)": 72
       },
+      "excludedFragments": 72,
       "stanzas": 145,
       "typedResponses": 141,
-      "unparseable": 77
+      "unparseable": 5
     },
     "notif": {
       "degraded": 5,
