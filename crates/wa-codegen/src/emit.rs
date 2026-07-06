@@ -746,22 +746,36 @@ fn emit_node_content(
     let Some(content) = &child.content else {
         return Vec::new();
     };
-    // A fixed byte constant: emit the literal buffer, no caller input needed.
-    if let Some(hex) = &content.const_bytes
-        && let Some(bytes) = decode_hex(hex)
-    {
-        let lits = bytes
-            .iter()
-            .map(|b| format!("0x{b:02x}"))
-            .collect::<Vec<_>>()
-            .join(", ");
-        return vec![format!(
-            "{indent}{var_name} = {var_name}.bytes(vec![{lits}]);"
-        )];
+    // A fixed byte constant: emit the literal buffer, no caller input needed. Handled
+    // in isolation — a `const_bytes` that fails to decode degrades to no content, and
+    // must never fall through to the caller-supplied-field branch below (that would
+    // turn a fixed constant into an unwanted `Vec<u8>` builder argument).
+    if let Some(hex) = &content.const_bytes {
+        return decode_hex(hex)
+            .map(|bytes| {
+                let lits = bytes
+                    .iter()
+                    .map(|b| format!("0x{b:02x}"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                vec![format!(
+                    "{indent}{var_name} = {var_name}.bytes(vec![{lits}]);"
+                )]
+            })
+            .unwrap_or_default();
     }
-    // A caller-supplied byte buffer: thread a `Vec<u8>` spec field.
+    // A caller-supplied byte buffer: thread a `Vec<u8>` spec field. Rename the
+    // *terminal* `_node` segment (the var is `{tag}_node` or `{tag}_node_{n}`) so a
+    // tag that itself contains `_node` isn't corrupted (`node_id_node` → `node_id_content`).
     if content.kind == WapContentKind::Bytes {
-        let field = var_name.replacen("_node", "_content", 1);
+        let field = match var_name.rfind("_node") {
+            Some(pos) => format!(
+                "{}_content{}",
+                &var_name[..pos],
+                &var_name[pos + "_node".len()..]
+            ),
+            None => format!("{var_name}_content"),
+        };
         ctx.fields
             .push((field.clone(), "Vec<u8>".to_string(), false));
         return vec![format!(
@@ -772,10 +786,11 @@ fn emit_node_content(
 }
 
 /// Decode an even-length hex string (`"00"`, `"0a1b"`) to its bytes. Returns `None`
-/// for malformed input so a bad `const_bytes` degrades to no content rather than
-/// panicking codegen.
+/// for malformed input (odd length, non-ASCII, or a non-hex digit) so a bad
+/// `const_bytes` degrades to no content rather than panicking codegen. The
+/// `is_ascii` gate also keeps the byte-index slicing below on char boundaries.
 fn decode_hex(s: &str) -> Option<Vec<u8>> {
-    if s.len() % 2 != 0 {
+    if s.len() % 2 != 0 || !s.is_ascii() {
         return None;
     }
     (0..s.len())
@@ -1394,6 +1409,64 @@ mod tests {
                 "Vec<u8>".to_string(),
                 false
             )]
+        );
+    }
+
+    #[test]
+    fn dynamic_content_field_renames_only_the_terminal_node_segment() {
+        use wa_ir::{WapContent, WapContentKind};
+        // A tag whose own name contains `_node` must not corrupt the field name: the
+        // var `node_id_node` yields `node_id_content`, not `node_content_node`.
+        let node = WapChildNode {
+            tag: "node_id".into(),
+            attrs: vec![],
+            children: vec![],
+            content: Some(WapContent {
+                kind: WapContentKind::Bytes,
+                byte_length: Some(8),
+                ..Default::default()
+            }),
+            repeats: false,
+            variant_groups: vec![],
+        };
+        let (mut enums, mut fields) = (Vec::new(), Vec::new());
+        let mut ctx = VariantCtx {
+            spec_base: "T",
+            enum_defs: &mut enums,
+            fields: &mut fields,
+        };
+        emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
+        assert_eq!(fields[0].0, "node_id_content");
+    }
+
+    #[test]
+    fn malformed_const_bytes_emits_nothing_and_adds_no_field() {
+        use wa_ir::{WapContent, WapContentKind};
+        // A `const_bytes` that can't be decoded degrades to no content — it must not
+        // fall through and be turned into a caller-supplied `Vec<u8>` field.
+        let node = WapChildNode {
+            tag: "nonce".into(),
+            attrs: vec![],
+            children: vec![],
+            content: Some(WapContent {
+                kind: WapContentKind::Bytes,
+                const_bytes: Some("zz".into()), // not hex
+                ..Default::default()
+            }),
+            repeats: false,
+            variant_groups: vec![],
+        };
+        let (mut enums, mut fields) = (Vec::new(), Vec::new());
+        let mut ctx = VariantCtx {
+            spec_base: "T",
+            enum_defs: &mut enums,
+            fields: &mut fields,
+        };
+        let (lines, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
+        assert!(fields.is_empty(), "no spec field for a malformed constant");
+        assert!(
+            !lines.join("\n").contains(".bytes("),
+            "no content emitted for a malformed constant"
         );
     }
 }

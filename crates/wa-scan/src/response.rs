@@ -816,4 +816,23 @@ mod tests {
         }), 1);"#;
         assert!(parse_module_wap_parsers(module).is_empty());
     }
+
+    #[test]
+    fn variable_name_reused_in_another_function_is_not_mislabeled() {
+        // The binding lookup is module-wide, so a short name reused in an unrelated
+        // function with a DIFFERENT value makes it ambiguous. The uniqueness guard
+        // then refuses to guess (the parser is dropped) — the point being that a
+        // reused name can never attach the WRONG label, only degrade to none.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function build(){ var d="mexNotificationParser"; return new(r("WADeprecatedWapParser"))(d,function(e){ return { id: e.attrString("id") }; }); }
+            function other(){ var d="unrelatedLabel"; return d; }
+            l.p=build(), l.o=other;
+        }), 1);"#;
+        // No parser is ever produced with the wrong `"unrelatedLabel"` name.
+        assert!(
+            parse_module_wap_parsers(module)
+                .iter()
+                .all(|p| p.parser_name != "unrelatedLabel")
+        );
+    }
 }

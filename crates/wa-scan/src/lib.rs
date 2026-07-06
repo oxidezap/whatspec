@@ -209,9 +209,20 @@ pub fn scan_iq_with_diagnostics(
     // Attach a send-site parser to any request left with the `unknown` fallback
     // (the module built an `<iq>` but defined no inline parser and had no smax
     // response) — e.g. `WAWebQueryMediaConnsJob`'s `<media_conn>` response, parsed
-    // from `o("WAMediaConnParser").mediaConnParser`.
+    // from `o("WAMediaConnParser").mediaConnParser`. The send-site index records one
+    // parser per module, so only attach when the module has a SINGLE unknown stanza:
+    // with two, we can't tell which `<iq>` the (first-found) send site accompanied,
+    // so both are left unknown rather than both guessing the same shape.
+    let mut unknown_per_module: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::new();
+    for s in &stanzas {
+        if s.response.parser_name == "unknown" {
+            *unknown_per_module.entry(s.module_name.clone()).or_default() += 1;
+        }
+    }
     for s in &mut stanzas {
         if s.response.parser_name == "unknown"
+            && unknown_per_module.get(&s.module_name) == Some(&1)
             && let Some(resp) = send_parsers.get(&s.module_name)
         {
             s.response = resp.clone();
