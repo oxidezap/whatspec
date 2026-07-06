@@ -7,8 +7,8 @@ message ADVDeviceIdentity {
   optional uint32 rawId = 1;
   optional uint64 timestamp = 2;
   optional uint32 keyIndex = 3;
-  optional ADVEncryptionType accountType = 4;
-  optional ADVEncryptionType deviceType = 5;
+  optional ADVEncryptionType accountType = 4 [default = E2EE];
+  optional ADVEncryptionType deviceType = 5 [default = E2EE];
 }
 
 enum ADVEncryptionType {
@@ -21,7 +21,7 @@ message ADVKeyIndexList {
   optional uint64 timestamp = 2;
   optional uint32 currentIndex = 3;
   repeated uint32 validIndexes = 4 [packed = true];
-  optional ADVEncryptionType accountType = 5;
+  optional ADVEncryptionType accountType = 5 [default = E2EE];
 }
 
 message ADVSignedDeviceIdentity {
@@ -34,7 +34,7 @@ message ADVSignedDeviceIdentity {
 message ADVSignedDeviceIdentityHMAC {
   optional bytes details = 1;
   optional bytes hmac = 2;
-  optional ADVEncryptionType accountType = 3;
+  optional ADVEncryptionType accountType = 3 [default = E2EE];
 }
 
 message ADVSignedKeyIndexList {
@@ -1808,11 +1808,11 @@ message ContextInfo {
   }
 
   message FeatureEligibilities {
-    optional bool cannotBeReactedTo = 1;
-    optional bool cannotBeRanked = 2;
-    optional bool canRequestFeedback = 3;
-    optional bool canBeReshared = 4;
-    optional bool canReceiveMultiReact = 5;
+    optional bool cannotBeReactedTo = 1 [default = false];
+    optional bool cannotBeRanked = 2 [default = false];
+    optional bool canRequestFeedback = 3 [default = false];
+    optional bool canBeReshared = 4 [default = false];
+    optional bool canReceiveMultiReact = 5 [default = false];
   }
 
   enum ForwardOrigin {
@@ -2048,8 +2048,8 @@ message DeviceListMetadata {
   optional bytes senderKeyHash = 1;
   optional uint64 senderTimestamp = 2;
   repeated uint32 senderKeyIndexes = 3 [packed = true];
-  optional ADVEncryptionType senderAccountType = 4;
-  optional ADVEncryptionType receiverAccountType = 5;
+  optional ADVEncryptionType senderAccountType = 4 [default = E2EE];
+  optional ADVEncryptionType receiverAccountType = 5 [default = E2EE];
   optional bytes recipientKeyHash = 8;
   optional uint64 recipientTimestamp = 9;
   repeated uint32 recipientKeyIndexes = 10 [packed = true];
@@ -2273,7 +2273,7 @@ enum FUTURE_PROOF_BEHAVIOR {
   IGNORE = 2;
 }
 message Field {
-  optional uint32 minVersion = 1;
+  optional uint32 minVersion = 1 [default = 1];
   optional uint32 maxVersion = 2;
   optional uint32 notReportableMinVersion = 3;
   optional bool isMessage = 4;
@@ -2622,7 +2622,7 @@ message LegacyMessage {
 
 message LimitSharing {
   optional bool sharingLimited = 1;
-  optional TriggerType trigger = 2;
+  optional TriggerType trigger = 2 [default = UNKNOWN];
   optional int64 limitSharingSettingTimestamp = 3;
   optional bool initiatedByMe = 4;
   enum TriggerType {
@@ -3447,8 +3447,8 @@ message Message {
 
     message CarouselMessage {
       repeated Message.InteractiveMessage cards = 1;
-      optional int32 messageVersion = 2;
-      optional CarouselCardType carouselCardType = 3;
+      optional int32 messageVersion = 2 [default = 1];
+      optional CarouselCardType carouselCardType = 3 [default = HSCROLL_CARDS];
       enum CarouselCardType {
         UNKNOWN = 0;
         HSCROLL_CARDS = 1;
@@ -3459,7 +3459,7 @@ message Message {
     message CollectionMessage {
       optional string bizJid = 1;
       optional string id = 2;
-      optional int32 messageVersion = 3;
+      optional int32 messageVersion = 3 [default = 1];
     }
 
     message Footer {
@@ -3488,7 +3488,7 @@ message Message {
     message NativeFlowMessage {
       repeated NativeFlowButton buttons = 1;
       optional string messageParamsJson = 2;
-      optional int32 messageVersion = 3;
+      optional int32 messageVersion = 3 [default = 1];
       message NativeFlowButton {
         optional string name = 1;
         optional string buttonParamsJson = 2;
@@ -3498,7 +3498,7 @@ message Message {
     message ShopMessage {
       optional string id = 1;
       optional Surface surface = 2;
-      optional int32 messageVersion = 3;
+      optional int32 messageVersion = 3 [default = 1];
       enum Surface {
         UNKNOWN_SURFACE = 0;
         FB = 1;
@@ -3516,7 +3516,7 @@ message Message {
     }
     message Body {
       optional string text = 1;
-      optional Format format = 2;
+      optional Format format = 2 [default = DEFAULT];
       enum Format {
         DEFAULT = 0;
         EXTENSIONS_1 = 1;
@@ -3526,7 +3526,7 @@ message Message {
     message NativeFlowResponseMessage {
       optional string name = 1;
       optional string paramsJson = 2;
-      optional int32 version = 3;
+      optional int32 version = 3 [default = 1];
     }
   }
 
@@ -3726,7 +3726,7 @@ message Message {
     optional int64 totalAmount1000 = 10;
     optional string totalCurrencyCode = 11;
     optional ContextInfo contextInfo = 17;
-    optional int32 messageVersion = 12;
+    optional int32 messageVersion = 12 [default = 1];
     optional MessageKey orderRequestMessageId = 13;
     optional string catalogType = 15;
     enum OrderStatus {
@@ -4532,7 +4532,7 @@ message MessageAddOn {
   optional Message messageAddOn = 2;
   optional int64 senderTimestampMs = 3;
   optional int64 serverTimestampMs = 4;
-  optional WebMessageInfo.Status status = 5;
+  optional WebMessageInfo.Status status = 5 [default = PENDING];
   optional MessageAddOnContextInfo addOnContextInfo = 6;
   optional MessageKey messageAddOnKey = 7;
   optional LegacyMessage legacyMessage = 8;
@@ -5162,7 +5162,7 @@ message RecordStructure {
 }
 
 message Reportable {
-  optional uint32 minVersion = 1;
+  optional uint32 minVersion = 1 [default = 1];
   optional uint32 maxVersion = 2;
   optional uint32 notReportableMinVersion = 3;
   optional bool never = 4;
@@ -5175,9 +5175,9 @@ message ReportingTokenInfo {
 message RoutingInfo {
   repeated int32 regionId = 1;
   repeated int32 clusterId = 2;
-  optional int32 taskId = 3;
-  optional bool debug = 4;
-  optional bool tcpBbr = 5;
+  optional int32 taskId = 3 [default = -1];
+  optional bool debug = 4 [default = false];
+  optional bool tcpBbr = 5 [default = false];
   optional bool tcpKeepalive = 6;
 }
 
@@ -6420,7 +6420,7 @@ message WebMessageInfo {
   required MessageKey key = 1;
   optional Message message = 2;
   optional uint64 messageTimestamp = 3;
-  optional Status status = 4;
+  optional Status status = 4 [default = PENDING];
   optional string participant = 5;
   optional uint64 messageC2STimestamp = 6;
   optional bool ignore = 16;

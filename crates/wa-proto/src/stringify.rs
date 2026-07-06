@@ -86,8 +86,29 @@ fn member_lines(member: &ProtoMember) -> Vec<String> {
 fn field_line(f: &ProtoField) -> String {
     let flags = f.flags.join(" ");
     let sep = if f.flags.is_empty() { "" } else { " " };
-    let packed = if f.packed { " [packed = true]" } else { "" };
-    format!("{flags}{sep}{} {} = {}{packed};", f.type_name, f.name, f.id)
+    let mut opts: Vec<String> = Vec::new();
+    if f.packed {
+        opts.push("packed = true".to_string());
+    }
+    if let Some(d) = &f.default {
+        // A proto2 `string` default is quoted; enum/bool/numeric defaults are bare.
+        // (packed and default never co-occur — packed is for repeated scalars, defaults
+        // for singular optionals — but the joined-options form handles either alone.)
+        if f.type_name == "string" {
+            opts.push(format!("default = \"{d}\""));
+        } else {
+            opts.push(format!("default = {d}"));
+        }
+    }
+    let options = if opts.is_empty() {
+        String::new()
+    } else {
+        format!(" [{}]", opts.join(", "))
+    };
+    format!(
+        "{flags}{sep}{} {} = {}{options};",
+        f.type_name, f.name, f.id
+    )
 }
 
 /// Prefix every non-empty line with one indent level. Blank lines stay empty
@@ -117,7 +138,53 @@ mod tests {
             type_name: ftype.to_string(),
             flags: flags.iter().map(|s| s.to_string()).collect(),
             packed,
+            default: None,
         })
+    }
+
+    #[test]
+    fn emits_proto2_defaults() {
+        fn defaulted(name: &str, ftype: &str, id: i64, default: &str) -> ProtoMember {
+            ProtoMember::Field(ProtoField {
+                name: name.to_string(),
+                id,
+                type_name: ftype.to_string(),
+                flags: vec!["optional".to_string()],
+                packed: false,
+                default: Some(default.to_string()),
+            })
+        }
+        let file = ProtoFile {
+            wa_version: "1".to_string(),
+            entities: vec![ProtoEntity::Message(ProtoMessage {
+                name: "M".to_string(),
+                members: vec![
+                    defaulted("accountType", "ADVEncryptionType", 1, "E2EE"),
+                    defaulted("count", "int32", 2, "1"),
+                    defaulted("flag", "bool", 3, "false"),
+                    defaulted("label", "string", 4, "hi"),
+                ],
+                nested: vec![],
+            })],
+        };
+        let out = stringify(&file);
+        // enum / int / bool defaults are bare; a `string` default is quoted.
+        assert!(
+            out.contains("optional ADVEncryptionType accountType = 1 [default = E2EE];"),
+            "{out}"
+        );
+        assert!(
+            out.contains("optional int32 count = 2 [default = 1];"),
+            "{out}"
+        );
+        assert!(
+            out.contains("optional bool flag = 3 [default = false];"),
+            "{out}"
+        );
+        assert!(
+            out.contains(r#"optional string label = 4 [default = "hi"];"#),
+            "{out}"
+        );
     }
 
     #[test]
@@ -209,6 +276,7 @@ message ADVKeyIndexList {\n\
                                 type_name: "string".to_string(),
                                 flags: vec![],
                                 packed: false,
+                                default: None,
                             },
                             ProtoField {
                                 name: "num".to_string(),
@@ -216,6 +284,7 @@ message ADVKeyIndexList {\n\
                                 type_name: "int32".to_string(),
                                 flags: vec![],
                                 packed: false,
+                                default: None,
                             },
                         ],
                     }),

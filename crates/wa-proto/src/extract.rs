@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
     ArrayExpression, AssignmentExpression, BinaryExpression, BinaryOperator, Expression,
-    ObjectExpression, ObjectPropertyKind, VariableDeclarator,
+    ObjectExpression, ObjectPropertyKind, UnaryOperator, VariableDeclarator,
 };
 use oxc_ast_visit::{Visit, walk};
 use wa_ir::{
@@ -59,6 +59,7 @@ const TYPE_SUFFIX: &str = "Type";
 
 const FLAG_PACKED: &str = "packed";
 const FLAG_OPTIONAL: &str = "optional";
+const FLAG_REPEATED: &str = "repeated";
 
 // ─── Name helpers ─────────────────────────────────────────────────────────────
 
@@ -118,6 +119,8 @@ struct Ident {
     alias: Option<String>,
     enum_values: Option<Vec<ProtoEnumValue>>,
     members: Option<Vec<MemberDesc>>,
+    /// field name → proto2 default token, from `X.internalDefaults = {...}`.
+    defaults: HashMap<String, String>,
 }
 
 #[derive(Default)]
@@ -126,6 +129,8 @@ struct ModuleInfo {
     identifiers: HashMap<String, Ident>,
     /// `(target_alias, members)` captured from `X.internalSpec = {...}`.
     specs: Vec<(String, Vec<MemberDesc>)>,
+    /// `(target_alias, field→default)` captured from `X.internalDefaults = {...}`.
+    defaults: Vec<(String, HashMap<String, String>)>,
     enum_aliases: HashMap<String, Vec<ProtoEnumValue>>,
     alias_matches: Vec<(String, String)>, // (renamed key, alias)
     ident_order: Vec<String>,
@@ -200,6 +205,12 @@ pub fn extract_proto_from_modules(
         contents.visit_program(&ret.program);
         info.specs = contents.specs;
 
+        let mut defaults = DefaultsCollector {
+            defaults: Vec::new(),
+        };
+        defaults.visit_program(&ret.program);
+        info.defaults = defaults.defaults;
+
         modules.insert(def.name.clone(), info);
     }
 
@@ -247,6 +258,21 @@ pub fn extract_proto_from_modules(
                 .map(|(k, _)| k.clone())
             {
                 info.identifiers.get_mut(&key).unwrap().members = Some(members);
+            }
+        }
+    }
+
+    // Attach proto2 field defaults to their target identifier (same alias match).
+    for info in modules.values_mut() {
+        let defaults = std::mem::take(&mut info.defaults);
+        for (target_alias, map) in defaults {
+            if let Some(key) = info
+                .identifiers
+                .iter()
+                .find(|(_, v)| v.alias.as_deref() == Some(target_alias.as_str()))
+                .map(|(k, _)| k.clone())
+            {
+                info.identifiers.get_mut(&key).unwrap().defaults = map;
             }
         }
     }
@@ -554,7 +580,7 @@ fn build_entity(
         // A message. Resolve members, then attach nested children (sorted).
         let proto_members = members
             .iter()
-            .map(|m| resolve_member(m, &ident.name, info, modules, indent_map))
+            .map(|m| resolve_member(m, &ident.name, &ident.defaults, info, modules, indent_map))
             .collect();
 
         let mut nested = Vec::new();
@@ -589,6 +615,7 @@ fn build_entity(
 fn resolve_member(
     m: &MemberDesc,
     parent_name: &str,
+    defaults: &HashMap<String, String>,
     info: &ModuleInfo,
     modules: &HashMap<String, ModuleInfo>,
     indent_map: &HashMap<String, Indent>,
@@ -596,10 +623,11 @@ fn resolve_member(
     match m {
         MemberDesc::OneOf { name, fields } => {
             // oneof fields carry no auto-`optional` and no parent context, so
-            // nested types are always fully qualified.
+            // nested types are always fully qualified. proto2 forbids defaults on
+            // oneof fields, so pass an empty map (also enforced by `message_member`).
             let fields = fields
                 .iter()
-                .map(|f| build_field(f, None, false, info, modules, indent_map))
+                .map(|f| build_field(f, None, false, &HashMap::new(), info, modules, indent_map))
                 .collect();
             ProtoMember::OneOf(ProtoOneOf {
                 name: name.clone(),
@@ -610,6 +638,7 @@ fn resolve_member(
             f,
             Some(parent_name),
             true,
+            defaults,
             info,
             modules,
             indent_map,
@@ -621,6 +650,7 @@ fn build_field(
     f: &FieldDesc,
     parent_name: Option<&str>,
     message_member: bool,
+    defaults: &HashMap<String, String>,
     info: &ModuleInfo,
     modules: &HashMap<String, ModuleInfo>,
     indent_map: &HashMap<String, Indent>,
@@ -638,12 +668,20 @@ fn build_field(
         flags.push(FLAG_OPTIONAL.to_string());
     }
 
+    // A proto2 default applies only to a singular message field — never a oneof
+    // member (`message_member` is false there) nor a `repeated` field (protoc rejects
+    // that). All of WA's `internalDefaults` target singular optional fields.
+    let default = (message_member && !flags.iter().any(|fl| fl == FLAG_REPEATED))
+        .then(|| defaults.get(&f.name).cloned())
+        .flatten();
+
     ProtoField {
         name: f.name.clone(),
         id: f.id,
         type_name,
         flags,
         packed,
+        default,
     }
 }
 
@@ -841,6 +879,77 @@ impl<'a> Visit<'a> for ContentsCollector {
                 .push((obj_name.to_string(), parse_internal_spec(obj)));
         }
         walk::walk_assignment_expression(self, n);
+    }
+}
+
+/// Captures `X.internalDefaults = { field: <defaultExpr>, … }` — the proto2
+/// per-field defaults, keyed (like `internalSpec`) by the message's alias `X`.
+struct DefaultsCollector {
+    defaults: Vec<(String, HashMap<String, String>)>,
+}
+impl<'a> Visit<'a> for DefaultsCollector {
+    fn visit_assignment_expression(&mut self, n: &AssignmentExpression<'a>) {
+        if let Some(member) = n.left.as_member_expression()
+            && member.static_property_name() == Some(PROP_INTERNAL_DEFAULTS)
+            && let (Some(obj_name), Expression::ObjectExpression(obj)) =
+                (as_identifier(member.object()), &n.right)
+        {
+            self.defaults
+                .push((obj_name.to_string(), parse_defaults(obj)));
+        }
+        walk::walk_assignment_expression(self, n);
+    }
+}
+
+/// Parse an `internalDefaults` object into `field → proto2 default token`, dropping
+/// any value whose expression shape isn't a recognized default (see [`resolve_default`]).
+fn parse_defaults(obj: &ObjectExpression) -> HashMap<String, String> {
+    let mut out = HashMap::new();
+    for prop in &obj.properties {
+        if let ObjectPropertyKind::ObjectProperty(p) = prop
+            && let Some(key) = property_key_name(&p.key)
+            && let Some(value) = resolve_default(&p.value)
+        {
+            out.insert(key.to_string(), value);
+        }
+    }
+    out
+}
+
+/// Resolve a single `internalDefaults` value to its proto2 default token. WA declares
+/// these as an enum-variant member (`s.E2EE` / `c.Foo.E2EE` → the variant name), a
+/// numeric literal (`1`), a negated number (`-1`), or a boolean written `!1`/`!0`.
+/// Returns `None` for anything else (which then emits no default, never a wrong one).
+fn resolve_default(expr: &Expression) -> Option<String> {
+    // An enum default references a variant: the bare last property name is the token.
+    if let Some(member) = expr.as_member_expression() {
+        return member.static_property_name().map(str::to_string);
+    }
+    match expr {
+        Expression::NumericLiteral(n) => Some(format_number(n.value)),
+        Expression::BooleanLiteral(b) => Some(b.value.to_string()),
+        Expression::StringLiteral(s) => Some(s.value.to_string()),
+        Expression::UnaryExpression(u) => {
+            let Expression::NumericLiteral(n) = &u.argument else {
+                return None;
+            };
+            match u.operator {
+                // `!1` → false, `!0` → true (JS truthiness of the numeric operand).
+                UnaryOperator::LogicalNot => Some((n.value == 0.0).to_string()),
+                UnaryOperator::UnaryNegation => Some(format!("-{}", format_number(n.value))),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Render a numeric default without a spurious `.0` (WA's numeric defaults are integers).
+fn format_number(v: f64) -> String {
+    if v.fract() == 0.0 && v.abs() < 9.007_199_254_740_992e15 {
+        (v as i64).to_string()
+    } else {
+        v.to_string()
     }
 }
 
@@ -1100,6 +1209,44 @@ mod tests {
     fn empty_or_non_proto_source() {
         let out = stringify(&extract_proto("var x = 1;", "2.3000.1"));
         assert!(!out.contains("message "));
+    }
+
+    // `internalDefaults` across every value shape WA uses: enum variant (`s.ON`), a
+    // `!1` boolean, an int, and a negative int. A oneof member's default is dropped
+    // (proto2 forbids oneof defaults).
+    const DEFAULTS: &str = r#"__d("ModD.pb",["$InternalEnum","WAProtoConst"],(function(t,n,r,o,a,i,l){
+        var e, s=n("$InternalEnum")({UNKNOWN:0,ON:1}), u={};
+        u.internalDefaults={mode:s.ON,flag:!1,count:5,delta:-1,pick:s.ON};
+        u.name="Thing";
+        u.internalSpec={mode:[1,(e=r("WAProtoConst")).TYPES.ENUM,s],flag:[2,e.TYPES.BOOL],count:[3,e.TYPES.INT32],delta:[4,e.TYPES.INT32],pick:[5,e.TYPES.ENUM,s],__oneofs__:{choice:["pick"]}};
+        l.Mode=s,l.ThingSpec=u;
+    }),1);"#;
+
+    #[test]
+    fn recovers_internal_defaults() {
+        let out = stringify(&extract_proto(DEFAULTS, "2.3000.1"));
+        assert!(
+            out.contains("optional Mode mode = 1 [default = ON];"),
+            "{out}"
+        );
+        assert!(
+            out.contains("optional bool flag = 2 [default = false];"),
+            "{out}"
+        );
+        assert!(
+            out.contains("optional int32 count = 3 [default = 5];"),
+            "{out}"
+        );
+        assert!(
+            out.contains("optional int32 delta = 4 [default = -1];"),
+            "{out}"
+        );
+        // `pick` is a oneof member → no default (proto2 forbids it).
+        assert!(out.contains("Mode pick = 5;"), "{out}");
+        assert!(
+            !out.contains("pick = 5 [default"),
+            "oneof field must not carry a default: {out}"
+        );
     }
 
     // Same type exported by two differently-named modules (a legacy + a `…V3`

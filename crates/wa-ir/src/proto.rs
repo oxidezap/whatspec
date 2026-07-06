@@ -69,6 +69,12 @@ pub struct ProtoField {
     pub flags: Vec<String>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub packed: bool,
+    /// The proto2 `[default = X]` value, when the message declares one for this field
+    /// (from WA's `internalDefaults`). The semantic token: an enum variant name
+    /// (`E2EE`), `true`/`false`, or a number. `None` when no default is declared.
+    /// A consumer emits `[default = <default>]` (quoting it only for a `string` field).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
