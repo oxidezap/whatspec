@@ -227,7 +227,18 @@
             "method": "maybeAttrString",
             "name": "type",
             "type": "string",
-            "required": false
+            "required": false,
+            "enumKeys": [
+              "delivery",
+              "read",
+              "played",
+              "inactive",
+              "server-error",
+              "sender",
+              "read-self",
+              "played-self",
+              "peer_msg"
+            ]
           },
           {
             "method": "maybeChild",
@@ -256,7 +267,66 @@
             "type": "string",
             "required": false,
             "tag": "participants",
-            "children": []
+            "children": [
+              {
+                "method": "forEachChildWithTag",
+                "name": "user",
+                "type": "string",
+                "required": true,
+                "tag": "user",
+                "children": [
+                  {
+                    "method": "attrDeviceJid",
+                    "name": "jid",
+                    "type": "device_jid",
+                    "required": true
+                  },
+                  {
+                    "method": "attrTime",
+                    "name": "t",
+                    "type": "integer",
+                    "required": true
+                  },
+                  {
+                    "method": "maybeAttrString",
+                    "name": "type",
+                    "type": "string",
+                    "required": false
+                  },
+                  {
+                    "method": "maybeAttrEnum",
+                    "name": "type",
+                    "type": "string",
+                    "required": false
+                  },
+                  {
+                    "method": "attrUserJid",
+                    "name": "participant_pn",
+                    "type": "user_jid",
+                    "required": true
+                  },
+                  {
+                    "method": "maybeAttrString",
+                    "name": "participant_username",
+                    "type": "string",
+                    "required": false
+                  }
+                ],
+                "repeats": true
+              },
+              {
+                "method": "attrString",
+                "name": "message_id",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "attrString",
+                "name": "key",
+                "type": "string",
+                "required": true
+              }
+            ]
           }
         ]
       }
