@@ -92,12 +92,16 @@ fn field_line(f: &ProtoField) -> String {
     }
     if let Some(d) = &f.default {
         // A proto2 `string`/`bytes` default is a quoted string literal; enum/bool/numeric
-        // defaults are bare. (No WA field currently has a bytes default, but quoting it
-        // keeps a future one valid rather than emitting `[default = x]` that protoc rejects.)
-        // (packed and default never co-occur — packed is for repeated scalars, defaults
-        // for singular optionals — but the joined-options form handles either alone.)
+        // defaults are bare. (No WA field currently has a string/bytes default, but the
+        // handling keeps a future one valid rather than emitting a bare `[default = x]`
+        // that protoc rejects.) (packed and default never co-occur — packed is for
+        // repeated scalars, defaults for singular optionals — but the joined-options form
+        // handles either alone.)
         if f.type_name == "string" || f.type_name == "bytes" {
-            opts.push(format!("default = \"{d}\""));
+            // Escape the proto2 string literal (backslashes before quotes) so a default
+            // containing `"` or `\` stays valid `.proto` instead of terminating the string.
+            let escaped = d.replace('\\', "\\\\").replace('"', "\\\"");
+            opts.push(format!("default = \"{escaped}\""));
         } else {
             opts.push(format!("default = {d}"));
         }
@@ -165,6 +169,8 @@ mod tests {
                     defaulted("count", "int32", 2, "1"),
                     defaulted("flag", "bool", 3, "false"),
                     defaulted("label", "string", 4, "hi"),
+                    // A string default with a backslash and a quote must be proto-escaped.
+                    defaulted("path", "string", 5, "a\\b\"c"),
                 ],
                 nested: vec![],
             })],
@@ -181,6 +187,11 @@ mod tests {
         );
         assert!(
             out.contains("optional bool flag = 3 [default = false];"),
+            "{out}"
+        );
+        // A string default with a backslash and a quote is escaped into a valid literal.
+        assert!(
+            out.contains("optional string path = 5 [default = \"a\\\\b\\\"c\"];"),
             "{out}"
         );
         assert!(
