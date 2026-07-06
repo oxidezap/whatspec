@@ -3553,28 +3553,6 @@
       }
     },
     {
-      "moduleName": "WASmaxOutBotBotListIQMixin",
-      "namespace": "bot",
-      "iqType": "get",
-      "target": "s.whatsapp.net",
-      "parserName": "unknown",
-      "exportedFunction": "mergeBotListIQMixin",
-      "allExports": [
-        "mergeBotListIQMixin"
-      ],
-      "request": {
-        "namespace": "bot",
-        "iqType": "get",
-        "target": "s.whatsapp.net",
-        "children": []
-      },
-      "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
-      }
-    },
-    {
       "moduleName": "WAWebQueryDisappearingModeJob",
       "namespace": "disappearing_mode",
       "iqType": "get",
@@ -26560,108 +26538,6 @@
       }
     },
     {
-      "moduleName": "WASmaxOutNewslettersNewsletterIQGetRequestMixin",
-      "namespace": "newsletter",
-      "iqType": "get",
-      "target": "s.whatsapp.net",
-      "parserName": "unknown",
-      "exportedFunction": "mergeNewsletterIQGetRequestMixin",
-      "allExports": [
-        "mergeNewsletterIQGetRequestMixin"
-      ],
-      "request": {
-        "namespace": "newsletter",
-        "iqType": "get",
-        "target": "s.whatsapp.net",
-        "children": []
-      },
-      "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
-      }
-    },
-    {
-      "moduleName": "WASmaxOutNewslettersNewsletterMessageRequestIQPayloadMixin",
-      "namespace": "newsletter",
-      "iqType": "get",
-      "target": "s.whatsapp.net",
-      "parserName": "unknown",
-      "exportedFunction": "mergeNewsletterMessageRequestIQPayloadMixin",
-      "allExports": [
-        "mergeNewsletterMessageRequestIQPayloadMixin"
-      ],
-      "request": {
-        "namespace": "newsletter",
-        "iqType": "get",
-        "target": "s.whatsapp.net",
-        "children": [
-          {
-            "tag": "messages",
-            "attrs": [],
-            "children": [],
-            "repeats": false
-          }
-        ]
-      },
-      "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
-      }
-    },
-    {
-      "moduleName": "WASmaxOutNewslettersNewsletterStatusRequestIQPayloadMixin",
-      "namespace": "newsletter",
-      "iqType": "get",
-      "target": "s.whatsapp.net",
-      "parserName": "unknown",
-      "exportedFunction": "mergeNewsletterStatusRequestIQPayloadMixin",
-      "allExports": [
-        "mergeNewsletterStatusRequestIQPayloadMixin"
-      ],
-      "request": {
-        "namespace": "newsletter",
-        "iqType": "get",
-        "target": "s.whatsapp.net",
-        "children": [
-          {
-            "tag": "statuses",
-            "attrs": [],
-            "children": [],
-            "repeats": false
-          }
-        ]
-      },
-      "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
-      }
-    },
-    {
-      "moduleName": "WASmaxOutNewslettersSelfIQGetRequestMixin",
-      "namespace": "newsletter",
-      "iqType": "get",
-      "target": "s.whatsapp.net",
-      "parserName": "unknown",
-      "exportedFunction": "mergeSelfIQGetRequestMixin",
-      "allExports": [
-        "mergeSelfIQGetRequestMixin"
-      ],
-      "request": {
-        "namespace": "newsletter",
-        "iqType": "get",
-        "target": "s.whatsapp.net",
-        "children": []
-      },
-      "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
-      }
-    },
-    {
       "moduleName": "WASmaxOutNewslettersSubscribeToLiveUpdatesRequest",
       "namespace": "newsletter",
       "iqType": "set",
@@ -27052,28 +26928,6 @@
             ]
           }
         ]
-      }
-    },
-    {
-      "moduleName": "WASmaxOutNewslettersNewsletterIQSetRequestMixin",
-      "namespace": "newsletter",
-      "iqType": "set",
-      "target": "s.whatsapp.net",
-      "parserName": "unknown",
-      "exportedFunction": "mergeNewsletterIQSetRequestMixin",
-      "allExports": [
-        "mergeNewsletterIQSetRequestMixin"
-      ],
-      "request": {
-        "namespace": "newsletter",
-        "iqType": "set",
-        "target": "s.whatsapp.net",
-        "children": []
-      },
-      "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
       }
     },
     {
@@ -28906,28 +28760,6 @@
             ]
           }
         ]
-      }
-    },
-    {
-      "moduleName": "WASmaxOutPrivacyGetIQMixin",
-      "namespace": "privacy",
-      "iqType": "get",
-      "target": "s.whatsapp.net",
-      "parserName": "unknown",
-      "exportedFunction": "mergeGetIQMixin",
-      "allExports": [
-        "mergeGetIQMixin"
-      ],
-      "request": {
-        "namespace": "privacy",
-        "iqType": "get",
-        "target": "s.whatsapp.net",
-        "children": []
-      },
-      "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
       }
     },
     {
@@ -33446,28 +33278,6 @@
             ]
           }
         ]
-      }
-    },
-    {
-      "moduleName": "WASmaxOutAccountSetIQMixin",
-      "namespace": "urn:xmpp:whatsapp:account",
-      "iqType": "set",
-      "target": "s.whatsapp.net",
-      "parserName": "unknown",
-      "exportedFunction": "mergeSetIQMixin",
-      "allExports": [
-        "mergeSetIQMixin"
-      ],
-      "request": {
-        "namespace": "urn:xmpp:whatsapp:account",
-        "iqType": "set",
-        "target": "s.whatsapp.net",
-        "children": []
-      },
-      "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
       }
     },
     {
@@ -56221,50 +56031,6 @@
       }
     },
     {
-      "moduleName": "WASmaxOutGroupsBaseGetGroupMixin",
-      "namespace": "w:g2",
-      "iqType": "get",
-      "target": "s.whatsapp.net",
-      "parserName": "unknown",
-      "exportedFunction": "mergeBaseGetGroupMixin",
-      "allExports": [
-        "mergeBaseGetGroupMixin"
-      ],
-      "request": {
-        "namespace": "w:g2",
-        "iqType": "get",
-        "target": "s.whatsapp.net",
-        "children": []
-      },
-      "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
-      }
-    },
-    {
-      "moduleName": "WASmaxOutGroupsBaseGetServerMixin",
-      "namespace": "w:g2",
-      "iqType": "get",
-      "target": "s.whatsapp.net",
-      "parserName": "unknown",
-      "exportedFunction": "mergeBaseGetServerMixin",
-      "allExports": [
-        "mergeBaseGetServerMixin"
-      ],
-      "request": {
-        "namespace": "w:g2",
-        "iqType": "get",
-        "target": "s.whatsapp.net",
-        "children": []
-      },
-      "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
-      }
-    },
-    {
       "moduleName": "WAWebQueryGroupInviteProfilePicApi",
       "namespace": "w:g2",
       "iqType": "get",
@@ -75204,50 +74970,6 @@
       }
     },
     {
-      "moduleName": "WASmaxOutGroupsBaseSetGroupMixin",
-      "namespace": "w:g2",
-      "iqType": "set",
-      "target": "s.whatsapp.net",
-      "parserName": "unknown",
-      "exportedFunction": "mergeBaseSetGroupMixin",
-      "allExports": [
-        "mergeBaseSetGroupMixin"
-      ],
-      "request": {
-        "namespace": "w:g2",
-        "iqType": "set",
-        "target": "s.whatsapp.net",
-        "children": []
-      },
-      "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
-      }
-    },
-    {
-      "moduleName": "WASmaxOutGroupsBaseSetServerMixin",
-      "namespace": "w:g2",
-      "iqType": "set",
-      "target": "s.whatsapp.net",
-      "parserName": "unknown",
-      "exportedFunction": "mergeBaseSetServerMixin",
-      "allExports": [
-        "mergeBaseSetServerMixin"
-      ],
-      "request": {
-        "namespace": "w:g2",
-        "iqType": "set",
-        "target": "s.whatsapp.net",
-        "children": []
-      },
-      "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
-      }
-    },
-    {
       "moduleName": "WAWebGroupInviteJob",
       "namespace": "w:g2",
       "iqType": "set",
@@ -75861,28 +75583,6 @@
       }
     },
     {
-      "moduleName": "WASmaxOutBrPaymentSetIQMixin",
-      "namespace": "w:pay",
-      "iqType": "set",
-      "target": "s.whatsapp.net",
-      "parserName": "unknown",
-      "exportedFunction": "mergeSetIQMixin",
-      "allExports": [
-        "mergeSetIQMixin"
-      ],
-      "request": {
-        "namespace": "w:pay",
-        "iqType": "set",
-        "target": "s.whatsapp.net",
-        "children": []
-      },
-      "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
-      }
-    },
-    {
       "moduleName": "WASmaxOutProfilePictureGetRequest",
       "namespace": "w:profile:picture",
       "iqType": "get",
@@ -76486,28 +76186,6 @@
             ]
           }
         ]
-      }
-    },
-    {
-      "moduleName": "WASmaxOutProfilePictureBaseGetIQMixin",
-      "namespace": "w:profile:picture",
-      "iqType": "get",
-      "target": "s.whatsapp.net",
-      "parserName": "unknown",
-      "exportedFunction": "mergeBaseGetIQMixin",
-      "allExports": [
-        "mergeBaseGetIQMixin"
-      ],
-      "request": {
-        "namespace": "w:profile:picture",
-        "iqType": "get",
-        "target": "s.whatsapp.net",
-        "children": []
-      },
-      "response": {
-        "parserName": "unknown",
-        "assertions": [],
-        "fields": []
       }
     },
     {
@@ -81626,6 +81304,10 @@
       "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
+      "moduleName": "WASmaxOutAccountSetIQMixin",
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
+    },
+    {
       "moduleName": "WASmaxOutBizAccessTokenBaseIQGetRequestMixin",
       "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
@@ -81682,6 +81364,14 @@
       "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
+      "moduleName": "WASmaxOutBotBotListIQMixin",
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
+    },
+    {
+      "moduleName": "WASmaxOutBrPaymentSetIQMixin",
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
+    },
+    {
       "moduleName": "WASmaxOutBugReportingBaseIQSetRequestMixin",
       "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
@@ -81690,11 +81380,27 @@
       "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
+      "moduleName": "WASmaxOutGroupsBaseGetGroupMixin",
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
+    },
+    {
+      "moduleName": "WASmaxOutGroupsBaseGetServerMixin",
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
+    },
+    {
       "moduleName": "WASmaxOutGroupsBaseIQGetRequestMixin",
       "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutGroupsBaseIQSetRequestMixin",
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
+    },
+    {
+      "moduleName": "WASmaxOutGroupsBaseSetGroupMixin",
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
+    },
+    {
+      "moduleName": "WASmaxOutGroupsBaseSetServerMixin",
       "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
@@ -81738,6 +81444,26 @@
       "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
+      "moduleName": "WASmaxOutNewslettersNewsletterIQGetRequestMixin",
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
+    },
+    {
+      "moduleName": "WASmaxOutNewslettersNewsletterIQSetRequestMixin",
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
+    },
+    {
+      "moduleName": "WASmaxOutNewslettersNewsletterMessageRequestIQPayloadMixin",
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
+    },
+    {
+      "moduleName": "WASmaxOutNewslettersNewsletterStatusRequestIQPayloadMixin",
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
+    },
+    {
+      "moduleName": "WASmaxOutNewslettersSelfIQGetRequestMixin",
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
+    },
+    {
       "moduleName": "WASmaxOutPingsClientWellFormedToMixin",
       "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
@@ -81763,7 +81489,7 @@
     },
     {
       "moduleName": "WASmaxOutPreKeysSetOpDefaultMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutPreKeysSetOpDeleteMixin",
@@ -81771,6 +81497,14 @@
     },
     {
       "moduleName": "WASmaxOutPrivacyBaseIQGetRequestMixin",
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
+    },
+    {
+      "moduleName": "WASmaxOutPrivacyGetIQMixin",
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
+    },
+    {
+      "moduleName": "WASmaxOutProfilePictureBaseGetIQMixin",
       "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
@@ -81827,7 +81561,7 @@
     },
     {
       "moduleName": "WASmaxOutSpamFRXMixin",
-      "reason": "namespace/type unresolved (dropped by guard)"
+      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
       "moduleName": "WASmaxOutSpamIsKnownChatMixin",

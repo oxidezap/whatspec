@@ -697,6 +697,33 @@ fn maybe_save_bundles(opts: &Options, bundles: &[wa_fetch::Bundle]) -> Result<()
     Ok(())
 }
 
+/// Join a domain extractor's scoped thread, turning a panic into a recoverable
+/// diagnostic (naming the domain) instead of re-panicking the whole run. One broken
+/// extractor then surfaces as a clear, named error — collected alongside the others by
+/// the caller — so the run ends with one actionable message instead of unwinding the
+/// whole scope on the first panic.
+///
+/// The panicking thread's own message (and a backtrace under `RUST_BACKTRACE`) still
+/// prints to stderr via the default panic hook; that is deliberate — it points at where
+/// the bug is — while the returned error drives the clean, aggregated exit. We don't
+/// install a scoped panic hook to silence it: that's process-global state and the raw
+/// stderr trace is worth keeping for the abnormal (real-bug) case this guards.
+fn joined<T>(name: &str, handle: std::thread::ScopedJoinHandle<'_, Result<T>>) -> Result<T> {
+    match handle.join() {
+        Ok(result) => result.with_context(|| format!("{name} extraction")),
+        Err(panic) => {
+            // Recover the panic message (the common `&str`/`String` payloads) so the
+            // diagnostic says *why*, not just *that*, the extractor panicked.
+            let detail = panic
+                .downcast_ref::<&str>()
+                .map(|s| (*s).to_string())
+                .or_else(|| panic.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "panicked".to_string());
+            Err(anyhow::anyhow!("{name} extractor panicked: {detail}"))
+        }
+    }
+}
+
 /// Run every extractor + codegen and collect the resulting files in memory.
 fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Counts)> {
     // Split the ~71MB concatenation into Metro modules exactly once; every
@@ -771,32 +798,65 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
                 Ok((a, c))
             });
             (
-                iq.join().expect("iq extractor panicked"),
-                proto.join().expect("proto extractor panicked"),
-                mex.join().expect("mex extractor panicked"),
-                appstate.join().expect("appstate extractor panicked"),
-                abprops.join().expect("abprops extractor panicked"),
-                enums.join().expect("enums extractor panicked"),
-                wam.join().expect("wam extractor panicked"),
-                notif.join().expect("notif extractor panicked"),
-                stanza.join().expect("stanza extractor panicked"),
-                tokens.join().expect("tokens extractor panicked"),
-                incoming.join().expect("incoming extractor panicked"),
-                srvreq.join().expect("srvreq extractor panicked"),
+                joined("iq", iq),
+                joined("proto", proto),
+                joined("mex", mex),
+                joined("appstate", appstate),
+                joined("abprops", abprops),
+                joined("enums", enums),
+                joined("wam", wam),
+                joined("notif", notif),
+                joined("stanza", stanza),
+                joined("tokens", tokens),
+                joined("incoming", incoming),
+                joined("srvreq", srvreq),
             )
         });
-    let (iq_arts, (iq_count, iq_diag)) = iq.context("iq codegen")?;
-    let (proto_arts, proto_count) = proto.context("proto extraction")?;
-    let (mex_arts, mex_count) = mex.context("mex extraction")?;
-    let (appstate_arts, appstate_count) = appstate.context("appstate extraction")?;
-    let (abprops_arts, abprops_count) = abprops.context("abprops extraction")?;
-    let (enums_arts, enums_count) = enums.context("enums extraction")?;
-    let (wam_arts, wam_count) = wam.context("wam extraction")?;
-    let (notif_arts, (notif_count, notif_typed, notif_tags)) = notif.context("notif extraction")?;
-    let (stanza_arts, stanza_count) = stanza.context("stanza extraction")?;
-    let (tokens_arts, (token_single, token_double)) = tokens.context("tokens extraction")?;
-    let (incoming_arts, incoming_count) = incoming.context("incoming extraction")?;
-    let (srvreq_arts, srvreq_count) = srvreq.context("srvreq extraction")?;
+
+    // Isolate per-domain failures: gather every extractor that errored or panicked so
+    // one run reports all of them at once, then refuse to write a partial snapshot. A
+    // panic in one domain no longer aborts the other eleven or crashes the process with
+    // a raw backtrace — it degrades to a named diagnostic here.
+    let failures: Vec<String> = [
+        iq.as_ref().err(),
+        proto.as_ref().err(),
+        mex.as_ref().err(),
+        appstate.as_ref().err(),
+        abprops.as_ref().err(),
+        enums.as_ref().err(),
+        wam.as_ref().err(),
+        notif.as_ref().err(),
+        stanza.as_ref().err(),
+        tokens.as_ref().err(),
+        incoming.as_ref().err(),
+        srvreq.as_ref().err(),
+    ]
+    .into_iter()
+    .flatten()
+    .map(|e| format!("{e:#}"))
+    .collect();
+    if !failures.is_empty() {
+        anyhow::bail!(
+            "{} domain extractor(s) failed — no artifacts written:\n  - {}",
+            failures.len(),
+            failures.join("\n  - ")
+        );
+    }
+
+    // Every domain returned Ok (verified just above), so these unwraps can't fire.
+    let checked = "domain result verified Ok above";
+    let (iq_arts, (iq_count, iq_diag)) = iq.expect(checked);
+    let (proto_arts, proto_count) = proto.expect(checked);
+    let (mex_arts, mex_count) = mex.expect(checked);
+    let (appstate_arts, appstate_count) = appstate.expect(checked);
+    let (abprops_arts, abprops_count) = abprops.expect(checked);
+    let (enums_arts, enums_count) = enums.expect(checked);
+    let (wam_arts, wam_count) = wam.expect(checked);
+    let (notif_arts, (notif_count, notif_typed, notif_tags)) = notif.expect(checked);
+    let (stanza_arts, stanza_count) = stanza.expect(checked);
+    let (tokens_arts, (token_single, token_double)) = tokens.expect(checked);
+    let (incoming_arts, incoming_count) = incoming.expect(checked);
+    let (srvreq_arts, srvreq_count) = srvreq.expect(checked);
 
     // Fail loud if any domain extracted nothing — a real WA bundle always yields
     // all of these, so a zero means the bundle is incomplete or that extractor
@@ -1442,6 +1502,82 @@ mod tests {
         assert_eq!(opts.out, PathBuf::from(DEFAULT_OUT));
         assert_eq!(opts.bundles_dir, None);
         assert!(!opts.check);
+    }
+
+    #[test]
+    fn iq_extraction_is_input_order_independent() {
+        // The README's byte-identical-output guarantee: extraction is a pure function
+        // of the module SET, not their order in the bundle. The iq domain is the most
+        // order-sensitive (stanza ordering, dedup, the cross-module mixin/response
+        // indices), so serialize its whole IR from two bundle orderings and require
+        // byte-for-byte equality — an end-to-end guard against input-order-dependent
+        // output. (The `byteLengthSource` first-wins tie-break that regressed once is
+        // additionally pinned by a unit test in `content_length_index`.)
+        let modules = [
+            // Two same-namespace requests exercise the stanza sort tie-break
+            // (namespace, then type, then exported fn, then module).
+            r#"__d("WAWebReqA",["WAWap"],function(g,r,d,o,e,i){ e.a = function(){ return i.wap("iq", { xmlns: "w:a", type: "get" }); }; });"#,
+            r#"__d("WAWebReqB",["WAWap"],function(g,r,d,o,e,i){ e.b = function(){ return i.wap("iq", { xmlns: "w:a", type: "set" }); }; });"#,
+            // A legacy job whose typed response lives in a SIBLING parser module, linked
+            // cross-module by the send-site parser index. This exercises the response-
+            // enrichment path the two childless requests above do not: the job's `<iq>`
+            // starts with an `unknown` parser and is only populated by resolving
+            // `o("WAFooParser").fooParser` in the other module — so the enriched output
+            // must be identical whether the job or its parser module is scanned first.
+            r#"__d("WAWebQueryFooJob",["WAWap","WADeprecatedSendIq","WAFooParser"],function(g,r,d,o,e,i){ e.query = function(){ var m = o("WAWap").wap("iq", { xmlns: "w:foo", type: "get" }); return o("WADeprecatedSendIq").deprecatedSendIq(m, o("WAFooParser").fooParser); }; });"#,
+            r#"__d("WAFooParser",["WADeprecatedWapParser"],function(g,r,d,o,e,i,l){ l.fooParser = new(r("WADeprecatedWapParser"))("fooParser", function(u){ u.assertTag("iq"); return { token: u.child("foo").attrString("token") }; }); },1);"#,
+        ];
+        let extract = |order: &[usize]| -> String {
+            let src = order
+                .iter()
+                .map(|&i| modules[i])
+                .collect::<Vec<_>>()
+                .join("\n");
+            let defs = wa_transform::extract_module_definitions(&src);
+            let ir = wa_scan::extract_iq_from_modules(&src, &defs, "2.3000.test");
+            serde_json::to_string_pretty(&ir).expect("serialize iq IR")
+        };
+        let forward = extract(&[0, 1, 2, 3]);
+        assert_eq!(
+            forward,
+            extract(&[3, 2, 1, 0]),
+            "iq extraction output depends on bundle module order"
+        );
+        // Guard that the cross-module enrichment actually ran (and thus that its
+        // order-independence is genuinely under test) — the job's response is only
+        // typed as `fooParser` if the send-site parser index resolved the sibling
+        // module. Without this, the test could silently regress to exercising only
+        // stanza ordering if the enrichment ever stopped matching.
+        assert!(
+            forward.contains("fooParser"),
+            "determinism test did not exercise the cross-module response-enrichment path"
+        );
+    }
+
+    #[test]
+    fn joined_converts_a_thread_panic_into_a_named_diagnostic() {
+        // A panicking extractor degrades to a recoverable, named error carrying the
+        // panic message — not a re-panic that would crash the whole run. (The test
+        // completing at all proves the panic was caught.)
+        let result = std::thread::scope(|s| {
+            let h = s.spawn(|| -> Result<()> { panic!("kaboom") });
+            joined("widget", h)
+        });
+        let msg = format!("{:#}", result.unwrap_err());
+        assert!(
+            msg.contains("widget") && msg.contains("panicked") && msg.contains("kaboom"),
+            "{msg}"
+        );
+    }
+
+    #[test]
+    fn joined_passes_through_ok_and_recoverable_errors() {
+        std::thread::scope(|s| {
+            let ok = s.spawn(|| -> Result<u32> { Ok(7) });
+            assert_eq!(joined("d", ok).unwrap(), 7);
+            let err = s.spawn(|| -> Result<u32> { anyhow::bail!("recoverable") });
+            assert!(joined("d", err).is_err());
+        });
     }
 
     #[test]
