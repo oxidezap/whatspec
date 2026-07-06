@@ -166,3 +166,51 @@ mod schema_tests {
         assert_eq!(json["waVersion"], "2.3000.1");
     }
 }
+
+/// The committed `generated/*/index.json` documents must round-trip losslessly
+/// through the IR types — the Rust-side counterpart to the Python schema check, so a
+/// drift between the committed output and the contract is caught in `cargo test`
+/// rather than only by the separate CI validator.
+#[cfg(test)]
+mod roundtrip_tests {
+    use super::*;
+    use serde::Serialize;
+    use serde::de::DeserializeOwned;
+    use std::path::Path;
+
+    /// Deserialize a committed `generated/<rel>` document into its IR envelope and
+    /// re-serialize it, asserting value-for-value equality. A field the IR can't model
+    /// is dropped on the round-trip, so the comparison fails — catching a hand-edit or
+    /// an IR change that wasn't regenerated.
+    fn assert_round_trips<T: DeserializeOwned + Serialize>(rel: &str) {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../generated")
+            .join(rel);
+        let raw = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+        let committed: serde_json::Value =
+            serde_json::from_str(&raw).unwrap_or_else(|e| panic!("{rel}: not valid JSON: {e}"));
+        let typed: IrEnvelope<T> = serde_json::from_value(committed.clone())
+            .unwrap_or_else(|e| panic!("{rel}: does not deserialize into its IR type: {e}"));
+        let reserialized = serde_json::to_value(&typed).expect("serialize IR");
+        assert_eq!(
+            committed, reserialized,
+            "{rel}: committed output does not round-trip through its IR type (schema/IR drift)"
+        );
+    }
+
+    #[test]
+    fn committed_output_round_trips_through_the_ir() {
+        assert_round_trips::<iq::IqIr>("iq/index.json");
+        assert_round_trips::<iq::StanzaIr>("stanza/index.json");
+        assert_round_trips::<mex::MexIr>("mex/index.json");
+        assert_round_trips::<appstate::AppstateIr>("appstate/index.json");
+        assert_round_trips::<abprops::AbPropsIr>("abprops/index.json");
+        assert_round_trips::<enums::EnumsIr>("enums/index.json");
+        assert_round_trips::<wam::WamIr>("wam/index.json");
+        assert_round_trips::<notif::NotifIr>("notif/index.json");
+        assert_round_trips::<tokens::TokensIr>("tokens/index.json");
+        assert_round_trips::<incoming::IncomingIr>("incoming/index.json");
+        assert_round_trips::<srvreq::ServerRequestIr>("srvreq/index.json");
+    }
+}
