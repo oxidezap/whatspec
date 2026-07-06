@@ -623,7 +623,69 @@
     {
       "type": "crsc_continuation",
       "handlerModule": "WAWebShortcakeLinkingHandleNotification",
-      "handlerFunction": "handleShortcakeLinkingNotification"
+      "handlerFunction": "handleShortcakeLinkingNotification",
+      "content": {
+        "parserName": "parseSetPrimaryEphemeralIdentityNotificationRequest",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "notification"
+          },
+          {
+            "kind": "attr",
+            "name": "type",
+            "value": "crsc_continuation"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "type",
+            "wireName": "type",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "attrJidWithType",
+            "name": "from",
+            "wireName": "from",
+            "type": "jid",
+            "required": true
+          },
+          {
+            "method": "contentBytes",
+            "name": "primaryEphemeralIdentityElementValue",
+            "type": "bytes",
+            "required": true,
+            "sourcePath": [
+              "primary_ephemeral_identity"
+            ]
+          },
+          {
+            "method": "attrInt",
+            "name": "t",
+            "wireName": "t",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "method": "attrString",
+            "name": "id",
+            "wireName": "id",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "maybeAttrInt",
+            "name": "offline",
+            "wireName": "offline",
+            "type": "integer",
+            "required": false,
+            "intMin": 0,
+            "intMax": 1024
+          }
+        ]
+      }
     },
     {
       "type": "devices",
@@ -982,7 +1044,78 @@
     {
       "type": "passkey_prologue_request",
       "handlerModule": "WAWebShortcakeLinkingHandlePasskeyPrologueRequest",
-      "handlerFunction": "handlePasskeyPrologueRequestNotification"
+      "handlerFunction": "handlePasskeyPrologueRequestNotification",
+      "content": {
+        "parserName": "parsePasskeyPrologueRequestNotificationRequest",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "notification"
+          },
+          {
+            "kind": "attr",
+            "name": "type",
+            "value": "passkey_prologue_request"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrString",
+            "name": "type",
+            "wireName": "type",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "attrJidWithType",
+            "name": "from",
+            "wireName": "from",
+            "type": "jid",
+            "required": true
+          },
+          {
+            "method": "attrInt",
+            "name": "t",
+            "wireName": "t",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "method": "attrString",
+            "name": "id",
+            "wireName": "id",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "maybeAttrInt",
+            "name": "offline",
+            "wireName": "offline",
+            "type": "integer",
+            "required": false,
+            "intMin": 0,
+            "intMax": 1024
+          },
+          {
+            "method": "child",
+            "name": "passkeyRequestOptions",
+            "type": "string",
+            "required": false,
+            "tag": "passkey_request_options",
+            "children": [
+              {
+                "method": "contentBytes",
+                "name": "elementValue",
+                "type": "bytes",
+                "required": true,
+                "byteMin": 1,
+                "byteMax": 4096
+              }
+            ],
+            "repeats": false
+          }
+        ]
+      }
     },
     {
       "type": "pay",
@@ -1674,7 +1807,124 @@
     {
       "type": "waffle",
       "handlerModule": "WAWebAccountLinkingNotificationHandler",
-      "handlerFunction": "handleAccountLinkingNotification"
+      "handlerFunction": "handleAccountLinkingNotification",
+      "content": {
+        "parserName": "parseWFNotificationRequest",
+        "assertions": [
+          {
+            "kind": "tag",
+            "name": "notification"
+          },
+          {
+            "kind": "attr",
+            "name": "type",
+            "value": "waffle"
+          }
+        ],
+        "fields": [
+          {
+            "method": "attrJidWithType",
+            "name": "from",
+            "wireName": "from",
+            "type": "jid",
+            "required": true
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "wireName": "type",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "attrInt",
+            "name": "notificationMetadataEvent",
+            "wireName": "event",
+            "type": "integer",
+            "required": true,
+            "intMin": 1,
+            "intMax": 7,
+            "sourcePath": [
+              "notification_metadata"
+            ]
+          },
+          {
+            "method": "maybeAttrEnum",
+            "name": "notificationMetadataShowUserNotif",
+            "wireName": "show_user_notif",
+            "type": "enum",
+            "required": false,
+            "sourcePath": [
+              "notification_metadata"
+            ]
+          },
+          {
+            "method": "maybeAttrInt",
+            "name": "notificationMetadataType",
+            "wireName": "type",
+            "type": "integer",
+            "required": false,
+            "intMin": 0,
+            "intMax": 0,
+            "sourcePath": [
+              "notification_metadata"
+            ]
+          },
+          {
+            "method": "maybeAttrEnum",
+            "name": "notificationMetadataClientResync",
+            "wireName": "client_resync",
+            "type": "enum",
+            "required": false,
+            "sourcePath": [
+              "notification_metadata"
+            ]
+          },
+          {
+            "method": "maybeAttrInt",
+            "name": "notificationMetadataSyncDelay",
+            "wireName": "sync_delay",
+            "type": "integer",
+            "required": false,
+            "sourcePath": [
+              "notification_metadata"
+            ]
+          },
+          {
+            "method": "maybeAttrEnum",
+            "name": "notificationMetadataNpr",
+            "wireName": "npr",
+            "type": "enum",
+            "required": false,
+            "sourcePath": [
+              "notification_metadata"
+            ]
+          },
+          {
+            "method": "attrInt",
+            "name": "t",
+            "wireName": "t",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "method": "attrString",
+            "name": "id",
+            "wireName": "id",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "maybeAttrInt",
+            "name": "offline",
+            "wireName": "offline",
+            "type": "integer",
+            "required": false,
+            "intMin": 0,
+            "intMax": 1024
+          }
+        ]
+      }
     }
   ]
 }

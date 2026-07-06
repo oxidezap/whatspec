@@ -509,3 +509,58 @@ fn extraction_is_deterministic() {
     let b = serde_json::to_string(&ir()).unwrap();
     assert_eq!(a, b);
 }
+
+/// A `<notification type="waffle">` handler that delegates to the smax receive-RPC
+/// path (no inline `WADeprecatedWapParser`) plus the matching `WASmaxIn*Request`
+/// read-shape module, so Phase 2b recovers the content from the srvreq domain.
+const SRVREQ_LINK_BUNDLE: &str = r#"
+__d("WAWebCommsHandleLoggedInStanza",["WAWebAccountLinkingNotificationHandler"],function(g,r,d,o,e,i,l){
+  l.handle = function(){ return (function*(e,t){
+    var n = e.attrs;
+    switch (e.tag) {
+      case "notification":
+        switch (n.type) {
+          case "waffle": return yield r("WAWebAccountLinkingNotificationHandler")(e);
+        }
+    }
+  }); };
+}, 1);
+__d("WASmaxInWaffleWFNotificationRequest",["WAResultOrError","WASmaxParseUtils"],(function(t,n,r,o,a,i,l){function e(e){var t=o("WASmaxParseUtils").assertTag(e,"notification");if(!t.success)return t;var n=o("WASmaxParseUtils").assertAttr(e,"type","waffle");if(!n.success)return n;var s=o("WASmaxParseUtils").attrString(e,"id");return s.success?o("WAResultOrError").makeResult({id:s.value}):s}l.parseWFNotificationRequest=e}),1);
+"#;
+
+#[test]
+fn srvreq_read_shape_recovers_degraded_notification_content() {
+    let ir = extract_notif(SRVREQ_LINK_BUNDLE, "2.3000.test");
+    let content = notif(&ir, "waffle")
+        .content
+        .as_ref()
+        .expect("waffle content recovered from the srvreq read-shape");
+    assert_eq!(content.parser_name, "parseWFNotificationRequest");
+    assert!(content.fields.iter().any(|f| f.name == "id"));
+}
+
+#[test]
+fn ambiguous_srvreq_type_leaves_notification_degraded() {
+    // Two request modules assert the same `type="hosted"`; without a unique shape the
+    // notification stays degraded rather than binding to an arbitrary one.
+    let bundle = r#"
+__d("WAWebCommsHandleLoggedInStanza",["WAWebHandleHostedNotification"],function(g,r,d,o,e,i,l){
+  l.handle = function(){ return (function*(e,t){
+    var n = e.attrs;
+    switch (e.tag) {
+      case "notification":
+        switch (n.type) {
+          case "hosted": return yield r("WAWebHandleHostedNotification")(e);
+        }
+    }
+  }); };
+}, 1);
+__d("WASmaxInCoexistenceOnboardingStatusNotificationRequest",["WAResultOrError","WASmaxParseUtils"],(function(t,n,r,o,a,i,l){function e(e){var t=o("WASmaxParseUtils").assertTag(e,"notification");if(!t.success)return t;var n=o("WASmaxParseUtils").assertAttr(e,"type","hosted");if(!n.success)return n;var s=o("WASmaxParseUtils").attrString(e,"a");return s.success?o("WAResultOrError").makeResult({a:s.value}):s}l.parseOnboardingStatusNotificationRequest=e}),1);
+__d("WASmaxInCoexistenceOffboardingNotificationRequest",["WAResultOrError","WASmaxParseUtils"],(function(t,n,r,o,a,i,l){function e(e){var t=o("WASmaxParseUtils").assertTag(e,"notification");if(!t.success)return t;var n=o("WASmaxParseUtils").assertAttr(e,"type","hosted");if(!n.success)return n;var s=o("WASmaxParseUtils").attrString(e,"b");return s.success?o("WAResultOrError").makeResult({b:s.value}):s}l.parseOffboardingNotificationRequest=e}),1);
+"#;
+    let ir = extract_notif(bundle, "2.3000.test");
+    assert!(
+        notif(&ir, "hosted").content.is_none(),
+        "an ambiguous type (two read-shapes) must stay degraded"
+    );
+}
