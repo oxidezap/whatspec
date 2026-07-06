@@ -304,11 +304,12 @@ fn analyze_function(
     // message whose real type is the 14-way content disjunction. A var that is also
     // hard-guarded (`if(!X.success) return X`) is genuinely required despite an
     // (redundant) optional read, so it is kept. See [`classify_call`]'s same-node branch.
+    let guarded = guarded_success_vars(body);
     let suppressed: HashSet<String> = tail_return(body)
         .map(optionally_consumed_vars)
         .unwrap_or_default()
         .into_iter()
-        .filter(|v| !guarded_success_vars(body).contains(v))
+        .filter(|v| !guarded.contains(v))
         .collect();
     let mut assertions: Vec<ResponseAssertion> = Vec::new();
     let mut bindings: HashMap<String, Binding> = HashMap::new();
