@@ -9,14 +9,14 @@
         "requestsEnriched": 11,
         "requestsWithMixins": 108
       },
-      "degradedResponses": 19,
+      "degradedResponses": 18,
       "dropsByReason": {
         "iq builder substring present but no AST iq call": 5,
         "mixin fragment (folded into requests, not a standalone stanza)": 56,
         "namespace/type unresolved (dropped by guard)": 2
       },
       "stanzas": 159,
-      "typedResponses": 140,
+      "typedResponses": 141,
       "unparseable": 63
     },
     "notif": {
@@ -50,7 +50,7 @@
     "iq": {
       "file": "iq/index.json",
       "schema": "schema/iq.schema.json",
-      "sha256": "2ebcea4d5307027d50fc7054bb1ef6651050965567aa446df31d681cbd4a23e7"
+      "sha256": "3b6d45ea11b29bc38b0720f32e6eeb803e74d53ee2f27166a17c863ae8501483"
     },
     "mex": {
       "file": "mex/index.json",

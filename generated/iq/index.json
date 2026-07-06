@@ -75350,7 +75350,7 @@
       "namespace": "w:m",
       "iqType": "set",
       "target": "s.whatsapp.net",
-      "parserName": "unknown",
+      "parserName": "mediaConnParser",
       "exportedFunction": "mapParsedMediaConn",
       "allExports": [
         "mapParsedMediaConn",
@@ -75370,9 +75370,43 @@
         ]
       },
       "response": {
-        "parserName": "unknown",
+        "parserName": "mediaConnParser",
         "assertions": [],
-        "fields": []
+        "fields": [
+          {
+            "method": "child",
+            "name": "media_conn",
+            "type": "string",
+            "required": true,
+            "tag": "media_conn",
+            "children": [
+              {
+                "method": "attrString",
+                "name": "auth",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "attrInt",
+                "name": "max_buckets",
+                "type": "integer",
+                "required": true
+              },
+              {
+                "method": "maybeAttrInt",
+                "name": "max_manual_retry",
+                "type": "integer",
+                "required": false
+              },
+              {
+                "method": "maybeAttrInt",
+                "name": "max_auto_download_retry",
+                "type": "integer",
+                "required": false
+              }
+            ]
+          }
+        ]
       }
     },
     {

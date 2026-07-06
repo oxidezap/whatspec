@@ -19,6 +19,7 @@ mod request;
 mod response;
 mod response_index;
 mod response_smax;
+mod send_parser_index;
 mod srvreq;
 mod stanza;
 
@@ -155,6 +156,12 @@ pub fn scan_iq_with_diagnostics(
     // can't (`0x00` and `0x30` are both one byte).
     let const_values = const_value_index::build_pass(module_defs, source);
 
+    // Build the send-site parser index once. A legacy job that hands a sibling
+    // module's parser to `deprecatedSendIq(iq, o("Mod").parser)` (rather than
+    // constructing one inline) would otherwise lose its typed response; this resolves
+    // the referenced parser, keyed by the sending module.
+    let send_parsers = send_parser_index::build_pass(module_defs, source);
+
     let mut stanzas = Vec::new();
     let mut unparseable = Vec::new();
     let mut cross = CrossModuleStats::default();
@@ -199,6 +206,19 @@ pub fn scan_iq_with_diagnostics(
     // unambiguous even where the request nests them differently than the parser does).
     // A tag spanning namespaces (`<id>`: a key id in `encrypt`, a product id in
     // `w:biz:catalog`) is excluded, so it's never mislabeled.
+    // Attach a send-site parser to any request left with the `unknown` fallback
+    // (the module built an `<iq>` but defined no inline parser and had no smax
+    // response) — e.g. `WAWebQueryMediaConnsJob`'s `<media_conn>` response, parsed
+    // from `o("WAMediaConnParser").mediaConnParser`.
+    for s in &mut stanzas {
+        if s.response.parser_name == "unknown"
+            && let Some(resp) = send_parsers.get(&s.module_name)
+        {
+            s.response = resp.clone();
+            s.parser_name = resp.parser_name.clone();
+        }
+    }
+
     let tag_fallback = single_namespace_content_tags(&stanzas);
     for s in &mut stanzas {
         // Pin constant leaf values first (`<link_code_pairing_nonce>` → one `0x00`
