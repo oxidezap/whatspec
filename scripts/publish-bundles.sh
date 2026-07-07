@@ -19,11 +19,18 @@ bundles_dir="${1:?usage: publish-bundles.sh <bundles-dir>  (the --save-bundles o
 ver=$(jq -r .waVersion generated/manifest.json)
 [ -n "$ver" ] && [ "$ver" != "null" ] || { echo "no waVersion in generated/manifest.json" >&2; exit 1; }
 
+# Content-addressed asset name: the input setHash (from the lock) makes a different
+# bundle set a different asset, so an archive is never overwritten with different
+# bytes — every past commit's lock keeps resolving the exact archive it pins. The
+# version prefix keeps it browsable. Must match restore's `release_asset_url`.
+sethash=$(jq -r .setHash generated/bundles.lock.json 2>/dev/null)
+[ -n "$sethash" ] && [ "$sethash" != "null" ] || { echo "no setHash in generated/bundles.lock.json — run 'whatspec update' first" >&2; exit 1; }
+
 # Build the archive in a temp dir (never in the working tree, so no stray file to
 # `git add` by accident); `gh` names the asset from the basename regardless.
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
-archive="$work/bundles-${ver}.tar.gz"
+archive="$work/bundles-${ver}-${sethash}.tar.gz"
 
 # Prefer GNU tar for a reproducible archive (sorted, no owner/timestamps) — its
 # `--sort`/`--mtime` flags are GNU extensions BSD tar (macOS) rejects. Fall back to
@@ -44,10 +51,12 @@ else
   tar -C "$bundles_dir" -czf "$archive" .
 fi
 
-# One rolling release accumulates every version's asset; create it if absent.
+# One rolling release accumulates every set's asset; create it if absent.
 gh release view bundle-store >/dev/null 2>&1 \
   || gh release create bundle-store --title "Bundle store" --latest=false \
-       --notes "Durable WhatsApp Web bundle archives (one bundles-<version>.tar.gz per spec version) for deterministic regeneration. See scripts/regen.sh."
+       --notes "Durable WhatsApp Web bundle archives (content-addressed: bundles-<version>-<setHash>.tar.gz) for deterministic regeneration. See scripts/regen.sh."
+# --clobber is safe here: the name carries the content hash, so re-uploading only
+# ever replaces an asset with byte-identical content (idempotent).
 gh release upload bundle-store "$archive" --clobber
 
-echo "published bundles-${ver}.tar.gz to the bundle-store release"
+echo "published $(basename "$archive") to the bundle-store release"

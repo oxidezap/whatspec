@@ -688,8 +688,7 @@ fn read_local_bundles(dir: &Path) -> Result<(String, Vec<BundleId>)> {
             size: bytes.len() as u64,
             url: None,
         });
-        source.push_str(&String::from_utf8_lossy(&bytes));
-        source.push_str(BUNDLE_SEPARATOR);
+        push_bundle(&mut source, &bytes);
     }
     eprintln!(
         "loaded {} local bundles from {}",
@@ -822,6 +821,16 @@ fn fetch_source(opts: &Options) -> Result<Loaded> {
     })
 }
 
+/// Append one bundle's decoded bytes (+ the module separator) to `source`. Always
+/// lossy — [`String::from_utf8_lossy`] borrows valid UTF-8 unchanged and only
+/// allocates on invalid input — so the fetch and local bundle-loading paths
+/// concatenate **byte-for-byte identically**. Both routes go through here so that
+/// equivalence stays in one place and can't silently drift.
+fn push_bundle(source: &mut String, bytes: &[u8]) {
+    source.push_str(&String::from_utf8_lossy(bytes));
+    source.push_str(BUNDLE_SEPARATOR);
+}
+
 /// Concatenate bundle bytes into one source string (lossy UTF-8), with the
 /// module separator between bundles. Shared by the cache-hit and download paths.
 #[cfg(feature = "fetch")]
@@ -829,11 +838,7 @@ fn concat_bundles(bundles: &[wa_fetch::Bundle]) -> String {
     let total: usize = bundles.iter().map(|b| b.bytes.len()).sum();
     let mut source = String::with_capacity(total + bundles.len() * BUNDLE_SEPARATOR.len());
     for bundle in bundles {
-        match std::str::from_utf8(&bundle.bytes) {
-            Ok(s) => source.push_str(s),
-            Err(_) => source.push_str(&String::from_utf8_lossy(&bundle.bytes)),
-        }
-        source.push_str(BUNDLE_SEPARATOR);
+        push_bundle(&mut source, &bundle.bytes);
     }
     source
 }

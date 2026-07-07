@@ -88,7 +88,7 @@ fn resolve_archive(opts: &RestoreOptions, lock: &BundleLock) -> Result<Vec<u8>> 
         }
         bail!("--archive {loc} is neither an existing file nor an http(s) URL");
     }
-    let url = release_asset_url(&opts.repo, &lock.wa_version);
+    let url = release_asset_url(&opts.repo, &lock.wa_version, &lock.set_hash);
     download(&url)
 }
 
@@ -96,9 +96,16 @@ fn is_http_url(s: &str) -> bool {
     s.starts_with("http://") || s.starts_with("https://")
 }
 
-/// `https://github.com/<repo>/releases/download/bundle-store/bundles-<ver>.tar.gz`
-fn release_asset_url(repo: &str, wa_version: &str) -> String {
-    format!("https://github.com/{repo}/releases/download/{STORE_TAG}/bundles-{wa_version}.tar.gz")
+/// `…/releases/download/bundle-store/bundles-<ver>-<setHash>.tar.gz`.
+///
+/// The asset name is **content-addressed** (it carries the input `setHash`, not just
+/// the version): a different bundle set produces a different name, so an archive can
+/// never be overwritten with different bytes, and every past commit's lock always
+/// resolves the exact archive it pins. The version prefix keeps the name browsable.
+fn release_asset_url(repo: &str, wa_version: &str, set_hash: &str) -> String {
+    format!(
+        "https://github.com/{repo}/releases/download/{STORE_TAG}/bundles-{wa_version}-{set_hash}.tar.gz"
+    )
 }
 
 fn download(url: &str) -> Result<Vec<u8>> {
@@ -295,10 +302,10 @@ mod tests {
     }
 
     #[test]
-    fn release_url_is_versioned() {
+    fn release_url_is_content_addressed() {
         assert_eq!(
-            release_asset_url("oxidezap/whatspec", "2.3000.42"),
-            "https://github.com/oxidezap/whatspec/releases/download/bundle-store/bundles-2.3000.42.tar.gz"
+            release_asset_url("oxidezap/whatspec", "2.3000.42", "abc123"),
+            "https://github.com/oxidezap/whatspec/releases/download/bundle-store/bundles-2.3000.42-abc123.tar.gz"
         );
     }
 }
