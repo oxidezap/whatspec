@@ -12,6 +12,7 @@ use std::collections::HashSet;
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{AssignmentExpression, CallExpression, Function};
 use oxc_ast_visit::{Visit, walk};
+use oxc_span::GetSpan;
 use oxc_syntax::scope::ScopeFlags;
 use wa_ir::{Direction, StanzaDef, StanzaTag, WapAttrKind};
 use wa_oxc::{arg_expr, as_identifier, define_module_name, parse_cjs};
@@ -239,6 +240,9 @@ impl<'a> Visit<'a> for StanzaCollector<'_> {
                         None,
                         self.helpers,
                         0,
+                        // `ce` is at a real module offset — anchors the function context
+                        // for scoped-initializer (`owner_fn`) checks.
+                        Some(ce.span().start as usize),
                     ));
                 }
             }
@@ -331,6 +335,44 @@ mod tests {
         assert!(has(call, "id") && has(call, "to"), "call attrs extracted");
         assert!(has(by(StanzaTag::Privacy), "category"), "privacy attr");
         assert!(has(by(StanzaTag::Status), "type"), "status attr");
+    }
+
+    #[test]
+    fn reassigned_child_is_scoped_to_its_builder() {
+        // Two builders in one module each seed a local `c=null` and conditionally
+        // reassign it to a child (`t&&(c=wap(...))`) — the aggregate-builder shape.
+        // Each stanza must recover ITS OWN reassigned child and no other: the
+        // reassignment in `other` must not leak into `send`'s <message>, and vice
+        // versa. A module-wide (unscoped) assignment scope crosses these wires.
+        let bundle = r#"
+            __d("WAWebSendTwo",["WAWap"],(function(g,r,d,o,e,i,l){
+                l.other=function(t){ var c=null; t&&(c=o("WAWap").wap("leak",{x:"1"})); return o("WAWap").wap("call",{id:"1"},c); };
+                l.send=function(t){ var c=null; t&&(c=o("WAWap").wap("device-identity",{})); return o("WAWap").wap("message",{id:"1"},c); };
+            }),1);
+        "#;
+        let stanzas = scan(bundle);
+        let m = stanzas
+            .iter()
+            .find(|s| s.stanza_type == StanzaTag::Message)
+            .expect("message captured");
+        let tags: Vec<&str> = m.children.iter().map(|c| c.tag.as_str()).collect();
+        assert!(
+            tags.contains(&"device-identity"),
+            "message keeps its own reassigned child: {tags:?}"
+        );
+        assert!(
+            !tags.contains(&"leak"),
+            "sibling builder's reassigned child must not leak in: {tags:?}"
+        );
+        // And the sibling stanza correctly keeps ITS child.
+        let call = stanzas
+            .iter()
+            .find(|s| s.stanza_type == StanzaTag::Call)
+            .expect("call captured");
+        assert!(
+            call.children.iter().any(|c| c.tag == "leak"),
+            "call keeps its own reassigned child"
+        );
     }
 
     #[test]

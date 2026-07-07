@@ -24,6 +24,7 @@ use std::collections::{BTreeMap, HashSet};
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{AssignmentExpression, CallExpression, Expression};
 use oxc_ast_visit::{Visit, walk};
+use oxc_span::GetSpan;
 use wa_ir::{IqTarget, IqType, WapAttrKind, WapChildNode};
 
 use crate::alias::{AliasMap, build_alias_map};
@@ -306,6 +307,9 @@ impl<'a> Visit<'a> for FragmentVisitor<'_> {
                         Some(self.contributions),
                         self.helpers,
                         0,
+                        // `ce` is at a real module offset — anchors the function context
+                        // for scoped-initializer (`owner_fn`) checks.
+                        Some(ce.span().start as usize),
                     ));
                 }
             }

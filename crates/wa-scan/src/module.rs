@@ -521,6 +521,9 @@ impl ModuleScanner<'_> {
                     None,
                     self.helpers,
                     0,
+                    // `ce` is at a real module offset (source == module_source), so its
+                    // position anchors the function context for scoped-initializer checks.
+                    Some(ce.span().start as usize),
                 ));
             }
         }

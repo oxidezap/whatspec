@@ -8315,6 +8315,53 @@
       ]
     },
     {
+      "name": "RECEIPT_TYPE",
+      "module": "WAWebSendReceiptJobCommon",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "INACTIVE",
+          "value": "inactive"
+        },
+        {
+          "name": "SENDER",
+          "value": "sender"
+        },
+        {
+          "name": "DELIVERY",
+          "value": "delivery"
+        },
+        {
+          "name": "READ",
+          "value": "read"
+        },
+        {
+          "name": "READ_SELF",
+          "value": "read-self"
+        },
+        {
+          "name": "PLAYED",
+          "value": "played"
+        },
+        {
+          "name": "PLAYED_SELF",
+          "value": "played-self"
+        },
+        {
+          "name": "HISTORY_SYNC_COMPLETION",
+          "value": "hist_sync"
+        },
+        {
+          "name": "SERVER_ERROR",
+          "value": "server-error"
+        },
+        {
+          "name": "PEER_MSG",
+          "value": "peer_msg"
+        }
+      ]
+    },
+    {
       "name": "ReceiptModeBitPosition",
       "module": "WAWebSendReceiptJobCommon",
       "valueKind": "int",

@@ -507,7 +507,12 @@ pub struct IqStanzaDef {
     pub response: ParsedResponse,
 }
 
-/// A module the scanner recognized as an IQ module but could not fully parse.
+/// A module the scanner recognized as an IQ module but that yielded no standalone
+/// stanza. NOT necessarily a failure: `reason` distinguishes a genuine parse/resolution
+/// failure (the minority) from a benign mixin fragment folded into real requests (the
+/// majority). Recorded either way to honor the no-silent-vanish invariant. The
+/// manifest's `diagnostics.iq` splits these into `unparseable` (genuine) and
+/// `excludedFragments` (benign) so neither count is inflated by the other.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
@@ -521,6 +526,8 @@ pub struct Unparseable {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct IqScanResult {
     pub stanzas: Vec<IqStanzaDef>,
+    /// Modules that produced no stanza, each with a `reason` — a mix of genuine failures
+    /// and benign folded-in fragments (see [`Unparseable`]); not all are true failures.
     pub unparseable: Vec<Unparseable>,
 }
 

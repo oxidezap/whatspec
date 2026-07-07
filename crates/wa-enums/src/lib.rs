@@ -258,7 +258,9 @@ impl<'a> Visit<'a> for Collector<'_> {
     fn visit_variable_declarator(&mut self, d: &VariableDeclarator<'a>) {
         if let (Some(name), Some(obj)) = (
             d.id.get_identifier_name(),
-            d.init.as_ref().and_then(internal_enum_object),
+            d.init
+                .as_ref()
+                .and_then(|e| collector_enum_object(e, self.module)),
         ) && let Some(data) = parse_enum(obj)
         {
             self.locals.insert(name.to_string(), data);
@@ -276,7 +278,7 @@ impl<'a> Visit<'a> for Collector<'_> {
             } else {
                 prop.to_string()
             };
-            if let Some(obj) = internal_enum_object(&a.right) {
+            if let Some(obj) = collector_enum_object(&a.right, self.module) {
                 if let Some(data) = parse_enum(obj) {
                     self.named.push((export_name, data));
                 }
@@ -296,7 +298,7 @@ impl<'a> Visit<'a> for Collector<'_> {
 impl Collector<'_> {
     fn collect_export_bag(&mut self, o: &ObjectExpression) {
         for (key, value) in wa_oxc::obj_props(o) {
-            if let Some(obj) = internal_enum_object(value) {
+            if let Some(obj) = collector_enum_object(value, self.module) {
                 if let Some(data) = parse_enum(obj) {
                     self.named.push((key.to_string(), data));
                 }
@@ -315,6 +317,59 @@ fn internal_enum_object<'b, 'a>(e: &'b Expression<'a>) -> Option<&'b ObjectExpre
         return None;
     }
     as_object(arg_expr(outer.arguments.first()?)?)
+}
+
+/// If `e` is `Object.freeze({ … })`, the frozen object literal. WA freezes some wire
+/// enums (`RECEIPT_TYPE`) this way rather than via `$InternalEnum`.
+fn object_freeze_object<'b, 'a>(e: &'b Expression<'a>) -> Option<&'b ObjectExpression<'a>> {
+    let call = as_call(e)?;
+    let (obj, prop) = wa_oxc::as_member(&call.callee)?;
+    if as_identifier(obj)? != "Object" || prop != "freeze" {
+        return None;
+    }
+    as_object(arg_expr(call.arguments.first()?)?)
+}
+
+/// Whether every key of `obj` is `CONSTANT_CASE` (and it has at least one) — the gate for
+/// admitting an `Object.freeze` body, which unlike `$InternalEnum` also wraps plenty of
+/// non-enum config (camelCase lookup maps, option bags).
+fn all_constant_case(obj: &ObjectExpression) -> bool {
+    let mut any = false;
+    for (key, _) in wa_oxc::obj_props(obj) {
+        any = true;
+        if !is_constant_case(key) {
+            return false;
+        }
+    }
+    any
+}
+
+/// Modules that declare a *wire* enum via `Object.freeze({…})` rather than `$InternalEnum`
+/// or a bare literal. Deliberately a curated allowlist (like [`is_protocol_enum_module`]):
+/// `Object.freeze` wraps countless internal constant maps — storage-key tables, WASI errno
+/// codes, IndexedDB schema — that are all-`CONSTANT_CASE` too, so membership alone can't
+/// tell them apart from a real enum. Only `WAWebSendReceiptJobCommon`'s `RECEIPT_TYPE` (the
+/// canonical receipt-type token set) qualifies today.
+fn is_frozen_enum_module(module: &str) -> bool {
+    module == "WAWebSendReceiptJobCommon"
+}
+
+/// An enum body for the `$InternalEnum`-module [`Collector`]: `$InternalEnum({…})`
+/// (trusted), or — only in an [`is_frozen_enum_module`] module — an `Object.freeze({…})`
+/// whose members are all `CONSTANT_CASE`. [`parse_enum`] applies the remaining value-shape
+/// gates.
+fn collector_enum_object<'b, 'a>(
+    e: &'b Expression<'a>,
+    module: &str,
+) -> Option<&'b ObjectExpression<'a>> {
+    if let Some(obj) = internal_enum_object(e) {
+        return Some(obj);
+    }
+    if !is_frozen_enum_module(module) {
+        return None;
+    }
+    let obj = object_freeze_object(e)?;
+    all_constant_case(obj).then_some(obj)
 }
 
 /// Parse the enum body. Returns `None` for spread/computed keys, non-literal
@@ -411,6 +466,38 @@ mod tests {
         let codes = enums.iter().find(|e| e.name == "Codes").expect("Codes");
         assert_eq!(codes.value_kind, EnumValueKind::Int);
         assert_eq!(codes.variants[1].value, Scalar::Int(2));
+    }
+
+    #[test]
+    fn object_freeze_wire_enum_captured_only_in_allowlisted_module() {
+        // `WAWebSendReceiptJobCommon` declares RECEIPT_TYPE via `Object.freeze({…})` (not
+        // `$InternalEnum`) and is on the frozen-enum allowlist → captured, alongside its
+        // sibling `$InternalEnum` enum in the same module.
+        let receipt = r#"__d("WAWebSendReceiptJobCommon",["$InternalEnum"],(function(g,n,d,o,e,i,l){
+            var u=Object.freeze({INACTIVE:"inactive",DELIVERY:"delivery",READ:"read",PEER_MSG:"peer_msg"});
+            var c=n("$InternalEnum")({ORPHAN:0,NO_CHECKMARK_UX:1});
+            l.RECEIPT_TYPE=u;l.ReceiptModeBitPosition=c;
+        }),1);"#;
+        let enums = run(receipt);
+        let rt = enums
+            .iter()
+            .find(|e| e.name == "RECEIPT_TYPE")
+            .expect("RECEIPT_TYPE captured");
+        assert_eq!(rt.value_kind, EnumValueKind::String);
+        assert_eq!(rt.variants.len(), 4);
+        assert_eq!(rt.variants[0].name, "INACTIVE");
+        assert_eq!(rt.variants[0].value, Scalar::Str("inactive".into()));
+        assert!(enums.iter().any(|e| e.name == "ReceiptModeBitPosition"));
+
+        // A frozen CONSTANT_CASE object in a NON-allowlisted `$InternalEnum` module (here a
+        // WASI errno table) is a config map, not a wire enum — the allowlist keeps it out.
+        let other = r#"__d("WASISnapshotPreview1",["$InternalEnum"],(function(g,n,d,o,e,i,l){
+            var p=Object.freeze({SUCCESS:0,E2BIG:1,EACCESS:2});l.RESULT=p;
+        }),1);"#;
+        assert!(
+            run(other).iter().all(|e| e.name != "RESULT"),
+            "frozen config in a non-allowlisted module must not leak into the enum catalog"
+        );
     }
 
     #[test]

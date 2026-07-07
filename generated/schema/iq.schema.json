@@ -556,7 +556,7 @@
       ]
     },
     "Unparseable": {
-      "description": "A module the scanner recognized as an IQ module but could not fully parse.",
+      "description": "A module the scanner recognized as an IQ module but that yielded no standalone\nstanza. NOT necessarily a failure: `reason` distinguishes a genuine parse/resolution\nfailure (the minority) from a benign mixin fragment folded into real requests (the\nmajority). Recorded either way to honor the no-silent-vanish invariant. The\nmanifest's `diagnostics.iq` splits these into `unparseable` (genuine) and\n`excludedFragments` (benign) so neither count is inflated by the other.",
       "type": "object",
       "properties": {
         "moduleName": {

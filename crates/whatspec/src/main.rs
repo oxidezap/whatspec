@@ -314,7 +314,12 @@ fn diff(args: &[String]) -> Result<()> {
             .and_then(|i| i.get(k))
             .and_then(serde_json::Value::as_u64)
     };
-    for key in ["typedResponses", "degradedResponses", "unparseable"] {
+    for key in [
+        "typedResponses",
+        "degradedResponses",
+        "unparseable",
+        "excludedFragments",
+    ] {
         if let (Some(o), Some(n)) = (diag(&mo, key), diag(&mn, key)) {
             print_count_delta(&format!("iq.{key}"), Some(o), Some(n));
         }
@@ -505,7 +510,14 @@ struct IqDiagnostics {
     stanzas: usize,
     typed_responses: usize,
     degraded_responses: usize,
+    /// Genuine parse failures only — modules that matched the IQ filter but produced no
+    /// stanza for a real reason (unresolved namespace/type, no AST iq call). Excludes the
+    /// benign mixin fragments, which are counted separately in `excluded_fragments` so this
+    /// headline isn't inflated by intentional, folded-in fragments.
     unparseable: usize,
+    /// Benign cross-module mixin fragments (folded into real requests, never standalone).
+    /// Recorded so the no-silent-vanish invariant holds, but not a failure.
+    excluded_fragments: usize,
     drops_by_reason: std::collections::BTreeMap<String, usize>,
     /// Cross-module (`mergeStanzas`, Phase 2) recovery counters: how many requests
     /// fold in mixin fragments, how many gain fields from them, and the total
@@ -1005,6 +1017,7 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
                 "typedResponses": iq_diag.typed_responses,
                 "degradedResponses": iq_diag.degraded_responses,
                 "unparseable": iq_diag.unparseable,
+                "excludedFragments": iq_diag.excluded_fragments,
                 "dropsByReason": iq_diag.drops_by_reason,
                 "crossModule": {
                     "requestsWithMixins": iq_diag.cross_module.requests_with_mixins,
@@ -1248,7 +1261,8 @@ fn push_iq(
         stanzas: ir.stanzas.len(),
         typed_responses: ir.stanzas.len() - degraded,
         degraded_responses: degraded,
-        unparseable: ir.unparseable.len(),
+        unparseable: genuine_unparseable,
+        excluded_fragments: fragments,
         drops_by_reason,
         cross_module,
     };
