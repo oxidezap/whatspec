@@ -774,42 +774,31 @@ fn fetch_source(opts: &Options) -> Result<Loaded> {
     }
 
     let outcome = wa_fetch::download_bundles(&discovered.js, &wa_fetch::DownloadOptions::default());
-    if !outcome.failures.is_empty() {
-        eprintln!(
-            "warning: {} bundle download(s) failed",
-            outcome.failures.len()
-        );
-    }
-    if outcome.bundles.is_empty() {
+    // A partial download must not become authoritative: it would pin a lockfile and
+    // publish a durable archive for an *incomplete* input set, silently dropping
+    // whatever modules failed to fetch. Refuse it — the fetch is the sole writer of
+    // the lock, and the run is retryable — rather than canonicalize a corrupt set.
+    if !outcome.failures.is_empty() || outcome.bundles.len() != discovered.js.len() {
         anyhow::bail!(
-            "downloaded 0 of {} discovered bundles (all {} failed) — network or anti-bot issue.",
+            "incomplete download: {} of {} bundles present ({} failed) — refusing to build a \
+             lockfile/spec from a partial set (transient network/anti-bot; retry).",
+            outcome.bundles.len(),
             discovered.js.len(),
             outcome.failures.len()
         );
     }
 
-    // Persist to the cache only on a fully-complete download (every discovered
-    // bundle present, no failures) — never cache a half-downloaded set, so a
-    // later run with the same version re-downloads instead of trusting a partial.
+    // A complete set: safe to cache for reuse by a later run of the same version.
     if let (Some(cache_dir), Some(remote_version)) = (&opts.cache_dir, &discovered.wa_version) {
-        let complete = outcome.failures.is_empty() && outcome.bundles.len() == discovered.js.len();
-        if complete {
-            let cache = wa_fetch::BundleCache::new(cache_dir.clone());
-            cache
-                .store(remote_version, &outcome.bundles)
-                .with_context(|| format!("write bundle cache at {}", cache_dir.display()))?;
-            eprintln!(
-                "cached {} bundles for {remote_version} at {}",
-                outcome.bundles.len(),
-                cache_dir.display()
-            );
-        } else {
-            eprintln!(
-                "not caching: incomplete download ({} of {} bundles)",
-                outcome.bundles.len(),
-                discovered.js.len()
-            );
-        }
+        let cache = wa_fetch::BundleCache::new(cache_dir.clone());
+        cache
+            .store(remote_version, &outcome.bundles)
+            .with_context(|| format!("write bundle cache at {}", cache_dir.display()))?;
+        eprintln!(
+            "cached {} bundles for {remote_version} at {}",
+            outcome.bundles.len(),
+            cache_dir.display()
+        );
     }
 
     maybe_save_bundles(opts, &outcome.bundles)?;

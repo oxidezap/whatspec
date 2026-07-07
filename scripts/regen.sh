@@ -19,6 +19,11 @@ lock="generated/bundles.lock.json"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
-ver=$(jq -r .waVersion generated/manifest.json)
+# --check compares against the committed generated/, so a wrong version makes the
+# comparison meaningless — require a real waVersion (jq yields "null" for a missing
+# field with exit 0, which would otherwise pass `--wa-version null` straight through).
+ver=$(jq -r .waVersion generated/manifest.json 2>/dev/null || true)
+[ -n "$ver" ] && [ "$ver" != "null" ] || { echo "generated/manifest.json missing or has no waVersion" >&2; exit 1; }
+
 cargo run --release -p whatspec -- restore --from-lock "$lock" --out "$tmp/bundles"
 cargo run --release -p whatspec -- update --bundles "$tmp/bundles" --wa-version "$ver" --check
