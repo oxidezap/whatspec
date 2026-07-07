@@ -82,3 +82,27 @@ jobs:
         run: |
           pip install --quiet jsonschema
           python scripts/validate-schemas.py generated
+
+  # Reproducibility gate: restore the *exact* bundle set generated/ was built from
+  # (from the durable release store, verified against the committed lockfile) and
+  # regenerate in --check mode. Proves every committed generated/ is byte-for-byte
+  # reproducible from its pinned inputs — the guarantee the hermetic `check` job
+  # can't make on its own. Kept separate because it needs the network; dormant
+  # until the update workflow bootstraps the first bundles.lock.json.
+  determinism:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Reproduce generated/ from the committed lock
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          if [ ! -f generated/bundles.lock.json ]; then
+            echo "no generated/bundles.lock.json yet — reproducibility gate is dormant"
+            echo "until the update workflow publishes the first locked bundle set."
+            exit 0
+          fi
+          ./scripts/regen.sh

@@ -33,9 +33,22 @@ cargo run --release -p whatspec -- update --cache .wa-cache
 
 # Compare two generated outputs (e.g. across a WhatsApp version bump):
 cargo run --release -p whatspec -- diff old-generated/ generated/
+
+# Deterministically reproduce & verify generated/ from its pinned inputs (no live fetch):
+./scripts/regen.sh
 ```
 
 `update` is safe by default: it refuses to overwrite the committed output if any domain's coverage shrinks (pass `--allow-shrink` to accept a genuine reduction), and fails loudly if a domain extracts nothing.
+
+## Reproducibility
+
+WhatsApp only serves the *current* bundle version — old bundle URLs 404 — so the inputs that produced a past `generated/` can't be re-fetched from source. To keep the "same bundle → byte-identical output" promise checkable by anyone at any time, each generation pins and preserves its exact inputs:
+
+- **`generated/bundles.lock.json`** records the content SHA-256 (+ size, and origin URL when known) of every bundle that produced the committed `generated/`, plus a one-line, order-invariant `setHash` fingerprint of the whole set.
+- The **bytes** live in a durable, WhatsApp-independent store: a rolling **`bundle-store`** GitHub Release with one `bundles-<version>.tar.gz` per version, published automatically by the update workflow.
+- **`whatspec restore --from-lock generated/bundles.lock.json --out <dir>`** pulls that archive, verifies every bundle's SHA-256 against the lock, and writes a directory ready for `update --bundles`. **`scripts/regen.sh`** wraps restore + `update --check` into a one-shot, offline determinism check — also run in CI, so every commit's `generated/` is proven reproducible from its pinned inputs.
+
+> Bootstrap: the lock and the first archive are created by the first run of the update workflow (or a manual `update --save-bundles <dir>` followed by `scripts/publish-bundles.sh <dir>`). Until then the CI reproducibility gate stays dormant.
 
 ## Consuming the IR
 
