@@ -1029,7 +1029,7 @@ pub(crate) fn variables_shape(
     arg_def_names: &[String],
 ) -> BTreeMap<String, TypeNode> {
     let raw = caller_src.and_then(|s| extract_vars_shape(s.as_bytes()));
-    type_tree(augment_with_arg_defs(raw, arg_def_names))
+    type_tree(augment_with_arg_defs(raw, arg_def_names), true)
 }
 
 // ─── pragmatic leaf typing ───────────────────────────────────────────────────
@@ -1088,21 +1088,38 @@ fn infer_scalar(name: &str) -> &'static str {
     "string"
 }
 
+/// Plural id/jid collection names (`*_ids`, `*_jids`) are GraphQL list variables
+/// (e.g. `message_ids: [String!]`), not scalars. Applied only to input variables,
+/// where an opaque ref carries no structural array clue; confirmed against WA Web
+/// (`pinNewsletterMessages(a, [String(n)])` feeds `input.message_ids`).
+fn is_id_list_name(name: &str) -> bool {
+    name.ends_with("_ids") || name.ends_with("_jids")
+}
+
 /// Replace `unknown` scalar leaves with a pragmatic concrete type based on the
 /// field name they sit under. Array elements inherit their field's name hint.
-fn type_node(node: TypeNode, key_hint: &str) -> TypeNode {
+/// `vars` enables the plural-`_ids` list heuristic, which only holds for input
+/// variables (response list-scalars already surface structurally via Relay).
+fn type_node(node: TypeNode, key_hint: &str, vars: bool) -> TypeNode {
     match node {
         TypeNode::Leaf(tag) if tag == TypeNode::UNKNOWN => {
-            TypeNode::Leaf(infer_scalar(key_hint).to_string())
+            if vars && is_id_list_name(key_hint) {
+                TypeNode::Array(vec![TypeNode::Leaf("string".to_string())])
+            } else {
+                TypeNode::Leaf(infer_scalar(key_hint).to_string())
+            }
         }
         TypeNode::Leaf(t) => TypeNode::Leaf(t),
-        TypeNode::Array(items) => {
-            TypeNode::Array(items.into_iter().map(|n| type_node(n, key_hint)).collect())
-        }
+        TypeNode::Array(items) => TypeNode::Array(
+            items
+                .into_iter()
+                .map(|n| type_node(n, key_hint, vars))
+                .collect(),
+        ),
         TypeNode::Object(map) => TypeNode::Object(
             map.into_iter()
                 .map(|(k, n)| {
-                    let typed = type_node(n, &k);
+                    let typed = type_node(n, &k, vars);
                     (k, typed)
                 })
                 .collect(),
@@ -1110,10 +1127,10 @@ fn type_node(node: TypeNode, key_hint: &str) -> TypeNode {
     }
 }
 
-fn type_tree(map: BTreeMap<String, TypeNode>) -> BTreeMap<String, TypeNode> {
+fn type_tree(map: BTreeMap<String, TypeNode>, vars: bool) -> BTreeMap<String, TypeNode> {
     map.into_iter()
         .map(|(k, n)| {
-            let typed = type_node(n, &k);
+            let typed = type_node(n, &k, vars);
             (k, typed)
         })
         .collect()
@@ -1130,7 +1147,7 @@ pub(crate) fn response_from_module(module_src: &str) -> BTreeMap<String, TypeNod
         .and_then(|o| o.get("selections"))
         .map(shape_from_selections)
         .unwrap_or_default();
-    type_tree(structural)
+    type_tree(structural, false)
 }
 
 #[cfg(test)]
@@ -1257,6 +1274,26 @@ mod tests {
         assert_eq!(leaf(input.get("group_jid").unwrap()), "string");
         assert_eq!(leaf(input.get("reason").unwrap()), "string");
         assert_eq!(leaf(vs.get("fetch_meta").unwrap()), "boolean");
+    }
+
+    #[test]
+    fn variables_shape_plural_ids_ref_becomes_string_list() {
+        // Real WA shape: `fetchQuery(id, {newsletter_id:t, input:{message_ids:r}})`,
+        // where `r` is an opaque param fed an array at the outer call site
+        // (`pinNewsletterMessages(a, [String(n)])`). Plural `_ids` ⇒ list of strings.
+        let caller = r#"function s(t,r){return o("WAWebMexClient").fetchQuery(i,{newsletter_id:t,input:{message_ids:r}})}"#;
+        let vs = variables_shape(
+            Some(caller),
+            &["newsletter_id".to_string(), "input".to_string()],
+        );
+        assert_eq!(leaf(vs.get("newsletter_id").unwrap()), "string");
+        let TypeNode::Object(input) = vs.get("input").unwrap() else {
+            panic!("input object")
+        };
+        let TypeNode::Array(items) = input.get("message_ids").unwrap() else {
+            panic!("message_ids must be a list, not a scalar")
+        };
+        assert_eq!(leaf(&items[0]), "string");
     }
 
     #[test]
