@@ -29,18 +29,26 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
+      # Regenerate AND keep the exact fetched bundles, so the same set can be
+      # archived to the durable store below (WhatsApp 404s old versions).
       - name: Regenerate specs
-        run: ./scripts/update.sh ${{ inputs.allow_shrink && '--allow-shrink' || '' }}
+        run: ./scripts/update.sh --save-bundles "$RUNNER_TEMP/bundles" ${{ inputs.allow_shrink && '--allow-shrink' || '' }}
 
-      - name: Commit changes
+      # Publish the exact input set as a Release asset (durable, WA-independent) and
+      # commit generated/ + its bundles.lock.json together, so every committed
+      # generated/ is reproducible from a pinned, retrievable set.
+      - name: Publish bundle archive and commit
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if [ -n "$(git status --porcelain generated)" ]; then
-            ver=$(jq -r .waVersion generated/manifest.json)
-            git add generated
-            git commit -m "chore: update WhatsApp specs to ${ver}"
-            git push
-          else
+          if [ -z "$(git status --porcelain generated)" ]; then
             echo "No spec changes."
+            exit 0
           fi
+          ver=$(jq -r .waVersion generated/manifest.json)
+          ./scripts/publish-bundles.sh "$RUNNER_TEMP/bundles"
+          git add generated
+          git commit -m "chore: update WhatsApp specs to ${ver}"
+          git push

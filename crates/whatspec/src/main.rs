@@ -11,6 +11,9 @@ use anyhow::{Context, Result};
 mod lock;
 use lock::{BundleId, BundleLock};
 
+#[cfg(feature = "fetch")]
+mod restore;
+
 /// The committed bundle lockfile, written next to the domain artifacts.
 const BUNDLE_LOCK_NAME: &str = "bundles.lock.json";
 
@@ -26,6 +29,9 @@ const FLAG_CHECK: &str = "--check";
 const FLAG_FILE: &str = "--file";
 const FLAG_CACHE: &str = "--cache";
 const FLAG_ALLOW_SHRINK: &str = "--allow-shrink";
+const FLAG_FROM_LOCK: &str = "--from-lock";
+const FLAG_ARCHIVE: &str = "--archive";
+const FLAG_REPO: &str = "--repo";
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -33,11 +39,61 @@ fn main() -> Result<()> {
         Some("update") => update(&args[1..]),
         Some("mex-ids") => mex_ids(&args[1..]),
         Some("diff") => diff(&args[1..]),
+        Some("restore") => restore_cmd(&args[1..]),
         _ => {
             eprintln!("{}", usage());
             Ok(())
         }
     }
+}
+
+/// `whatspec restore` — rebuild a locked bundle set from the durable store and verify
+/// it against `bundles.lock.json`, ready to feed back into `update --bundles`.
+#[cfg(feature = "fetch")]
+fn restore_cmd(args: &[String]) -> Result<()> {
+    let mut lock_path: Option<PathBuf> = None;
+    let mut out: Option<PathBuf> = None;
+    let mut archive: Option<String> = None;
+    let mut repo: Option<String> = None;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            FLAG_FROM_LOCK => {
+                lock_path = Some(PathBuf::from(arg_value(args, i, FLAG_FROM_LOCK)?));
+                i += 2;
+            }
+            FLAG_OUT => {
+                out = Some(PathBuf::from(arg_value(args, i, FLAG_OUT)?));
+                i += 2;
+            }
+            FLAG_ARCHIVE => {
+                archive = Some(arg_value(args, i, FLAG_ARCHIVE)?.to_string());
+                i += 2;
+            }
+            FLAG_REPO => {
+                repo = Some(arg_value(args, i, FLAG_REPO)?.to_string());
+                i += 2;
+            }
+            other => anyhow::bail!("unknown flag: {other}"),
+        }
+    }
+    let lock_path =
+        lock_path.with_context(|| format!("restore requires {FLAG_FROM_LOCK} <path>"))?;
+    let out = out.with_context(|| format!("restore requires {FLAG_OUT} <dir>"))?;
+    let mut opts = restore::RestoreOptions::new(lock_path, out);
+    opts.archive = archive;
+    if let Some(repo) = repo {
+        opts.repo = repo;
+    }
+    restore::restore(&opts)
+}
+
+#[cfg(not(feature = "fetch"))]
+fn restore_cmd(_args: &[String]) -> Result<()> {
+    anyhow::bail!(
+        "`restore` pulls bundles over the network — this binary was built without the \
+         `fetch` feature. Rebuild with it enabled."
+    )
 }
 
 fn usage() -> String {
@@ -56,14 +112,21 @@ fn usage() -> String {
          whatspec diff <old-dir> <new-dir>\n\n\
          Compares two generated output directories (by their `manifest.json` + `index.json`s)\n\
          and prints version/count deltas and the namespaces/operations/actions added or removed.\n\n\
+         whatspec restore {FLAG_FROM_LOCK} <bundles.lock.json> {FLAG_OUT} <dir> [{FLAG_ARCHIVE} <path|url>] [{FLAG_REPO} <owner/repo>]\n\n\
+         Rebuilds the exact bundle set a `generated/` snapshot was built from — pulled from the\n\
+         durable release store (or {FLAG_ARCHIVE}) and verified against the lock — into <dir>, ready\n\
+         to feed back into `update {FLAG_BUNDLES} <dir> {FLAG_CHECK}` for a deterministic regen.\n\n\
          flags:\n  \
-         {FLAG_OUT} <dir>           output directory (default `{DEFAULT_OUT}`)\n  \
+         {FLAG_OUT} <dir>           output directory (default `{DEFAULT_OUT}`; restore: target dir)\n  \
          {FLAG_BUNDLES} <dir>       read local .js bundles instead of fetching\n  \
          {FLAG_WA_VERSION} <ver>    stamp this version instead of the discovered one\n  \
          {FLAG_SAVE_BUNDLES} <dir>  persist fetched bundles to <dir>\n  \
          {FLAG_CACHE} <dir>         cache bundles by version in <dir>; reuse if the remote\n                             \
          version is already cached complete & intact, else re-download\n  \
          {FLAG_FILE} <path>         (mex-ids) the mex_ids.rs to refresh in place\n  \
+         {FLAG_FROM_LOCK} <path>     (restore) the committed bundles.lock.json to restore\n  \
+         {FLAG_ARCHIVE} <path|url>   (restore) explicit archive instead of the derived release URL\n  \
+         {FLAG_REPO} <owner/repo>    (restore) repo hosting the bundle-store release\n  \
          {FLAG_CHECK}              generate in-memory and exit non-zero if it differs from disk\n  \
          {FLAG_ALLOW_SHRINK}       accept output that shrinks below the committed manifest counts"
     )

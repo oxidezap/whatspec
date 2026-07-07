@@ -33,6 +33,11 @@ repository = "https://github.com/oxidezap/whatspec"
 [workspace.dependencies]
 anyhow = "1"
 
+# Bundle-archive (de)compression for `whatspec restore`. Pure-Rust only:
+# flate2's `rust_backend` (miniz_oxide) keeps the C-free guarantee — no libz-sys.
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+tar = "0.4"
+
 # oxc (native JS parsing/AST) — tooling crates only, never the WASM build.
 oxc_allocator = "0.133"
 oxc_ast = "0.133"
