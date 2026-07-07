@@ -289,6 +289,17 @@ fn verify_against_lock(files: &[(String, Vec<u8>)], lock: &BundleLock) -> Result
 /// stale `.js` so the directory holds *exactly* the restored set (a leftover bundle
 /// would otherwise be concatenated by `update --bundles`).
 fn write_bundles(files: &[(String, Vec<u8>)], out: &Path) -> Result<usize> {
+    // Reject duplicate basenames *before* touching the filesystem. Two entries can share
+    // a name even past hash-multiset verification (a crafted `--archive`), and writing
+    // as we go would leave a half-populated `out` — and needlessly sweep an existing one
+    // — when we bail on the collision. Check first, mutate second.
+    let mut seen: HashMap<&str, ()> = HashMap::new();
+    for (name, _) in files {
+        if seen.insert(name.as_str(), ()).is_some() {
+            bail!("archive has two entries named {name} — cannot restore flatly");
+        }
+    }
+
     std::fs::create_dir_all(out).with_context(|| format!("create {}", out.display()))?;
     for entry in std::fs::read_dir(out).with_context(|| format!("read {}", out.display()))? {
         let p = entry?.path();
@@ -296,11 +307,7 @@ fn write_bundles(files: &[(String, Vec<u8>)], out: &Path) -> Result<usize> {
             std::fs::remove_file(&p).with_context(|| format!("remove stale {}", p.display()))?;
         }
     }
-    let mut seen: HashMap<&str, ()> = HashMap::new();
     for (name, bytes) in files {
-        if seen.insert(name.as_str(), ()).is_some() {
-            bail!("archive has two entries named {name} — cannot restore flatly");
-        }
         std::fs::write(out.join(name), bytes)
             .with_context(|| format!("write {}", out.join(name).display()))?;
     }
@@ -399,6 +406,26 @@ mod tests {
         assert!(!is_github_host("http://github.com.evil.com/x")); // suffix trick
         assert!(!is_github_host("https://github.com@evil.com/x")); // userinfo trick
         assert!(!is_github_host("https://objects.githubusercontent.com/x")); // CDN, no token
+    }
+
+    #[test]
+    fn write_bundles_rejects_duplicate_basenames_without_partial_writes() {
+        // Duplicate basenames can slip past hash-multiset verification (a crafted
+        // archive). The collision must be caught before any filesystem mutation, so a
+        // failed restore never leaves a half-populated (or freshly swept) output dir.
+        let dir = std::env::temp_dir().join(format!("wsr-dup-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let files = vec![
+            ("dup.js".to_string(), b"first".to_vec()),
+            ("dup.js".to_string(), b"second".to_vec()),
+        ];
+        let err = write_bundles(&files, &dir).unwrap_err();
+        assert!(err.to_string().contains("two entries named"), "{err}");
+        assert!(
+            !dir.exists(),
+            "bailed before touching the filesystem — no partial output"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
