@@ -1096,18 +1096,27 @@ fn is_id_list_name(name: &str) -> bool {
     name.ends_with("_ids") || name.ends_with("_jids")
 }
 
+/// Type a *named* field. The plural-`_ids`/`_jids` list heuristic fires only
+/// here — where `key_hint` genuinely names the field — never on array elements,
+/// which merely inherit the parent's plural key and would otherwise double-wrap
+/// into `[[string]]`. Gated to input variables (`vars`); responses pass `false`.
+fn type_field(node: TypeNode, key_hint: &str, vars: bool) -> TypeNode {
+    let opaque_leaf = matches!(&node, TypeNode::Leaf(t) if t.as_str() == TypeNode::UNKNOWN);
+    if vars && opaque_leaf && is_id_list_name(key_hint) {
+        return TypeNode::Array(vec![TypeNode::Leaf("string".to_string())]);
+    }
+    type_node(node, key_hint, vars)
+}
+
 /// Replace `unknown` scalar leaves with a pragmatic concrete type based on the
-/// field name they sit under. Array elements inherit their field's name hint.
-/// `vars` enables the plural-`_ids` list heuristic, which only holds for input
-/// variables (response list-scalars already surface structurally via Relay).
+/// field name they sit under. Array elements inherit their field's name hint but
+/// stay scalar (the list heuristic lives in `type_field`); object fields recurse
+/// through `type_field` so nested `_ids` fields are still promoted. `vars` threads
+/// the input-variable context (see `type_field`).
 fn type_node(node: TypeNode, key_hint: &str, vars: bool) -> TypeNode {
     match node {
         TypeNode::Leaf(tag) if tag == TypeNode::UNKNOWN => {
-            if vars && is_id_list_name(key_hint) {
-                TypeNode::Array(vec![TypeNode::Leaf("string".to_string())])
-            } else {
-                TypeNode::Leaf(infer_scalar(key_hint).to_string())
-            }
+            TypeNode::Leaf(infer_scalar(key_hint).to_string())
         }
         TypeNode::Leaf(t) => TypeNode::Leaf(t),
         TypeNode::Array(items) => TypeNode::Array(
@@ -1119,7 +1128,7 @@ fn type_node(node: TypeNode, key_hint: &str, vars: bool) -> TypeNode {
         TypeNode::Object(map) => TypeNode::Object(
             map.into_iter()
                 .map(|(k, n)| {
-                    let typed = type_node(n, &k, vars);
+                    let typed = type_field(n, &k, vars);
                     (k, typed)
                 })
                 .collect(),
@@ -1130,7 +1139,7 @@ fn type_node(node: TypeNode, key_hint: &str, vars: bool) -> TypeNode {
 fn type_tree(map: BTreeMap<String, TypeNode>, vars: bool) -> BTreeMap<String, TypeNode> {
     map.into_iter()
         .map(|(k, n)| {
-            let typed = type_node(n, &k, vars);
+            let typed = type_field(n, &k, vars);
             (k, typed)
         })
         .collect()
@@ -1294,6 +1303,38 @@ mod tests {
             panic!("message_ids must be a list, not a scalar")
         };
         assert_eq!(leaf(&items[0]), "string");
+
+        // `_jids` suffix takes the same branch.
+        let caller_jids = r#"function s(t,r){return o("WAWebMexClient").fetchQuery(i,{input:{participant_jids:r}})}"#;
+        let vs_jids = variables_shape(Some(caller_jids), &["input".to_string()]);
+        let TypeNode::Object(input_jids) = vs_jids.get("input").unwrap() else {
+            panic!("input object")
+        };
+        let TypeNode::Array(jids) = input_jids.get("participant_jids").unwrap() else {
+            panic!("participant_jids must be a list, not a scalar")
+        };
+        assert_eq!(leaf(&jids[0]), "string");
+    }
+
+    #[test]
+    fn variables_shape_plural_ids_explicit_array_not_double_wrapped() {
+        // When the caller already spells the list out (`message_ids:[e]`), the
+        // extractor yields `Array([Leaf(unknown)])`. The heuristic must not fire on
+        // the array *element* (inherited `_ids` key), else we'd get `[[string]]`.
+        let caller = r#"function s(t,e){return o("WAWebMexClient").fetchQuery(i,{input:{message_ids:[e]}})}"#;
+        let vs = variables_shape(Some(caller), &["input".to_string()]);
+        let TypeNode::Object(input) = vs.get("input").unwrap() else {
+            panic!("input object")
+        };
+        let TypeNode::Array(items) = input.get("message_ids").unwrap() else {
+            panic!("message_ids array")
+        };
+        assert_eq!(items.len(), 1, "single list level");
+        assert_eq!(
+            leaf(&items[0]),
+            "string",
+            "element is a scalar, not a nested list"
+        );
     }
 
     #[test]
