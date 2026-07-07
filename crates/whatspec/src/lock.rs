@@ -87,6 +87,38 @@ impl BundleLock {
         // Infallible: the type is plain owned data with no non-string map keys.
         serde_json::to_string_pretty(self).expect("BundleLock serializes") + "\n"
     }
+
+    /// Recompute the fingerprint from `bundles` and confirm the recorded `setHash` and
+    /// `bundleCount` still agree — so a hand-edited or corrupted lockfile is rejected
+    /// before it's trusted to select and verify an archive (the lock is the anchor of
+    /// the whole reproducibility chain; it must be self-consistent). `Err` carries a
+    /// human-readable reason.
+    pub fn verify_self_consistent(&self) -> Result<(), String> {
+        if self.bundle_count != self.bundles.len() {
+            return Err(format!(
+                "bundleCount {} != {} entries",
+                self.bundle_count,
+                self.bundles.len()
+            ));
+        }
+        let ids: Vec<BundleId> = self
+            .bundles
+            .iter()
+            .map(|e| BundleId {
+                sha256: e.sha256.clone(),
+                size: e.size,
+                url: None,
+            })
+            .collect();
+        let recomputed = set_hash(&ids);
+        if self.set_hash != recomputed {
+            return Err(format!(
+                "setHash {} does not match the bundle list (recomputed {recomputed})",
+                self.set_hash
+            ));
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -159,6 +191,33 @@ mod tests {
         assert!(
             !json.contains("url"),
             "None url is omitted from the file: {json}"
+        );
+    }
+
+    #[test]
+    fn self_consistency_catches_tampering() {
+        let lock = BundleLock::new("v", vec![id("aa", 1, None), id("bb", 2, None)]);
+        lock.verify_self_consistent()
+            .expect("freshly built lock is consistent");
+
+        // A tampered bundle list no longer matches the recorded setHash.
+        let mut tampered = lock.clone();
+        tampered.bundles[0].sha256 = "cc".to_string();
+        assert!(
+            tampered
+                .verify_self_consistent()
+                .unwrap_err()
+                .contains("setHash")
+        );
+
+        // A stale count is caught too.
+        let mut miscount = lock.clone();
+        miscount.bundle_count = 5;
+        assert!(
+            miscount
+                .verify_self_consistent()
+                .unwrap_err()
+                .contains("bundleCount")
         );
     }
 }

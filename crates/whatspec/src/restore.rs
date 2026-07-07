@@ -72,7 +72,14 @@ pub fn restore(opts: &RestoreOptions) -> Result<()> {
 fn read_lock(path: &Path) -> Result<BundleLock> {
     let raw = std::fs::read_to_string(path)
         .with_context(|| format!("read lockfile {}", path.display()))?;
-    serde_json::from_str(&raw).with_context(|| format!("parse lockfile {}", path.display()))
+    let lock: BundleLock =
+        serde_json::from_str(&raw).with_context(|| format!("parse lockfile {}", path.display()))?;
+    // The lock anchors the whole reproducibility chain — reject a hand-edited or
+    // corrupted one (setHash/bundleCount out of sync with its bundle list) before
+    // trusting it to select and verify an archive.
+    lock.verify_self_consistent()
+        .map_err(|why| anyhow::anyhow!("lockfile {} is inconsistent: {why}", path.display()))?;
+    Ok(lock)
 }
 
 /// Fetch the archive bytes from the caller-supplied location, or the derived release
