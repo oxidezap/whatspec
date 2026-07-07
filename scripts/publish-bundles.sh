@@ -19,10 +19,30 @@ bundles_dir="${1:?usage: publish-bundles.sh <bundles-dir>  (the --save-bundles o
 ver=$(jq -r .waVersion generated/manifest.json)
 [ -n "$ver" ] && [ "$ver" != "null" ] || { echo "no waVersion in generated/manifest.json" >&2; exit 1; }
 
-archive="bundles-${ver}.tar.gz"
-# Reproducible archive: sorted entries, no owner/timestamps.
-tar --sort=name --owner=0 --group=0 --numeric-owner --mtime='@0' \
-    -C "$bundles_dir" -czf "$archive" .
+# Build the archive in a temp dir (never in the working tree, so no stray file to
+# `git add` by accident); `gh` names the asset from the basename regardless.
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+archive="$work/bundles-${ver}.tar.gz"
+
+# Prefer GNU tar for a reproducible archive (sorted, no owner/timestamps) — its
+# `--sort`/`--mtime` flags are GNU extensions BSD tar (macOS) rejects. Fall back to
+# gtar if installed, else a plain archive: byte-for-byte reproducibility of the
+# envelope is a nicety here, since `restore` verifies each bundle's SHA-256 against
+# the lock, not the tarball itself.
+gnu_tar=""
+if tar --version 2>/dev/null | grep -qi 'gnu tar'; then
+  gnu_tar="tar"
+elif command -v gtar >/dev/null 2>&1; then
+  gnu_tar="gtar"
+fi
+if [ -n "$gnu_tar" ]; then
+  "$gnu_tar" --sort=name --owner=0 --group=0 --numeric-owner --mtime='@0' \
+      -C "$bundles_dir" -czf "$archive" .
+else
+  echo "note: GNU tar not found — writing a non-reproducible archive (restore still verifies per-bundle SHA-256)" >&2
+  tar -C "$bundles_dir" -czf "$archive" .
+fi
 
 # One rolling release accumulates every version's asset; create it if absent.
 gh release view bundle-store >/dev/null 2>&1 \
@@ -30,4 +50,4 @@ gh release view bundle-store >/dev/null 2>&1 \
        --notes "Durable WhatsApp Web bundle archives (one bundles-<version>.tar.gz per spec version) for deterministic regeneration. See scripts/regen.sh."
 gh release upload bundle-store "$archive" --clobber
 
-echo "published $archive to the bundle-store release"
+echo "published bundles-${ver}.tar.gz to the bundle-store release"
