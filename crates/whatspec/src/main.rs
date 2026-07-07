@@ -8,6 +8,15 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
+mod lock;
+use lock::{BundleId, BundleLock};
+
+#[cfg(feature = "fetch")]
+mod restore;
+
+/// The committed bundle lockfile, written next to the domain artifacts.
+const BUNDLE_LOCK_NAME: &str = "bundles.lock.json";
+
 const DEFAULT_OUT: &str = "generated";
 const UNKNOWN_VERSION: &str = "unknown";
 const BUNDLE_SEPARATOR: &str = "\n;\n";
@@ -20,6 +29,9 @@ const FLAG_CHECK: &str = "--check";
 const FLAG_FILE: &str = "--file";
 const FLAG_CACHE: &str = "--cache";
 const FLAG_ALLOW_SHRINK: &str = "--allow-shrink";
+const FLAG_FROM_LOCK: &str = "--from-lock";
+const FLAG_ARCHIVE: &str = "--archive";
+const FLAG_REPO: &str = "--repo";
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -27,11 +39,61 @@ fn main() -> Result<()> {
         Some("update") => update(&args[1..]),
         Some("mex-ids") => mex_ids(&args[1..]),
         Some("diff") => diff(&args[1..]),
+        Some("restore") => restore_cmd(&args[1..]),
         _ => {
             eprintln!("{}", usage());
             Ok(())
         }
     }
+}
+
+/// `whatspec restore` — rebuild a locked bundle set from the durable store and verify
+/// it against `bundles.lock.json`, ready to feed back into `update --bundles`.
+#[cfg(feature = "fetch")]
+fn restore_cmd(args: &[String]) -> Result<()> {
+    let mut lock_path: Option<PathBuf> = None;
+    let mut out: Option<PathBuf> = None;
+    let mut archive: Option<String> = None;
+    let mut repo: Option<String> = None;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            FLAG_FROM_LOCK => {
+                lock_path = Some(PathBuf::from(arg_value(args, i, FLAG_FROM_LOCK)?));
+                i += 2;
+            }
+            FLAG_OUT => {
+                out = Some(PathBuf::from(arg_value(args, i, FLAG_OUT)?));
+                i += 2;
+            }
+            FLAG_ARCHIVE => {
+                archive = Some(arg_value(args, i, FLAG_ARCHIVE)?.to_string());
+                i += 2;
+            }
+            FLAG_REPO => {
+                repo = Some(arg_value(args, i, FLAG_REPO)?.to_string());
+                i += 2;
+            }
+            other => anyhow::bail!("unknown flag: {other}"),
+        }
+    }
+    let lock_path =
+        lock_path.with_context(|| format!("restore requires {FLAG_FROM_LOCK} <path>"))?;
+    let out = out.with_context(|| format!("restore requires {FLAG_OUT} <dir>"))?;
+    let mut opts = restore::RestoreOptions::new(lock_path, out);
+    opts.archive = archive;
+    if let Some(repo) = repo {
+        opts.repo = repo;
+    }
+    restore::restore(&opts)
+}
+
+#[cfg(not(feature = "fetch"))]
+fn restore_cmd(_args: &[String]) -> Result<()> {
+    anyhow::bail!(
+        "`restore` pulls bundles over the network — this binary was built without the \
+         `fetch` feature. Rebuild with it enabled."
+    )
 }
 
 fn usage() -> String {
@@ -50,14 +112,21 @@ fn usage() -> String {
          whatspec diff <old-dir> <new-dir>\n\n\
          Compares two generated output directories (by their `manifest.json` + `index.json`s)\n\
          and prints version/count deltas and the namespaces/operations/actions added or removed.\n\n\
+         whatspec restore {FLAG_FROM_LOCK} <bundles.lock.json> {FLAG_OUT} <dir> [{FLAG_ARCHIVE} <path|url>] [{FLAG_REPO} <owner/repo>]\n\n\
+         Rebuilds the exact bundle set a `generated/` snapshot was built from — pulled from the\n\
+         durable release store (or {FLAG_ARCHIVE}) and verified against the lock — into <dir>, ready\n\
+         to feed back into `update {FLAG_BUNDLES} <dir> {FLAG_CHECK}` for a deterministic regen.\n\n\
          flags:\n  \
-         {FLAG_OUT} <dir>           output directory (default `{DEFAULT_OUT}`)\n  \
+         {FLAG_OUT} <dir>           output directory (default `{DEFAULT_OUT}`; restore: target dir)\n  \
          {FLAG_BUNDLES} <dir>       read local .js bundles instead of fetching\n  \
          {FLAG_WA_VERSION} <ver>    stamp this version instead of the discovered one\n  \
          {FLAG_SAVE_BUNDLES} <dir>  persist fetched bundles to <dir>\n  \
          {FLAG_CACHE} <dir>         cache bundles by version in <dir>; reuse if the remote\n                             \
          version is already cached complete & intact, else re-download\n  \
          {FLAG_FILE} <path>         (mex-ids) the mex_ids.rs to refresh in place\n  \
+         {FLAG_FROM_LOCK} <path>     (restore) the committed bundles.lock.json to restore\n  \
+         {FLAG_ARCHIVE} <path|url>   (restore) explicit archive instead of the derived release URL\n  \
+         {FLAG_REPO} <owner/repo>    (restore) repo hosting the bundle-store release\n  \
          {FLAG_CHECK}              generate in-memory and exit non-zero if it differs from disk\n  \
          {FLAG_ALLOW_SHRINK}       accept output that shrinks below the committed manifest counts"
     )
@@ -129,7 +198,12 @@ fn parse_update_args(args: &[String]) -> Result<Options> {
 fn update(args: &[String]) -> Result<()> {
     let opts = parse_update_args(args)?;
 
-    let (wa_version, source) = load_source(&opts)?;
+    let Loaded {
+        wa_version,
+        source,
+        bundles,
+        authoritative,
+    } = load_source(&opts)?;
     eprintln!("WhatsApp version: {wa_version}");
 
     let (artifacts, counts) = build_artifacts(&wa_version, &source)?;
@@ -172,6 +246,24 @@ fn update(args: &[String]) -> Result<()> {
             fs::create_dir_all(parent)?;
         }
         fs::write(&path, &art.content).with_context(|| format!("write {}", path.display()))?;
+    }
+
+    // Bundle lockfile: only the fetch path knows every bundle's origin URL, so it is
+    // the sole authoritative writer. A local `--bundles` regen (e.g. from a restored
+    // set) reproduces the same output but must not clobber the committed lock with a
+    // URL-less one — its input fingerprint is still enforced by the determinism job,
+    // which restores from this very lock and re-runs `--check`.
+    if authoritative {
+        let lock_path = opts.out.join(BUNDLE_LOCK_NAME);
+        let lock = BundleLock::new(&wa_version, bundles);
+        fs::write(&lock_path, lock.to_pretty_json())
+            .with_context(|| format!("write {}", lock_path.display()))?;
+        eprintln!(
+            "wrote {} ({} bundles, setHash {})",
+            lock_path.display(),
+            lock.bundle_count,
+            &lock.set_hash[..12]
+        );
     }
 
     eprintln!(
@@ -231,10 +323,10 @@ fn mex_ids(args: &[String]) -> Result<()> {
     let file = file.with_context(|| format!("mex-ids requires {FLAG_FILE} <path>"))?;
 
     let existing = fs::read_to_string(&file).with_context(|| format!("read {}", file.display()))?;
-    let (wa_version, source) = load_source(&opts)?;
-    eprintln!("WhatsApp version: {wa_version}");
+    let loaded = load_source(&opts)?;
+    eprintln!("WhatsApp version: {}", loaded.wa_version);
 
-    let ir = wa_mex::extract_mex(&source, &wa_version);
+    let ir = wa_mex::extract_mex(&loaded.source, &loaded.wa_version);
     let refresh = wa_codegen::refresh_mex_ids(&existing, &ir);
 
     eprintln!(
@@ -526,18 +618,35 @@ struct IqDiagnostics {
     cross_module: wa_scan::CrossModuleStats,
 }
 
-/// Returns `(wa_version, concatenated_bundle_source)`. The `--wa-version`
-/// override always wins; otherwise the version comes from discovery (fetch mode)
-/// or defaults to `unknown` (local mode).
-fn load_source(opts: &Options) -> Result<(String, String)> {
+/// A loaded bundle set: the stamped version, the concatenated source the extractors
+/// consume, and the per-bundle identities that fingerprint the inputs (for the lock).
+struct Loaded {
+    wa_version: String,
+    source: String,
+    bundles: Vec<BundleId>,
+    /// `true` only for the fetch path, which knows every bundle's origin URL and is
+    /// therefore the *authoritative* source of a full lockfile. The offline `--bundles`
+    /// path fingerprints the same inputs (for `--check`) but never rewrites the lock,
+    /// which would clobber the committed URLs it can't reconstruct.
+    authoritative: bool,
+}
+
+/// Load the bundle set the `--wa-version` override always wins for; otherwise the
+/// version comes from discovery (fetch mode) or defaults to `unknown` (local mode).
+fn load_source(opts: &Options) -> Result<Loaded> {
     match &opts.bundles_dir {
         Some(dir) => {
-            let source = read_local_bundles(dir)?;
-            let version = opts
+            let (source, bundles) = read_local_bundles(dir)?;
+            let wa_version = opts
                 .wa_version
                 .clone()
                 .unwrap_or_else(|| UNKNOWN_VERSION.to_string());
-            Ok((version, source))
+            Ok(Loaded {
+                wa_version,
+                source,
+                bundles,
+                authoritative: false,
+            })
         }
         #[cfg(feature = "fetch")]
         None => fetch_source(opts),
@@ -549,7 +658,12 @@ fn load_source(opts: &Options) -> Result<(String, String)> {
     }
 }
 
-fn read_local_bundles(dir: &Path) -> Result<String> {
+/// Read every `.js` bundle in `dir`, returning the concatenated source and each
+/// bundle's content identity (SHA-256 + size). Bytes are decoded with
+/// [`String::from_utf8_lossy`] — matching the fetch path exactly, so the offline and
+/// network routes concatenate identical source (and a non-UTF-8 bundle degrades the
+/// same way instead of aborting only here).
+fn read_local_bundles(dir: &Path) -> Result<(String, Vec<BundleId>)> {
     let mut paths: Vec<PathBuf> = fs::read_dir(dir)
         .with_context(|| format!("read {}", dir.display()))?
         .filter_map(|e| e.ok().map(|e| e.path()))
@@ -565,26 +679,41 @@ fn read_local_bundles(dir: &Path) -> Result<String> {
     // Deterministic order so concatenation (and thus output) is stable.
     paths.sort();
 
-    let total: usize = paths
-        .iter()
-        .filter_map(|p| fs::metadata(p).ok())
-        .map(|m| m.len() as usize)
-        .sum();
-    let mut source = String::with_capacity(total + paths.len() * BUNDLE_SEPARATOR.len());
+    let mut source = String::new();
+    let mut bundles = Vec::with_capacity(paths.len());
     for path in &paths {
-        source.push_str(&fs::read_to_string(path)?);
-        source.push_str(BUNDLE_SEPARATOR);
+        let bytes = fs::read(path).with_context(|| format!("read bundle {}", path.display()))?;
+        bundles.push(BundleId {
+            sha256: wa_text::sha256_hex(&bytes),
+            size: bytes.len() as u64,
+            url: None,
+        });
+        push_bundle(&mut source, &bytes);
     }
     eprintln!(
         "loaded {} local bundles from {}",
         paths.len(),
         dir.display()
     );
-    Ok(source)
+    Ok((source, bundles))
+}
+
+/// Content identity of each downloaded bundle, carrying its origin URL (the fetch
+/// path is the only one that knows it) so the written lock records full provenance.
+#[cfg(feature = "fetch")]
+fn bundle_ids(bundles: &[wa_fetch::Bundle]) -> Vec<BundleId> {
+    bundles
+        .iter()
+        .map(|b| BundleId {
+            sha256: wa_text::sha256_hex(&b.bytes),
+            size: b.bytes.len() as u64,
+            url: Some(b.url.clone()),
+        })
+        .collect()
 }
 
 #[cfg(feature = "fetch")]
-fn fetch_source(opts: &Options) -> Result<(String, String)> {
+fn fetch_source(opts: &Options) -> Result<Loaded> {
     let discovered = wa_fetch::discover_bundle_urls(wa_fetch::WA_WEB_URL)
         .context("discover WhatsApp Web bundles")?;
     eprintln!("discovered {} bundles", discovered.js.len());
@@ -629,7 +758,12 @@ fn fetch_source(opts: &Options) -> Result<(String, String)> {
                     bundles.len()
                 );
                 maybe_save_bundles(opts, &bundles)?;
-                return Ok((version, concat_bundles(&bundles)));
+                return Ok(Loaded {
+                    wa_version: version,
+                    source: concat_bundles(&bundles),
+                    bundles: bundle_ids(&bundles),
+                    authoritative: true,
+                });
             }
             wa_fetch::CacheStatus::Miss(reason) => {
                 eprintln!("cache miss ({reason}) — downloading from scratch");
@@ -640,46 +774,50 @@ fn fetch_source(opts: &Options) -> Result<(String, String)> {
     }
 
     let outcome = wa_fetch::download_bundles(&discovered.js, &wa_fetch::DownloadOptions::default());
-    if !outcome.failures.is_empty() {
-        eprintln!(
-            "warning: {} bundle download(s) failed",
-            outcome.failures.len()
-        );
-    }
-    if outcome.bundles.is_empty() {
+    // A partial download must not become authoritative: it would pin a lockfile and
+    // publish a durable archive for an *incomplete* input set, silently dropping
+    // whatever modules failed to fetch. Refuse it — the fetch is the sole writer of
+    // the lock, and the run is retryable — rather than canonicalize a corrupt set.
+    if !outcome.failures.is_empty() || outcome.bundles.len() != discovered.js.len() {
         anyhow::bail!(
-            "downloaded 0 of {} discovered bundles (all {} failed) — network or anti-bot issue.",
+            "incomplete download: {} of {} bundles present ({} failed) — refusing to build a \
+             lockfile/spec from a partial set (transient network/anti-bot; retry).",
+            outcome.bundles.len(),
             discovered.js.len(),
             outcome.failures.len()
         );
     }
 
-    // Persist to the cache only on a fully-complete download (every discovered
-    // bundle present, no failures) — never cache a half-downloaded set, so a
-    // later run with the same version re-downloads instead of trusting a partial.
+    // A complete set: safe to cache for reuse by a later run of the same version.
     if let (Some(cache_dir), Some(remote_version)) = (&opts.cache_dir, &discovered.wa_version) {
-        let complete = outcome.failures.is_empty() && outcome.bundles.len() == discovered.js.len();
-        if complete {
-            let cache = wa_fetch::BundleCache::new(cache_dir.clone());
-            cache
-                .store(remote_version, &outcome.bundles)
-                .with_context(|| format!("write bundle cache at {}", cache_dir.display()))?;
-            eprintln!(
-                "cached {} bundles for {remote_version} at {}",
-                outcome.bundles.len(),
-                cache_dir.display()
-            );
-        } else {
-            eprintln!(
-                "not caching: incomplete download ({} of {} bundles)",
-                outcome.bundles.len(),
-                discovered.js.len()
-            );
-        }
+        let cache = wa_fetch::BundleCache::new(cache_dir.clone());
+        cache
+            .store(remote_version, &outcome.bundles)
+            .with_context(|| format!("write bundle cache at {}", cache_dir.display()))?;
+        eprintln!(
+            "cached {} bundles for {remote_version} at {}",
+            outcome.bundles.len(),
+            cache_dir.display()
+        );
     }
 
     maybe_save_bundles(opts, &outcome.bundles)?;
-    Ok((version, concat_bundles(&outcome.bundles)))
+    Ok(Loaded {
+        wa_version: version,
+        source: concat_bundles(&outcome.bundles),
+        bundles: bundle_ids(&outcome.bundles),
+        authoritative: true,
+    })
+}
+
+/// Append one bundle's decoded bytes (+ the module separator) to `source`. Always
+/// lossy — [`String::from_utf8_lossy`] borrows valid UTF-8 unchanged and only
+/// allocates on invalid input — so the fetch and local bundle-loading paths
+/// concatenate **byte-for-byte identically**. Both routes go through here so that
+/// equivalence stays in one place and can't silently drift.
+fn push_bundle(source: &mut String, bytes: &[u8]) {
+    source.push_str(&String::from_utf8_lossy(bytes));
+    source.push_str(BUNDLE_SEPARATOR);
 }
 
 /// Concatenate bundle bytes into one source string (lossy UTF-8), with the
@@ -689,11 +827,7 @@ fn concat_bundles(bundles: &[wa_fetch::Bundle]) -> String {
     let total: usize = bundles.iter().map(|b| b.bytes.len()).sum();
     let mut source = String::with_capacity(total + bundles.len() * BUNDLE_SEPARATOR.len());
     for bundle in bundles {
-        match std::str::from_utf8(&bundle.bytes) {
-            Ok(s) => source.push_str(s),
-            Err(_) => source.push_str(&String::from_utf8_lossy(&bundle.bytes)),
-        }
-        source.push_str(BUNDLE_SEPARATOR);
+        push_bundle(&mut source, &bundle.bytes);
     }
     source
 }
