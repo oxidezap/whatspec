@@ -592,12 +592,13 @@ impl ParserAnalyzer<'_, '_> {
                     f.enum_keys = Some(keys);
                 }
             } else {
-                let mut f = mk_field(
-                    "attrEnumOrNullIfUnknown",
-                    &wire,
-                    ParsedFieldType::String,
-                    false,
-                );
+                // No companion plain read created a field for this attr (doesn't occur in
+                // the current corpus, but keep it well-formed): synthesize one under a
+                // *recognized* optional-enum accessor — `attrEnumOrNullIfUnknown` reads an
+                // optional attr validated against an enum key set, which is exactly
+                // `maybeAttrEnum`. A raw "attrEnumOrNullIfUnknown" method would not be in
+                // `wap::is_attr_method`, leaving the field unclassified downstream.
+                let mut f = mk_field(wap::MAYBE_ATTR_ENUM, &wire, ParsedFieldType::String, false);
                 f.enum_keys = Some(keys);
                 self.fields.push(f);
             }
@@ -634,6 +635,7 @@ impl ModuleScope {
             module_source,
             functions: HashMap::new(),
             maps: HashMap::new(),
+            fn_depth: 0,
         };
         b.visit_program(&ret.program);
         Self {
@@ -647,6 +649,12 @@ struct ModuleScopeBuilder<'a> {
     module_source: &'a str,
     functions: HashMap<String, (Vec<String>, String)>,
     maps: HashMap<String, Vec<String>>,
+    /// Number of function bodies we are currently inside. The bundle wraps every module
+    /// in one factory (`__d("M",…,function(…){ <module body> })`), so a module-scope
+    /// sibling helper — the only kind `try_helper_descent` may resolve a bare-identifier
+    /// call to — sits at depth 1. Recording only depth-1 functions keeps a same-named
+    /// helper defined *inside another function* from being treated as module-scope.
+    fn_depth: u32,
 }
 
 impl ModuleScopeBuilder<'_> {
@@ -674,12 +682,18 @@ impl ModuleScopeBuilder<'_> {
 
 impl<'a> Visit<'a> for ModuleScopeBuilder<'_> {
     fn visit_function(&mut self, func: &Function<'a>, flags: ScopeFlags) {
-        if let Some(id) = func.id.as_ref()
+        // A `function name(){…}` directly in the factory body (depth 1) is a module-scope
+        // sibling helper; deeper ones are function-local and must not be resolvable as
+        // module-scope. `record_fn` still first-wins, matching the old finder's order.
+        if self.fn_depth == 1
+            && let Some(id) = func.id.as_ref()
             && let Some(body) = func.body.as_ref()
         {
             self.record_fn(id.name.as_str(), &func.params, body.span);
         }
+        self.fn_depth += 1;
         walk::walk_function(self, func, flags);
+        self.fn_depth -= 1;
     }
 
     fn visit_variable_declarator(&mut self, d: &VariableDeclarator<'a>) {
@@ -688,8 +702,9 @@ impl<'a> Visit<'a> for ModuleScopeBuilder<'_> {
         {
             match init {
                 // `var name = function(p){ body }` — the common minified helper form the
-                // old declaration-only finder missed.
-                Expression::FunctionExpression(f) => {
+                // old declaration-only finder missed. Only a factory-body-level (depth 1)
+                // binding is a module-scope helper.
+                Expression::FunctionExpression(f) if self.fn_depth == 1 => {
                     if let Some(body) = f.body.as_ref() {
                         self.record_fn(name.as_str(), &f.params, body.span);
                     }
@@ -1213,6 +1228,47 @@ mod tests {
         assert!(
             attrs.contains(&"jid") && attrs.contains(&"t"),
             "user attrs: {attrs:?}"
+        );
+    }
+
+    #[test]
+    fn helper_descent_ignores_nested_same_name_function() {
+        // A module-scope helper `d` parses `<user jid>`; an unrelated function also has a
+        // *local* `var d = function(){…}` (parsing a different shape) that appears earlier
+        // in source. Helper descent must bind to the module-scope `d`, not the nested one
+        // — recording every-nesting `d` (first-wins) would cross-wire the two.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function wrapper(){ var d=function(e,t){ t.mapChildrenWithTag("user", function(u){ u.attrString("wrong"); }); return {}; }; return d; }
+            function d(e,t){ t.mapChildrenWithTag("user", function(u){ u.attrDeviceJid("jid"); }); return {}; }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                var i=e.maybeChild("participants");
+                return d(e, i);
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let user = p
+            .fields
+            .iter()
+            .find(|f| f.tag.as_deref() == Some("participants"))
+            .and_then(|f| f.children.as_ref())
+            .and_then(|kids| kids.iter().find(|c| c.tag.as_deref() == Some("user")))
+            .expect("user grandchild via module-scope helper");
+        let attrs: Vec<&str> = user
+            .children
+            .as_ref()
+            .unwrap()
+            .iter()
+            .map(|c| c.name.as_str())
+            .collect();
+        assert!(
+            attrs.contains(&"jid"),
+            "module-scope helper's shape: {attrs:?}"
+        );
+        assert!(
+            !attrs.contains(&"wrong"),
+            "nested same-name helper must not be resolved as module-scope: {attrs:?}"
         );
     }
 

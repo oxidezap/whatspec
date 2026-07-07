@@ -117,10 +117,13 @@ struct VarInit {
     init_end: usize,
     /// `{...}` body span if the initializer (or declaration) is a function.
     fn_body: Option<(usize, usize)>,
-    /// The enclosing function's span for a *reassignment* (`… = init`); `None` for a
-    /// declaration/function-decl (hoisted, module-visible). A reassignment applies only
-    /// to references inside its owning function, so [`resolve_child_node`] won't let a
-    /// `<foo>` assigned to `x` in one function leak into an unrelated function's `x`.
+    /// The enclosing function's body span for an initializer that lives *inside* a
+    /// function — a `var x = init` or a reassignment `x = init`. `None` for a
+    /// module-scope declaration (hoisted, cross-function-visible) and for
+    /// `function`-declaration helpers (resolved via [`Self::fn_body`], not this filter).
+    /// A function-local initializer applies only to references inside its owning
+    /// function, so [`resolve_child_node`] won't let a `<foo>` built for `x` in one
+    /// function leak into an unrelated function's same-named `x`.
     owner_fn: Option<(usize, usize)>,
 }
 
@@ -253,6 +256,15 @@ fn fn_body_span(f: &Function) -> Option<(usize, usize)> {
 ///
 /// - `node_source`: the source `node` was parsed from (for span-relative ops).
 /// - `module_source`: the module source the scope offsets index into.
+/// - `ref_off`: the module offset of the *original* reference this resolution serves —
+///   i.e. the function context it belongs to. Threaded unchanged through recursion
+///   (including re-parsed slices, where the node's own offset is unknowable) so a
+///   function-scoped initializer (`owner_fn`) is only applied to references that
+///   actually live inside its owning function. `None` when the context is unknown
+///   (unit-test callers that resolve a standalone expression string); function-scoped
+///   initializers are then conservatively skipped. Descending into a *different*
+///   function's body (a helper/template return) resets it to that body's start.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn resolve_child_node(
     node: &Expression,
     node_source: &str,
@@ -262,6 +274,7 @@ pub(crate) fn resolve_child_node(
     contributions: Option<&MixinContributions>,
     helpers: &HelperIndex,
     depth: u32,
+    ref_off: Option<usize>,
 ) -> Vec<WapChildNode> {
     // Unwrap `(…)` — a transparent wrapper (e.g. a re-parsed `return (expr)`).
     if let Expression::ParenthesizedExpression(p) = node {
@@ -274,6 +287,7 @@ pub(crate) fn resolve_child_node(
             contributions,
             helpers,
             depth,
+            ref_off,
         );
     }
 
@@ -296,6 +310,7 @@ pub(crate) fn resolve_child_node(
                 contributions,
                 helpers,
                 depth,
+                ref_off,
             )
         };
         let mut out = resolve(&cond.consequent);
@@ -327,6 +342,7 @@ pub(crate) fn resolve_child_node(
                     contributions,
                     helpers,
                     depth,
+                    ref_off,
                 ));
             }
         }
@@ -360,6 +376,7 @@ pub(crate) fn resolve_child_node(
                     contributions,
                     helpers,
                     depth,
+                    ref_off,
                 ));
             }
         }
@@ -368,17 +385,13 @@ pub(crate) fn resolve_child_node(
 
     // Case 2: variable reference — try every initializer (re-parsing its slice).
     if let Some(name) = as_identifier(node) {
-        // Offset of this reference within the module, when `node` was parsed from the
-        // module source itself (rather than a re-parsed slice). Used to discard a
-        // reassignment recorded inside an *unrelated* function: a `x = wap(...)` only
-        // initializes the `x` referenced from within its owning function. When the
-        // reference comes from a slice (offset unknown), we conservatively skip
-        // function-scoped reassignments rather than risk importing a foreign one.
-        let ref_off = (node_source.as_ptr() == module_source.as_ptr()
-            && node_source.len() == module_source.len())
-        .then(|| node.span().start as usize);
         if let Some(inits) = scope.vars.get(name) {
             for init in inits {
+                // A function-scoped initializer (`owner_fn`, i.e. a declaration or
+                // reassignment inside a function) only initializes the `name` referenced
+                // from within its owning function — skip it for a reference that lives
+                // elsewhere (or whose context is unknown), so a `<foo>` built in one
+                // function can't leak into an unrelated function's same-named variable.
                 if let Some((s, e)) = init.owner_fn
                     && !matches!(ref_off, Some(o) if s <= o && o < e)
                 {
@@ -409,6 +422,7 @@ pub(crate) fn resolve_child_node(
                         contributions,
                         helpers,
                         depth,
+                        ref_off,
                     );
                     if !r.is_empty() {
                         return r;
@@ -463,6 +477,7 @@ pub(crate) fn resolve_child_node(
                 contributions,
                 helpers,
                 depth,
+                ref_off,
             );
             if repeated {
                 for c in &mut r {
@@ -503,6 +518,7 @@ pub(crate) fn resolve_child_node(
                     contributions,
                     helpers,
                     depth,
+                    ref_off,
                 ));
             }
             for a in &call.arguments {
@@ -516,6 +532,7 @@ pub(crate) fn resolve_child_node(
                         contributions,
                         helpers,
                         depth,
+                        ref_off,
                     ));
                 }
             }
@@ -677,6 +694,7 @@ fn resolve_template_arg(
     contributions: Option<&MixinContributions>,
     helpers: &HelperIndex,
     depth: u32,
+    ref_off: Option<usize>,
 ) -> Vec<WapChildNode> {
     // A template is usually a *function* reference: trace its return. Prefer the
     // function initializer over any same-named non-function var — the flat scope
@@ -703,7 +721,8 @@ fn resolve_template_arg(
             }
         }
     }
-    // Otherwise an inline stanza or other directly-resolvable expression.
+    // Otherwise an inline stanza or other directly-resolvable expression — still in the
+    // caller's function context, so pass `ref_off` through.
     resolve_child_node(
         arg,
         node_source,
@@ -713,6 +732,7 @@ fn resolve_template_arg(
         contributions,
         helpers,
         depth,
+        ref_off,
     )
 }
 
@@ -839,6 +859,13 @@ fn resolve_function_returns_each(
                 *s += body_start;
                 *e += body_start;
             }
+            // `owner_fn` was recorded relative to this sub-parse; shift it to the same
+            // module-absolute frame as `ref_off` (= `body_start`) so a body-local
+            // initializer's ownership check still lines up.
+            if let Some((s, e)) = vi.owner_fn.as_mut() {
+                *s += body_start;
+                *e += body_start;
+            }
         }
     }
     for (name, ginits) in &scope.vars {
@@ -854,6 +881,10 @@ fn resolve_function_returns_each(
         let owned = format!("({arg_src});");
         let r2 = wa_oxc::parse_cjs(&alloc2, &owned);
         if let Some(expr) = first_expression(&r2.program) {
+            // We are now resolving references that live inside THIS function body, so the
+            // reference context is the body itself — a `body`-local initializer must apply
+            // (its `owner_fn` was shifted to module-absolute above), while a foreign
+            // function's initializer still won't.
             let r = resolve_child_node(
                 expr,
                 &owned,
@@ -863,6 +894,7 @@ fn resolve_function_returns_each(
                 contributions,
                 helpers,
                 depth,
+                Some(body_start),
             );
             if !r.is_empty() {
                 per_return.push(r);
@@ -1268,6 +1300,8 @@ mod tests {
         let owned = format!("{expr_src};");
         let ret2 = wa_oxc::parse_cjs(&alloc2, &owned);
         let expr = first_expression(&ret2.program).unwrap();
+        // `expr` is re-parsed from a standalone string, so its offset can't be mapped to
+        // `code`'s function scopes — pass `None` (these tests use module-scope vars).
         resolve_child_node(
             expr,
             &owned,
@@ -1277,6 +1311,7 @@ mod tests {
             None,
             &HelperIndex::default(),
             0,
+            None,
         )
     }
 
@@ -1306,6 +1341,7 @@ mod tests {
             Some(contributions),
             helpers,
             0,
+            None,
         )
     }
 

@@ -12,6 +12,7 @@ use std::collections::HashSet;
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{AssignmentExpression, CallExpression, Function};
 use oxc_ast_visit::{Visit, walk};
+use oxc_span::GetSpan;
 use oxc_syntax::scope::ScopeFlags;
 use wa_ir::{Direction, StanzaDef, StanzaTag, WapAttrKind};
 use wa_oxc::{arg_expr, as_identifier, define_module_name, parse_cjs};
@@ -239,6 +240,9 @@ impl<'a> Visit<'a> for StanzaCollector<'_> {
                         None,
                         self.helpers,
                         0,
+                        // `ce` is at a real module offset — anchors the function context
+                        // for scoped-initializer (`owner_fn`) checks.
+                        Some(ce.span().start as usize),
                     ));
                 }
             }
