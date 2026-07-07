@@ -26,6 +26,9 @@ const STORE_TAG: &str = "bundle-store";
 const DEFAULT_REPO: &str = "oxidezap/whatspec";
 /// Hard ceiling on the archive download (the tar.gz is ~15 MB; this is slack).
 const MAX_ARCHIVE_BYTES: u64 = 256 * 1024 * 1024;
+/// Hard ceiling on the *decompressed* bundle set (the real set is ~71 MB; slack for
+/// growth, but bounds a decompression bomb from a caller-supplied `--archive`).
+const MAX_UNPACKED_BYTES: u64 = 1024 * 1024 * 1024;
 
 pub struct RestoreOptions {
     pub lock_path: PathBuf,
@@ -57,7 +60,7 @@ pub fn restore(opts: &RestoreOptions) -> Result<()> {
     );
 
     let archive = resolve_archive(opts, &lock)?;
-    let files = unpack_tar_gz(&archive)?;
+    let files = unpack_tar_gz(&archive, MAX_UNPACKED_BYTES)?;
     verify_against_lock(&files, &lock)?;
     let written = write_bundles(&files, &opts.out)?;
 
@@ -115,12 +118,37 @@ fn release_asset_url(repo: &str, wa_version: &str, set_hash: &str) -> String {
     )
 }
 
+/// The host `url` addresses, lowercased, ignoring scheme/userinfo/port/path — enough
+/// to decide whether a bearer token may be attached. `userinfo@` is stripped (host is
+/// after the last `@`), so `https://github.com@evil.com/…` correctly resolves to
+/// `evil.com`.
+fn url_host(url: &str) -> String {
+    let authority = url
+        .split_once("://")
+        .map(|(_, rest)| rest)
+        .unwrap_or(url)
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or("");
+    let host = authority.rsplit('@').next().unwrap_or(authority);
+    host.split(':').next().unwrap_or(host).to_ascii_lowercase()
+}
+
+/// Only GitHub itself may receive the `GITHUB_TOKEN` — it exists solely to lift
+/// GitHub's unauthenticated rate limit. Attaching it to an arbitrary `--archive`
+/// host (or an `http://` target) would leak a `contents: write` credential.
+fn is_github_host(url: &str) -> bool {
+    let host = url_host(url);
+    host == "github.com" || host.ends_with(".github.com")
+}
+
 fn download(url: &str) -> Result<Vec<u8>> {
     // A `GITHUB_TOKEN`, when present (CI), lifts the low unauthenticated rate limit;
-    // the asset itself is public, so the token is a courtesy, not a requirement.
+    // the asset itself is public, so the token is a courtesy, not a requirement. Only
+    // send it to GitHub — never to a caller-supplied `--archive` host.
     let bearer = std::env::var("GITHUB_TOKEN")
         .ok()
-        .filter(|t| !t.is_empty())
+        .filter(|t| !t.is_empty() && is_github_host(url))
         .map(|t| format!("Bearer {t}"));
     let mut headers: Vec<(&str, &str)> = vec![("User-Agent", "whatspec-restore")];
     if let Some(b) = &bearer {
@@ -144,12 +172,18 @@ fn download(url: &str) -> Result<Vec<u8>> {
 
 /// Unpack a gzip'd tar into `(file_name, bytes)` pairs (regular files only). The
 /// file name is the entry's basename — a flat bundle directory, so unique.
-fn unpack_tar_gz(archive: &[u8]) -> Result<Vec<(String, Vec<u8>)>> {
+///
+/// `max_unpacked` bounds the *total* decompressed size across all entries: a
+/// caller-supplied `--archive` is untrusted, and gzip+tar can inflate a small file
+/// into an unbounded one (a decompression bomb), so extraction stops rather than
+/// letting a malicious archive exhaust memory before verification even runs.
+fn unpack_tar_gz(archive: &[u8], max_unpacked: u64) -> Result<Vec<(String, Vec<u8>)>> {
     let gz = flate2::read::GzDecoder::new(archive);
     let mut tar = tar::Archive::new(gz);
     let mut out = Vec::new();
+    let mut total: u64 = 0;
     for entry in tar.entries().context("read tar archive")? {
-        let mut entry = entry.context("read tar entry")?;
+        let entry = entry.context("read tar entry")?;
         if entry.header().entry_type().is_dir() {
             continue;
         }
@@ -160,10 +194,20 @@ fn unpack_tar_gz(archive: &[u8]) -> Result<Vec<(String, Vec<u8>)>> {
             .map(|n| n.to_string_lossy().into_owned())
             .filter(|n| !n.is_empty())
             .context("tar entry has no file name")?;
+        // Read at most the remaining budget (+1 to detect overflow), so no single
+        // entry — however large its header claims — can allocate past the cap.
+        let remaining = max_unpacked.saturating_sub(total);
         let mut bytes = Vec::new();
-        entry
+        let read = entry
+            .take(remaining + 1)
             .read_to_end(&mut bytes)
-            .with_context(|| format!("read tar entry {name}"))?;
+            .with_context(|| format!("read tar entry {name}"))? as u64;
+        if read > remaining {
+            bail!(
+                "archive unpacks to more than {max_unpacked} bytes — refusing (possible decompression bomb)"
+            );
+        }
+        total += read;
         out.push((name, bytes));
     }
     if out.is_empty() {
@@ -275,7 +319,7 @@ mod tests {
         let archive = tar_gz(files);
         let lock = lock_for(files);
 
-        let unpacked = unpack_tar_gz(&archive).unwrap();
+        let unpacked = unpack_tar_gz(&archive, 1 << 20).unwrap();
         verify_against_lock(&unpacked, &lock).unwrap();
 
         let dir = std::env::temp_dir().join(format!("wsr-{}", std::process::id()));
@@ -294,7 +338,7 @@ mod tests {
     fn verify_rejects_a_swapped_bundle() {
         let locked: &[(&str, &[u8])] = &[("a.js", b"alpha"), ("b.js", b"beta")];
         let tampered: &[(&str, &[u8])] = &[("a.js", b"alpha"), ("b.js", b"BETA-changed")];
-        let unpacked = unpack_tar_gz(&tar_gz(tampered)).unwrap();
+        let unpacked = unpack_tar_gz(&tar_gz(tampered), 1 << 20).unwrap();
         let err = verify_against_lock(&unpacked, &lock_for(locked)).unwrap_err();
         assert!(err.to_string().contains("does not match the lock"), "{err}");
     }
@@ -303,7 +347,7 @@ mod tests {
     fn verify_rejects_a_dropped_bundle() {
         let locked: &[(&str, &[u8])] = &[("a.js", b"alpha"), ("b.js", b"beta")];
         let short: &[(&str, &[u8])] = &[("a.js", b"alpha")];
-        let unpacked = unpack_tar_gz(&tar_gz(short)).unwrap();
+        let unpacked = unpack_tar_gz(&tar_gz(short), 1 << 20).unwrap();
         let err = verify_against_lock(&unpacked, &lock_for(locked)).unwrap_err();
         assert!(err.to_string().contains("missing"), "{err}");
     }
@@ -314,5 +358,29 @@ mod tests {
             release_asset_url("oxidezap/whatspec", "2.3000.42", "abc123"),
             "https://github.com/oxidezap/whatspec/releases/download/bundle-store/bundles-2.3000.42-abc123.tar.gz"
         );
+    }
+
+    #[test]
+    fn github_token_host_gate() {
+        // The token may only go to GitHub — not to a `--archive` host or plain http.
+        assert!(is_github_host(
+            "https://github.com/oxidezap/whatspec/releases/download/x"
+        ));
+        assert!(is_github_host("https://api.github.com/…"));
+        assert!(!is_github_host("https://attacker.example.com/x.tar.gz"));
+        assert!(!is_github_host("http://github.com.evil.com/x")); // suffix trick
+        assert!(!is_github_host("https://github.com@evil.com/x")); // userinfo trick
+        assert!(!is_github_host("https://objects.githubusercontent.com/x")); // CDN, no token
+    }
+
+    #[test]
+    fn decompression_bomb_is_capped() {
+        // Two 4 KiB entries unpack to 8 KiB; a 5 KiB cap must stop extraction.
+        let big = vec![b'x'; 4096];
+        let files: &[(&str, &[u8])] = &[("a.js", &big), ("b.js", &big)];
+        let err = unpack_tar_gz(&tar_gz(files), 5000).unwrap_err();
+        assert!(err.to_string().contains("decompression bomb"), "{err}");
+        // The same archive unpacks fine under a sufficient cap.
+        assert_eq!(unpack_tar_gz(&tar_gz(files), 1 << 20).unwrap().len(), 2);
     }
 }
