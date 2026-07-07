@@ -8,6 +8,12 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
+mod lock;
+use lock::{BundleId, BundleLock};
+
+/// The committed bundle lockfile, written next to the domain artifacts.
+const BUNDLE_LOCK_NAME: &str = "bundles.lock.json";
+
 const DEFAULT_OUT: &str = "generated";
 const UNKNOWN_VERSION: &str = "unknown";
 const BUNDLE_SEPARATOR: &str = "\n;\n";
@@ -129,7 +135,12 @@ fn parse_update_args(args: &[String]) -> Result<Options> {
 fn update(args: &[String]) -> Result<()> {
     let opts = parse_update_args(args)?;
 
-    let (wa_version, source) = load_source(&opts)?;
+    let Loaded {
+        wa_version,
+        source,
+        bundles,
+        authoritative,
+    } = load_source(&opts)?;
     eprintln!("WhatsApp version: {wa_version}");
 
     let (artifacts, counts) = build_artifacts(&wa_version, &source)?;
@@ -172,6 +183,24 @@ fn update(args: &[String]) -> Result<()> {
             fs::create_dir_all(parent)?;
         }
         fs::write(&path, &art.content).with_context(|| format!("write {}", path.display()))?;
+    }
+
+    // Bundle lockfile: only the fetch path knows every bundle's origin URL, so it is
+    // the sole authoritative writer. A local `--bundles` regen (e.g. from a restored
+    // set) reproduces the same output but must not clobber the committed lock with a
+    // URL-less one — its input fingerprint is still enforced by the determinism job,
+    // which restores from this very lock and re-runs `--check`.
+    if authoritative {
+        let lock_path = opts.out.join(BUNDLE_LOCK_NAME);
+        let lock = BundleLock::new(&wa_version, bundles);
+        fs::write(&lock_path, lock.to_pretty_json())
+            .with_context(|| format!("write {}", lock_path.display()))?;
+        eprintln!(
+            "wrote {} ({} bundles, setHash {})",
+            lock_path.display(),
+            lock.bundle_count,
+            &lock.set_hash[..12]
+        );
     }
 
     eprintln!(
@@ -231,10 +260,10 @@ fn mex_ids(args: &[String]) -> Result<()> {
     let file = file.with_context(|| format!("mex-ids requires {FLAG_FILE} <path>"))?;
 
     let existing = fs::read_to_string(&file).with_context(|| format!("read {}", file.display()))?;
-    let (wa_version, source) = load_source(&opts)?;
-    eprintln!("WhatsApp version: {wa_version}");
+    let loaded = load_source(&opts)?;
+    eprintln!("WhatsApp version: {}", loaded.wa_version);
 
-    let ir = wa_mex::extract_mex(&source, &wa_version);
+    let ir = wa_mex::extract_mex(&loaded.source, &loaded.wa_version);
     let refresh = wa_codegen::refresh_mex_ids(&existing, &ir);
 
     eprintln!(
@@ -526,18 +555,35 @@ struct IqDiagnostics {
     cross_module: wa_scan::CrossModuleStats,
 }
 
-/// Returns `(wa_version, concatenated_bundle_source)`. The `--wa-version`
-/// override always wins; otherwise the version comes from discovery (fetch mode)
-/// or defaults to `unknown` (local mode).
-fn load_source(opts: &Options) -> Result<(String, String)> {
+/// A loaded bundle set: the stamped version, the concatenated source the extractors
+/// consume, and the per-bundle identities that fingerprint the inputs (for the lock).
+struct Loaded {
+    wa_version: String,
+    source: String,
+    bundles: Vec<BundleId>,
+    /// `true` only for the fetch path, which knows every bundle's origin URL and is
+    /// therefore the *authoritative* source of a full lockfile. The offline `--bundles`
+    /// path fingerprints the same inputs (for `--check`) but never rewrites the lock,
+    /// which would clobber the committed URLs it can't reconstruct.
+    authoritative: bool,
+}
+
+/// Load the bundle set the `--wa-version` override always wins for; otherwise the
+/// version comes from discovery (fetch mode) or defaults to `unknown` (local mode).
+fn load_source(opts: &Options) -> Result<Loaded> {
     match &opts.bundles_dir {
         Some(dir) => {
-            let source = read_local_bundles(dir)?;
-            let version = opts
+            let (source, bundles) = read_local_bundles(dir)?;
+            let wa_version = opts
                 .wa_version
                 .clone()
                 .unwrap_or_else(|| UNKNOWN_VERSION.to_string());
-            Ok((version, source))
+            Ok(Loaded {
+                wa_version,
+                source,
+                bundles,
+                authoritative: false,
+            })
         }
         #[cfg(feature = "fetch")]
         None => fetch_source(opts),
@@ -549,7 +595,12 @@ fn load_source(opts: &Options) -> Result<(String, String)> {
     }
 }
 
-fn read_local_bundles(dir: &Path) -> Result<String> {
+/// Read every `.js` bundle in `dir`, returning the concatenated source and each
+/// bundle's content identity (SHA-256 + size). Bytes are decoded with
+/// [`String::from_utf8_lossy`] — matching the fetch path exactly, so the offline and
+/// network routes concatenate identical source (and a non-UTF-8 bundle degrades the
+/// same way instead of aborting only here).
+fn read_local_bundles(dir: &Path) -> Result<(String, Vec<BundleId>)> {
     let mut paths: Vec<PathBuf> = fs::read_dir(dir)
         .with_context(|| format!("read {}", dir.display()))?
         .filter_map(|e| e.ok().map(|e| e.path()))
@@ -565,14 +616,16 @@ fn read_local_bundles(dir: &Path) -> Result<String> {
     // Deterministic order so concatenation (and thus output) is stable.
     paths.sort();
 
-    let total: usize = paths
-        .iter()
-        .filter_map(|p| fs::metadata(p).ok())
-        .map(|m| m.len() as usize)
-        .sum();
-    let mut source = String::with_capacity(total + paths.len() * BUNDLE_SEPARATOR.len());
+    let mut source = String::new();
+    let mut bundles = Vec::with_capacity(paths.len());
     for path in &paths {
-        source.push_str(&fs::read_to_string(path)?);
+        let bytes = fs::read(path).with_context(|| format!("read bundle {}", path.display()))?;
+        bundles.push(BundleId {
+            sha256: wa_text::sha256_hex(&bytes),
+            size: bytes.len() as u64,
+            url: None,
+        });
+        source.push_str(&String::from_utf8_lossy(&bytes));
         source.push_str(BUNDLE_SEPARATOR);
     }
     eprintln!(
@@ -580,11 +633,25 @@ fn read_local_bundles(dir: &Path) -> Result<String> {
         paths.len(),
         dir.display()
     );
-    Ok(source)
+    Ok((source, bundles))
+}
+
+/// Content identity of each downloaded bundle, carrying its origin URL (the fetch
+/// path is the only one that knows it) so the written lock records full provenance.
+#[cfg(feature = "fetch")]
+fn bundle_ids(bundles: &[wa_fetch::Bundle]) -> Vec<BundleId> {
+    bundles
+        .iter()
+        .map(|b| BundleId {
+            sha256: wa_text::sha256_hex(&b.bytes),
+            size: b.bytes.len() as u64,
+            url: Some(b.url.clone()),
+        })
+        .collect()
 }
 
 #[cfg(feature = "fetch")]
-fn fetch_source(opts: &Options) -> Result<(String, String)> {
+fn fetch_source(opts: &Options) -> Result<Loaded> {
     let discovered = wa_fetch::discover_bundle_urls(wa_fetch::WA_WEB_URL)
         .context("discover WhatsApp Web bundles")?;
     eprintln!("discovered {} bundles", discovered.js.len());
@@ -629,7 +696,12 @@ fn fetch_source(opts: &Options) -> Result<(String, String)> {
                     bundles.len()
                 );
                 maybe_save_bundles(opts, &bundles)?;
-                return Ok((version, concat_bundles(&bundles)));
+                return Ok(Loaded {
+                    wa_version: version,
+                    source: concat_bundles(&bundles),
+                    bundles: bundle_ids(&bundles),
+                    authoritative: true,
+                });
             }
             wa_fetch::CacheStatus::Miss(reason) => {
                 eprintln!("cache miss ({reason}) — downloading from scratch");
@@ -679,7 +751,12 @@ fn fetch_source(opts: &Options) -> Result<(String, String)> {
     }
 
     maybe_save_bundles(opts, &outcome.bundles)?;
-    Ok((version, concat_bundles(&outcome.bundles)))
+    Ok(Loaded {
+        wa_version: version,
+        source: concat_bundles(&outcome.bundles),
+        bundles: bundle_ids(&outcome.bundles),
+        authoritative: true,
+    })
 }
 
 /// Concatenate bundle bytes into one source string (lossy UTF-8), with the
