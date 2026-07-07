@@ -25,5 +25,13 @@ trap 'rm -rf "$tmp"' EXIT
 ver=$(jq -r .waVersion generated/manifest.json 2>/dev/null || true)
 [ -n "$ver" ] && [ "$ver" != "null" ] || { echo "generated/manifest.json missing or has no waVersion" >&2; exit 1; }
 
+# The lock must describe the *same* tree as the manifest. restore selects/verifies the
+# archive for the lock's waVersion while --check regenerates against the manifest's, so
+# if the two disagree the gate could pass on a lock that doesn't match generated/.
+# verify_self_consistent() only checks setHash/bundleCount, not the version — guard it here.
+lock_ver=$(jq -r .waVersion "$lock" 2>/dev/null || true)
+[ -n "$lock_ver" ] && [ "$lock_ver" != "null" ] || { echo "$lock missing or has no waVersion" >&2; exit 1; }
+[ "$ver" = "$lock_ver" ] || { echo "waVersion mismatch: manifest=$ver lock=$lock_ver" >&2; exit 1; }
+
 cargo run --release -p whatspec -- restore --from-lock "$lock" --out "$tmp/bundles"
 cargo run --release -p whatspec -- update --bundles "$tmp/bundles" --wa-version "$ver" --check
