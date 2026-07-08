@@ -21,7 +21,9 @@ use crate::util::UA;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Bundle {
     pub url: String,
-    /// Stable on-disk filename derived from the URL (see [`bundle_file_name`]).
+    /// Preferred (readable) filename derived from the URL (see [`bundle_file_name`]).
+    /// The name `save_bundles` actually writes may differ when this one is overlong or
+    /// collides with another bundle — see `disk_file_name` for the bounded fallback.
     pub file_name: String,
     pub bytes: Vec<u8>,
 }
