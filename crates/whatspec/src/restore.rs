@@ -4,14 +4,15 @@
 //!
 //! WhatsApp only serves the current version, so past inputs can't be re-fetched from
 //! source. The durable store is a **GitHub Release asset** (`bundle-store` release,
-//! one `bundles-<ver>.tar.gz` per version). Restore pulls that archive (or a
-//! caller-supplied local/URL one), unpacks it, and asserts the content-SHA-256
-//! *multiset* equals the lock's — a dropped or swapped bundle fails loudly instead of
-//! silently producing a different spec. The recovered directory feeds straight into
-//! `whatspec update --bundles` (which is order-invariant, so filenames don't matter).
+//! one `bundles-<ver>-<setHash>.tar.xz` per version — legacy `.tar.gz` assets are still
+//! read). Restore pulls that archive (or a caller-supplied local/URL one), unpacks it,
+//! and asserts the content-SHA-256 *multiset* equals the lock's — a dropped or swapped
+//! bundle fails loudly instead of silently producing a different spec. The recovered
+//! directory feeds straight into `whatspec update --bundles` (which is order-invariant,
+//! so filenames don't matter).
 
 use std::collections::HashMap;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
@@ -24,10 +25,26 @@ const STORE_TAG: &str = "bundle-store";
 /// Default `owner/repo` the release URL is built against (overridable via `--repo`
 /// so a fork restores from its own store).
 const DEFAULT_REPO: &str = "oxidezap/whatspec";
-/// Hard ceiling on the archive download (the tar.gz is ~15 MB; this is slack).
+/// Hard ceiling on the archive download (the compressed archive is ~9 MB xz / ~16 MB
+/// gzip; this is slack).
 const MAX_ARCHIVE_BYTES: u64 = 256 * 1024 * 1024;
+/// Magic bytes identifying the two archive envelopes `restore` accepts, so the
+/// decompressor is chosen by content (not a filename/extension a caller controls).
+const XZ_MAGIC: &[u8] = &[0xfd, b'7', b'z', b'X', b'Z', 0x00];
+const GZIP_MAGIC: &[u8] = &[0x1f, 0x8b];
 /// Hard ceiling on the *decompressed* bundle set (the real set is ~71 MB; slack for
-/// growth, but bounds a decompression bomb from a caller-supplied `--archive`).
+/// growth). It bounds the decompressed **output**, stopping a classic decompression bomb
+/// (a tiny archive that inflates enormously) before the tar is even parsed.
+///
+/// Decompression is buffer-then-parse — xz's decoder isn't a streaming `Read`, so both
+/// envelopes share one path that holds the whole tar in memory and then copies each entry
+/// out, making peak *output* memory ~2× the decompressed size, which this cap bounds.
+///
+/// Caveat: this caps output only. lzma-rs's xz API exposes no `memlimit`, so the decoder
+/// still allocates its LZMA2 dictionary (size read from the archive header) up front,
+/// unbounded by this cap. That residual is accepted for the untrusted `--archive` path —
+/// a deliberate, local action — since the release path restore normally uses is our own
+/// published, content-addressed archive.
 const MAX_UNPACKED_BYTES: u64 = 1024 * 1024 * 1024;
 
 pub struct RestoreOptions {
@@ -60,7 +77,7 @@ pub fn restore(opts: &RestoreOptions) -> Result<()> {
     );
 
     let archive = resolve_archive(opts, &lock)?;
-    let files = unpack_tar_gz(&archive, MAX_UNPACKED_BYTES, lock.bundle_count)?;
+    let files = unpack_archive(&archive, MAX_UNPACKED_BYTES, lock.bundle_count)?;
     verify_against_lock(&files, &lock)?;
     let written = write_bundles(&files, &opts.out)?;
 
@@ -87,10 +104,16 @@ fn read_lock(path: &Path) -> Result<BundleLock> {
 
 /// Fetch the archive bytes from the caller-supplied location, or the derived release
 /// asset URL. A local path is read directly; anything `http(s)` is downloaded.
+///
+/// For the derived case the extension isn't known ahead of time — the store now holds
+/// `.tar.xz`, but older versions were published as `.tar.gz` and every past commit's
+/// lock must keep resolving. So we try the current `.tar.xz` first and fall back to the
+/// legacy `.tar.gz`; the decompressor is then chosen by magic bytes, not the URL.
 fn resolve_archive(opts: &RestoreOptions, lock: &BundleLock) -> Result<Vec<u8>> {
     if let Some(loc) = &opts.archive {
         if is_http_url(loc) {
-            return download(loc);
+            return download_opt(loc)?
+                .ok_or_else(|| anyhow::anyhow!("archive not found (HTTP 404): {loc}"));
         }
         let path = Path::new(loc);
         if path.is_file() {
@@ -98,23 +121,36 @@ fn resolve_archive(opts: &RestoreOptions, lock: &BundleLock) -> Result<Vec<u8>> 
         }
         bail!("--archive {loc} is neither an existing file nor an http(s) URL");
     }
-    let url = release_asset_url(&opts.repo, &lock.wa_version, &lock.set_hash);
-    download(&url)
+    let base = release_asset_base_url(&opts.repo, &lock.wa_version, &lock.set_hash);
+    let exts = [".tar.xz", ".tar.gz"];
+    for (i, ext) in exts.iter().enumerate() {
+        if let Some(bytes) = download_opt(&format!("{base}{ext}"))? {
+            return Ok(bytes);
+        }
+        if let Some(next) = exts.get(i + 1) {
+            eprintln!("  not found ({ext}); trying legacy {next}");
+        }
+    }
+    bail!(
+        "no archive found for this version at {base}.tar.xz or {base}.tar.gz — the bundle \
+         set isn't published yet; run scripts/publish-bundles.sh (or the update workflow).",
+    )
 }
 
 fn is_http_url(s: &str) -> bool {
     s.starts_with("http://") || s.starts_with("https://")
 }
 
-/// `…/releases/download/bundle-store/bundles-<ver>-<setHash>.tar.gz`.
+/// `…/releases/download/bundle-store/bundles-<ver>-<setHash>` — the asset URL **without**
+/// its `.tar.xz`/`.tar.gz` extension (chosen by [`resolve_archive`]).
 ///
-/// The asset name is **content-addressed** (it carries the input `setHash`, not just
-/// the version): a different bundle set produces a different name, so an archive can
-/// never be overwritten with different bytes, and every past commit's lock always
-/// resolves the exact archive it pins. The version prefix keeps the name browsable.
-fn release_asset_url(repo: &str, wa_version: &str, set_hash: &str) -> String {
+/// The name is **content-addressed** (it carries the input `setHash`, not just the
+/// version): a different bundle set produces a different name, so an archive can never be
+/// overwritten with different bytes, and every past commit's lock always resolves the
+/// exact archive it pins. The version prefix keeps the name browsable.
+fn release_asset_base_url(repo: &str, wa_version: &str, set_hash: &str) -> String {
     format!(
-        "https://github.com/{repo}/releases/download/{STORE_TAG}/bundles-{wa_version}-{set_hash}.tar.gz"
+        "https://github.com/{repo}/releases/download/{STORE_TAG}/bundles-{wa_version}-{set_hash}"
     )
 }
 
@@ -150,7 +186,9 @@ fn may_send_github_token(url: &str) -> bool {
     url.starts_with("https://") && is_github_host(url)
 }
 
-fn download(url: &str) -> Result<Vec<u8>> {
+/// Download `url`, returning `Ok(None)` on a 404 so callers can try a fallback name.
+/// Any other non-200 (or transport failure) is a hard error.
+fn download_opt(url: &str) -> Result<Option<Vec<u8>>> {
     // A `GITHUB_TOKEN`, when present (CI), lifts the low unauthenticated rate limit;
     // the asset itself is public, so the token is a courtesy, not a requirement. Only
     // send it to GitHub over HTTPS — never to a caller-supplied `--archive` host, and
@@ -169,38 +207,109 @@ fn download(url: &str) -> Result<Vec<u8>> {
         .get(url, &headers, MAX_ARCHIVE_BYTES)
         .with_context(|| format!("download {url}"))?;
     match resp.status {
-        200 => Ok(resp.body),
-        404 => bail!(
-            "archive not found (HTTP 404): {url}\n\
-             the bundle set for this version isn't published yet — run \
-             scripts/publish-bundles.sh (or the update workflow) to upload it.",
-        ),
+        200 => Ok(Some(resp.body)),
+        404 => Ok(None),
         other => bail!("download {url} failed: HTTP {other}"),
     }
 }
 
-/// Unpack a gzip'd tar into `(file_name, bytes)` pairs (regular files only). The
-/// file name is the entry's basename — a flat bundle directory, so unique.
+/// Unpack a compressed tar (xz or gzip, chosen by magic bytes) into `(file_name, bytes)`
+/// pairs (regular files only). The file name is the entry's basename — a flat bundle
+/// directory, so unique.
 ///
 /// Two caps bound a hostile, caller-supplied `--archive` (untrusted) *before*
 /// verification even runs:
-/// - `max_unpacked` bounds the *total* decompressed payload — gzip+tar can inflate a
-///   tiny archive into an enormous one (a decompression bomb).
+/// - `max_unpacked` bounds the *total* decompressed payload — xz/gzip can inflate a
+///   tiny archive into an enormous one (a decompression bomb), so decompression stops
+///   the moment the running total would exceed it.
 /// - `max_files` bounds the *number* of extracted entries — an archive of millions of
 ///   zero-byte entries carries no payload (so `max_unpacked` never trips) yet would
 ///   still allocate a `Vec` slot each. The lock pins an exact bundle count, so anything
 ///   beyond it is already invalid; bail instead of allocating unboundedly.
-fn unpack_tar_gz(
+fn unpack_archive(
     archive: &[u8],
     max_unpacked: u64,
     max_files: usize,
 ) -> Result<Vec<(String, Vec<u8>)>> {
-    let gz = flate2::read::GzDecoder::new(archive);
-    let mut tar = tar::Archive::new(gz);
+    let tar_bytes = decompress(archive, max_unpacked)?;
+    read_tar(&tar_bytes, max_files)
+}
+
+/// Decompress a whole archive into memory, capped at `max_unpacked` (bounds a
+/// decompression bomb before the tar is even parsed). The compressor is picked by magic
+/// bytes so a caller can't mislabel the payload via a filename/extension.
+fn decompress(archive: &[u8], max_unpacked: u64) -> Result<Vec<u8>> {
+    if archive.starts_with(XZ_MAGIC) {
+        let mut out = CapWriter::new(max_unpacked);
+        let res = lzma_rs::xz_decompress(&mut std::io::Cursor::new(archive), &mut out);
+        bomb_guard(out.overflowed, max_unpacked)?;
+        res.context("decompress xz archive")?;
+        Ok(out.buf)
+    } else if archive.starts_with(GZIP_MAGIC) {
+        let mut buf = Vec::new();
+        // +1 so a stream that fills exactly to the cap and keeps going is caught.
+        let read = flate2::read::GzDecoder::new(archive)
+            .take(max_unpacked + 1)
+            .read_to_end(&mut buf)
+            .context("gunzip archive")? as u64;
+        bomb_guard(read > max_unpacked, max_unpacked)?;
+        Ok(buf)
+    } else {
+        bail!("archive is neither xz nor gzip (unrecognized magic bytes)")
+    }
+}
+
+fn bomb_guard(overflowed: bool, max_unpacked: u64) -> Result<()> {
+    if overflowed {
+        bail!(
+            "archive unpacks to more than {max_unpacked} bytes — refusing (possible decompression bomb)"
+        );
+    }
+    Ok(())
+}
+
+/// A `Write` sink that buffers into a `Vec` but hard-stops once `cap` bytes are
+/// exceeded, flagging `overflowed` and erroring so an eager decompressor (lzma-rs
+/// writes the whole stream) can't allocate past the cap.
+struct CapWriter {
+    buf: Vec<u8>,
+    cap: u64,
+    overflowed: bool,
+}
+
+impl CapWriter {
+    fn new(cap: u64) -> Self {
+        Self {
+            buf: Vec::new(),
+            cap,
+            overflowed: false,
+        }
+    }
+}
+
+impl Write for CapWriter {
+    fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
+        if self.buf.len() as u64 + data.len() as u64 > self.cap {
+            self.overflowed = true;
+            // A hard stop, not a "wrote zero / try again" condition — use `Other`.
+            return Err(std::io::Error::other("unpacked size cap exceeded"));
+        }
+        self.buf.extend_from_slice(data);
+        Ok(data.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Read regular-file entries from an (already decompressed) tar into `(name, bytes)`.
+/// `max_files` bounds the entry count — see [`unpack_archive`].
+fn read_tar(tar_bytes: &[u8], max_files: usize) -> Result<Vec<(String, Vec<u8>)>> {
+    let mut tar = tar::Archive::new(tar_bytes);
     let mut out = Vec::new();
-    let mut total: u64 = 0;
     for entry in tar.entries().context("read tar archive")? {
-        let entry = entry.context("read tar entry")?;
+        let mut entry = entry.context("read tar entry")?;
         // Regular files only (the doc contract): skip directories *and* every other
         // entry type — symlinks, hardlinks, devices, FIFOs, GNU/pax metadata. A
         // non-file entry carries no bundle bytes; reading it as an empty "bundle" would
@@ -222,20 +331,10 @@ fn unpack_tar_gz(
             .map(|n| n.to_string_lossy().into_owned())
             .filter(|n| !n.is_empty())
             .context("tar entry has no file name")?;
-        // Read at most the remaining budget (+1 to detect overflow), so no single
-        // entry — however large its header claims — can allocate past the cap.
-        let remaining = max_unpacked.saturating_sub(total);
         let mut bytes = Vec::new();
-        let read = entry
-            .take(remaining + 1)
+        entry
             .read_to_end(&mut bytes)
-            .with_context(|| format!("read tar entry {name}"))? as u64;
-        if read > remaining {
-            bail!(
-                "archive unpacks to more than {max_unpacked} bytes — refusing (possible decompression bomb)"
-            );
-        }
-        total += read;
+            .with_context(|| format!("read tar entry {name}"))?;
         out.push((name, bytes));
     }
     if out.is_empty() {
@@ -319,11 +418,8 @@ mod tests {
     use super::*;
     use crate::lock::{BundleId, BundleLock};
 
-    fn tar_gz(files: &[(&str, &[u8])]) -> Vec<u8> {
-        let mut builder = tar::Builder::new(flate2::write::GzEncoder::new(
-            Vec::new(),
-            flate2::Compression::default(),
-        ));
+    fn raw_tar(files: &[(&str, &[u8])]) -> Vec<u8> {
+        let mut builder = tar::Builder::new(Vec::new());
         for (name, bytes) in files {
             let mut header = tar::Header::new_gnu();
             header.set_size(bytes.len() as u64);
@@ -331,7 +427,19 @@ mod tests {
             header.set_cksum();
             builder.append_data(&mut header, name, *bytes).unwrap();
         }
-        builder.into_inner().unwrap().finish().unwrap()
+        builder.into_inner().unwrap()
+    }
+
+    fn tar_gz(files: &[(&str, &[u8])]) -> Vec<u8> {
+        let mut enc = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        enc.write_all(&raw_tar(files)).unwrap();
+        enc.finish().unwrap()
+    }
+
+    fn tar_xz(files: &[(&str, &[u8])]) -> Vec<u8> {
+        let mut out = Vec::new();
+        lzma_rs::xz_compress(&mut std::io::Cursor::new(raw_tar(files)), &mut out).unwrap();
+        out
     }
 
     fn lock_for(files: &[(&str, &[u8])]) -> BundleLock {
@@ -354,7 +462,7 @@ mod tests {
         let archive = tar_gz(files);
         let lock = lock_for(files);
 
-        let unpacked = unpack_tar_gz(&archive, 1 << 20, files.len()).unwrap();
+        let unpacked = unpack_archive(&archive, 1 << 20, files.len()).unwrap();
         verify_against_lock(&unpacked, &lock).unwrap();
 
         let dir = std::env::temp_dir().join(format!("wsr-{}", std::process::id()));
@@ -373,7 +481,7 @@ mod tests {
     fn verify_rejects_a_swapped_bundle() {
         let locked: &[(&str, &[u8])] = &[("a.js", b"alpha"), ("b.js", b"beta")];
         let tampered: &[(&str, &[u8])] = &[("a.js", b"alpha"), ("b.js", b"BETA-changed")];
-        let unpacked = unpack_tar_gz(&tar_gz(tampered), 1 << 20, tampered.len()).unwrap();
+        let unpacked = unpack_archive(&tar_gz(tampered), 1 << 20, tampered.len()).unwrap();
         let err = verify_against_lock(&unpacked, &lock_for(locked)).unwrap_err();
         assert!(err.to_string().contains("does not match the lock"), "{err}");
     }
@@ -382,17 +490,63 @@ mod tests {
     fn verify_rejects_a_dropped_bundle() {
         let locked: &[(&str, &[u8])] = &[("a.js", b"alpha"), ("b.js", b"beta")];
         let short: &[(&str, &[u8])] = &[("a.js", b"alpha")];
-        let unpacked = unpack_tar_gz(&tar_gz(short), 1 << 20, locked.len()).unwrap();
+        let unpacked = unpack_archive(&tar_gz(short), 1 << 20, locked.len()).unwrap();
         let err = verify_against_lock(&unpacked, &lock_for(locked)).unwrap_err();
         assert!(err.to_string().contains("missing"), "{err}");
     }
 
     #[test]
     fn release_url_is_content_addressed() {
+        // The base carries version + setHash; resolve_archive appends .tar.xz / .tar.gz.
         assert_eq!(
-            release_asset_url("oxidezap/whatspec", "2.3000.42", "abc123"),
-            "https://github.com/oxidezap/whatspec/releases/download/bundle-store/bundles-2.3000.42-abc123.tar.gz"
+            release_asset_base_url("oxidezap/whatspec", "2.3000.42", "abc123"),
+            "https://github.com/oxidezap/whatspec/releases/download/bundle-store/bundles-2.3000.42-abc123"
         );
+    }
+
+    #[test]
+    fn unpack_reads_both_xz_and_gzip() {
+        // The same bundle set round-trips through either envelope, chosen by magic bytes.
+        let files: &[(&str, &[u8])] = &[("a.js", b"alpha"), ("b.js", b"beta")];
+        let lock = lock_for(files);
+        for archive in [tar_xz(files), tar_gz(files)] {
+            let unpacked = unpack_archive(&archive, 1 << 20, files.len()).unwrap();
+            verify_against_lock(&unpacked, &lock).unwrap();
+        }
+    }
+
+    #[test]
+    fn unpack_reads_a_real_xz9_archive() {
+        // Fixture produced by the actual `xz -9` CLI (the publisher's compressor), not
+        // lzma-rs's own encoder — proof that lzma-rs decodes real xz output for our
+        // single-stream tarballs, guarding the dependency choice against regressions.
+        const FIXTURE: &[u8] = include_bytes!("testdata/sample.tar.xz");
+        let mut got = unpack_archive(FIXTURE, 1 << 20, 8).unwrap();
+        got.sort();
+        assert_eq!(
+            got,
+            vec![
+                ("a.js".to_string(), b"alpha".to_vec()),
+                ("b.js".to_string(), b"beta".to_vec()),
+            ]
+        );
+    }
+
+    #[test]
+    fn unpack_rejects_unknown_magic() {
+        let err = unpack_archive(b"not a compressed archive at all", 1 << 20, 8).unwrap_err();
+        assert!(err.to_string().contains("neither xz nor gzip"), "{err}");
+    }
+
+    #[test]
+    fn xz_decompression_bomb_is_capped() {
+        // xz compresses long runs extremely well; two 64 KiB entries under a 5 KiB cap
+        // must be refused during decompression, before the tar is parsed.
+        let big = vec![b'x'; 65536];
+        let files: &[(&str, &[u8])] = &[("a.js", &big), ("b.js", &big)];
+        let err = unpack_archive(&tar_xz(files), 5000, 8).unwrap_err();
+        assert!(err.to_string().contains("decompression bomb"), "{err}");
+        assert_eq!(unpack_archive(&tar_xz(files), 1 << 20, 8).unwrap().len(), 2);
     }
 
     #[test]
@@ -455,7 +609,7 @@ mod tests {
         builder.append(&link, std::io::empty()).unwrap();
 
         let archive = builder.into_inner().unwrap().finish().unwrap();
-        let unpacked = unpack_tar_gz(&archive, 1 << 20, 8).unwrap();
+        let unpacked = unpack_archive(&archive, 1 << 20, 8).unwrap();
         assert_eq!(unpacked.len(), 1, "only the regular file survives");
         assert_eq!(unpacked[0].0, "a.js");
         assert_eq!(unpacked[0].1, b"alpha");
@@ -466,10 +620,10 @@ mod tests {
         // Two 4 KiB entries unpack to 8 KiB; a 5 KiB cap must stop extraction.
         let big = vec![b'x'; 4096];
         let files: &[(&str, &[u8])] = &[("a.js", &big), ("b.js", &big)];
-        let err = unpack_tar_gz(&tar_gz(files), 5000, 8).unwrap_err();
+        let err = unpack_archive(&tar_gz(files), 5000, 8).unwrap_err();
         assert!(err.to_string().contains("decompression bomb"), "{err}");
         // The same archive unpacks fine under a sufficient cap.
-        assert_eq!(unpack_tar_gz(&tar_gz(files), 1 << 20, 8).unwrap().len(), 2);
+        assert_eq!(unpack_archive(&tar_gz(files), 1 << 20, 8).unwrap().len(), 2);
     }
 
     #[test]
@@ -478,10 +632,10 @@ mod tests {
         // allocate a slot per entry — the zero-byte-entry allocation-bomb vector that
         // the byte cap alone (which counts payload only) can't see.
         let files: &[(&str, &[u8])] = &[("a.js", b"a"), ("b.js", b"b"), ("c.js", b"c")];
-        let err = unpack_tar_gz(&tar_gz(files), 1 << 20, 2).unwrap_err();
+        let err = unpack_archive(&tar_gz(files), 1 << 20, 2).unwrap_err();
         assert!(err.to_string().contains("file entries"), "{err}");
         // Exactly the pinned count unpacks fine.
-        assert_eq!(unpack_tar_gz(&tar_gz(files), 1 << 20, 3).unwrap().len(), 3);
+        assert_eq!(unpack_archive(&tar_gz(files), 1 << 20, 3).unwrap().len(), 3);
     }
 
     #[test]

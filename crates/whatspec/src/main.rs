@@ -211,7 +211,11 @@ fn update(args: &[String]) -> Result<()> {
     if opts.check {
         let diffs = check_artifacts(&opts.out, &artifacts)?;
         if diffs.is_empty() {
-            eprintln!("check: {} artifact(s) up to date", artifacts.len());
+            let checked = artifacts
+                .iter()
+                .filter(|a| !is_reference_only(&a.rel_path))
+                .count();
+            eprintln!("check: {checked} committed artifact(s) up to date");
             return Ok(());
         }
         eprintln!("check: {} artifact(s) differ from disk:", diffs.len());
@@ -1246,10 +1250,25 @@ fn check_floor(out: &Path, counts: &Counts) -> Result<Vec<String>> {
     Ok(regressions)
 }
 
+/// A generated file that is *not* committed: the `.rs` reference consumers are gitignored
+/// (`/generated/**/*.rs`) and regenerated on demand, so they sit outside the committed
+/// reproducibility contract — the tracked IR (each `index.json` + `WAProto.proto`).
+fn is_reference_only(rel_path: &Path) -> bool {
+    rel_path.extension().and_then(|e| e.to_str()) == Some("rs")
+}
+
 /// Compare in-memory artifacts against what's on disk; returns human-readable diffs.
+///
+/// Only the **committed** artifacts are checked. The `.rs` reference consumers are
+/// gitignored, so a fresh checkout (CI's determinism gate, a clean clone) has none on
+/// disk — comparing them would report every one as "missing" and spuriously fail. They're
+/// a deterministic function of the IR anyway, so verifying the IR reproduces is enough.
 fn check_artifacts(out: &Path, artifacts: &[Artifact]) -> Result<Vec<String>> {
     let mut diffs = Vec::new();
     for art in artifacts {
+        if is_reference_only(&art.rel_path) {
+            continue;
+        }
         let path = out.join(&art.rel_path);
         match fs::read_to_string(&path) {
             Ok(existing) if existing == art.content => {}
@@ -1888,6 +1907,30 @@ mod tests {
                 .iter()
                 .any(|d| d.contains("c.txt") && d.contains("missing"))
         );
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn check_artifacts_skips_reference_only_rs() {
+        // The gitignored `.rs` reference consumers are outside the committed contract, so
+        // a fresh checkout has none on disk — check must skip them (not report "missing"),
+        // while still catching a genuine drift in a committed (`.json`/`.proto`) artifact.
+        let dir = std::env::temp_dir().join(format!("whatspec-check-rs-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("iq.json"), "same").unwrap(); // committed artifact, present + matching
+        let artifacts = vec![
+            Artifact {
+                rel_path: PathBuf::from("iq.json"),
+                content: "same".into(),
+            },
+            // Absent on disk AND different content — must be skipped, not flagged.
+            Artifact {
+                rel_path: PathBuf::from("iq/iq.rs"),
+                content: "generated but not committed".into(),
+            },
+        ];
+        let diffs = check_artifacts(&dir, &artifacts).unwrap();
+        assert!(diffs.is_empty(), "reference-only .rs skipped: {diffs:?}");
         fs::remove_dir_all(&dir).ok();
     }
 }

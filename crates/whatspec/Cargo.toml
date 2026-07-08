@@ -18,7 +18,7 @@ default = ["fetch"]
 # HTTP/TLS stack) plus the `restore` command that pulls a locked bundle set from
 # the durable release store. On by default. Build with --no-default-features to
 # get a fetch-free binary that only processes local bundles via `--bundles <dir>`.
-fetch = ["dep:wa-fetch", "dep:flate2", "dep:tar"]
+fetch = ["dep:wa-fetch", "dep:flate2", "dep:tar", "dep:lzma-rs"]
 
 [dependencies]
 anyhow = { workspace = true }
@@ -30,7 +30,9 @@ wa-codegen = { workspace = true }
 wa-enums = { workspace = true }
 wa-fetch = { workspace = true, optional = true }
 # `restore` only: pull + unpack the durable bundle archive. Gated by `fetch`.
+# flate2 reads legacy `.tar.gz`; lzma-rs reads (and decompresses) the current `.tar.xz`.
 flate2 = { workspace = true, optional = true }
+lzma-rs = { workspace = true, optional = true }
 tar = { workspace = true, optional = true }
 wa-ir = { workspace = true, features = ["schema"] }
 wa-mex = { workspace = true }

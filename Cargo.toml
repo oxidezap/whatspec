@@ -35,8 +35,12 @@ anyhow = "1"
 
 # Bundle-archive (de)compression for `whatspec restore`. Pure-Rust only:
 # flate2's `rust_backend` (miniz_oxide) keeps the C-free guarantee — no libz-sys.
+# flate2 stays for reading legacy `.tar.gz` assets; new assets are xz (see lzma-rs).
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 tar = "0.4"
+# Pure-Rust xz decoder — decompresses the durable-store `.tar.xz` assets (roughly half
+# the size of gzip) without liblzma C, preserving the C-free guarantee.
+lzma-rs = "0.3"
 
 # oxc (native JS parsing/AST) — tooling crates only, never the WASM build.
 oxc_allocator = "0.133"
