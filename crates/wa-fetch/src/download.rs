@@ -21,7 +21,9 @@ use crate::util::UA;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Bundle {
     pub url: String,
-    /// Stable on-disk filename derived from the URL (see [`bundle_file_name`]).
+    /// Preferred (readable) filename derived from the URL (see [`bundle_file_name`]).
+    /// The name `save_bundles` actually writes may differ when this one is overlong or
+    /// collides with another bundle — see `disk_file_name` for the bounded fallback.
     pub file_name: String,
     pub bytes: Vec<u8>,
 }
@@ -162,29 +164,58 @@ fn fetch_bytes(client: &impl HttpClient, url: &str, max_bytes: u64) -> Result<Ve
     Ok(resp.body)
 }
 
+/// Longest bundle filename we'll write to disk. WA usually serves short,
+/// content-hashed last segments (`AaZPUusmHmF.js`), but a few URLs carry a very
+/// long final segment that overflows the filesystem's `NAME_MAX` (255 bytes on
+/// ext4, less on some encrypted mounts). The on-disk name is only a transport
+/// label — `update --bundles` reads every `.js` regardless of name and is
+/// order-invariant, keyed on content — so an overlong name is safely replaced by
+/// a bounded, URL-derived one.
+#[cfg(feature = "native")]
+const MAX_BUNDLE_FILE_NAME: usize = 128;
+
 /// Write bundles to `dir/<file_name>`, creating `dir` if needed. Native-only
 /// (`std::fs`); a browser build persists by its own means.
 #[cfg(feature = "native")]
 pub fn save_bundles(bundles: &[Bundle], dir: &Path) -> Result<()> {
     std::fs::create_dir_all(dir).with_context(|| format!("create dir {}", dir.display()))?;
-    // Distinct URLs can share a last path segment across CDN shards; disambiguate
-    // colliding names with a short URL hash so saving never clobbers (the dump
-    // must round-trip through `--bundles`).
+    // Distinct URLs can share a last path segment across CDN shards, and some WA
+    // segments overflow NAME_MAX; a bounded, unique name derived from the URL keeps
+    // saving from clobbering or erroring (the dump must round-trip through
+    // `--bundles`, which reads every `.js` regardless of name).
     let mut used: std::collections::HashSet<String> = std::collections::HashSet::new();
     for b in bundles {
-        let mut name = b.file_name.clone();
-        if !used.insert(name.clone()) {
-            let h = &wa_text::sha256_hex(b.url.as_bytes())[..8];
-            name = match name.rsplit_once('.') {
-                Some((stem, ext)) => format!("{stem}.{h}.{ext}"),
-                None => format!("{name}.{h}"),
-            };
-            used.insert(name.clone());
-        }
+        let name = disk_file_name(&b.file_name, &b.url, &mut used);
         let path = dir.join(&name);
         std::fs::write(&path, &b.bytes).with_context(|| format!("write {}", path.display()))?;
     }
     Ok(())
+}
+
+/// A filesystem-safe, collision-free `.js` name for a saved bundle. Prefers the
+/// readable URL segment; falls back to `<sha256(url)>.js` when that name is already
+/// taken (CDN-shard collision) or too long for the filesystem. Deterministic given
+/// the (url-sorted) bundle order, so the dump — and the archive built from it — is
+/// reproducible.
+#[cfg(feature = "native")]
+fn disk_file_name(
+    file_name: &str,
+    url: &str,
+    used: &mut std::collections::HashSet<String>,
+) -> String {
+    if file_name.len() <= MAX_BUNDLE_FILE_NAME && used.insert(file_name.to_string()) {
+        return file_name.to_string();
+    }
+    // `<sha256(url)>.js`: 67 bytes, unique per URL, always read back by `--bundles`.
+    // The numeric suffix covers only the degenerate same-URL-twice case.
+    let hash = wa_text::sha256_hex(url.as_bytes());
+    let mut name = format!("{hash}.js");
+    let mut n = 1;
+    while !used.insert(name.clone()) {
+        name = format!("{hash}-{n}.js");
+        n += 1;
+    }
+    name
 }
 
 #[cfg(test)]
@@ -375,5 +406,61 @@ mod tests {
             .sum();
         assert_eq!(total, 6, "AAA + BBB both present");
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[cfg(feature = "native")]
+    #[test]
+    fn save_bundles_bounds_overlong_file_names() {
+        // Regression: a WA URL whose last path segment overflows the filesystem's
+        // NAME_MAX must still be saved (under a bounded URL-hash name) rather than
+        // failing with "File name too long". The dump is name-invariant, so the
+        // rename never affects what `--bundles` regenerates.
+        let dir = std::env::temp_dir().join(format!(
+            "whatspec-longname-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let long = format!("{}.js", "a".repeat(300));
+        assert!(long.len() > MAX_BUNDLE_FILE_NAME);
+        let bundles = vec![Bundle {
+            url: "https://a.example/rsrc/verylong".into(),
+            file_name: long,
+            bytes: b"payload".to_vec(),
+        }];
+        save_bundles(&bundles, &dir).unwrap();
+        let files: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .collect();
+        assert_eq!(files.len(), 1, "the bundle is written under a bounded name");
+        let name = files[0].file_name().to_string_lossy().into_owned();
+        assert!(name.len() <= MAX_BUNDLE_FILE_NAME, "bounded: {name}");
+        assert!(name.ends_with(".js"), "read back by --bundles: {name}");
+        assert_eq!(
+            std::fs::read(files[0].path()).unwrap(),
+            b"payload",
+            "bytes intact under the bounded name"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[cfg(feature = "native")]
+    #[test]
+    fn disk_file_name_prefers_readable_then_falls_back() {
+        let mut used = std::collections::HashSet::new();
+        // Short + unclaimed → kept verbatim.
+        assert_eq!(
+            disk_file_name("short.js", "https://x/short.js", &mut used),
+            "short.js"
+        );
+        // Same readable name, different URL → bounded URL-hash fallback (no clobber).
+        let n2 = disk_file_name("short.js", "https://y/short.js", &mut used);
+        assert_ne!(n2, "short.js");
+        assert!(n2.ends_with(".js") && n2.len() <= MAX_BUNDLE_FILE_NAME);
+        // Overlong readable name → bounded fallback.
+        let n3 = disk_file_name(&"z".repeat(300), "https://z/blob", &mut used);
+        assert!(n3.ends_with(".js") && n3.len() <= MAX_BUNDLE_FILE_NAME);
     }
 }
