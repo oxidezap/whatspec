@@ -211,7 +211,11 @@ fn update(args: &[String]) -> Result<()> {
     if opts.check {
         let diffs = check_artifacts(&opts.out, &artifacts)?;
         if diffs.is_empty() {
-            eprintln!("check: {} artifact(s) up to date", artifacts.len());
+            let checked = artifacts
+                .iter()
+                .filter(|a| !is_reference_only(&a.rel_path))
+                .count();
+            eprintln!("check: {checked} committed artifact(s) up to date");
             return Ok(());
         }
         eprintln!("check: {} artifact(s) differ from disk:", diffs.len());
@@ -1246,10 +1250,25 @@ fn check_floor(out: &Path, counts: &Counts) -> Result<Vec<String>> {
     Ok(regressions)
 }
 
+/// A generated file that is *not* committed: the `.rs` reference consumers are gitignored
+/// (`/generated/**/*.rs`) and regenerated on demand, so they sit outside the committed
+/// reproducibility contract — the tracked IR (each `index.json` + `WAProto.proto`).
+fn is_reference_only(rel_path: &Path) -> bool {
+    rel_path.extension().and_then(|e| e.to_str()) == Some("rs")
+}
+
 /// Compare in-memory artifacts against what's on disk; returns human-readable diffs.
+///
+/// Only the **committed** artifacts are checked. The `.rs` reference consumers are
+/// gitignored, so a fresh checkout (CI's determinism gate, a clean clone) has none on
+/// disk — comparing them would report every one as "missing" and spuriously fail. They're
+/// a deterministic function of the IR anyway, so verifying the IR reproduces is enough.
 fn check_artifacts(out: &Path, artifacts: &[Artifact]) -> Result<Vec<String>> {
     let mut diffs = Vec::new();
     for art in artifacts {
+        if is_reference_only(&art.rel_path) {
+            continue;
+        }
         let path = out.join(&art.rel_path);
         match fs::read_to_string(&path) {
             Ok(existing) if existing == art.content => {}
