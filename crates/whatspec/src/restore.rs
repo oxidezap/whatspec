@@ -33,13 +33,18 @@ const MAX_ARCHIVE_BYTES: u64 = 256 * 1024 * 1024;
 const XZ_MAGIC: &[u8] = &[0xfd, b'7', b'z', b'X', b'Z', 0x00];
 const GZIP_MAGIC: &[u8] = &[0x1f, 0x8b];
 /// Hard ceiling on the *decompressed* bundle set (the real set is ~71 MB; slack for
-/// growth, but bounds a decompression bomb from a caller-supplied `--archive`).
+/// growth). It bounds the decompressed **output**, stopping a classic decompression bomb
+/// (a tiny archive that inflates enormously) before the tar is even parsed.
 ///
 /// Decompression is buffer-then-parse — xz's decoder isn't a streaming `Read`, so both
 /// envelopes share one path that holds the whole tar in memory and then copies each entry
-/// out, making peak memory ~2× the decompressed size. This cap bounds that peak. Fine
-/// here: the real set (~71 MB) is dwarfed by the JS the generator parses next, and the
-/// cap keeps an adversarial `--archive` from pushing peak memory to extremes.
+/// out, making peak *output* memory ~2× the decompressed size, which this cap bounds.
+///
+/// Caveat: this caps output only. lzma-rs's xz API exposes no `memlimit`, so the decoder
+/// still allocates its LZMA2 dictionary (size read from the archive header) up front,
+/// unbounded by this cap. That residual is accepted for the untrusted `--archive` path —
+/// a deliberate, local action — since the release path restore normally uses is our own
+/// published, content-addressed archive.
 const MAX_UNPACKED_BYTES: u64 = 1024 * 1024 * 1024;
 
 pub struct RestoreOptions {
