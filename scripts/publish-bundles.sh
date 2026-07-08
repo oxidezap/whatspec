@@ -27,6 +27,11 @@ sethash=$(jq -r .setHash generated/bundles.lock.json 2>/dev/null)
 [ -n "$sethash" ] && [ "$sethash" != "null" ] || { echo "no setHash in generated/bundles.lock.json — run 'whatspec update' first" >&2; exit 1; }
 
 command -v xz >/dev/null 2>&1 || { echo "xz not found — install xz-utils to publish the archive" >&2; exit 1; }
+# xz reads XZ_DEFAULTS/XZ_OPT *before* the command line, so a hostile/quirky env could
+# otherwise inject --format=lzma, -T0 (multi-stream), etc. and yield an asset restore
+# can't read. Clear them and pin the container/check explicitly below for a deterministic,
+# lzma-rs-decodable single-stream .xz regardless of environment.
+unset XZ_OPT XZ_DEFAULTS
 
 # Build the archive in a temp dir (never in the working tree, so no stray file to
 # `git add` by accident); `gh` names the asset from the basename regardless. xz roughly
@@ -48,10 +53,10 @@ elif command -v gtar >/dev/null 2>&1; then
 fi
 if [ -n "$gnu_tar" ]; then
   "$gnu_tar" --sort=name --owner=0 --group=0 --numeric-owner --mtime='@0' \
-      -C "$bundles_dir" -cf - . | xz -9 -c > "$archive"
+      -C "$bundles_dir" -cf - . | xz -9 --format=xz --check=crc64 -T1 -c > "$archive"
 else
   echo "note: GNU tar not found — writing a non-reproducible archive (restore still verifies per-bundle SHA-256)" >&2
-  tar -C "$bundles_dir" -cf - . | xz -9 -c > "$archive"
+  tar -C "$bundles_dir" -cf - . | xz -9 --format=xz --check=crc64 -T1 -c > "$archive"
 fi
 
 # One rolling release accumulates every set's asset; create it if absent.
