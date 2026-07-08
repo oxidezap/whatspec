@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Publish the bundle set for the CURRENTLY committed generated/ to the durable
-# store — a rolling `bundle-store` GitHub Release, one `bundles-<version>.tar.gz`
+# store — a rolling `bundle-store` GitHub Release, one `bundles-<version>-<setHash>.tar.xz`
 # per WhatsApp version. This is what makes a past generated/ reproducible after
 # WhatsApp stops serving that version's bundles.
 #
@@ -22,21 +22,24 @@ ver=$(jq -r .waVersion generated/manifest.json)
 # Content-addressed asset name: the input setHash (from the lock) makes a different
 # bundle set a different asset, so an archive is never overwritten with different
 # bytes — every past commit's lock keeps resolving the exact archive it pins. The
-# version prefix keeps it browsable. Must match restore's `release_asset_url`.
+# version prefix keeps it browsable. Must match restore's `release_asset_base_url`.
 sethash=$(jq -r .setHash generated/bundles.lock.json 2>/dev/null)
 [ -n "$sethash" ] && [ "$sethash" != "null" ] || { echo "no setHash in generated/bundles.lock.json — run 'whatspec update' first" >&2; exit 1; }
 
+command -v xz >/dev/null 2>&1 || { echo "xz not found — install xz-utils to publish the archive" >&2; exit 1; }
+
 # Build the archive in a temp dir (never in the working tree, so no stray file to
-# `git add` by accident); `gh` names the asset from the basename regardless.
+# `git add` by accident); `gh` names the asset from the basename regardless. xz roughly
+# halves the archive vs gzip (restore reads either, chosen by magic bytes).
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
-archive="$work/bundles-${ver}-${sethash}.tar.gz"
+archive="$work/bundles-${ver}-${sethash}.tar.xz"
 
 # Prefer GNU tar for a reproducible archive (sorted, no owner/timestamps) — its
 # `--sort`/`--mtime` flags are GNU extensions BSD tar (macOS) rejects. Fall back to
 # gtar if installed, else a plain archive: byte-for-byte reproducibility of the
 # envelope is a nicety here, since `restore` verifies each bundle's SHA-256 against
-# the lock, not the tarball itself.
+# the lock, not the tarball itself. Compression is piped through xz -9 either way.
 gnu_tar=""
 if tar --version 2>/dev/null | grep -qi 'gnu tar'; then
   gnu_tar="tar"
@@ -45,16 +48,16 @@ elif command -v gtar >/dev/null 2>&1; then
 fi
 if [ -n "$gnu_tar" ]; then
   "$gnu_tar" --sort=name --owner=0 --group=0 --numeric-owner --mtime='@0' \
-      -C "$bundles_dir" -czf "$archive" .
+      -C "$bundles_dir" -cf - . | xz -9 -c > "$archive"
 else
   echo "note: GNU tar not found — writing a non-reproducible archive (restore still verifies per-bundle SHA-256)" >&2
-  tar -C "$bundles_dir" -czf "$archive" .
+  tar -C "$bundles_dir" -cf - . | xz -9 -c > "$archive"
 fi
 
 # One rolling release accumulates every set's asset; create it if absent.
 gh release view bundle-store >/dev/null 2>&1 \
   || gh release create bundle-store --title "Bundle store" --latest=false \
-       --notes "Durable WhatsApp Web bundle archives (content-addressed: bundles-<version>-<setHash>.tar.gz) for deterministic regeneration. See scripts/regen.sh."
+       --notes "Durable WhatsApp Web bundle archives (content-addressed: bundles-<version>-<setHash>.tar.xz) for deterministic regeneration. See scripts/regen.sh."
 # --clobber is safe here: the name carries the content hash, so re-uploading only
 # ever replaces an asset with byte-identical content (idempotent).
 gh release upload bundle-store "$archive" --clobber
