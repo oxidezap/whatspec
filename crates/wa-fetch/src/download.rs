@@ -436,7 +436,11 @@ mod tests {
         let name = files[0].file_name().to_string_lossy().into_owned();
         assert!(name.len() <= MAX_BUNDLE_FILE_NAME, "bounded: {name}");
         assert!(name.ends_with(".js"), "read back by --bundles: {name}");
-        assert_eq!(files[0].metadata().unwrap().len(), 7, "payload preserved");
+        assert_eq!(
+            std::fs::read(files[0].path()).unwrap(),
+            b"payload",
+            "bytes intact under the bounded name"
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 
