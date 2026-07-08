@@ -1909,4 +1909,28 @@ mod tests {
         );
         fs::remove_dir_all(&dir).ok();
     }
+
+    #[test]
+    fn check_artifacts_skips_reference_only_rs() {
+        // The gitignored `.rs` reference consumers are outside the committed contract, so
+        // a fresh checkout has none on disk — check must skip them (not report "missing"),
+        // while still catching a genuine drift in a committed (`.json`/`.proto`) artifact.
+        let dir = std::env::temp_dir().join(format!("whatspec-check-rs-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("iq.json"), "same").unwrap(); // committed artifact, present + matching
+        let artifacts = vec![
+            Artifact {
+                rel_path: PathBuf::from("iq.json"),
+                content: "same".into(),
+            },
+            // Absent on disk AND different content — must be skipped, not flagged.
+            Artifact {
+                rel_path: PathBuf::from("iq/iq.rs"),
+                content: "generated but not committed".into(),
+            },
+        ];
+        let diffs = check_artifacts(&dir, &artifacts).unwrap();
+        assert!(diffs.is_empty(), "reference-only .rs skipped: {diffs:?}");
+        fs::remove_dir_all(&dir).ok();
+    }
 }

@@ -34,6 +34,12 @@ const XZ_MAGIC: &[u8] = &[0xfd, b'7', b'z', b'X', b'Z', 0x00];
 const GZIP_MAGIC: &[u8] = &[0x1f, 0x8b];
 /// Hard ceiling on the *decompressed* bundle set (the real set is ~71 MB; slack for
 /// growth, but bounds a decompression bomb from a caller-supplied `--archive`).
+///
+/// Decompression is buffer-then-parse — xz's decoder isn't a streaming `Read`, so both
+/// envelopes share one path that holds the whole tar in memory and then copies each entry
+/// out, making peak memory ~2× the decompressed size. This cap bounds that peak. Fine
+/// here: the real set (~71 MB) is dwarfed by the JS the generator parses next, and the
+/// cap keeps an adversarial `--archive` from pushing peak memory to extremes.
 const MAX_UNPACKED_BYTES: u64 = 1024 * 1024 * 1024;
 
 pub struct RestoreOptions {
@@ -111,9 +117,13 @@ fn resolve_archive(opts: &RestoreOptions, lock: &BundleLock) -> Result<Vec<u8>> 
         bail!("--archive {loc} is neither an existing file nor an http(s) URL");
     }
     let base = release_asset_base_url(&opts.repo, &lock.wa_version, &lock.set_hash);
-    for ext in [".tar.xz", ".tar.gz"] {
+    let exts = [".tar.xz", ".tar.gz"];
+    for (i, ext) in exts.iter().enumerate() {
         if let Some(bytes) = download_opt(&format!("{base}{ext}"))? {
             return Ok(bytes);
+        }
+        if let Some(next) = exts.get(i + 1) {
+            eprintln!("  not found ({ext}); trying legacy {next}");
         }
     }
     bail!(
@@ -276,10 +286,8 @@ impl Write for CapWriter {
     fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
         if self.buf.len() as u64 + data.len() as u64 > self.cap {
             self.overflowed = true;
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::WriteZero,
-                "unpacked size cap exceeded",
-            ));
+            // A hard stop, not a "wrote zero / try again" condition — use `Other`.
+            return Err(std::io::Error::other("unpacked size cap exceeded"));
         }
         self.buf.extend_from_slice(data);
         Ok(data.len())
@@ -500,6 +508,23 @@ mod tests {
             let unpacked = unpack_archive(&archive, 1 << 20, files.len()).unwrap();
             verify_against_lock(&unpacked, &lock).unwrap();
         }
+    }
+
+    #[test]
+    fn unpack_reads_a_real_xz9_archive() {
+        // Fixture produced by the actual `xz -9` CLI (the publisher's compressor), not
+        // lzma-rs's own encoder — proof that lzma-rs decodes real xz output for our
+        // single-stream tarballs, guarding the dependency choice against regressions.
+        const FIXTURE: &[u8] = include_bytes!("testdata/sample.tar.xz");
+        let mut got = unpack_archive(FIXTURE, 1 << 20, 8).unwrap();
+        got.sort();
+        assert_eq!(
+            got,
+            vec![
+                ("a.js".to_string(), b"alpha".to_vec()),
+                ("b.js".to_string(), b"beta".to_vec()),
+            ]
+        );
     }
 
     #[test]
