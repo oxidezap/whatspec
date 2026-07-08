@@ -1,5 +1,5 @@
 {
-  "abPropsConfigs": 2050,
+  "abPropsConfigs": 2055,
   "appstateActions": 66,
   "diagnostics": {
     "iq": {
@@ -30,75 +30,75 @@
     "abprops": {
       "file": "abprops/index.json",
       "schema": "schema/abprops.schema.json",
-      "sha256": "eda80f5be62b287f8957deeaac0f02ac0da5da67e5540abc8bb23306aec6957f"
+      "sha256": "5029985a6d892ee6c3e20c6905aa782d6dacce7af88863ef6e5008bdde8044d5"
     },
     "appstate": {
       "file": "appstate/index.json",
       "schema": "schema/appstate.schema.json",
-      "sha256": "048a2647fab3a5ca5fd398835793f8bb2e99d59a8f2ada87673ba4498e21b43e"
+      "sha256": "cedff6310cd0569ce04a2910cac104a34dbde9c8520cc552c58ef1c2c441c86d"
     },
     "enums": {
       "file": "enums/index.json",
       "schema": "schema/enums.schema.json",
-      "sha256": "e9a37971e8d39fd36a42844858da99f47a9143217d4563ab65cdae01fa50571b"
+      "sha256": "328068091d44becacf0f6dcc5d69206225f5ea7a3414c6ac893ceaba217326f1"
     },
     "incoming": {
       "file": "incoming/index.json",
       "schema": "schema/incoming.schema.json",
-      "sha256": "0ba7d888681297f4b94e2158300dd1533b6e4e8ff7d6546f3ed912f4a835136c"
+      "sha256": "1c8cf53c8c8d3fc525c8f0e5401a77a1bdbad1ae31bb52b8263ea06c1cbccff7"
     },
     "iq": {
       "file": "iq/index.json",
       "schema": "schema/iq.schema.json",
-      "sha256": "ed9eb36c37cd30f38a00e9948f9619376f7286efa4080b4646e1031bba364821"
+      "sha256": "8c2382d8ee9096108fb384622b42d45b7863ae7ddcd05aa235067e7aec8af120"
     },
     "mex": {
       "file": "mex/index.json",
       "schema": "schema/mex.schema.json",
-      "sha256": "c3776f68833785645b7e8319984dc2bb8327231ee8a0ee285d4e6f8d9c19c8ed"
+      "sha256": "5a9fe9093f77154130452ce0e03e6848c353d88ed453b0651a925482b3932239"
     },
     "notif": {
       "file": "notif/index.json",
       "schema": "schema/notif.schema.json",
-      "sha256": "f28c49521ff3d5328323859e02eb71603b9715c374674c5d20bff44056f9868d"
+      "sha256": "2eab18278e9d63157455e2b387d69f0b13f538c8f379672b10ce08aedef47c62"
     },
     "proto": {
       "file": "proto/WAProto.proto",
-      "sha256": "14d5232cd7ff445d29ca497a482b620050c5ac1f1db0976d6fdbb08a7d3249b7"
+      "sha256": "e37c676fb30a54bc4d6a9889ab26051471041e6dc992924ffd911b8f34590025"
     },
     "srvreq": {
       "file": "srvreq/index.json",
       "schema": "schema/srvreq.schema.json",
-      "sha256": "e42609f78bdebc17bcde11241c477e9ea4617a25aff840bb95ce3a7bc1fa6434"
+      "sha256": "cab7322884a15e2cc17757fcd0e644be779fae395091985d21fd09f9a567bf04"
     },
     "stanza": {
       "file": "stanza/index.json",
       "schema": "schema/stanza.schema.json",
-      "sha256": "e2a387956422f4c0c5bcce869484a926034d889cb662c05b434d52b3414c95cd"
+      "sha256": "e73ff6b70fd410ca4d3d989961c110c6bbee40473845f9247a37271ff60dd09c"
     },
     "tokens": {
       "file": "tokens/index.json",
       "schema": "schema/tokens.schema.json",
-      "sha256": "1ca3140ef4cba2c8e975de6b5d513bb4bff0d1ec26cc7cd712a521cb0fdba16c"
+      "sha256": "3b263470c82962346979ffe447e12abdc6257448728b4a75d864021289ca5e3e"
     },
     "wam": {
       "file": "wam/index.json",
       "schema": "schema/wam.schema.json",
-      "sha256": "8b044f1386a116227709abd805cf36b23c0367091e04aa514d8fcb762df96e30"
+      "sha256": "e2563fb3d4b6fff0b41ead163539ba061a06f756017d85eb6c765bfe632c3154"
     }
   },
-  "enumDefs": 289,
+  "enumDefs": 285,
   "generatorVersion": "0.1.0",
   "incomingDefs": 16,
   "iqModules": 33,
   "mexOperations": 129,
   "notifTypes": 27,
-  "protoEntities": 257,
+  "protoEntities": 262,
   "schemaVersion": "1.0.0",
   "serverRequestDefs": 22,
   "stanzaDefs": 174,
   "tokenDoubleByte": 1024,
   "tokenSingleByte": 236,
-  "waVersion": "2.3000.1042742319",
+  "waVersion": "2.3000.1042790212",
   "wamEvents": 429
 }

@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1042742319",
+  "waVersion": "2.3000.1042790212",
   "configs": [
     {
       "module": "WAWebABPropsConfigs",
@@ -1882,6 +1882,13 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "biz_ai_web_gdrive_enabled",
+      "code": 32906,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "biz_ai_web_onboarding_handoff",
       "code": 29298,
       "valueType": "bool",
@@ -2348,6 +2355,13 @@
       "module": "WAWebABPropsConfigs",
       "name": "calling_av_sync_webrtc",
       "code": 24599,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "calling_dual_stream_camera_auto_off_enabled",
+      "code": 32896,
       "valueType": "bool",
       "default": false
     },
@@ -8941,6 +8955,13 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "reveal_username_non_linking_rejection_reason_enabled",
+      "code": 32910,
+      "valueType": "bool",
+      "default": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "rich_order_status_wa_web",
       "code": 16534,
       "valueType": "bool",
@@ -9347,6 +9368,13 @@
       "valueType": "bool",
       "default": false,
       "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "show_username_non_linking_rejection_reason_enabled",
+      "code": 32920,
+      "valueType": "bool",
+      "default": false
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -11343,6 +11371,13 @@
       "module": "WAWebABPropsConfigs",
       "name": "wa_smb_web_lists_quick_replies_enabled",
       "code": 31061,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "wa_status_chain_new_at_end",
+      "code": 24110,
       "valueType": "bool",
       "default": false
     },

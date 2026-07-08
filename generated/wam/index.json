@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1042742319",
+  "waVersion": "2.3000.1042790212",
   "events": [
     {
       "name": "GroupCreateC",
@@ -14892,12 +14892,7 @@
       ],
       "consumers": [
         "WAWebCrashlog",
-        "WAWebWindowsHybridBridgeWam",
-        "WAWebWindowsHybridBridgeWam.v2622",
-        "WAWebWindowsHybridBridgeWam.v2623",
-        "WAWebWindowsHybridBridgeWam.v2624",
-        "WAWebWindowsHybridBridgeWam.v2625",
-        "WAWebWindowsHybridBridgeWam.v2626"
+        "WAWebWindowsHybridBridgeWam"
       ]
     },
     {
@@ -18362,12 +18357,7 @@
       ],
       "consumers": [
         "WAWebWamMemoryStat",
-        "WAWebWindowsHybridBridgeWam",
-        "WAWebWindowsHybridBridgeWam.v2622",
-        "WAWebWindowsHybridBridgeWam.v2623",
-        "WAWebWindowsHybridBridgeWam.v2624",
-        "WAWebWindowsHybridBridgeWam.v2625",
-        "WAWebWindowsHybridBridgeWam.v2626"
+        "WAWebWindowsHybridBridgeWam"
       ]
     },
     {
@@ -28580,6 +28570,7 @@
       ],
       "consumers": [
         "WAWebMessageHoverBarContainer.react",
+        "WAWebRightClickReactionBarContainer.react",
         "WAWebSendReactionsTrayContainer.react"
       ]
     },

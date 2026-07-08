@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1042742319",
+  "waVersion": "2.3000.1042790212",
   "operations": {
     "ACSServerProviderConfig": {
       "originalName": "WAWebACSServerProviderConfigQuery",
@@ -678,7 +678,9 @@
         "trigger_context"
       ],
       "variablesShape": {
-        "nux_ids": "string",
+        "nux_ids": [
+          "string"
+        ],
         "trigger_context": {
           "wa_smb_trigger_context": {
             "app_version": "number",
@@ -2633,7 +2635,9 @@
         "trigger_context"
       ],
       "variablesShape": {
-        "nux_ids": "string",
+        "nux_ids": [
+          "string"
+        ],
         "trigger_context": {
           "wa_smb_trigger_context": {
             "app_version": "number",
@@ -3176,7 +3180,9 @@
       ],
       "variablesShape": {
         "input": {
-          "brand_ids": "string",
+          "brand_ids": [
+            "string"
+          ],
           "lid_based_response": "string"
         }
       },
@@ -3571,7 +3577,9 @@
       ],
       "variablesShape": {
         "input": {
-          "message_ids": "string"
+          "message_ids": [
+            "string"
+          ]
         },
         "newsletter_id": "string"
       },
@@ -3621,7 +3629,9 @@
       ],
       "variablesShape": {
         "input": {
-          "message_ids": "string"
+          "message_ids": [
+            "string"
+          ]
         },
         "newsletter_id": "string"
       },
@@ -4426,7 +4436,9 @@
       "variablesShape": {
         "input": {
           "bug_id": "string",
-          "participant_ids": "string",
+          "participant_ids": [
+            "string"
+          ],
           "reporter_id": "string",
           "up_to_timestamp_secs": "number"
         }

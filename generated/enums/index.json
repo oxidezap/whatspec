@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1042742319",
+  "waVersion": "2.3000.1042790212",
   "enums": [
     {
       "name": "DGWAuth",
@@ -6287,6 +6287,25 @@
       ]
     },
     {
+      "name": "NonE2EEAttestation$AccountType",
+      "module": "WAWebProtobufsAea.pb",
+      "valueKind": "int",
+      "variants": [
+        {
+          "name": "E2EE",
+          "value": 0
+        },
+        {
+          "name": "HYBRID_E2EE",
+          "value": 1
+        },
+        {
+          "name": "NON_E2EE",
+          "value": 2
+        }
+      ]
+    },
+    {
       "name": "DeviceProps$PlatformType",
       "module": "WAWebProtobufsCompanionReg.pb",
       "valueKind": "int",
@@ -8974,6 +8993,10 @@
         {
           "name": "Foreground",
           "value": "foreground"
+        },
+        {
+          "name": "IdleTimeout",
+          "value": "idle-timeout"
         }
       ]
     },
@@ -9953,81 +9976,6 @@
     {
       "name": "AppState",
       "module": "WAWebWindowsHybridBridgeNativeAppState",
-      "valueKind": "string",
-      "variants": [
-        {
-          "name": "Normal",
-          "value": "normal"
-        },
-        {
-          "name": "MinimizedToTray",
-          "value": "minimizedToTray"
-        }
-      ]
-    },
-    {
-      "name": "AppState_v2622",
-      "module": "WAWebWindowsHybridBridgeNativeAppState.v2622",
-      "valueKind": "string",
-      "variants": [
-        {
-          "name": "Normal",
-          "value": "normal"
-        },
-        {
-          "name": "MinimizedToTray",
-          "value": "minimizedToTray"
-        }
-      ]
-    },
-    {
-      "name": "AppState_v2623",
-      "module": "WAWebWindowsHybridBridgeNativeAppState.v2623",
-      "valueKind": "string",
-      "variants": [
-        {
-          "name": "Normal",
-          "value": "normal"
-        },
-        {
-          "name": "MinimizedToTray",
-          "value": "minimizedToTray"
-        }
-      ]
-    },
-    {
-      "name": "AppState_v2624",
-      "module": "WAWebWindowsHybridBridgeNativeAppState.v2624",
-      "valueKind": "string",
-      "variants": [
-        {
-          "name": "Normal",
-          "value": "normal"
-        },
-        {
-          "name": "MinimizedToTray",
-          "value": "minimizedToTray"
-        }
-      ]
-    },
-    {
-      "name": "AppState_v2625",
-      "module": "WAWebWindowsHybridBridgeNativeAppState.v2625",
-      "valueKind": "string",
-      "variants": [
-        {
-          "name": "Normal",
-          "value": "normal"
-        },
-        {
-          "name": "MinimizedToTray",
-          "value": "minimizedToTray"
-        }
-      ]
-    },
-    {
-      "name": "AppState_v2626",
-      "module": "WAWebWindowsHybridBridgeNativeAppState.v2626",
       "valueKind": "string",
       "variants": [
         {
