@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1042801245",
+  "waVersion": "2.3000.1043018328",
   "events": [
     {
       "name": "GroupCreateC",
@@ -2262,6 +2262,12 @@
           "name": "c50Linked",
           "id": 3001,
           "kind": "boolean"
+        },
+        {
+          "name": "ca2dExtensionAddFailureReason",
+          "id": 3067,
+          "kind": "enum",
+          "module": "WAWebWamEnumCa2dExtensionAddFailureReason"
         },
         {
           "name": "ca2dExtensionAddT",
@@ -5599,6 +5605,11 @@
         {
           "name": "isEventsLink",
           "id": 1928,
+          "kind": "boolean"
+        },
+        {
+          "name": "isExtensionCreator",
+          "id": 3066,
           "kind": "boolean"
         },
         {
@@ -14892,7 +14903,13 @@
       ],
       "consumers": [
         "WAWebCrashlog",
-        "WAWebWindowsHybridBridgeWam"
+        "WAWebWindowsHybridBridgeWam",
+        "WAWebWindowsHybridBridgeWam.v2622",
+        "WAWebWindowsHybridBridgeWam.v2623",
+        "WAWebWindowsHybridBridgeWam.v2624",
+        "WAWebWindowsHybridBridgeWam.v2625",
+        "WAWebWindowsHybridBridgeWam.v2626",
+        "WAWebWindowsHybridBridgeWam.v2627"
       ]
     },
     {
@@ -15538,6 +15555,12 @@
           "name": "messageSendResultIsTerminal",
           "id": 17,
           "kind": "boolean"
+        },
+        {
+          "name": "messageSendRetrySource",
+          "id": 95,
+          "kind": "enum",
+          "module": "WAWebWamEnumMessageSendRetrySource"
         },
         {
           "name": "messageSendSource",
@@ -18357,7 +18380,13 @@
       ],
       "consumers": [
         "WAWebWamMemoryStat",
-        "WAWebWindowsHybridBridgeWam"
+        "WAWebWindowsHybridBridgeWam",
+        "WAWebWindowsHybridBridgeWam.v2622",
+        "WAWebWindowsHybridBridgeWam.v2623",
+        "WAWebWindowsHybridBridgeWam.v2624",
+        "WAWebWindowsHybridBridgeWam.v2625",
+        "WAWebWindowsHybridBridgeWam.v2626",
+        "WAWebWindowsHybridBridgeWam.v2627"
       ]
     },
     {
@@ -30560,10 +30589,20 @@
           "kind": "boolean"
         },
         {
+          "name": "isFailedMessage",
+          "id": 7,
+          "kind": "boolean"
+        },
+        {
           "name": "mediaType",
           "id": 6,
           "kind": "enum",
           "module": "WAWebWamEnumMediaType"
+        },
+        {
+          "name": "messageCreateTs",
+          "id": 8,
+          "kind": "integer"
         },
         {
           "name": "messagesDeleted",
@@ -35919,6 +35958,16 @@
       "privateStatsId": 113760892,
       "fields": [
         {
+          "name": "messageBubbleHeightPx",
+          "id": 17,
+          "kind": "integer"
+        },
+        {
+          "name": "messageBubbleWidthPx",
+          "id": 18,
+          "kind": "integer"
+        },
+        {
           "name": "pmxActionTarget",
           "id": 1,
           "kind": "enum",
@@ -39207,6 +39256,11 @@
           "module": "WAWebWamEnumPreCallActionType"
         },
         {
+          "name": "selectedItemCount",
+          "id": 12,
+          "kind": "integer"
+        },
+        {
           "name": "subSurface",
           "id": 4,
           "kind": "enum",
@@ -40009,6 +40063,11 @@
       ],
       "fields": [
         {
+          "name": "currentMigrationBucket",
+          "id": 9,
+          "kind": "integer"
+        },
+        {
           "name": "customListCount",
           "id": 7,
           "kind": "integer"
@@ -40044,6 +40103,11 @@
         {
           "name": "presetListCount",
           "id": 8,
+          "kind": "integer"
+        },
+        {
+          "name": "previousMigrationBucket",
+          "id": 10,
           "kind": "integer"
         },
         {
@@ -47874,6 +47938,45 @@
       "consumers": [
         "WAWebGroupHistorySenderUserJourneyLogger"
       ]
+    },
+    {
+      "name": "WindowsDefaultProtocolActivation",
+      "code": 8504,
+      "module": "WAWebWindowsDefaultProtocolActivationWamEvent",
+      "channel": "regular",
+      "weights": [
+        1,
+        1,
+        1
+      ],
+      "fields": [
+        {
+          "name": "defaultProtocolResult",
+          "id": 1,
+          "kind": "enum",
+          "module": "WAWebWamEnumDefaultProtocolResultType"
+        },
+        {
+          "name": "defaultProtocolScheme",
+          "id": 2,
+          "kind": "enum",
+          "module": "WAWebWamEnumDefaultProtocolSchemeType"
+        },
+        {
+          "name": "defaultProtocolTarget",
+          "id": 3,
+          "kind": "enum",
+          "module": "WAWebWamEnumDefaultProtocolTargetType"
+        },
+        {
+          "name": "tsTimestampMs",
+          "id": 4,
+          "kind": "integer"
+        }
+      ],
+      "consumers": [
+        "WAWebExecApiCmdHelpers"
+      ]
     }
   ],
   "enums": [
@@ -51778,6 +51881,28 @@
       ]
     },
     {
+      "name": "CA2D_EXTENSION_ADD_FAILURE_REASON",
+      "module": "WAWebWamEnumCa2dExtensionAddFailureReason",
+      "variants": [
+        {
+          "key": "UNDEFINED",
+          "value": 0
+        },
+        {
+          "key": "OHAI_REQ_TIMEOUT",
+          "value": 1
+        },
+        {
+          "key": "OHAI_REQ_NACK",
+          "value": 2
+        },
+        {
+          "key": "ADD_EXTENSION_NACK",
+          "value": 3
+        }
+      ]
+    },
+    {
       "name": "CA2D_EXTENSION_CONNECTION_STATE",
       "module": "WAWebWamEnumCa2dExtensionConnectionState",
       "variants": [
@@ -51804,6 +51929,10 @@
         {
           "key": "REMOVED",
           "value": 5
+        },
+        {
+          "key": "FAILED",
+          "value": 6
         }
       ]
     },
@@ -59348,6 +59477,72 @@
       ]
     },
     {
+      "name": "DEFAULT_PROTOCOL_RESULT_TYPE",
+      "module": "WAWebWamEnumDefaultProtocolResultType",
+      "variants": [
+        {
+          "key": "DISPATCHED",
+          "value": 0
+        },
+        {
+          "key": "CONVERSION_FAILURE",
+          "value": 1
+        },
+        {
+          "key": "NAVIGATION_SUCCESS",
+          "value": 2
+        },
+        {
+          "key": "NAVIGATION_FAILURE",
+          "value": 3
+        }
+      ]
+    },
+    {
+      "name": "DEFAULT_PROTOCOL_SCHEME_TYPE",
+      "module": "WAWebWamEnumDefaultProtocolSchemeType",
+      "variants": [
+        {
+          "key": "TEL",
+          "value": 0
+        },
+        {
+          "key": "MS_VOIP_CALL",
+          "value": 1
+        },
+        {
+          "key": "MS_VOIP_VIDEO",
+          "value": 2
+        },
+        {
+          "key": "IM",
+          "value": 3
+        },
+        {
+          "key": "MS_IPMESSAGING",
+          "value": 4
+        }
+      ]
+    },
+    {
+      "name": "DEFAULT_PROTOCOL_TARGET_TYPE",
+      "module": "WAWebWamEnumDefaultProtocolTargetType",
+      "variants": [
+        {
+          "key": "LID",
+          "value": 0
+        },
+        {
+          "key": "PHONE",
+          "value": 1
+        },
+        {
+          "key": "NONE",
+          "value": 2
+        }
+      ]
+    },
+    {
       "name": "DEFENSE_MODE_CLICK_CONTROL_NAME",
       "module": "WAWebWamEnumDefenseModeClickControlName",
       "variants": [
@@ -65564,6 +65759,10 @@
         {
           "key": "PIX_NATIVE_PROMO_SCREEN_VIEW",
           "value": 102
+        },
+        {
+          "key": "PAYMENT_TEXT_DETECTION_CLICK",
+          "value": 103
         }
       ]
     },
@@ -66308,6 +66507,14 @@
         {
           "key": "UNHIDE",
           "value": 9
+        },
+        {
+          "key": "REORDER",
+          "value": 10
+        },
+        {
+          "key": "BUCKET_MIGRATION_DONE",
+          "value": 11
         }
       ]
     },
@@ -67716,6 +67923,26 @@
         {
           "key": "SMB_BIZ_PROFILE_OVERFLOW_MENU",
           "value": 109
+        },
+        {
+          "key": "BIZ_PROFILE_MEDIA_PICKER",
+          "value": 110
+        },
+        {
+          "key": "SMB_PRODUCT_DETAILS_RECOMMENDATION_INLINE_BOOST",
+          "value": 111
+        },
+        {
+          "key": "SMB_CATALOG_RECOMMENDATION_UPSELL_BOTTOM_SHEET",
+          "value": 112
+        },
+        {
+          "key": "SMB_CATALOG_RECOMMENDATION_FETCH",
+          "value": 113
+        },
+        {
+          "key": "SMB_STATUS_RECOMMENDATION_FETCH",
+          "value": 114
         }
       ]
     },
@@ -67742,6 +67969,10 @@
         {
           "key": "LWI_ACTION_IMPRESSION",
           "value": 5
+        },
+        {
+          "key": "LWI_ACTION_SUPPRESSED_BY_CAP",
+          "value": 6
         }
       ]
     },
@@ -71972,6 +72203,10 @@
         {
           "key": "AI_IMAGINE_MESSAGE_QUICK_EDIT",
           "value": 131
+        },
+        {
+          "key": "CONTACTS_TAB",
+          "value": 132
         }
       ]
     },
@@ -73208,6 +73443,20 @@
         {
           "key": "AEA_SEND_RECONCILATION_FAILURE",
           "value": 21
+        }
+      ]
+    },
+    {
+      "name": "MESSAGE_SEND_RETRY_SOURCE",
+      "module": "WAWebWamEnumMessageSendRetrySource",
+      "variants": [
+        {
+          "key": "AUTO",
+          "value": 1
+        },
+        {
+          "key": "MANUAL",
+          "value": 2
         }
       ]
     },
@@ -79330,6 +79579,10 @@
           "value": 69
         },
         {
+          "key": "WAIL",
+          "value": 70
+        },
+        {
           "key": "TEST",
           "value": 9
         },
@@ -79934,6 +80187,14 @@
         {
           "key": "DIALER_INPUT_CURSOR_ENGAGED",
           "value": 90
+        },
+        {
+          "key": "CALL_LOG_MULTI_SELECT_ENTER",
+          "value": 91
+        },
+        {
+          "key": "CALL_LOG_MULTI_SELECT_SELECT_ALL",
+          "value": 92
         }
       ]
     },
@@ -84924,6 +85185,10 @@
         {
           "key": "STATUS_CROSSPOST",
           "value": 23
+        },
+        {
+          "key": "CONNECTED_MEDIA",
+          "value": 24
         }
       ]
     },
@@ -88542,6 +88807,10 @@
         {
           "key": "UPCOMING_EVENT_BANNER",
           "value": 68
+        },
+        {
+          "key": "CALL_LOG_MULTI_SELECT_TOOLBAR",
+          "value": 69
         }
       ]
     },
@@ -89962,6 +90231,14 @@
         {
           "key": "GEN_AI_AGENT_SMART_COMPOSER_HANDOFF_CARD",
           "value": 318
+        },
+        {
+          "key": "FB_MEDIA_PICKER",
+          "value": 319
+        },
+        {
+          "key": "IG_MEDIA_PICKER",
+          "value": 320
         }
       ]
     },
@@ -91542,6 +91819,26 @@
         {
           "key": "STORAGE_WARNING",
           "value": 252
+        },
+        {
+          "key": "STICKER_BROWSER",
+          "value": 253
+        },
+        {
+          "key": "COMPANION_LOADING",
+          "value": 254
+        },
+        {
+          "key": "COMPANION_REGISTRATION",
+          "value": 255
+        },
+        {
+          "key": "REGISTRATION_WELCOME",
+          "value": 256
+        },
+        {
+          "key": "CALLS_TAB_SECONDARY",
+          "value": 257
         }
       ]
     },
@@ -93146,6 +93443,10 @@
         {
           "key": "REQUIRES_FB_IG_LINKING",
           "value": 3
+        },
+        {
+          "key": "ALREADY_TAKEN",
+          "value": 4
         }
       ]
     },

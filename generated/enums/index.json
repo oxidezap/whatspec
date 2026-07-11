@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1042801245",
+  "waVersion": "2.3000.1043018328",
   "enums": [
     {
       "name": "DGWAuth",
@@ -2353,33 +2353,6 @@
         {
           "name": "MISSING_CLONES",
           "value": "missing_clones"
-        }
-      ]
-    },
-    {
-      "name": "BizAiChatlistFilterPillsVariant",
-      "module": "WAWebBizAiChatlistFilterPillsVariant",
-      "valueKind": "string",
-      "variants": [
-        {
-          "name": "None",
-          "value": "NONE"
-        },
-        {
-          "name": "Control",
-          "value": "CONTROL"
-        },
-        {
-          "name": "Test",
-          "value": "TEST"
-        },
-        {
-          "name": "TestPills",
-          "value": "TEST_PILLS"
-        },
-        {
-          "name": "Rollout",
-          "value": "ROLLOUT"
         }
       ]
     },
@@ -4908,6 +4881,10 @@
           "value": "missing_parent_message_sender"
         },
         {
+          "name": "PARENT_SENDER_MISMATCH",
+          "value": "parent_sender_mismatch"
+        },
+        {
           "name": "INVALID_PROTOCOL_MESSAGE_TYPE",
           "value": "invalid_protocol_message_type"
         },
@@ -5658,6 +5635,10 @@
         {
           "name": "BUSINESS_AI_TOOLS_NUX",
           "value": "business_ai_tools_nux"
+        },
+        {
+          "name": "PRIVACY_SCREEN_UPSELL_BANNER",
+          "value": "privacy_screen_upsell_banner"
         }
       ]
     },
@@ -9474,6 +9455,68 @@
       ]
     },
     {
+      "name": "VoipAvDriverInitQplPoint",
+      "module": "WAWebVoipAvDriverInitQpl",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "CAPTURE_DRIVER_INIT_START",
+          "value": "capture_driver_init_start"
+        },
+        {
+          "name": "CAPTURE_DRIVER_INIT_END",
+          "value": "capture_driver_init_end"
+        },
+        {
+          "name": "PLAYBACK_DRIVER_INIT_START",
+          "value": "playback_driver_init_start"
+        },
+        {
+          "name": "PLAYBACK_DRIVER_INIT_END",
+          "value": "playback_driver_init_end"
+        }
+      ]
+    },
+    {
+      "name": "VoipIncomingCallQplPoint",
+      "module": "WAWebVoipIncomingCallQpl",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "E2E_DECRYPT_START",
+          "value": "e2e_decrypt_start"
+        },
+        {
+          "name": "E2E_DECRYPT_END",
+          "value": "e2e_decrypt_end"
+        },
+        {
+          "name": "TC_TOKEN_START",
+          "value": "tc_token_start"
+        },
+        {
+          "name": "TC_TOKEN_END",
+          "value": "tc_token_end"
+        },
+        {
+          "name": "STACK_RESOLVE_START",
+          "value": "stack_resolve_start"
+        },
+        {
+          "name": "STACK_RESOLVE_END",
+          "value": "stack_resolve_end"
+        },
+        {
+          "name": "NATIVE_PROCESS_START",
+          "value": "native_process_start"
+        },
+        {
+          "name": "NATIVE_PROCESS_END",
+          "value": "native_process_end"
+        }
+      ]
+    },
+    {
       "name": "UpdateJoinableCallLogType",
       "module": "WAWebVoipJsonParserPayloads",
       "valueKind": "int",
@@ -9551,6 +9594,69 @@
       ]
     },
     {
+      "name": "VoipOutgoingCallQplPoint",
+      "module": "WAWebVoipOutgoingCallQpl",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "VOIP_READY_START",
+          "value": "voip_ready_start"
+        },
+        {
+          "name": "VOIP_READY_END",
+          "value": "voip_ready_end"
+        },
+        {
+          "name": "DEVICE_PERMISSIONS_START",
+          "value": "device_permissions_start"
+        },
+        {
+          "name": "DEVICE_PERMISSIONS_END",
+          "value": "device_permissions_end"
+        },
+        {
+          "name": "LID_RESOLUTION_SYNC_START",
+          "value": "lid_resolution_sync_start"
+        },
+        {
+          "name": "LID_RESOLUTION_SYNC_END",
+          "value": "lid_resolution_sync_end"
+        },
+        {
+          "name": "SYNC_DEVICE_LIST_START",
+          "value": "sync_device_list_start"
+        },
+        {
+          "name": "SYNC_DEVICE_LIST_END",
+          "value": "sync_device_list_end"
+        },
+        {
+          "name": "COEX_FIRST_TIME_MODAL_START",
+          "value": "coex_first_time_modal_start"
+        },
+        {
+          "name": "COEX_FIRST_TIME_MODAL_END",
+          "value": "coex_first_time_modal_end"
+        },
+        {
+          "name": "SETUP_START",
+          "value": "setup_start"
+        },
+        {
+          "name": "SETUP_END",
+          "value": "setup_end"
+        },
+        {
+          "name": "START_CALL_START",
+          "value": "start_call_start"
+        },
+        {
+          "name": "START_CALL_END",
+          "value": "start_call_end"
+        }
+      ]
+    },
+    {
       "name": "PerfMeasurement",
       "module": "WAWebVoipPerfMeasurement",
       "valueKind": "int",
@@ -9609,61 +9715,6 @@
         {
           "name": "MAX_FLAG",
           "value": 30
-        }
-      ]
-    },
-    {
-      "name": "VoipInitQplPoint",
-      "module": "WAWebVoipQplHelpers",
-      "valueKind": "string",
-      "variants": [
-        {
-          "name": "WAIT_OFFLINE_DELIVER_START",
-          "value": "wait_offline_deliver_start"
-        },
-        {
-          "name": "WAIT_OFFLINE_DELIVER_END",
-          "value": "wait_offline_deliver_end"
-        },
-        {
-          "name": "WASM_LOAD_START",
-          "value": "wasm_load_start"
-        },
-        {
-          "name": "WASM_LOAD_END",
-          "value": "wasm_load_end"
-        },
-        {
-          "name": "WASM_FETCH_START",
-          "value": "wasm_fetch_start"
-        },
-        {
-          "name": "WASM_FETCH_END",
-          "value": "wasm_fetch_end"
-        },
-        {
-          "name": "THREAD_POOL_SETUP_START",
-          "value": "thread_pool_setup_start"
-        },
-        {
-          "name": "THREAD_POOL_SETUP_END",
-          "value": "thread_pool_setup_end"
-        },
-        {
-          "name": "WORKER_POOL_ALLOC_START",
-          "value": "worker_pool_alloc_start"
-        },
-        {
-          "name": "WORKER_POOL_ALLOC_END",
-          "value": "worker_pool_alloc_end"
-        },
-        {
-          "name": "VOIP_STACK_INIT_START",
-          "value": "voip_stack_init_start"
-        },
-        {
-          "name": "VOIP_STACK_INIT_END",
-          "value": "voip_stack_init_end"
         }
       ]
     },
@@ -9976,6 +10027,96 @@
     {
       "name": "AppState",
       "module": "WAWebWindowsHybridBridgeNativeAppState",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "Normal",
+          "value": "normal"
+        },
+        {
+          "name": "MinimizedToTray",
+          "value": "minimizedToTray"
+        }
+      ]
+    },
+    {
+      "name": "AppState_v2622",
+      "module": "WAWebWindowsHybridBridgeNativeAppState.v2622",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "Normal",
+          "value": "normal"
+        },
+        {
+          "name": "MinimizedToTray",
+          "value": "minimizedToTray"
+        }
+      ]
+    },
+    {
+      "name": "AppState_v2623",
+      "module": "WAWebWindowsHybridBridgeNativeAppState.v2623",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "Normal",
+          "value": "normal"
+        },
+        {
+          "name": "MinimizedToTray",
+          "value": "minimizedToTray"
+        }
+      ]
+    },
+    {
+      "name": "AppState_v2624",
+      "module": "WAWebWindowsHybridBridgeNativeAppState.v2624",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "Normal",
+          "value": "normal"
+        },
+        {
+          "name": "MinimizedToTray",
+          "value": "minimizedToTray"
+        }
+      ]
+    },
+    {
+      "name": "AppState_v2625",
+      "module": "WAWebWindowsHybridBridgeNativeAppState.v2625",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "Normal",
+          "value": "normal"
+        },
+        {
+          "name": "MinimizedToTray",
+          "value": "minimizedToTray"
+        }
+      ]
+    },
+    {
+      "name": "AppState_v2626",
+      "module": "WAWebWindowsHybridBridgeNativeAppState.v2626",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "Normal",
+          "value": "normal"
+        },
+        {
+          "name": "MinimizedToTray",
+          "value": "minimizedToTray"
+        }
+      ]
+    },
+    {
+      "name": "AppState_v2627",
+      "module": "WAWebWindowsHybridBridgeNativeAppState.v2627",
       "valueKind": "string",
       "variants": [
         {
