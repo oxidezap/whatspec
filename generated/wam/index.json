@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1043018328",
+  "waVersion": "2.3000.1043065146",
   "events": [
     {
       "name": "GroupCreateC",
@@ -14904,6 +14904,38 @@
       "consumers": [
         "WAWebCrashlog",
         "WAWebWindowsHybridBridgeWam",
+        "WAWebWindowsHybridBridgeWam.v2579",
+        "WAWebWindowsHybridBridgeWam.v2580",
+        "WAWebWindowsHybridBridgeWam.v2581",
+        "WAWebWindowsHybridBridgeWam.v2582",
+        "WAWebWindowsHybridBridgeWam.v2583",
+        "WAWebWindowsHybridBridgeWam.v2584",
+        "WAWebWindowsHybridBridgeWam.v2585",
+        "WAWebWindowsHybridBridgeWam.v2586",
+        "WAWebWindowsHybridBridgeWam.v2587",
+        "WAWebWindowsHybridBridgeWam.v2589",
+        "WAWebWindowsHybridBridgeWam.v2590",
+        "WAWebWindowsHybridBridgeWam.v2591",
+        "WAWebWindowsHybridBridgeWam.v2601",
+        "WAWebWindowsHybridBridgeWam.v2602",
+        "WAWebWindowsHybridBridgeWam.v2603",
+        "WAWebWindowsHybridBridgeWam.v2604",
+        "WAWebWindowsHybridBridgeWam.v2605",
+        "WAWebWindowsHybridBridgeWam.v2606",
+        "WAWebWindowsHybridBridgeWam.v2607",
+        "WAWebWindowsHybridBridgeWam.v2608",
+        "WAWebWindowsHybridBridgeWam.v2609",
+        "WAWebWindowsHybridBridgeWam.v2610",
+        "WAWebWindowsHybridBridgeWam.v2611",
+        "WAWebWindowsHybridBridgeWam.v2613",
+        "WAWebWindowsHybridBridgeWam.v2614",
+        "WAWebWindowsHybridBridgeWam.v2615",
+        "WAWebWindowsHybridBridgeWam.v2616",
+        "WAWebWindowsHybridBridgeWam.v2617",
+        "WAWebWindowsHybridBridgeWam.v2618",
+        "WAWebWindowsHybridBridgeWam.v2619",
+        "WAWebWindowsHybridBridgeWam.v2620",
+        "WAWebWindowsHybridBridgeWam.v2621",
         "WAWebWindowsHybridBridgeWam.v2622",
         "WAWebWindowsHybridBridgeWam.v2623",
         "WAWebWindowsHybridBridgeWam.v2624",
@@ -18381,6 +18413,9 @@
       "consumers": [
         "WAWebWamMemoryStat",
         "WAWebWindowsHybridBridgeWam",
+        "WAWebWindowsHybridBridgeWam.v2619",
+        "WAWebWindowsHybridBridgeWam.v2620",
+        "WAWebWindowsHybridBridgeWam.v2621",
         "WAWebWindowsHybridBridgeWam.v2622",
         "WAWebWindowsHybridBridgeWam.v2623",
         "WAWebWindowsHybridBridgeWam.v2624",
@@ -40115,6 +40150,11 @@
           "id": 6,
           "kind": "enum",
           "module": "WAWebWamEnumUpdateEntryPoint"
+        },
+        {
+          "name": "visibleListIds",
+          "id": 11,
+          "kind": "string"
         }
       ],
       "consumers": [
@@ -88811,6 +88851,14 @@
         {
           "key": "CALL_LOG_MULTI_SELECT_TOOLBAR",
           "value": 69
+        },
+        {
+          "key": "CALL_LOG_SWIPE",
+          "value": 70
+        },
+        {
+          "key": "CALL_LOG_CLEAR_ALL",
+          "value": 71
         }
       ]
     },

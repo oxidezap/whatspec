@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1043018328",
+  "waVersion": "2.3000.1043065146",
   "enums": [
     {
       "name": "DGWAuth",
@@ -3547,6 +3547,10 @@
       "module": "WAWebCreateNackFromStanza",
       "valueKind": "int",
       "variants": [
+        {
+          "name": "UnsupportedMessage",
+          "value": 415
+        },
         {
           "name": "StaleGroupAddressingMode",
           "value": 421
@@ -10027,6 +10031,486 @@
     {
       "name": "AppState",
       "module": "WAWebWindowsHybridBridgeNativeAppState",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "Normal",
+          "value": "normal"
+        },
+        {
+          "name": "MinimizedToTray",
+          "value": "minimizedToTray"
+        }
+      ]
+    },
+    {
+      "name": "AppState_v2579",
+      "module": "WAWebWindowsHybridBridgeNativeAppState.v2579",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "Normal",
+          "value": "normal"
+        },
+        {
+          "name": "MinimizedToTray",
+          "value": "minimizedToTray"
+        }
+      ]
+    },
+    {
+      "name": "AppState_v2580",
+      "module": "WAWebWindowsHybridBridgeNativeAppState.v2580",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "Normal",
+          "value": "normal"
+        },
+        {
+          "name": "MinimizedToTray",
+          "value": "minimizedToTray"
+        }
+      ]
+    },
+    {
+      "name": "AppState_v2581",
+      "module": "WAWebWindowsHybridBridgeNativeAppState.v2581",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "Normal",
+          "value": "normal"
+        },
+        {
+          "name": "MinimizedToTray",
+          "value": "minimizedToTray"
+        }
+      ]
+    },
+    {
+      "name": "AppState_v2582",
+      "module": "WAWebWindowsHybridBridgeNativeAppState.v2582",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "Normal",
+          "value": "normal"
+        },
+        {
+          "name": "MinimizedToTray",
+          "value": "minimizedToTray"
+        }
+      ]
+    },
+    {
+      "name": "AppState_v2583",
+      "module": "WAWebWindowsHybridBridgeNativeAppState.v2583",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "Normal",
+          "value": "normal"
+        },
+        {
+          "name": "MinimizedToTray",
+          "value": "minimizedToTray"
+        }
+      ]
+    },
+    {
+      "name": "AppState_v2584",
+      "module": "WAWebWindowsHybridBridgeNativeAppState.v2584",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "Normal",
+          "value": "normal"
+        },
+        {
+          "name": "MinimizedToTray",
+          "value": "minimizedToTray"
+        }
+      ]
+    },
+    {
+      "name": "AppState_v2585",
+      "module": "WAWebWindowsHybridBridgeNativeAppState.v2585",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "Normal",
+          "value": "normal"
+        },
+        {
+          "name": "MinimizedToTray",
+          "value": "minimizedToTray"
+        }
+      ]
+    },
+    {
+      "name": "AppState_v2586",
+      "module": "WAWebWindowsHybridBridgeNativeAppState.v2586",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "Normal",
+          "value": "normal"
+        },
+        {
+          "name": "MinimizedToTray",
+          "value": "minimizedToTray"
+        }
+      ]
+    },
+    {
+      "name": "AppState_v2587",
+      "module": "WAWebWindowsHybridBridgeNativeAppState.v2587",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "Normal",
+          "value": "normal"
+        },
+        {
+          "name": "MinimizedToTray",
+          "value": "minimizedToTray"
+        }
+      ]
+    },
+    {
+      "name": "AppState_v2589",
+      "module": "WAWebWindowsHybridBridgeNativeAppState.v2589",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "Normal",
+          "value": "normal"
+        },
+        {
+          "name": "MinimizedToTray",
+          "value": "minimizedToTray"
+        }
+      ]
+    },
+    {
+      "name": "AppState_v2590",
+      "module": "WAWebWindowsHybridBridgeNativeAppState.v2590",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "Normal",
+          "value": "normal"
+        },
+        {
+          "name": "MinimizedToTray",
+          "value": "minimizedToTray"
+        }
+      ]
+    },
+    {
+      "name": "AppState_v2591",
+      "module": "WAWebWindowsHybridBridgeNativeAppState.v2591",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "Normal",
+          "value": "normal"
+        },
+        {
+          "name": "MinimizedToTray",
+          "value": "minimizedToTray"
+        }
+      ]
+    },
+    {
+      "name": "AppState_v2601",
+      "module": "WAWebWindowsHybridBridgeNativeAppState.v2601",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "Normal",
+          "value": "normal"
+        },
+        {
+          "name": "MinimizedToTray",
+          "value": "minimizedToTray"
+        }
+      ]
+    },
+    {
+      "name": "AppState_v2602",
+      "module": "WAWebWindowsHybridBridgeNativeAppState.v2602",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "Normal",
+          "value": "normal"
+        },
+        {
+          "name": "MinimizedToTray",
+          "value": "minimizedToTray"
+        }
+      ]
+    },
+    {
+      "name": "AppState_v2603",
+      "module": "WAWebWindowsHybridBridgeNativeAppState.v2603",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "Normal",
+          "value": "normal"
+        },
+        {
+          "name": "MinimizedToTray",
+          "value": "minimizedToTray"
+        }
+      ]
+    },
+    {
+      "name": "AppState_v2604",
+      "module": "WAWebWindowsHybridBridgeNativeAppState.v2604",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "Normal",
+          "value": "normal"
+        },
+        {
+          "name": "MinimizedToTray",
+          "value": "minimizedToTray"
+        }
+      ]
+    },
+    {
+      "name": "AppState_v2605",
+      "module": "WAWebWindowsHybridBridgeNativeAppState.v2605",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "Normal",
+          "value": "normal"
+        },
+        {
+          "name": "MinimizedToTray",
+          "value": "minimizedToTray"
+        }
+      ]
+    },
+    {
+      "name": "AppState_v2606",
+      "module": "WAWebWindowsHybridBridgeNativeAppState.v2606",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "Normal",
+          "value": "normal"
+        },
+        {
+          "name": "MinimizedToTray",
+          "value": "minimizedToTray"
+        }
+      ]
+    },
+    {
+      "name": "AppState_v2607",
+      "module": "WAWebWindowsHybridBridgeNativeAppState.v2607",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "Normal",
+          "value": "normal"
+        },
+        {
+          "name": "MinimizedToTray",
+          "value": "minimizedToTray"
+        }
+      ]
+    },
+    {
+      "name": "AppState_v2608",
+      "module": "WAWebWindowsHybridBridgeNativeAppState.v2608",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "Normal",
+          "value": "normal"
+        },
+        {
+          "name": "MinimizedToTray",
+          "value": "minimizedToTray"
+        }
+      ]
+    },
+    {
+      "name": "AppState_v2609",
+      "module": "WAWebWindowsHybridBridgeNativeAppState.v2609",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "Normal",
+          "value": "normal"
+        },
+        {
+          "name": "MinimizedToTray",
+          "value": "minimizedToTray"
+        }
+      ]
+    },
+    {
+      "name": "AppState_v2610",
+      "module": "WAWebWindowsHybridBridgeNativeAppState.v2610",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "Normal",
+          "value": "normal"
+        },
+        {
+          "name": "MinimizedToTray",
+          "value": "minimizedToTray"
+        }
+      ]
+    },
+    {
+      "name": "AppState_v2611",
+      "module": "WAWebWindowsHybridBridgeNativeAppState.v2611",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "Normal",
+          "value": "normal"
+        },
+        {
+          "name": "MinimizedToTray",
+          "value": "minimizedToTray"
+        }
+      ]
+    },
+    {
+      "name": "AppState_v2613",
+      "module": "WAWebWindowsHybridBridgeNativeAppState.v2613",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "Normal",
+          "value": "normal"
+        },
+        {
+          "name": "MinimizedToTray",
+          "value": "minimizedToTray"
+        }
+      ]
+    },
+    {
+      "name": "AppState_v2614",
+      "module": "WAWebWindowsHybridBridgeNativeAppState.v2614",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "Normal",
+          "value": "normal"
+        },
+        {
+          "name": "MinimizedToTray",
+          "value": "minimizedToTray"
+        }
+      ]
+    },
+    {
+      "name": "AppState_v2615",
+      "module": "WAWebWindowsHybridBridgeNativeAppState.v2615",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "Normal",
+          "value": "normal"
+        },
+        {
+          "name": "MinimizedToTray",
+          "value": "minimizedToTray"
+        }
+      ]
+    },
+    {
+      "name": "AppState_v2616",
+      "module": "WAWebWindowsHybridBridgeNativeAppState.v2616",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "Normal",
+          "value": "normal"
+        },
+        {
+          "name": "MinimizedToTray",
+          "value": "minimizedToTray"
+        }
+      ]
+    },
+    {
+      "name": "AppState_v2617",
+      "module": "WAWebWindowsHybridBridgeNativeAppState.v2617",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "Normal",
+          "value": "normal"
+        },
+        {
+          "name": "MinimizedToTray",
+          "value": "minimizedToTray"
+        }
+      ]
+    },
+    {
+      "name": "AppState_v2618",
+      "module": "WAWebWindowsHybridBridgeNativeAppState.v2618",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "Normal",
+          "value": "normal"
+        },
+        {
+          "name": "MinimizedToTray",
+          "value": "minimizedToTray"
+        }
+      ]
+    },
+    {
+      "name": "AppState_v2619",
+      "module": "WAWebWindowsHybridBridgeNativeAppState.v2619",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "Normal",
+          "value": "normal"
+        },
+        {
+          "name": "MinimizedToTray",
+          "value": "minimizedToTray"
+        }
+      ]
+    },
+    {
+      "name": "AppState_v2620",
+      "module": "WAWebWindowsHybridBridgeNativeAppState.v2620",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "Normal",
+          "value": "normal"
+        },
+        {
+          "name": "MinimizedToTray",
+          "value": "minimizedToTray"
+        }
+      ]
+    },
+    {
+      "name": "AppState_v2621",
+      "module": "WAWebWindowsHybridBridgeNativeAppState.v2621",
       "valueKind": "string",
       "variants": [
         {

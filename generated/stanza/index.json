@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1043018328",
+  "waVersion": "2.3000.1043065146",
   "stanzas": [
     {
       "stanzaType": "message",
@@ -3913,6 +3913,54 @@
           "name": "class",
           "kind": "const",
           "value": "receipt",
+          "required": true
+        },
+        {
+          "name": "id",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "participant",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "error",
+          "kind": "integer",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WAWebCreateNackFromStanza",
+      "exportedFunction": null,
+      "allExports": [
+        "NackReason",
+        "createNackFromStanza"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "class",
+          "kind": "const",
+          "value": "status",
           "required": true
         },
         {
