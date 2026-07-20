@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1043065146",
+  "waVersion": "2.3000.1043466400",
   "stanzas": [
     {
       "moduleName": "WASmaxOutAbPropsGetExperimentConfigRequest",
@@ -10535,531 +10535,6 @@
                         "kind": "attr",
                         "name": "text",
                         "value": "internal-server-error"
-                      }
-                    ]
-                  }
-                ],
-                "sourcePath": [
-                  "error"
-                ]
-              }
-            ]
-          }
-        ]
-      }
-    },
-    {
-      "moduleName": "WASmaxOutBugReportingReportBugRequest",
-      "namespace": "fb:thrift_iq",
-      "iqType": "set",
-      "target": "s.whatsapp.net",
-      "parserName": "WASmaxBugReportingReportBugRPC",
-      "exportedFunction": "makeReportBugRequestDeviceLogHandle",
-      "allExports": [
-        "makeReportBugRequestDeviceLogHandle",
-        "makeReportBugRequestMedia",
-        "makeReportBugRequestTitle",
-        "makeReportBugRequestCategory",
-        "makeReportBugRequestClientServerJoinKey",
-        "makeReportBugRequestReproducibility",
-        "makeReportBugRequest"
-      ],
-      "request": {
-        "namespace": "fb:thrift_iq",
-        "iqType": "set",
-        "target": "s.whatsapp.net",
-        "children": [
-          {
-            "tag": "description",
-            "attrs": [],
-            "children": [],
-            "repeats": false
-          },
-          {
-            "tag": "debug_information_json",
-            "attrs": [],
-            "children": [],
-            "repeats": false
-          },
-          {
-            "tag": "device_log_handle",
-            "attrs": [],
-            "children": [],
-            "repeats": false
-          },
-          {
-            "tag": "media",
-            "attrs": [
-              {
-                "name": "iv",
-                "kind": "string",
-                "required": true
-              },
-              {
-                "name": "cipherKey",
-                "kind": "string",
-                "required": true
-              },
-              {
-                "name": "type",
-                "kind": "optional",
-                "required": false
-              },
-              {
-                "name": "fileName",
-                "kind": "optional",
-                "required": false
-              }
-            ],
-            "children": [],
-            "repeats": true
-          },
-          {
-            "tag": "title",
-            "attrs": [],
-            "children": [],
-            "repeats": false
-          },
-          {
-            "tag": "category",
-            "attrs": [],
-            "children": [],
-            "repeats": false
-          },
-          {
-            "tag": "client_server_join_key",
-            "attrs": [],
-            "children": [],
-            "repeats": false
-          },
-          {
-            "tag": "reproducibility",
-            "attrs": [],
-            "children": [],
-            "repeats": false
-          }
-        ]
-      },
-      "response": {
-        "parserName": "WASmaxBugReportingReportBugRPC",
-        "assertions": [],
-        "fields": [
-          {
-            "method": "contentString",
-            "name": "taskIdElementValue",
-            "type": "string",
-            "required": true,
-            "sourcePath": [
-              "task_id"
-            ]
-          },
-          {
-            "method": "attrUserJid",
-            "name": "to",
-            "wireName": "to",
-            "type": "user_jid",
-            "required": false
-          },
-          {
-            "method": "attrString",
-            "name": "type",
-            "wireName": "type",
-            "type": "string",
-            "required": true
-          }
-        ],
-        "variants": [
-          {
-            "tag": "ReportBugResponseSuccess",
-            "moduleName": "WASmaxInBugReportingReportBugResponseSuccess",
-            "kind": "success",
-            "assertions": [
-              {
-                "kind": "tag",
-                "name": "iq"
-              },
-              {
-                "kind": "attr",
-                "name": "type",
-                "value": "result"
-              }
-            ],
-            "fields": [
-              {
-                "method": "contentString",
-                "name": "taskIdElementValue",
-                "type": "string",
-                "required": true,
-                "sourcePath": [
-                  "task_id"
-                ]
-              },
-              {
-                "method": "attrUserJid",
-                "name": "to",
-                "wireName": "to",
-                "type": "user_jid",
-                "required": false
-              },
-              {
-                "method": "attrString",
-                "name": "type",
-                "wireName": "type",
-                "type": "string",
-                "required": true
-              }
-            ]
-          },
-          {
-            "tag": "ReportBugResponseError",
-            "moduleName": "WASmaxInBugReportingReportBugResponseError",
-            "kind": "error",
-            "assertions": [
-              {
-                "kind": "tag",
-                "name": "iq"
-              },
-              {
-                "kind": "attr",
-                "name": "type",
-                "value": "error"
-              }
-            ],
-            "fields": [
-              {
-                "method": "attrUserJid",
-                "name": "to",
-                "wireName": "to",
-                "type": "user_jid",
-                "required": false
-              },
-              {
-                "method": "attrString",
-                "name": "type",
-                "wireName": "type",
-                "type": "string",
-                "required": true
-              },
-              {
-                "method": "",
-                "name": "errorReportBugErrors",
-                "type": "union",
-                "required": true,
-                "unionVariants": [
-                  {
-                    "name": "IQErrorBadRequest",
-                    "fields": [
-                      {
-                        "method": "attrString",
-                        "name": "text",
-                        "wireName": "text",
-                        "type": "string",
-                        "required": true
-                      },
-                      {
-                        "method": "attrInt",
-                        "name": "code",
-                        "wireName": "code",
-                        "type": "integer",
-                        "required": true
-                      }
-                    ],
-                    "assertions": [
-                      {
-                        "kind": "tag",
-                        "name": "error"
-                      },
-                      {
-                        "kind": "attr",
-                        "name": "text",
-                        "value": "bad-request"
-                      }
-                    ]
-                  },
-                  {
-                    "name": "IQErrorInternalServerError",
-                    "fields": [
-                      {
-                        "method": "attrString",
-                        "name": "text",
-                        "wireName": "text",
-                        "type": "string",
-                        "required": true
-                      },
-                      {
-                        "method": "attrInt",
-                        "name": "code",
-                        "wireName": "code",
-                        "type": "integer",
-                        "required": true
-                      }
-                    ],
-                    "assertions": [
-                      {
-                        "kind": "tag",
-                        "name": "error"
-                      },
-                      {
-                        "kind": "attr",
-                        "name": "text",
-                        "value": "internal-server-error"
-                      }
-                    ]
-                  }
-                ],
-                "sourcePath": [
-                  "error"
-                ]
-              }
-            ]
-          }
-        ]
-      }
-    },
-    {
-      "moduleName": "WASmaxOutSupportMessageFeedbackSendFeedbackRequest",
-      "namespace": "fb:thrift_iq",
-      "iqType": "set",
-      "target": "s.whatsapp.net",
-      "parserName": "WASmaxSupportMessageFeedbackSendFeedbackRPC",
-      "exportedFunction": "makeSendFeedbackRequestFeedbackListFeedback",
-      "allExports": [
-        "makeSendFeedbackRequestFeedbackListFeedback",
-        "makeSendFeedbackRequest"
-      ],
-      "request": {
-        "namespace": "fb:thrift_iq",
-        "iqType": "set",
-        "target": "s.whatsapp.net",
-        "children": [
-          {
-            "tag": "message",
-            "attrs": [
-              {
-                "name": "id",
-                "kind": "string",
-                "required": true
-              }
-            ],
-            "children": [],
-            "repeats": false
-          },
-          {
-            "tag": "feedback_list",
-            "attrs": [],
-            "children": [
-              {
-                "tag": "feedback",
-                "attrs": [
-                  {
-                    "name": "kind",
-                    "kind": "string",
-                    "required": true
-                  }
-                ],
-                "children": [],
-                "repeats": true
-              }
-            ],
-            "repeats": false
-          }
-        ]
-      },
-      "response": {
-        "parserName": "WASmaxSupportMessageFeedbackSendFeedbackRPC",
-        "assertions": [],
-        "fields": [
-          {
-            "method": "attrString",
-            "name": "resultStatus",
-            "wireName": "status",
-            "type": "string",
-            "required": true,
-            "sourcePath": [
-              "result"
-            ]
-          },
-          {
-            "method": "attrUserJid",
-            "name": "to",
-            "wireName": "to",
-            "type": "user_jid",
-            "required": false
-          },
-          {
-            "method": "attrString",
-            "name": "type",
-            "wireName": "type",
-            "type": "string",
-            "required": true
-          }
-        ],
-        "variants": [
-          {
-            "tag": "SendFeedbackResponseSuccess",
-            "moduleName": "WASmaxInSupportMessageFeedbackSendFeedbackResponseSuccess",
-            "kind": "success",
-            "assertions": [
-              {
-                "kind": "tag",
-                "name": "iq"
-              },
-              {
-                "kind": "attr",
-                "name": "type",
-                "value": "result"
-              }
-            ],
-            "fields": [
-              {
-                "method": "attrString",
-                "name": "resultStatus",
-                "wireName": "status",
-                "type": "string",
-                "required": true,
-                "sourcePath": [
-                  "result"
-                ]
-              },
-              {
-                "method": "attrUserJid",
-                "name": "to",
-                "wireName": "to",
-                "type": "user_jid",
-                "required": false
-              },
-              {
-                "method": "attrString",
-                "name": "type",
-                "wireName": "type",
-                "type": "string",
-                "required": true
-              }
-            ]
-          },
-          {
-            "tag": "SendFeedbackResponseError",
-            "moduleName": "WASmaxInSupportMessageFeedbackSendFeedbackResponseError",
-            "kind": "error",
-            "assertions": [
-              {
-                "kind": "tag",
-                "name": "iq"
-              },
-              {
-                "kind": "attr",
-                "name": "type",
-                "value": "error"
-              }
-            ],
-            "fields": [
-              {
-                "method": "attrUserJid",
-                "name": "to",
-                "wireName": "to",
-                "type": "user_jid",
-                "required": false
-              },
-              {
-                "method": "attrString",
-                "name": "type",
-                "wireName": "type",
-                "type": "string",
-                "required": true
-              },
-              {
-                "method": "",
-                "name": "errorSendFeedbackError",
-                "type": "union",
-                "required": true,
-                "unionVariants": [
-                  {
-                    "name": "IQErrorBadRequest",
-                    "fields": [
-                      {
-                        "method": "attrString",
-                        "name": "text",
-                        "wireName": "text",
-                        "type": "string",
-                        "required": true
-                      },
-                      {
-                        "method": "attrInt",
-                        "name": "code",
-                        "wireName": "code",
-                        "type": "integer",
-                        "required": true
-                      }
-                    ],
-                    "assertions": [
-                      {
-                        "kind": "tag",
-                        "name": "error"
-                      },
-                      {
-                        "kind": "attr",
-                        "name": "text",
-                        "value": "bad-request"
-                      }
-                    ]
-                  },
-                  {
-                    "name": "IQErrorInternalServerError",
-                    "fields": [
-                      {
-                        "method": "attrString",
-                        "name": "text",
-                        "wireName": "text",
-                        "type": "string",
-                        "required": true
-                      },
-                      {
-                        "method": "attrInt",
-                        "name": "code",
-                        "wireName": "code",
-                        "type": "integer",
-                        "required": true
-                      }
-                    ],
-                    "assertions": [
-                      {
-                        "kind": "tag",
-                        "name": "error"
-                      },
-                      {
-                        "kind": "attr",
-                        "name": "text",
-                        "value": "internal-server-error"
-                      }
-                    ]
-                  },
-                  {
-                    "name": "IQErrorRateOverlimit",
-                    "fields": [
-                      {
-                        "method": "attrString",
-                        "name": "text",
-                        "wireName": "text",
-                        "type": "string",
-                        "required": true
-                      },
-                      {
-                        "method": "attrInt",
-                        "name": "code",
-                        "wireName": "code",
-                        "type": "integer",
-                        "required": true
-                      }
-                    ],
-                    "assertions": [
-                      {
-                        "kind": "tag",
-                        "name": "error"
-                      },
-                      {
-                        "kind": "attr",
-                        "name": "text",
-                        "value": "rate-overlimit"
                       }
                     ]
                   }
@@ -28831,6 +28306,7 @@
         "callAdd",
         "messages",
         "defenseMode",
+        "pix",
         "getPrivacy"
       ],
       "request": {
@@ -28929,6 +28405,12 @@
                     "name": "value",
                     "type": "string",
                     "required": true
+                  },
+                  {
+                    "method": "attrEnum",
+                    "name": "value",
+                    "type": "string",
+                    "required": true
                   }
                 ],
                 "repeats": true
@@ -28938,6 +28420,12 @@
           {
             "method": "attrString",
             "name": "name",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "attrEnum",
+            "name": "value",
             "type": "string",
             "required": true
           },
@@ -81560,14 +81048,6 @@
       "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {
-      "moduleName": "WASmaxOutBugReportingBaseIQSetRequestMixin",
-      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
-    },
-    {
-      "moduleName": "WASmaxOutBugReportingHackBaseIQSetRequestMixin",
-      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
-    },
-    {
       "moduleName": "WASmaxOutGroupsBaseGetGroupMixin",
       "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
@@ -81765,14 +81245,6 @@
     },
     {
       "moduleName": "WASmaxOutSupportHackBaseIQSetRequestMixin",
-      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
-    },
-    {
-      "moduleName": "WASmaxOutSupportMessageFeedbackBaseIQSetRequestMixin",
-      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
-    },
-    {
-      "moduleName": "WASmaxOutSupportMessageFeedbackHackBaseIQSetRequestMixin",
       "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {

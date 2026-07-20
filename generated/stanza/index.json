@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1043065146",
+  "waVersion": "2.3000.1043466400",
   "stanzas": [
     {
       "stanzaType": "message",
@@ -1691,28 +1691,6 @@
       ],
       "response": null,
       "fragment": true
-    },
-    {
-      "stanzaType": "message",
-      "direction": "outgoing",
-      "moduleName": "WASmaxOutSupportMessageFeedbackSendFeedbackRequest",
-      "exportedFunction": null,
-      "allExports": [
-        "makeSendFeedbackRequestFeedbackListFeedback",
-        "makeSendFeedbackRequest"
-      ],
-      "namespace": null,
-      "subtype": null,
-      "target": null,
-      "attrs": [
-        {
-          "name": "id",
-          "kind": "string",
-          "required": true
-        }
-      ],
-      "children": [],
-      "response": null
     },
     {
       "stanzaType": "message",
@@ -4456,50 +4434,6 @@
     {
       "stanzaType": "ack",
       "direction": "outgoing",
-      "moduleName": "WAWebHandleGroupNotification",
-      "exportedFunction": null,
-      "allExports": [
-        "handleGroupNotification",
-        "handleParsedGroupNotification"
-      ],
-      "namespace": null,
-      "subtype": "w:gp2",
-      "target": null,
-      "attrs": [
-        {
-          "name": "to",
-          "kind": "group_jid",
-          "required": true
-        },
-        {
-          "name": "id",
-          "kind": "string",
-          "required": true
-        },
-        {
-          "name": "class",
-          "kind": "const",
-          "value": "notification",
-          "required": true
-        },
-        {
-          "name": "type",
-          "kind": "const",
-          "value": "w:gp2",
-          "required": true
-        },
-        {
-          "name": "participant",
-          "kind": "optional",
-          "required": false
-        }
-      ],
-      "children": [],
-      "response": null
-    },
-    {
-      "stanzaType": "ack",
-      "direction": "outgoing",
       "moduleName": "WAWebHandleGroupNotificationV2",
       "exportedFunction": null,
       "allExports": [
@@ -4838,6 +4772,49 @@
           "repeats": false
         }
       ],
+      "response": null
+    },
+    {
+      "stanzaType": "ack",
+      "direction": "outgoing",
+      "moduleName": "WAWebHandleParsedGroupNotification",
+      "exportedFunction": null,
+      "allExports": [
+        "handleParsedGroupNotification"
+      ],
+      "namespace": null,
+      "subtype": "w:gp2",
+      "target": null,
+      "attrs": [
+        {
+          "name": "to",
+          "kind": "group_jid",
+          "required": true
+        },
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "class",
+          "kind": "const",
+          "value": "notification",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "const",
+          "value": "w:gp2",
+          "required": true
+        },
+        {
+          "name": "participant",
+          "kind": "optional",
+          "required": false
+        }
+      ],
+      "children": [],
       "response": null
     },
     {

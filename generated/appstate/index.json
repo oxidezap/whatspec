@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1043065146",
+  "waVersion": "2.3000.1043466400",
   "collections": [
     "regular",
     "regular_low",
@@ -853,7 +853,9 @@
       "baseClass": "AccountSyncdActionBase",
       "valueField": "marketingMessageAction",
       "valueProtoType": "SyncActionValue.MarketingMessageAction",
-      "valueEnumFields": null,
+      "valueEnumFields": {
+        "type": "MarketingMessageAction.MarketingMessagePrototypeType"
+      },
       "chatJidIndex": null,
       "indexParts": [
         {
@@ -1321,10 +1323,7 @@
       "baseClass": "AccountSyncdActionBase",
       "valueField": "statusPrivacy",
       "valueProtoType": "SyncActionValue.StatusPrivacyAction",
-      "valueEnumFields": {
-        "mode": "StatusPrivacyAction.StatusDistributionMode",
-        "modes": "StatusPrivacyAction.StatusDistributionMode"
-      },
+      "valueEnumFields": null,
       "chatJidIndex": null,
       "indexParts": [
         {
@@ -1456,7 +1455,9 @@
       "baseClass": "ChatSyncdActionBase",
       "valueField": "wasaRootSecretAction",
       "valueProtoType": "SyncActionValue.WASARootSecretAction",
-      "valueEnumFields": null,
+      "valueEnumFields": {
+        "secrets.status": "WASARootSecretAction.RootSecretEntry.Status"
+      },
       "chatJidIndex": 1,
       "indexParts": [
         {

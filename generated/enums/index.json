@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1043065146",
+  "waVersion": "2.3000.1043466400",
   "enums": [
     {
       "name": "DGWAuth",
@@ -288,52 +288,6 @@
         {
           "name": "COMPLETED",
           "value": "completed"
-        }
-      ]
-    },
-    {
-      "name": "PaymentLinkVariant",
-      "module": "PaymentLinkWithCTAFeature",
-      "valueKind": "int",
-      "variants": [
-        {
-          "name": "LINK_PREVIEW_HEADER_WITH_CTA",
-          "value": 0
-        },
-        {
-          "name": "ORDER_HEADER_WITH_CTA",
-          "value": 1
-        },
-        {
-          "name": "DEFAULT",
-          "value": 2
-        }
-      ]
-    },
-    {
-      "name": "PixPaymentRequestVariant",
-      "module": "PixPaymentRequestFeature",
-      "valueKind": "int",
-      "variants": [
-        {
-          "name": "NO_PAYMENT_REQUEST_EXPERIENCE",
-          "value": 0
-        },
-        {
-          "name": "PAYMENT_REQUEST_HYBRID_OPTIONAL_AMOUNT",
-          "value": 2
-        },
-        {
-          "name": "PAYMENT_REQUEST_STANDARD_WITH_EDUCATION",
-          "value": 3
-        },
-        {
-          "name": "PAYMENT_REQUEST_STANDARD_WITH_MANDATORY_AMOUNT",
-          "value": 1
-        },
-        {
-          "name": "PAYMENT_REQUEST_STANDARD_WITH_OPTIONAL_AMOUNT",
-          "value": 4
         }
       ]
     },
@@ -3509,6 +3463,71 @@
       ]
     },
     {
+      "name": "RemoveResult",
+      "module": "WAWebContactManagerSMBUserJourneyLogger",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "SUCCESS",
+          "value": "success"
+        },
+        {
+          "name": "ERROR_NOT_CUSTOMER",
+          "value": "error_not_customer"
+        },
+        {
+          "name": "ERROR_NETWORK",
+          "value": "error_network"
+        },
+        {
+          "name": "ERROR_UNKNOWN",
+          "value": "error_unknown"
+        }
+      ]
+    },
+    {
+      "name": "RemoveTrigger",
+      "module": "WAWebContactManagerSMBUserJourneyLogger",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "ROW_ACTIONS_MENU",
+          "value": "row_actions_menu"
+        },
+        {
+          "name": "PROFILE_DRAWER",
+          "value": "profile_drawer"
+        }
+      ]
+    },
+    {
+      "name": "SaveResult",
+      "module": "WAWebContactManagerSMBUserJourneyLogger",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "SUCCESS",
+          "value": "success"
+        },
+        {
+          "name": "ERROR_CONTACT_EXISTS",
+          "value": "error_contact_exists"
+        },
+        {
+          "name": "ERROR_INVALID_PHONE",
+          "value": "error_invalid_phone"
+        },
+        {
+          "name": "ERROR_NETWORK",
+          "value": "error_network"
+        },
+        {
+          "name": "ERROR_UNKNOWN",
+          "value": "error_unknown"
+        }
+      ]
+    },
+    {
       "name": "ContextualBannerId",
       "module": "WAWebContextualBannerConfig",
       "valueKind": "string",
@@ -3610,71 +3629,6 @@
         {
           "name": "DBOperationFailed",
           "value": 552
-        }
-      ]
-    },
-    {
-      "name": "RemoveResult",
-      "module": "WAWebCustomerManagerSMBUserJourneyLogger",
-      "valueKind": "string",
-      "variants": [
-        {
-          "name": "SUCCESS",
-          "value": "success"
-        },
-        {
-          "name": "ERROR_NOT_CUSTOMER",
-          "value": "error_not_customer"
-        },
-        {
-          "name": "ERROR_NETWORK",
-          "value": "error_network"
-        },
-        {
-          "name": "ERROR_UNKNOWN",
-          "value": "error_unknown"
-        }
-      ]
-    },
-    {
-      "name": "RemoveTrigger",
-      "module": "WAWebCustomerManagerSMBUserJourneyLogger",
-      "valueKind": "string",
-      "variants": [
-        {
-          "name": "ROW_ACTIONS_MENU",
-          "value": "row_actions_menu"
-        },
-        {
-          "name": "PROFILE_DRAWER",
-          "value": "profile_drawer"
-        }
-      ]
-    },
-    {
-      "name": "SaveResult",
-      "module": "WAWebCustomerManagerSMBUserJourneyLogger",
-      "valueKind": "string",
-      "variants": [
-        {
-          "name": "SUCCESS",
-          "value": "success"
-        },
-        {
-          "name": "ERROR_CONTACT_EXISTS",
-          "value": "error_contact_exists"
-        },
-        {
-          "name": "ERROR_INVALID_PHONE",
-          "value": "error_invalid_phone"
-        },
-        {
-          "name": "ERROR_NETWORK",
-          "value": "error_network"
-        },
-        {
-          "name": "ERROR_UNKNOWN",
-          "value": "error_unknown"
         }
       ]
     },
@@ -4170,7 +4124,7 @@
     },
     {
       "name": "GroupHistorySentState",
-      "module": "WAWebGroupHistoryPostJoinTypes.flow",
+      "module": "WAWebGroupHistoryPostJoinTypes",
       "valueKind": "int",
       "variants": [
         {
@@ -5195,8 +5149,8 @@
           "value": "meTab"
         },
         {
-          "name": "CustomerManager",
-          "value": "customerManager"
+          "name": "ContactManager",
+          "value": "contactManager"
         }
       ]
     },
@@ -5239,6 +5193,21 @@
         {
           "name": "INVALID_NEWSLETTER_JID",
           "value": "newsletter_admin_invite_invalid_newsletter_jid"
+        }
+      ]
+    },
+    {
+      "name": "NewsletterAdminProfilePictureTheme",
+      "module": "WAWebNewsletterAdminProfilePicture.react",
+      "valueKind": "int",
+      "variants": [
+        {
+          "name": "DEFAULT",
+          "value": 0
+        },
+        {
+          "name": "CONTACT_LIST",
+          "value": 1
         }
       ]
     },
@@ -5683,7 +5652,7 @@
     },
     {
       "name": "ResumeUIProgressBarType",
-      "module": "WAWebOfflineResumeTypes.flow",
+      "module": "WAWebOfflineResumeTypes",
       "valueKind": "string",
       "variants": [
         {
@@ -5859,6 +5828,25 @@
         {
           "name": "MISSING_PARENT_MESSAGE_KEY",
           "value": "missing_parent_message_key"
+        }
+      ]
+    },
+    {
+      "name": "PaymentLinkVariant",
+      "module": "WAWebPaymentLinkWithCTAFeature",
+      "valueKind": "int",
+      "variants": [
+        {
+          "name": "LINK_PREVIEW_HEADER_WITH_CTA",
+          "value": 0
+        },
+        {
+          "name": "ORDER_HEADER_WITH_CTA",
+          "value": 1
+        },
+        {
+          "name": "DEFAULT",
+          "value": 2
         }
       ]
     },
@@ -6180,6 +6168,33 @@
         {
           "name": "INVALID_EDIT_ATTR",
           "value": "invalid_edit_attr"
+        }
+      ]
+    },
+    {
+      "name": "PixPaymentRequestVariant",
+      "module": "WAWebPixPaymentRequestFeature",
+      "valueKind": "int",
+      "variants": [
+        {
+          "name": "NO_PAYMENT_REQUEST_EXPERIENCE",
+          "value": 0
+        },
+        {
+          "name": "PAYMENT_REQUEST_HYBRID_OPTIONAL_AMOUNT",
+          "value": 2
+        },
+        {
+          "name": "PAYMENT_REQUEST_STANDARD_WITH_EDUCATION",
+          "value": 3
+        },
+        {
+          "name": "PAYMENT_REQUEST_STANDARD_WITH_MANDATORY_AMOUNT",
+          "value": 1
+        },
+        {
+          "name": "PAYMENT_REQUEST_STANDARD_WITH_OPTIONAL_AMOUNT",
+          "value": 4
         }
       ]
     },
@@ -8249,6 +8264,10 @@
         {
           "name": "ProfilePicture",
           "value": "profile"
+        },
+        {
+          "name": "Pix",
+          "value": "pix"
         }
       ]
     },
@@ -8504,10 +8523,6 @@
         {
           "name": "SHARABLE_EVENT_INVITE_MISSING_EVENT_TITLE",
           "value": "sharable_event_invite_missing_event_title"
-        },
-        {
-          "name": "SHARABLE_EVENT_INVITE_MISSING_START_TIME",
-          "value": "sharable_event_invite_missing_start_time"
         },
         {
           "name": "SHARABLE_EVENT_INVITE_MISSING_MESSAGE_SENDER",
@@ -9611,6 +9626,14 @@
           "value": "voip_ready_end"
         },
         {
+          "name": "SOCKET_HEALTH_CHECK_START",
+          "value": "socket_health_check_start"
+        },
+        {
+          "name": "SOCKET_HEALTH_CHECK_END",
+          "value": "socket_health_check_end"
+        },
+        {
           "name": "DEVICE_PERMISSIONS_START",
           "value": "device_permissions_start"
         },
@@ -9651,12 +9674,83 @@
           "value": "setup_end"
         },
         {
+          "name": "SETUP_STACK_INTERFACE_START",
+          "value": "setup_stack_interface_start"
+        },
+        {
+          "name": "SETUP_STACK_INTERFACE_END",
+          "value": "setup_stack_interface_end"
+        },
+        {
+          "name": "SETUP_FANOUT_LIST_START",
+          "value": "setup_fanout_list_start"
+        },
+        {
+          "name": "SETUP_FANOUT_LIST_END",
+          "value": "setup_fanout_list_end"
+        },
+        {
+          "name": "SETUP_GET_TC_TOKEN_START",
+          "value": "setup_get_tc_token_start"
+        },
+        {
+          "name": "SETUP_GET_TC_TOKEN_END",
+          "value": "setup_get_tc_token_end"
+        },
+        {
+          "name": "SETUP_SEND_TC_TOKEN_START",
+          "value": "setup_send_tc_token_start"
+        },
+        {
+          "name": "SETUP_SEND_TC_TOKEN_END",
+          "value": "setup_send_tc_token_end"
+        },
+        {
+          "name": "SETUP_UI_BUNDLE_PRELOAD_START",
+          "value": "setup_ui_bundle_preload_start"
+        },
+        {
+          "name": "SETUP_UI_BUNDLE_PRELOAD_END",
+          "value": "setup_ui_bundle_preload_end"
+        },
+        {
+          "name": "SETUP_VIDEO_BUNDLE_PRELOAD_START",
+          "value": "setup_video_bundle_preload_start"
+        },
+        {
+          "name": "SETUP_VIDEO_BUNDLE_PRELOAD_END",
+          "value": "setup_video_bundle_preload_end"
+        },
+        {
           "name": "START_CALL_START",
           "value": "start_call_start"
         },
         {
           "name": "START_CALL_END",
           "value": "start_call_end"
+        }
+      ]
+    },
+    {
+      "name": "OutgoingSetupLatencyMode",
+      "module": "WAWebVoipOutgoingSetupLatencyMode",
+      "valueKind": "int",
+      "variants": [
+        {
+          "name": "CONTROL",
+          "value": 0
+        },
+        {
+          "name": "CACHE_AWARE_SYNC",
+          "value": 1
+        },
+        {
+          "name": "SOCKET_HEALTH_CHECK",
+          "value": 2
+        },
+        {
+          "name": "BOTH",
+          "value": 3
         }
       ]
     },
@@ -10031,36 +10125,6 @@
     {
       "name": "AppState",
       "module": "WAWebWindowsHybridBridgeNativeAppState",
-      "valueKind": "string",
-      "variants": [
-        {
-          "name": "Normal",
-          "value": "normal"
-        },
-        {
-          "name": "MinimizedToTray",
-          "value": "minimizedToTray"
-        }
-      ]
-    },
-    {
-      "name": "AppState_v2579",
-      "module": "WAWebWindowsHybridBridgeNativeAppState.v2579",
-      "valueKind": "string",
-      "variants": [
-        {
-          "name": "Normal",
-          "value": "normal"
-        },
-        {
-          "name": "MinimizedToTray",
-          "value": "minimizedToTray"
-        }
-      ]
-    },
-    {
-      "name": "AppState_v2580",
-      "module": "WAWebWindowsHybridBridgeNativeAppState.v2580",
       "valueKind": "string",
       "variants": [
         {
@@ -10601,6 +10665,21 @@
     {
       "name": "AppState_v2627",
       "module": "WAWebWindowsHybridBridgeNativeAppState.v2627",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "Normal",
+          "value": "normal"
+        },
+        {
+          "name": "MinimizedToTray",
+          "value": "minimizedToTray"
+        }
+      ]
+    },
+    {
+      "name": "AppState_v2628",
+      "module": "WAWebWindowsHybridBridgeNativeAppState.v2628",
       "valueKind": "string",
       "variants": [
         {

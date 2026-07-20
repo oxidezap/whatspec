@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1043065146",
+  "waVersion": "2.3000.1043466400",
   "events": [
     {
       "name": "GroupCreateC",
@@ -1303,6 +1303,11 @@
           "kind": "integer"
         },
         {
+          "name": "audioCodecNumBwSwitches",
+          "id": 3072,
+          "kind": "integer"
+        },
+        {
           "name": "audioCodecReceivedFecFrames",
           "id": 754,
           "kind": "integer"
@@ -2288,6 +2293,16 @@
         {
           "name": "ca2dPreviewT",
           "id": 3037,
+          "kind": "timer"
+        },
+        {
+          "name": "ca2dReceiverExtConnectT",
+          "id": 3074,
+          "kind": "timer"
+        },
+        {
+          "name": "ca2dReceiverFirstFrameT",
+          "id": 3075,
           "kind": "timer"
         },
         {
@@ -5094,8 +5109,23 @@
           "kind": "integer"
         },
         {
+          "name": "hbhDcMsgsSentBroadcastCount",
+          "id": 3069,
+          "kind": "integer"
+        },
+        {
           "name": "hbhDcMsgsSentCount",
           "id": 3058,
+          "kind": "integer"
+        },
+        {
+          "name": "hbhDcMsgsSentRelayOnlyCount",
+          "id": 3070,
+          "kind": "integer"
+        },
+        {
+          "name": "hbhDcMsgsSentSelectiveCount",
+          "id": 3071,
           "kind": "integer"
         },
         {
@@ -6684,6 +6714,11 @@
           "kind": "integer"
         },
         {
+          "name": "mlNsAvailable",
+          "id": 3073,
+          "kind": "boolean"
+        },
+        {
           "name": "mlNsGetModelPathFailed",
           "id": 2583,
           "kind": "boolean"
@@ -7535,6 +7570,11 @@
           "name": "opusVersion",
           "id": 287,
           "kind": "integer"
+        },
+        {
+          "name": "outgoingCallSetupActiveMs",
+          "id": 3068,
+          "kind": "timer"
         },
         {
           "name": "p2pCandPairStat",
@@ -14317,6 +14357,16 @@
           "kind": "integer"
         },
         {
+          "name": "hasOpenAiParticipant",
+          "id": 29,
+          "kind": "boolean"
+        },
+        {
+          "name": "hasTeeAiParticipant",
+          "id": 30,
+          "kind": "boolean"
+        },
+        {
           "name": "isLid",
           "id": 8,
           "kind": "boolean"
@@ -14751,6 +14801,11 @@
           "module": "WAWebWamEnumStanzaType"
         },
         {
+          "name": "traceIdInt",
+          "id": 31,
+          "kind": "integer"
+        },
+        {
           "name": "typeOfGroup",
           "id": 12,
           "kind": "enum",
@@ -14904,8 +14959,6 @@
       "consumers": [
         "WAWebCrashlog",
         "WAWebWindowsHybridBridgeWam",
-        "WAWebWindowsHybridBridgeWam.v2579",
-        "WAWebWindowsHybridBridgeWam.v2580",
         "WAWebWindowsHybridBridgeWam.v2581",
         "WAWebWindowsHybridBridgeWam.v2582",
         "WAWebWindowsHybridBridgeWam.v2583",
@@ -14941,7 +14994,8 @@
         "WAWebWindowsHybridBridgeWam.v2624",
         "WAWebWindowsHybridBridgeWam.v2625",
         "WAWebWindowsHybridBridgeWam.v2626",
-        "WAWebWindowsHybridBridgeWam.v2627"
+        "WAWebWindowsHybridBridgeWam.v2627",
+        "WAWebWindowsHybridBridgeWam.v2628"
       ]
     },
     {
@@ -18421,7 +18475,8 @@
         "WAWebWindowsHybridBridgeWam.v2624",
         "WAWebWindowsHybridBridgeWam.v2625",
         "WAWebWindowsHybridBridgeWam.v2626",
-        "WAWebWindowsHybridBridgeWam.v2627"
+        "WAWebWindowsHybridBridgeWam.v2627",
+        "WAWebWindowsHybridBridgeWam.v2628"
       ]
     },
     {
@@ -21743,7 +21798,7 @@
         }
       ],
       "consumers": [
-        "WAWebQueryBlockListJob"
+        "WAWebFetchAndUpdateBlocklistJob"
       ]
     },
     {
@@ -23952,8 +24007,8 @@
         }
       ],
       "consumers": [
-        "PixWamLogger",
-        "WAWebPaymentsUserActionLogging"
+        "WAWebPaymentsUserActionLogging",
+        "WAWebPixWamLogger"
       ]
     },
     {
@@ -24787,7 +24842,7 @@
         }
       ],
       "consumers": [
-        "WAWebHistorySyncNotificationUtils",
+        "WAWebGetHistorySyncMetrics",
         "WAWebWamProcessWorkerData"
       ]
     },
@@ -24941,7 +24996,7 @@
       ],
       "consumers": [
         "WAWebCollectionHandlerWamMutation",
-        "WAWebHistorySyncNotificationUtils",
+        "WAWebGetHistorySyncMetrics",
         "WAWebSyncBootstrap",
         "WAWebWamProcessWorkerData"
       ]
@@ -30259,7 +30314,7 @@
         }
       ],
       "consumers": [
-        "WAWebLogStatusPosterActions"
+        "WAWebStatusPosterActionsLogger"
       ]
     },
     {
@@ -31359,6 +31414,11 @@
           "module": "WAWebWamEnumSessionScopeType"
         },
         {
+          "name": "traceIdInt",
+          "id": 24,
+          "kind": "integer"
+        },
+        {
           "name": "typeOfGroup",
           "id": 10,
           "kind": "enum",
@@ -32421,7 +32481,7 @@
         }
       ],
       "consumers": [
-        "WAWebNotificationsMsgNotification",
+        "WAWebMsgNotification",
         "WAWebTasksDailyStatsTask",
         "WAWebWamProcessWorkerData"
       ]
@@ -33189,6 +33249,11 @@
         {
           "name": "previousOptOutImpressionCount",
           "id": 6,
+          "kind": "integer"
+        },
+        {
+          "name": "smbDataSharingConsentDisclosureVersion",
+          "id": 7,
           "kind": "integer"
         },
         {
@@ -35499,7 +35564,7 @@
         }
       ],
       "consumers": [
-        "WAWebHistorySyncNotificationUtils",
+        "WAWebGetHistorySyncMetrics",
         "WAWebWamProcessWorkerData"
       ]
     },
@@ -36001,6 +36066,12 @@
           "name": "messageBubbleWidthPx",
           "id": 18,
           "kind": "integer"
+        },
+        {
+          "name": "messageExpandState",
+          "id": 19,
+          "kind": "enum",
+          "module": "WAWebWamEnumPaidMessagingUserInteractionsMessageExpandState"
         },
         {
           "name": "pmxActionTarget",
@@ -39094,7 +39165,7 @@
         }
       ],
       "consumers": [
-        "WAWebImagineActionLogger"
+        "WAWebLogImagineAction"
       ]
     },
     {
@@ -41824,6 +41895,11 @@
         {
           "name": "isFirstView",
           "id": 2,
+          "kind": "boolean"
+        },
+        {
+          "name": "isGroupMentioned",
+          "id": 53,
           "kind": "boolean"
         },
         {
@@ -47587,6 +47663,78 @@
       ]
     },
     {
+      "name": "Ctwa3pdAggregatedConversion",
+      "code": 8218,
+      "module": "WAWebCtwa3pdAggregatedConversionWamEvent",
+      "channel": "regular",
+      "weights": [
+        1,
+        1,
+        1
+      ],
+      "fields": [
+        {
+          "name": "adId",
+          "id": 1,
+          "kind": "string"
+        },
+        {
+          "name": "ctwa3pdAggregatedSchemaVersion",
+          "id": 2,
+          "kind": "integer"
+        },
+        {
+          "name": "ctwa3pdConversionMetadata",
+          "id": 3,
+          "kind": "string"
+        },
+        {
+          "name": "ctwa3pdConversionSubtype",
+          "id": 4,
+          "kind": "string"
+        },
+        {
+          "name": "ctwa3pdConversionType",
+          "id": 5,
+          "kind": "string"
+        },
+        {
+          "name": "ctwa3pdSurfaceType",
+          "id": 6,
+          "kind": "string"
+        },
+        {
+          "name": "ctwaConversationDepth",
+          "id": 7,
+          "kind": "integer"
+        },
+        {
+          "name": "ctwaConversationRepeat",
+          "id": 8,
+          "kind": "integer"
+        },
+        {
+          "name": "ctwaDirectionFrom",
+          "id": 9,
+          "kind": "enum",
+          "module": "WAWebWamEnumCtwaDirectionFrom"
+        },
+        {
+          "name": "ctwaSignals",
+          "id": 10,
+          "kind": "string"
+        },
+        {
+          "name": "threadIdHmac",
+          "id": 11,
+          "kind": "string"
+        }
+      ],
+      "consumers": [
+        "WAWebSmb3pdAggregatedConversionSignalAction"
+      ]
+    },
+    {
       "name": "CompanionInviteContact",
       "code": 8230,
       "module": "WAWebCompanionInviteContactWamEvent",
@@ -48016,6 +48164,27 @@
       ],
       "consumers": [
         "WAWebExecApiCmdHelpers"
+      ]
+    },
+    {
+      "name": "UsernameUnknownUserDisplayed",
+      "code": 8524,
+      "module": "WAWebUsernameUnknownUserDisplayedWamEvent",
+      "channel": "regular",
+      "weights": [
+        1,
+        1,
+        1
+      ],
+      "fields": [
+        {
+          "name": "unknownUserDisplayContext",
+          "id": 1,
+          "kind": "string"
+        }
+      ],
+      "consumers": [
+        "WAWebUnknownUserDisplayedLogger"
       ]
     }
   ],
@@ -51171,6 +51340,10 @@
         {
           "key": "AI_WEB_INTRO_PANEL",
           "value": 48
+        },
+        {
+          "key": "AI_CONTACTS_TAB",
+          "value": 49
         }
       ]
     },
@@ -51939,6 +52112,14 @@
         {
           "key": "ADD_EXTENSION_NACK",
           "value": 3
+        },
+        {
+          "key": "OHAI_REQ_HTTP_ERROR",
+          "value": 4
+        },
+        {
+          "key": "OHAI_REQ_TEE_ERROR",
+          "value": 5
         }
       ]
     },
@@ -59469,6 +59650,10 @@
         {
           "key": "DEEP_LINK_AI_MAGIC_CUE_SETTING",
           "value": 252
+        },
+        {
+          "key": "DEEP_LINK_WINBACK_METRICS",
+          "value": 253
         }
       ]
     },
@@ -65803,6 +65988,10 @@
         {
           "key": "PAYMENT_TEXT_DETECTION_CLICK",
           "value": 103
+        },
+        {
+          "key": "COPY_PIX_IMPRESSION",
+          "value": 104
         }
       ]
     },
@@ -66817,6 +67006,10 @@
         {
           "key": "XDR_CALL_TRANSFER",
           "value": 41
+        },
+        {
+          "key": "CHAT_EMPTY_STATE",
+          "value": 42
         }
       ]
     },
@@ -70059,6 +70252,82 @@
         {
           "key": "LWI_ACTION_SWIPE_BACK",
           "value": 517
+        },
+        {
+          "key": "LWI_ACTION_WINBACK_AD_CREATION_START_LEARNING_CARD_IMPRESSION",
+          "value": 518
+        },
+        {
+          "key": "LWI_ACTION_WINBACK_AD_CREATION_START_LEARNING_CTA_CLICK",
+          "value": 519
+        },
+        {
+          "key": "LWI_ACTION_WINBACK_AD_CREATION_UNDERSTANDING_RESULTS_IMPRESSION",
+          "value": 520
+        },
+        {
+          "key": "LWI_ACTION_WINBACK_AD_CREATION_UNDERSTANDING_RESULTS_DONE_CLICK",
+          "value": 521
+        },
+        {
+          "key": "LWI_ACTION_WINBACK_AD_CREATION_PAC_BOTTOMSHEET_IMPRESSION",
+          "value": 522
+        },
+        {
+          "key": "LWI_ACTION_WINBACK_AD_CREATION_PAC_MANAGE_ADS_CLICK",
+          "value": 523
+        },
+        {
+          "key": "LWI_ACTION_WINBACK_AD_CREATION_PAC_BOTTOMSHEET_DISMISS",
+          "value": 524
+        },
+        {
+          "key": "LWI_ACTION_WINBACK_AD_COMPLETION_BOTTOMSHEET_IMPRESSION",
+          "value": 525
+        },
+        {
+          "key": "LWI_ACTION_WINBACK_AD_COMPLETION_BOTTOMSHEET_SEE_DETAILS_CLICK",
+          "value": 526
+        },
+        {
+          "key": "LWI_ACTION_WINBACK_AD_COMPLETION_BOTTOMSHEET_DISMISS",
+          "value": 527
+        },
+        {
+          "key": "LWI_ACTION_WINBACK_AD_COMPLETION_QP_CARD_IMPRESSION",
+          "value": 528
+        },
+        {
+          "key": "LWI_ACTION_WINBACK_AD_COMPLETION_QP_CARD_VIEW_DETAILS_CLICK",
+          "value": 529
+        },
+        {
+          "key": "LWI_ACTION_WINBACK_AD_COMPLETION_QP_CARD_DISMISS",
+          "value": 530
+        },
+        {
+          "key": "LWI_ACTION_WINBACK_THRESHOLD_BOTTOMSHEET_IMPRESSION",
+          "value": 531
+        },
+        {
+          "key": "LWI_ACTION_WINBACK_THRESHOLD_BOTTOMSHEET_SEE_DETAILS_CLICK",
+          "value": 532
+        },
+        {
+          "key": "LWI_ACTION_WINBACK_THRESHOLD_BOTTOMSHEET_DISMISS",
+          "value": 533
+        },
+        {
+          "key": "LWI_ACTION_WINBACK_RECREATE_AD_CLICK",
+          "value": 534
+        },
+        {
+          "key": "LWI_ACTION_WINBACK_AD_CREATION_UNDERSTANDING_RESULTS_DISMISS",
+          "value": 535
+        },
+        {
+          "key": "LWI_ACTION_WINBACK_AUTO_OPEN_SUPPRESSED",
+          "value": 536
         }
       ]
     },
@@ -72617,6 +72886,10 @@
         {
           "key": "CONDITIONAL_REVEAL",
           "value": 77
+        },
+        {
+          "key": "EVENT_INVITE",
+          "value": 78
         }
       ]
     },
@@ -73143,6 +73416,14 @@
         {
           "key": "ADD_TO_NOTE",
           "value": 34
+        },
+        {
+          "key": "TRANSLATE",
+          "value": 35
+        },
+        {
+          "key": "SPEAK",
+          "value": 36
         }
       ]
     },
@@ -75039,6 +75320,10 @@
         {
           "key": "IAB_LPV_BODY",
           "value": 32
+        },
+        {
+          "key": "PAYMENT_CTA_CLICK",
+          "value": 33
         }
       ]
     },
@@ -76981,6 +77266,24 @@
       ]
     },
     {
+      "name": "PAID_MESSAGING_USER_INTERACTIONS_MESSAGE_EXPAND_STATE",
+      "module": "WAWebWamEnumPaidMessagingUserInteractionsMessageExpandState",
+      "variants": [
+        {
+          "key": "NOT_APPLICABLE",
+          "value": 0
+        },
+        {
+          "key": "COLLAPSED",
+          "value": 1
+        },
+        {
+          "key": "EXPANDED",
+          "value": 2
+        }
+      ]
+    },
+    {
       "name": "PAIRED_MEDIA_TYPE",
       "module": "WAWebWamEnumPairedMediaType",
       "variants": [
@@ -78451,6 +78754,18 @@
         {
           "key": "SYNCD_FAILED",
           "value": 352
+        },
+        {
+          "key": "PAYMENTS_HOME_PIX_AREA",
+          "value": 353
+        },
+        {
+          "key": "PAYMENTS_HOME_SHARE_YOUR_PIX",
+          "value": 354
+        },
+        {
+          "key": "VIEW_IN_CHAT",
+          "value": 355
         }
       ]
     },
@@ -80477,6 +80792,14 @@
         {
           "key": "AT_THE_GYM",
           "value": 13
+        },
+        {
+          "key": "SLEEPING",
+          "value": 14
+        },
+        {
+          "key": "AT_WORK",
+          "value": 15
         }
       ]
     },
@@ -84613,6 +84936,10 @@
         {
           "key": "CTA_APP_CLICK",
           "value": 3
+        },
+        {
+          "key": "PAYMENT_CTA_CLICK",
+          "value": 4
         }
       ]
     },
@@ -90287,6 +90614,10 @@
         {
           "key": "IG_MEDIA_PICKER",
           "value": 320
+        },
+        {
+          "key": "BB_MESSAGE_PACKS_META_ONE_TAB",
+          "value": 321
         }
       ]
     },
@@ -90747,6 +91078,10 @@
         {
           "key": "CHANNEL_STATUS",
           "value": 17
+        },
+        {
+          "key": "RESHARED_FROM_CHANNEL",
+          "value": 18
         }
       ]
     },
@@ -91887,6 +92222,14 @@
         {
           "key": "CALLS_TAB_SECONDARY",
           "value": 257
+        },
+        {
+          "key": "MERCHANT_APP_UNIVERSAL_LINK",
+          "value": 258
+        },
+        {
+          "key": "MERCHANT_APP_DEEPLINK",
+          "value": 259
         }
       ]
     },
@@ -93337,6 +93680,42 @@
         {
           "key": "LINK_CANCEL",
           "value": 82
+        },
+        {
+          "key": "APP_SWITCH_FROM_FB_KEY_FLOW",
+          "value": 83
+        },
+        {
+          "key": "APP_SWITCH_FROM_IG_KEY_FLOW",
+          "value": 84
+        },
+        {
+          "key": "USERNAME_RESERVATION_KEY_IMPRESSION",
+          "value": 85
+        },
+        {
+          "key": "USERNAME_RESERVATION_KEY_ADD_KEY_CLICKED",
+          "value": 86
+        },
+        {
+          "key": "USERNAME_RESERVATION_KEY_NOT_NOW_CLICKED",
+          "value": 87
+        },
+        {
+          "key": "USERNAME_RESERVATION_KEY_SAVE_KEY_CLICKED",
+          "value": 88
+        },
+        {
+          "key": "USERNAME_RESERVATION_KEY_CANCEL_CLICKED",
+          "value": 89
+        },
+        {
+          "key": "APP_SWITCH_TO_FB_KEY_FLOW",
+          "value": 90
+        },
+        {
+          "key": "APP_SWITCH_TO_IG_KEY_FLOW",
+          "value": 91
         }
       ]
     },
@@ -93473,6 +93852,14 @@
         {
           "key": "USERNAME_UPSELL_SYS_MSG",
           "value": 12
+        },
+        {
+          "key": "USERNAME_KEY_UPSELL_PREACTIVATION_BANNER_WA",
+          "value": 13
+        },
+        {
+          "key": "ACCOUNT_SETTING",
+          "value": 14
         }
       ]
     },
@@ -95181,6 +95568,10 @@
         {
           "key": "ASK_META_AI",
           "value": 12
+        },
+        {
+          "key": "START_CALL",
+          "value": 13
         }
       ]
     },
