@@ -8,15 +8,15 @@
 //! read). Restore pulls that archive (or a caller-supplied local/URL one), unpacks it,
 //! and asserts the content-SHA-256 *multiset* equals the lock's — a dropped or swapped
 //! bundle fails loudly instead of silently producing a different spec. The recovered
-//! directory feeds straight into `whatspec update --bundles` (which is order-invariant,
-//! so filenames don't matter).
+//! files can be written either as a flat directory for `whatspec update --bundles` or
+//! directly into the version-keyed cache consumed by `whatspec update --cache`.
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
-use wa_fetch::{HttpClient, UreqClient};
+use wa_fetch::{Bundle, BundleCache, HttpClient, UreqClient, bundle_file_name};
 
 use crate::lock::BundleLock;
 
@@ -47,9 +47,18 @@ const GZIP_MAGIC: &[u8] = &[0x1f, 0x8b];
 /// published, content-addressed archive.
 const MAX_UNPACKED_BYTES: u64 = 1024 * 1024 * 1024;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RestoreTarget {
+    /// A flat directory of `.js` files, ready for `update --bundles`.
+    Bundles(PathBuf),
+    /// The version-keyed on-disk layout consumed by `update --cache`.
+    Cache(PathBuf),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RestoreOptions {
     pub lock_path: PathBuf,
-    pub out: PathBuf,
+    pub target: RestoreTarget,
     /// Explicit archive location — a local file path or an `http(s)://` URL. When
     /// absent, the release URL is derived from the lock's version + `repo`.
     pub archive: Option<String>,
@@ -57,10 +66,10 @@ pub struct RestoreOptions {
 }
 
 impl RestoreOptions {
-    pub fn new(lock_path: PathBuf, out: PathBuf) -> Self {
+    pub fn new(lock_path: PathBuf, target: RestoreTarget) -> Self {
         Self {
             lock_path,
-            out,
+            target,
             archive: None,
             repo: DEFAULT_REPO.to_string(),
         }
@@ -79,13 +88,24 @@ pub fn restore(opts: &RestoreOptions) -> Result<()> {
     let archive = resolve_archive(opts, &lock)?;
     let files = unpack_archive(&archive, MAX_UNPACKED_BYTES, lock.bundle_count)?;
     verify_against_lock(&files, &lock)?;
-    let written = write_bundles(&files, &opts.out)?;
-
-    eprintln!(
-        "restored {} bundle(s) to {} — verified against the lock",
-        written,
-        opts.out.display()
-    );
+    match &opts.target {
+        RestoreTarget::Bundles(out) => {
+            let written = write_bundles(&files, out)?;
+            eprintln!(
+                "restored {} bundle(s) to {} — verified against the lock",
+                written,
+                out.display()
+            );
+        }
+        RestoreTarget::Cache(cache_dir) => {
+            let written = write_cache(files, &lock, cache_dir)?;
+            eprintln!(
+                "restored {} bundle(s) to cache {} — verified against the lock",
+                written,
+                cache_dir.display()
+            );
+        }
+    }
     Ok(())
 }
 
@@ -413,6 +433,75 @@ fn write_bundles(files: &[(String, Vec<u8>)], out: &Path) -> Result<usize> {
     Ok(files.len())
 }
 
+/// Convert the verified archive entries back into downloaded [`Bundle`] values and
+/// delegate persistence to [`BundleCache`]. The lock supplies the original URLs that
+/// the cache uses as stable keys; archive filenames are deliberately irrelevant.
+///
+/// All fallible conversion checks happen before `BundleCache::store` is called, so an
+/// unusable lock (missing/duplicate URLs or inconsistent sizes) leaves an existing cache
+/// untouched. `store` remains the single owner of the cache layout, integrity manifest,
+/// stale-version cleanup, and manifest-last commit semantics.
+fn write_cache(
+    files: Vec<(String, Vec<u8>)>,
+    lock: &BundleLock,
+    cache_dir: &Path,
+) -> Result<usize> {
+    let mut seen_urls: HashMap<&str, ()> = HashMap::new();
+    for entry in &lock.bundles {
+        let url = entry
+            .url
+            .as_deref()
+            .filter(|url| !url.is_empty())
+            .context("cannot restore into a cache: every lock entry needs its origin URL")?;
+        if seen_urls.insert(url, ()).is_some() {
+            bail!("cannot restore into a cache: duplicate bundle URL {url}");
+        }
+    }
+
+    // Consume the archive bytes rather than cloning the whole (~70 MiB) bundle set.
+    // A vector per hash preserves multiset semantics when identical bytes were served
+    // from more than one URL.
+    let mut files_by_hash: HashMap<String, Vec<Vec<u8>>> = HashMap::new();
+    for (_, bytes) in files {
+        files_by_hash
+            .entry(wa_text::sha256_hex(&bytes))
+            .or_default()
+            .push(bytes);
+    }
+
+    let mut bundles = Vec::with_capacity(lock.bundle_count);
+    for entry in &lock.bundles {
+        // Presence and uniqueness were checked above, before any cache mutation.
+        let url = entry.url.as_deref().expect("URL preflight checked");
+        let bytes = files_by_hash
+            .get_mut(&entry.sha256)
+            .and_then(Vec::pop)
+            .with_context(|| format!("verified archive lost bundle {}", entry.sha256))?;
+        if bytes.len() as u64 != entry.size {
+            bail!(
+                "locked size mismatch for {}: lock says {}, archive has {}",
+                entry.sha256,
+                entry.size,
+                bytes.len()
+            );
+        }
+        bundles.push(Bundle {
+            url: url.to_string(),
+            file_name: bundle_file_name(url),
+            bytes,
+        });
+    }
+
+    // Live downloads are URL-sorted before entering the cache. Preserve that canonical
+    // ordering so a release-seeded hit behaves exactly like a live-seeded hit.
+    bundles.sort_by(|a, b| a.url.cmp(&b.url));
+    let written = bundles.len();
+    BundleCache::new(cache_dir.to_path_buf())
+        .store(&lock.wa_version, &bundles)
+        .with_context(|| format!("write bundle cache at {}", cache_dir.display()))?;
+    Ok(written)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -474,6 +563,85 @@ mod tests {
         assert_eq!(n, 2);
         assert_eq!(std::fs::read(dir.join("a.js")).unwrap(), b"alpha");
         assert!(!dir.join("stale.js").exists(), "stale .js swept");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn write_cache_roundtrip_uses_the_shared_bundle_cache_layout() {
+        // Archive labels are transport-only and intentionally do not match the URL
+        // basenames. Cache identity and readable names must come from the lock URLs.
+        let archived: &[(&str, &[u8])] = &[("opaque-one.js", b"alpha"), ("opaque-two.js", b"beta")];
+        let lock = BundleLock::new(
+            "2.3000.CACHE",
+            vec![
+                BundleId {
+                    sha256: wa_text::sha256_hex(b"alpha"),
+                    size: 5,
+                    url: Some("https://static.example.test/z-logical.js".to_string()),
+                },
+                BundleId {
+                    sha256: wa_text::sha256_hex(b"beta"),
+                    size: 4,
+                    url: Some("https://static.example.test/a-logical.js".to_string()),
+                },
+            ],
+        );
+        let unpacked = unpack_archive(&tar_gz(archived), 1 << 20, archived.len()).unwrap();
+        verify_against_lock(&unpacked, &lock).unwrap();
+
+        let dir = std::env::temp_dir().join(format!("wsr-cache-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let written = write_cache(unpacked, &lock, &dir).unwrap();
+        assert_eq!(written, 2);
+
+        let cache = BundleCache::new(dir.clone());
+        let manifest = cache.read_manifest().expect("cache manifest");
+        assert_eq!(manifest.wa_version, "2.3000.CACHE");
+        assert!(manifest.complete);
+        assert_eq!(
+            manifest
+                .bundles
+                .iter()
+                .map(|entry| entry.file_name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["a-logical.js", "z-logical.js"],
+            "release-seeded cache keeps the live fetcher's URL ordering"
+        );
+        match cache.check("2.3000.CACHE") {
+            wa_fetch::CacheStatus::Hit(bundles) => {
+                assert_eq!(bundles.len(), 2);
+                assert_eq!(bundles[0].bytes, b"beta");
+                assert_eq!(bundles[1].bytes, b"alpha");
+            }
+            wa_fetch::CacheStatus::Miss(why) => panic!("expected cache hit, got miss: {why}"),
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn cache_restore_rejects_missing_urls_before_replacing_an_existing_cache() {
+        let dir = std::env::temp_dir().join(format!("wsr-cache-guard-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let cache = BundleCache::new(dir.clone());
+        cache
+            .store(
+                "old-version",
+                &[Bundle {
+                    url: "https://old.example.test/old.js".to_string(),
+                    file_name: "old.js".to_string(),
+                    bytes: b"old".to_vec(),
+                }],
+            )
+            .unwrap();
+
+        let files = vec![("new.js".to_string(), b"new".to_vec())];
+        let lock = lock_for(&[("new.js", b"new")]);
+        let err = write_cache(files, &lock, &dir).unwrap_err();
+        assert!(err.to_string().contains("origin URL"), "{err}");
+        assert!(
+            matches!(cache.check("old-version"), wa_fetch::CacheStatus::Hit(_)),
+            "preflight failure must leave the prior cache intact"
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
