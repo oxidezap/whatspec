@@ -11,7 +11,7 @@
 //! files can be written either as a flat directory for `whatspec update --bundles` or
 //! directly into the version-keyed cache consumed by `whatspec update --cache`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
@@ -76,8 +76,30 @@ impl RestoreOptions {
     }
 }
 
+/// A cache is keyed by the original bundle URLs, so reject locks that cannot produce a
+/// valid cache before paying for the release download and decompression. `write_cache`
+/// repeats this cheap preflight because it is also exercised directly in tests and must
+/// never clear an existing cache for an unusable lock.
+fn preflight_cache_lock_urls(lock: &BundleLock) -> Result<()> {
+    let mut seen_urls = HashSet::new();
+    for entry in &lock.bundles {
+        let url = entry
+            .url
+            .as_deref()
+            .filter(|url| !url.is_empty())
+            .context("cannot restore into a cache: every lock entry needs its origin URL")?;
+        if !seen_urls.insert(url) {
+            bail!("cannot restore into a cache: duplicate bundle URL {url}");
+        }
+    }
+    Ok(())
+}
+
 pub fn restore(opts: &RestoreOptions) -> Result<()> {
     let lock = read_lock(&opts.lock_path)?;
+    if matches!(&opts.target, RestoreTarget::Cache(_)) {
+        preflight_cache_lock_urls(&lock)?;
+    }
     eprintln!(
         "restoring {} bundle(s) for {} (setHash {})",
         lock.bundle_count,
@@ -87,7 +109,7 @@ pub fn restore(opts: &RestoreOptions) -> Result<()> {
 
     let archive = resolve_archive(opts, &lock)?;
     let files = unpack_archive(&archive, MAX_UNPACKED_BYTES, lock.bundle_count)?;
-    verify_against_lock(&files, &lock)?;
+    let verified_hashes = verify_against_lock(&files, &lock)?;
     match &opts.target {
         RestoreTarget::Bundles(out) => {
             let written = write_bundles(&files, out)?;
@@ -98,7 +120,7 @@ pub fn restore(opts: &RestoreOptions) -> Result<()> {
             );
         }
         RestoreTarget::Cache(cache_dir) => {
-            let written = write_cache(files, &lock, cache_dir)?;
+            let written = write_cache(files, verified_hashes, &lock, cache_dir)?;
             eprintln!(
                 "restored {} bundle(s) to cache {} — verified against the lock",
                 written,
@@ -365,8 +387,9 @@ fn read_tar(tar_bytes: &[u8], max_files: usize) -> Result<Vec<(String, Vec<u8>)>
 
 /// Assert the extracted content-SHA-256 multiset equals the lock's. Reports missing
 /// (in lock, absent from archive) and extra (in archive, not in lock) so a mismatch
-/// is actionable rather than a bare count.
-fn verify_against_lock(files: &[(String, Vec<u8>)], lock: &BundleLock) -> Result<()> {
+/// is actionable rather than a bare count. Returns the verified hashes in file order so
+/// the cache writer can index the bytes without hashing the full bundle set a second time.
+fn verify_against_lock(files: &[(String, Vec<u8>)], lock: &BundleLock) -> Result<Vec<String>> {
     let mut want: HashMap<&str, i64> = HashMap::new();
     for e in &lock.bundles {
         *want.entry(e.sha256.as_str()).or_default() += 1;
@@ -380,7 +403,8 @@ fn verify_against_lock(files: &[(String, Vec<u8>)], lock: &BundleLock) -> Result
         *have.entry(h.as_str()).or_default() += 1;
     }
     if want == have {
-        return Ok(());
+        drop(have);
+        return Ok(got);
     }
     let missing: Vec<&str> = want
         .keys()
@@ -412,9 +436,9 @@ fn write_bundles(files: &[(String, Vec<u8>)], out: &Path) -> Result<usize> {
     // a name even past hash-multiset verification (a crafted `--archive`), and writing
     // as we go would leave a half-populated `out` — and needlessly sweep an existing one
     // — when we bail on the collision. Check first, mutate second.
-    let mut seen: HashMap<&str, ()> = HashMap::new();
+    let mut seen = HashSet::new();
     for (name, _) in files {
-        if seen.insert(name.as_str(), ()).is_some() {
+        if !seen.insert(name.as_str()) {
             bail!("archive has two entries named {name} — cannot restore flatly");
         }
     }
@@ -443,30 +467,25 @@ fn write_bundles(files: &[(String, Vec<u8>)], out: &Path) -> Result<usize> {
 /// stale-version cleanup, and manifest-last commit semantics.
 fn write_cache(
     files: Vec<(String, Vec<u8>)>,
+    verified_hashes: Vec<String>,
     lock: &BundleLock,
     cache_dir: &Path,
 ) -> Result<usize> {
-    let mut seen_urls: HashMap<&str, ()> = HashMap::new();
-    for entry in &lock.bundles {
-        let url = entry
-            .url
-            .as_deref()
-            .filter(|url| !url.is_empty())
-            .context("cannot restore into a cache: every lock entry needs its origin URL")?;
-        if seen_urls.insert(url, ()).is_some() {
-            bail!("cannot restore into a cache: duplicate bundle URL {url}");
-        }
+    preflight_cache_lock_urls(lock)?;
+    if files.len() != verified_hashes.len() {
+        bail!(
+            "internal verified-hash count mismatch: {} files, {} hashes",
+            files.len(),
+            verified_hashes.len()
+        );
     }
 
     // Consume the archive bytes rather than cloning the whole (~70 MiB) bundle set.
     // A vector per hash preserves multiset semantics when identical bytes were served
     // from more than one URL.
     let mut files_by_hash: HashMap<String, Vec<Vec<u8>>> = HashMap::new();
-    for (_, bytes) in files {
-        files_by_hash
-            .entry(wa_text::sha256_hex(&bytes))
-            .or_default()
-            .push(bytes);
+    for ((_, bytes), sha256) in files.into_iter().zip(verified_hashes) {
+        files_by_hash.entry(sha256).or_default().push(bytes);
     }
 
     let mut bundles = Vec::with_capacity(lock.bundle_count);
@@ -552,7 +571,7 @@ mod tests {
         let lock = lock_for(files);
 
         let unpacked = unpack_archive(&archive, 1 << 20, files.len()).unwrap();
-        verify_against_lock(&unpacked, &lock).unwrap();
+        let _verified_hashes = verify_against_lock(&unpacked, &lock).unwrap();
 
         let dir = std::env::temp_dir().join(format!("wsr-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -587,11 +606,11 @@ mod tests {
             ],
         );
         let unpacked = unpack_archive(&tar_gz(archived), 1 << 20, archived.len()).unwrap();
-        verify_against_lock(&unpacked, &lock).unwrap();
+        let verified_hashes = verify_against_lock(&unpacked, &lock).unwrap();
 
         let dir = std::env::temp_dir().join(format!("wsr-cache-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        let written = write_cache(unpacked, &lock, &dir).unwrap();
+        let written = write_cache(unpacked, verified_hashes, &lock, &dir).unwrap();
         assert_eq!(written, 2);
 
         let cache = BundleCache::new(dir.clone());
@@ -636,11 +655,33 @@ mod tests {
 
         let files = vec![("new.js".to_string(), b"new".to_vec())];
         let lock = lock_for(&[("new.js", b"new")]);
-        let err = write_cache(files, &lock, &dir).unwrap_err();
+        let verified_hashes = verify_against_lock(&files, &lock).unwrap();
+        let err = write_cache(files, verified_hashes, &lock, &dir).unwrap_err();
         assert!(err.to_string().contains("origin URL"), "{err}");
         assert!(
             matches!(cache.check("old-version"), wa_fetch::CacheStatus::Hit(_)),
             "preflight failure must leave the prior cache intact"
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn cache_restore_rejects_missing_urls_before_reading_the_archive() {
+        let dir = std::env::temp_dir().join(format!("wsr-cache-preflight-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let lock = lock_for(&[("new.js", b"new")]);
+        let lock_path = dir.join("bundles.lock.json");
+        std::fs::write(&lock_path, lock.to_pretty_json()).unwrap();
+        let mut opts = RestoreOptions::new(lock_path, RestoreTarget::Cache(dir.join("cache")));
+        opts.archive = Some(dir.join("missing.tar.xz").display().to_string());
+
+        let err = restore(&opts).unwrap_err();
+        assert!(err.to_string().contains("origin URL"), "{err}");
+        assert!(
+            !dir.join("cache").exists(),
+            "URL preflight must fail before archive I/O or cache mutation"
         );
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -679,7 +720,7 @@ mod tests {
         let lock = lock_for(files);
         for archive in [tar_xz(files), tar_gz(files)] {
             let unpacked = unpack_archive(&archive, 1 << 20, files.len()).unwrap();
-            verify_against_lock(&unpacked, &lock).unwrap();
+            let _verified_hashes = verify_against_lock(&unpacked, &lock).unwrap();
         }
     }
 
