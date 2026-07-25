@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1043466400",
+  "waVersion": "2.3000.1043853937",
   "stanzas": [
     {
       "moduleName": "WASmaxOutAbPropsGetExperimentConfigRequest",
@@ -10156,399 +10156,6 @@
       }
     },
     {
-      "moduleName": "WASmaxOutSupportContactFormRequest",
-      "namespace": "fb:thrift_iq",
-      "iqType": "set",
-      "target": "s.whatsapp.net",
-      "parserName": "WASmaxSupportContactFormRPC",
-      "exportedFunction": "makeContactFormRequestTopic",
-      "allExports": [
-        "makeContactFormRequestTopic",
-        "makeContactFormRequestTopicId",
-        "makeContactFormRequestDebugInformationJson",
-        "makeContactFormRequestUploadedLogsId",
-        "makeContactFormRequestAdditionalAttributes",
-        "makeContactFormRequest"
-      ],
-      "request": {
-        "namespace": "fb:thrift_iq",
-        "iqType": "set",
-        "target": "s.whatsapp.net",
-        "children": [
-          {
-            "tag": "description",
-            "attrs": [],
-            "children": [],
-            "repeats": false
-          },
-          {
-            "tag": "topic",
-            "attrs": [],
-            "children": [],
-            "repeats": false
-          },
-          {
-            "tag": "topic_id",
-            "attrs": [],
-            "children": [],
-            "repeats": false
-          },
-          {
-            "tag": "debug_information_json",
-            "attrs": [],
-            "children": [],
-            "repeats": false
-          },
-          {
-            "tag": "uploaded_logs_id",
-            "attrs": [],
-            "children": [],
-            "repeats": false
-          },
-          {
-            "tag": "additional_attributes",
-            "attrs": [
-              {
-                "name": "context_flow",
-                "kind": "optional",
-                "required": false
-              }
-            ],
-            "children": [],
-            "repeats": false
-          }
-        ]
-      },
-      "response": {
-        "parserName": "WASmaxSupportContactFormRPC",
-        "assertions": [],
-        "fields": [
-          {
-            "method": "attrString",
-            "name": "responseStatus",
-            "wireName": "status",
-            "type": "string",
-            "required": true,
-            "sourcePath": [
-              "response"
-            ]
-          },
-          {
-            "method": "contentString",
-            "name": "responseMessageElementValue",
-            "type": "string",
-            "required": true,
-            "sourcePath": [
-              "response",
-              "message"
-            ]
-          },
-          {
-            "method": "contentString",
-            "name": "responseTicketIdElementValue",
-            "type": "string",
-            "required": true,
-            "sourcePath": [
-              "response",
-              "ticket_id"
-            ]
-          },
-          {
-            "method": "contentString",
-            "name": "responseGroupJidElementValue",
-            "type": "string",
-            "required": true,
-            "sourcePath": [
-              "response",
-              "group_jid"
-            ]
-          },
-          {
-            "method": "attrUserJid",
-            "name": "to",
-            "wireName": "to",
-            "type": "user_jid",
-            "required": false
-          },
-          {
-            "method": "attrString",
-            "name": "type",
-            "wireName": "type",
-            "type": "string",
-            "required": true
-          }
-        ],
-        "variants": [
-          {
-            "tag": "ContactFormResponseSuccess",
-            "moduleName": "WASmaxInSupportContactFormResponseSuccess",
-            "kind": "success",
-            "assertions": [
-              {
-                "kind": "tag",
-                "name": "iq"
-              },
-              {
-                "kind": "attr",
-                "name": "type",
-                "value": "result"
-              }
-            ],
-            "fields": [
-              {
-                "method": "attrString",
-                "name": "responseStatus",
-                "wireName": "status",
-                "type": "string",
-                "required": true,
-                "sourcePath": [
-                  "response"
-                ]
-              },
-              {
-                "method": "contentString",
-                "name": "responseMessageElementValue",
-                "type": "string",
-                "required": true,
-                "sourcePath": [
-                  "response",
-                  "message"
-                ]
-              },
-              {
-                "method": "contentString",
-                "name": "responseTicketIdElementValue",
-                "type": "string",
-                "required": true,
-                "sourcePath": [
-                  "response",
-                  "ticket_id"
-                ]
-              },
-              {
-                "method": "contentString",
-                "name": "responseGroupJidElementValue",
-                "type": "string",
-                "required": true,
-                "sourcePath": [
-                  "response",
-                  "group_jid"
-                ]
-              },
-              {
-                "method": "attrUserJid",
-                "name": "to",
-                "wireName": "to",
-                "type": "user_jid",
-                "required": false
-              },
-              {
-                "method": "attrString",
-                "name": "type",
-                "wireName": "type",
-                "type": "string",
-                "required": true
-              }
-            ]
-          },
-          {
-            "tag": "ContactFormResponseRetryableError",
-            "moduleName": "WASmaxInSupportContactFormResponseRetryableError",
-            "kind": "error",
-            "assertions": [
-              {
-                "kind": "tag",
-                "name": "iq"
-              },
-              {
-                "kind": "attr",
-                "name": "type",
-                "value": "result"
-              }
-            ],
-            "fields": [
-              {
-                "method": "attrInt",
-                "name": "responseErrorCode",
-                "wireName": "error_code",
-                "type": "integer",
-                "required": true,
-                "sourcePath": [
-                  "response"
-                ]
-              },
-              {
-                "method": "maybeAttrString",
-                "name": "responseNextRetryTs",
-                "wireName": "next_retry_ts",
-                "type": "string",
-                "required": false,
-                "sourcePath": [
-                  "response"
-                ]
-              },
-              {
-                "method": "attrUserJid",
-                "name": "to",
-                "wireName": "to",
-                "type": "user_jid",
-                "required": false
-              },
-              {
-                "method": "attrString",
-                "name": "type",
-                "wireName": "type",
-                "type": "string",
-                "required": true
-              }
-            ]
-          },
-          {
-            "tag": "ContactFormResponseError",
-            "moduleName": "WASmaxInSupportContactFormResponseError",
-            "kind": "error",
-            "assertions": [
-              {
-                "kind": "tag",
-                "name": "iq"
-              },
-              {
-                "kind": "attr",
-                "name": "type",
-                "value": "error"
-              }
-            ],
-            "fields": [
-              {
-                "method": "attrUserJid",
-                "name": "to",
-                "wireName": "to",
-                "type": "user_jid",
-                "required": false
-              },
-              {
-                "method": "attrString",
-                "name": "type",
-                "wireName": "type",
-                "type": "string",
-                "required": true
-              },
-              {
-                "method": "",
-                "name": "errorContactFormError",
-                "type": "union",
-                "required": true,
-                "unionVariants": [
-                  {
-                    "name": "IQErrorBadRequest",
-                    "fields": [
-                      {
-                        "method": "attrString",
-                        "name": "text",
-                        "wireName": "text",
-                        "type": "string",
-                        "required": true
-                      },
-                      {
-                        "method": "attrInt",
-                        "name": "code",
-                        "wireName": "code",
-                        "type": "integer",
-                        "required": true
-                      }
-                    ],
-                    "assertions": [
-                      {
-                        "kind": "tag",
-                        "name": "error"
-                      },
-                      {
-                        "kind": "attr",
-                        "name": "text",
-                        "value": "bad-request"
-                      }
-                    ]
-                  },
-                  {
-                    "name": "IQErrorNoticeRequired",
-                    "fields": [
-                      {
-                        "method": "attrString",
-                        "name": "text",
-                        "wireName": "text",
-                        "type": "string",
-                        "required": true
-                      },
-                      {
-                        "method": "attrInt",
-                        "name": "code",
-                        "wireName": "code",
-                        "type": "integer",
-                        "required": true
-                      },
-                      {
-                        "method": "attrInt",
-                        "name": "tosVersion",
-                        "wireName": "tos_version",
-                        "type": "integer",
-                        "required": true,
-                        "intMin": 1,
-                        "intMax": 65535
-                      }
-                    ],
-                    "assertions": [
-                      {
-                        "kind": "tag",
-                        "name": "error"
-                      },
-                      {
-                        "kind": "attr",
-                        "name": "text",
-                        "value": "notice-required"
-                      }
-                    ]
-                  },
-                  {
-                    "name": "IQErrorInternalServerError",
-                    "fields": [
-                      {
-                        "method": "attrString",
-                        "name": "text",
-                        "wireName": "text",
-                        "type": "string",
-                        "required": true
-                      },
-                      {
-                        "method": "attrInt",
-                        "name": "code",
-                        "wireName": "code",
-                        "type": "integer",
-                        "required": true
-                      }
-                    ],
-                    "assertions": [
-                      {
-                        "kind": "tag",
-                        "name": "error"
-                      },
-                      {
-                        "kind": "attr",
-                        "name": "text",
-                        "value": "internal-server-error"
-                      }
-                    ]
-                  }
-                ],
-                "sourcePath": [
-                  "error"
-                ]
-              }
-            ]
-          }
-        ]
-      }
-    },
-    {
       "moduleName": "WASmaxOutBizCtwaNativeAdUploadAdMediaRequest",
       "namespace": "fb:thrift_iq",
       "iqType": "set",
@@ -12415,6 +12022,12 @@
                   {
                     "method": "",
                     "name": "hasPaidPartnershipContentMixin",
+                    "type": "bool",
+                    "required": true
+                  },
+                  {
+                    "method": "",
+                    "name": "hasNewsletterAIContentMetaMixin",
                     "type": "bool",
                     "required": true
                   },
@@ -14497,6 +14110,12 @@
                       {
                         "method": "",
                         "name": "hasPaidPartnershipContentMixin",
+                        "type": "bool",
+                        "required": true
+                      },
+                      {
+                        "method": "",
+                        "name": "hasNewsletterAIContentMetaMixin",
                         "type": "bool",
                         "required": true
                       },
@@ -16992,6 +16611,12 @@
                   },
                   {
                     "method": "",
+                    "name": "hasNewsletterAIContentMetaMixin",
+                    "type": "bool",
+                    "required": true
+                  },
+                  {
+                    "method": "",
                     "name": "newsletterMessageHistoryContent",
                     "type": "union",
                     "required": false,
@@ -19073,6 +18698,12 @@
                       {
                         "method": "",
                         "name": "hasPaidPartnershipContentMixin",
+                        "type": "bool",
+                        "required": true
+                      },
+                      {
+                        "method": "",
+                        "name": "hasNewsletterAIContentMetaMixin",
                         "type": "bool",
                         "required": true
                       },
@@ -22470,6 +22101,12 @@
                   },
                   {
                     "method": "",
+                    "name": "hasStatusAIContentMetaMixin",
+                    "type": "bool",
+                    "required": true
+                  },
+                  {
+                    "method": "",
                     "name": "statusNewsletterInteractionTypeQuestionMixin",
                     "type": "string",
                     "required": false,
@@ -22977,6 +22614,12 @@
                       {
                         "method": "",
                         "name": "hasStatusPaidPartnershipContentMixin",
+                        "type": "bool",
+                        "required": true
+                      },
+                      {
+                        "method": "",
+                        "name": "hasStatusAIContentMetaMixin",
                         "type": "bool",
                         "required": true
                       },
@@ -23902,6 +23545,12 @@
                   },
                   {
                     "method": "",
+                    "name": "hasStatusAIContentMetaMixin",
+                    "type": "bool",
+                    "required": true
+                  },
+                  {
+                    "method": "",
                     "name": "statusNewsletterInteractionTypeQuestionMixin",
                     "type": "string",
                     "required": false,
@@ -24413,6 +24062,12 @@
                       {
                         "method": "",
                         "name": "hasStatusPaidPartnershipContentMixin",
+                        "type": "bool",
+                        "required": true
+                      },
+                      {
+                        "method": "",
+                        "name": "hasStatusAIContentMetaMixin",
                         "type": "bool",
                         "required": true
                       },
@@ -33768,6 +33423,21 @@
                 "name": "genai",
                 "kind": "optional",
                 "required": false
+              },
+              {
+                "name": "genai_image",
+                "kind": "optional",
+                "required": false
+              },
+              {
+                "name": "meta_one",
+                "kind": "optional",
+                "required": false
+              },
+              {
+                "name": "bb_pro",
+                "kind": "optional",
+                "required": false
               }
             ],
             "children": [],
@@ -33854,6 +33524,64 @@
             "type": "string",
             "required": false,
             "tag": "genai",
+            "children": [
+              {
+                "method": "attrEnum",
+                "name": "status",
+                "wireName": "status",
+                "type": "enum",
+                "required": true
+              },
+              {
+                "method": "maybeAttrEnum",
+                "name": "v1Enabled",
+                "wireName": "v1_enabled",
+                "type": "enum",
+                "required": false
+              }
+            ],
+            "repeats": false
+          },
+          {
+            "method": "child",
+            "name": "genaiImage",
+            "type": "string",
+            "required": false,
+            "tag": "genai_image",
+            "children": [
+              {
+                "method": "attrEnum",
+                "name": "status",
+                "wireName": "status",
+                "type": "enum",
+                "required": true
+              }
+            ],
+            "repeats": false
+          },
+          {
+            "method": "child",
+            "name": "metaOne",
+            "type": "string",
+            "required": false,
+            "tag": "meta_one",
+            "children": [
+              {
+                "method": "attrEnum",
+                "name": "status",
+                "wireName": "status",
+                "type": "enum",
+                "required": true
+              }
+            ],
+            "repeats": false
+          },
+          {
+            "method": "child",
+            "name": "bbPro",
+            "type": "string",
+            "required": false,
+            "tag": "bb_pro",
             "children": [
               {
                 "method": "attrEnum",
@@ -33958,6 +33686,64 @@
                 "type": "string",
                 "required": false,
                 "tag": "genai",
+                "children": [
+                  {
+                    "method": "attrEnum",
+                    "name": "status",
+                    "wireName": "status",
+                    "type": "enum",
+                    "required": true
+                  },
+                  {
+                    "method": "maybeAttrEnum",
+                    "name": "v1Enabled",
+                    "wireName": "v1_enabled",
+                    "type": "enum",
+                    "required": false
+                  }
+                ],
+                "repeats": false
+              },
+              {
+                "method": "child",
+                "name": "genaiImage",
+                "type": "string",
+                "required": false,
+                "tag": "genai_image",
+                "children": [
+                  {
+                    "method": "attrEnum",
+                    "name": "status",
+                    "wireName": "status",
+                    "type": "enum",
+                    "required": true
+                  }
+                ],
+                "repeats": false
+              },
+              {
+                "method": "child",
+                "name": "metaOne",
+                "type": "string",
+                "required": false,
+                "tag": "meta_one",
+                "children": [
+                  {
+                    "method": "attrEnum",
+                    "name": "status",
+                    "wireName": "status",
+                    "type": "enum",
+                    "required": true
+                  }
+                ],
+                "repeats": false
+              },
+              {
+                "method": "child",
+                "name": "bbPro",
+                "type": "string",
+                "required": false,
+                "tag": "bb_pro",
                 "children": [
                   {
                     "method": "attrEnum",
@@ -75245,6 +75031,3137 @@
       }
     },
     {
+      "moduleName": "WASmaxOutBrPaymentRemoveCustomPaymentMethodRequest",
+      "namespace": "w:pay",
+      "iqType": "set",
+      "target": "s.whatsapp.net",
+      "parserName": "WASmaxBrPaymentRemoveCustomPaymentMethodRPC",
+      "exportedFunction": "makeRemoveCustomPaymentMethodRequest",
+      "allExports": [
+        "makeRemoveCustomPaymentMethodRequest"
+      ],
+      "request": {
+        "namespace": "w:pay",
+        "iqType": "set",
+        "target": "s.whatsapp.net",
+        "children": [
+          {
+            "tag": "account",
+            "attrs": [
+              {
+                "name": "action",
+                "kind": "const",
+                "value": "remove-custom-payment-method",
+                "required": true
+              },
+              {
+                "name": "credential_id",
+                "kind": "string",
+                "required": true
+              },
+              {
+                "name": "country",
+                "kind": "const",
+                "value": "BR",
+                "required": true
+              }
+            ],
+            "children": [],
+            "repeats": false
+          }
+        ]
+      },
+      "response": {
+        "parserName": "WASmaxBrPaymentRemoveCustomPaymentMethodRPC",
+        "assertions": [],
+        "fields": [
+          {
+            "method": "child",
+            "name": "accountPaymentMethodsMixin",
+            "type": "string",
+            "required": true,
+            "tag": "account",
+            "children": [
+              {
+                "method": "maybeAttrInt",
+                "name": "version",
+                "wireName": "version",
+                "type": "integer",
+                "required": false
+              },
+              {
+                "method": "maybeAttrString",
+                "name": "instanceId",
+                "wireName": "instance-id",
+                "type": "string",
+                "required": false
+              },
+              {
+                "method": "maybeAttrString",
+                "name": "waSupportPhoneNumber",
+                "wireName": "wa-support-phone-number",
+                "type": "string",
+                "required": false
+              },
+              {
+                "method": "child",
+                "name": "card",
+                "type": "string",
+                "required": true,
+                "tag": "card",
+                "children": [
+                  {
+                    "method": "",
+                    "name": "bROrMXOrESCardMixinGroup",
+                    "type": "union",
+                    "required": true,
+                    "unionVariants": [
+                      {
+                        "name": "BRCard",
+                        "fields": [
+                          {
+                            "method": "attrString",
+                            "name": "imageContentId",
+                            "wireName": "image-content-id",
+                            "type": "string",
+                            "required": true
+                          },
+                          {
+                            "method": "attrString",
+                            "name": "bindingType",
+                            "wireName": "binding-type",
+                            "type": "string",
+                            "required": true
+                          },
+                          {
+                            "method": "attrEnum",
+                            "name": "needsDeviceBinding",
+                            "wireName": "needs-device-binding",
+                            "type": "enum",
+                            "required": true
+                          },
+                          {
+                            "method": "maybeAttrEnum",
+                            "name": "state",
+                            "wireName": "state",
+                            "type": "enum",
+                            "required": false
+                          },
+                          {
+                            "method": "maybeAttrString",
+                            "name": "bankName",
+                            "wireName": "bank-name",
+                            "type": "string",
+                            "required": false
+                          },
+                          {
+                            "method": "maybeAttrString",
+                            "name": "bankPhoneNumber",
+                            "wireName": "bank-phone-number",
+                            "type": "string",
+                            "required": false
+                          },
+                          {
+                            "method": "maybeAttrEnum",
+                            "name": "automaticBinding",
+                            "wireName": "automatic-binding",
+                            "type": "enum",
+                            "required": false
+                          },
+                          {
+                            "method": "attrString",
+                            "name": "last4",
+                            "wireName": "last4",
+                            "type": "string",
+                            "required": true
+                          },
+                          {
+                            "method": "attrEnum",
+                            "name": "verified",
+                            "wireName": "verified",
+                            "type": "enum",
+                            "required": true
+                          },
+                          {
+                            "method": "attrString",
+                            "name": "type",
+                            "wireName": "type",
+                            "type": "string",
+                            "required": true
+                          },
+                          {
+                            "method": "attrString",
+                            "name": "networkType",
+                            "wireName": "network-type",
+                            "type": "string",
+                            "required": true
+                          },
+                          {
+                            "method": "attrString",
+                            "name": "timeLastAdded",
+                            "wireName": "time-last-added",
+                            "type": "string",
+                            "required": true
+                          },
+                          {
+                            "method": "maybeAttrEnum",
+                            "name": "displayState",
+                            "wireName": "display-state",
+                            "type": "enum",
+                            "required": false
+                          },
+                          {
+                            "method": "attrEnum",
+                            "name": "defaultCredit",
+                            "wireName": "default-credit",
+                            "type": "enum",
+                            "required": true
+                          },
+                          {
+                            "method": "attrEnum",
+                            "name": "defaultDebit",
+                            "wireName": "default-debit",
+                            "type": "enum",
+                            "required": true
+                          },
+                          {
+                            "method": "maybeAttrEnum",
+                            "name": "defaultCreditP2p",
+                            "wireName": "default-credit-p2p",
+                            "type": "enum",
+                            "required": false
+                          },
+                          {
+                            "method": "maybeAttrEnum",
+                            "name": "defaultCreditP2m",
+                            "wireName": "default-credit-p2m",
+                            "type": "enum",
+                            "required": false
+                          },
+                          {
+                            "method": "maybeAttrEnum",
+                            "name": "defaultDebitP2p",
+                            "wireName": "default-debit-p2p",
+                            "type": "enum",
+                            "required": false
+                          },
+                          {
+                            "method": "maybeAttrEnum",
+                            "name": "defaultDebitP2m",
+                            "wireName": "default-debit-p2m",
+                            "type": "enum",
+                            "required": false
+                          },
+                          {
+                            "method": "attrString",
+                            "name": "credentialId",
+                            "wireName": "credential-id",
+                            "type": "string",
+                            "required": true
+                          },
+                          {
+                            "method": "maybeAttrString",
+                            "name": "country",
+                            "wireName": "country",
+                            "type": "string",
+                            "required": false
+                          },
+                          {
+                            "method": "maybeAttrString",
+                            "name": "created",
+                            "wireName": "created",
+                            "type": "string",
+                            "required": false
+                          },
+                          {
+                            "method": "maybeAttrEnum",
+                            "name": "p2pEligible",
+                            "wireName": "p2p-eligible",
+                            "type": "enum",
+                            "required": false
+                          },
+                          {
+                            "method": "maybeAttrEnum",
+                            "name": "p2mEligible",
+                            "wireName": "p2m-eligible",
+                            "type": "enum",
+                            "required": false
+                          },
+                          {
+                            "method": "attrEnum",
+                            "name": "capabilitiesEditable",
+                            "wireName": "editable",
+                            "type": "enum",
+                            "required": true,
+                            "sourcePath": [
+                              "capabilities"
+                            ]
+                          },
+                          {
+                            "method": "attrEnum",
+                            "name": "capabilitiesVerifiable",
+                            "wireName": "verifiable",
+                            "type": "enum",
+                            "required": true,
+                            "sourcePath": [
+                              "capabilities"
+                            ]
+                          },
+                          {
+                            "method": "attrEnum",
+                            "name": "capabilitiesDefaultEligible",
+                            "wireName": "default-eligible",
+                            "type": "enum",
+                            "required": true,
+                            "sourcePath": [
+                              "capabilities"
+                            ]
+                          },
+                          {
+                            "method": "maybeAttrEnum",
+                            "name": "capabilitiesDefaultEligibleP2p",
+                            "wireName": "default-eligible-p2p",
+                            "type": "enum",
+                            "required": false,
+                            "sourcePath": [
+                              "capabilities"
+                            ]
+                          },
+                          {
+                            "method": "maybeAttrEnum",
+                            "name": "capabilitiesDefaultEligibleP2m",
+                            "wireName": "default-eligible-p2m",
+                            "type": "enum",
+                            "required": false,
+                            "sourcePath": [
+                              "capabilities"
+                            ]
+                          },
+                          {
+                            "method": "attrEnum",
+                            "name": "capabilitiesP2pSend",
+                            "wireName": "p2p-send",
+                            "type": "enum",
+                            "required": true,
+                            "sourcePath": [
+                              "capabilities"
+                            ]
+                          },
+                          {
+                            "method": "attrEnum",
+                            "name": "capabilitiesP2pReceive",
+                            "wireName": "p2p-receive",
+                            "type": "enum",
+                            "required": true,
+                            "sourcePath": [
+                              "capabilities"
+                            ]
+                          },
+                          {
+                            "method": "attrEnum",
+                            "name": "capabilitiesP2mSend",
+                            "wireName": "p2m-send",
+                            "type": "enum",
+                            "required": true,
+                            "sourcePath": [
+                              "capabilities"
+                            ]
+                          },
+                          {
+                            "method": "attrEnum",
+                            "name": "capabilitiesP2mReceive",
+                            "wireName": "p2m-receive",
+                            "type": "enum",
+                            "required": true,
+                            "sourcePath": [
+                              "capabilities"
+                            ]
+                          },
+                          {
+                            "method": "",
+                            "name": "comboCardCapabilitiesMixin",
+                            "type": "string",
+                            "required": false,
+                            "children": [
+                              {
+                                "method": "attrEnum",
+                                "name": "capabilitiesP2mCreditEligible",
+                                "wireName": "p2m-credit-eligible",
+                                "type": "enum",
+                                "required": true,
+                                "sourcePath": [
+                                  "capabilities"
+                                ]
+                              },
+                              {
+                                "method": "attrEnum",
+                                "name": "capabilitiesP2mDebitEligible",
+                                "wireName": "p2m-debit-eligible",
+                                "type": "enum",
+                                "required": true,
+                                "sourcePath": [
+                                  "capabilities"
+                                ]
+                              }
+                            ],
+                            "sameNode": true
+                          }
+                        ],
+                        "assertions": [
+                          {
+                            "kind": "tag",
+                            "name": "card"
+                          }
+                        ]
+                      },
+                      {
+                        "name": "MXCard",
+                        "fields": [
+                          {
+                            "method": "attrString",
+                            "name": "image",
+                            "wireName": "image",
+                            "type": "string",
+                            "required": true
+                          },
+                          {
+                            "method": "attrString",
+                            "name": "last4",
+                            "wireName": "last4",
+                            "type": "string",
+                            "required": true
+                          },
+                          {
+                            "method": "attrEnum",
+                            "name": "verified",
+                            "wireName": "verified",
+                            "type": "enum",
+                            "required": true
+                          },
+                          {
+                            "method": "attrString",
+                            "name": "type",
+                            "wireName": "type",
+                            "type": "string",
+                            "required": true
+                          },
+                          {
+                            "method": "attrString",
+                            "name": "networkType",
+                            "wireName": "network-type",
+                            "type": "string",
+                            "required": true
+                          },
+                          {
+                            "method": "attrString",
+                            "name": "timeLastAdded",
+                            "wireName": "time-last-added",
+                            "type": "string",
+                            "required": true
+                          },
+                          {
+                            "method": "maybeAttrEnum",
+                            "name": "displayState",
+                            "wireName": "display-state",
+                            "type": "enum",
+                            "required": false
+                          },
+                          {
+                            "method": "attrEnum",
+                            "name": "defaultCredit",
+                            "wireName": "default-credit",
+                            "type": "enum",
+                            "required": true
+                          },
+                          {
+                            "method": "attrEnum",
+                            "name": "defaultDebit",
+                            "wireName": "default-debit",
+                            "type": "enum",
+                            "required": true
+                          },
+                          {
+                            "method": "maybeAttrEnum",
+                            "name": "defaultCreditP2p",
+                            "wireName": "default-credit-p2p",
+                            "type": "enum",
+                            "required": false
+                          },
+                          {
+                            "method": "maybeAttrEnum",
+                            "name": "defaultCreditP2m",
+                            "wireName": "default-credit-p2m",
+                            "type": "enum",
+                            "required": false
+                          },
+                          {
+                            "method": "maybeAttrEnum",
+                            "name": "defaultDebitP2p",
+                            "wireName": "default-debit-p2p",
+                            "type": "enum",
+                            "required": false
+                          },
+                          {
+                            "method": "maybeAttrEnum",
+                            "name": "defaultDebitP2m",
+                            "wireName": "default-debit-p2m",
+                            "type": "enum",
+                            "required": false
+                          },
+                          {
+                            "method": "attrString",
+                            "name": "credentialId",
+                            "wireName": "credential-id",
+                            "type": "string",
+                            "required": true
+                          },
+                          {
+                            "method": "maybeAttrString",
+                            "name": "country",
+                            "wireName": "country",
+                            "type": "string",
+                            "required": false
+                          },
+                          {
+                            "method": "maybeAttrString",
+                            "name": "created",
+                            "wireName": "created",
+                            "type": "string",
+                            "required": false
+                          },
+                          {
+                            "method": "maybeAttrEnum",
+                            "name": "p2pEligible",
+                            "wireName": "p2p-eligible",
+                            "type": "enum",
+                            "required": false
+                          },
+                          {
+                            "method": "maybeAttrEnum",
+                            "name": "p2mEligible",
+                            "wireName": "p2m-eligible",
+                            "type": "enum",
+                            "required": false
+                          },
+                          {
+                            "method": "attrEnum",
+                            "name": "capabilitiesEditable",
+                            "wireName": "editable",
+                            "type": "enum",
+                            "required": true,
+                            "sourcePath": [
+                              "capabilities"
+                            ]
+                          },
+                          {
+                            "method": "attrEnum",
+                            "name": "capabilitiesVerifiable",
+                            "wireName": "verifiable",
+                            "type": "enum",
+                            "required": true,
+                            "sourcePath": [
+                              "capabilities"
+                            ]
+                          },
+                          {
+                            "method": "attrEnum",
+                            "name": "capabilitiesDefaultEligible",
+                            "wireName": "default-eligible",
+                            "type": "enum",
+                            "required": true,
+                            "sourcePath": [
+                              "capabilities"
+                            ]
+                          },
+                          {
+                            "method": "maybeAttrEnum",
+                            "name": "capabilitiesDefaultEligibleP2p",
+                            "wireName": "default-eligible-p2p",
+                            "type": "enum",
+                            "required": false,
+                            "sourcePath": [
+                              "capabilities"
+                            ]
+                          },
+                          {
+                            "method": "maybeAttrEnum",
+                            "name": "capabilitiesDefaultEligibleP2m",
+                            "wireName": "default-eligible-p2m",
+                            "type": "enum",
+                            "required": false,
+                            "sourcePath": [
+                              "capabilities"
+                            ]
+                          },
+                          {
+                            "method": "attrEnum",
+                            "name": "capabilitiesP2pSend",
+                            "wireName": "p2p-send",
+                            "type": "enum",
+                            "required": true,
+                            "sourcePath": [
+                              "capabilities"
+                            ]
+                          },
+                          {
+                            "method": "attrEnum",
+                            "name": "capabilitiesP2pReceive",
+                            "wireName": "p2p-receive",
+                            "type": "enum",
+                            "required": true,
+                            "sourcePath": [
+                              "capabilities"
+                            ]
+                          },
+                          {
+                            "method": "attrEnum",
+                            "name": "capabilitiesP2mSend",
+                            "wireName": "p2m-send",
+                            "type": "enum",
+                            "required": true,
+                            "sourcePath": [
+                              "capabilities"
+                            ]
+                          },
+                          {
+                            "method": "attrEnum",
+                            "name": "capabilitiesP2mReceive",
+                            "wireName": "p2m-receive",
+                            "type": "enum",
+                            "required": true,
+                            "sourcePath": [
+                              "capabilities"
+                            ]
+                          }
+                        ],
+                        "assertions": [
+                          {
+                            "kind": "tag",
+                            "name": "card"
+                          }
+                        ]
+                      },
+                      {
+                        "name": "ESCard",
+                        "fields": [
+                          {
+                            "method": "attrString",
+                            "name": "last4",
+                            "wireName": "last4",
+                            "type": "string",
+                            "required": true
+                          },
+                          {
+                            "method": "attrEnum",
+                            "name": "verified",
+                            "wireName": "verified",
+                            "type": "enum",
+                            "required": true
+                          },
+                          {
+                            "method": "attrString",
+                            "name": "type",
+                            "wireName": "type",
+                            "type": "string",
+                            "required": true
+                          },
+                          {
+                            "method": "attrString",
+                            "name": "networkType",
+                            "wireName": "network-type",
+                            "type": "string",
+                            "required": true
+                          },
+                          {
+                            "method": "attrString",
+                            "name": "timeLastAdded",
+                            "wireName": "time-last-added",
+                            "type": "string",
+                            "required": true
+                          },
+                          {
+                            "method": "maybeAttrEnum",
+                            "name": "displayState",
+                            "wireName": "display-state",
+                            "type": "enum",
+                            "required": false
+                          },
+                          {
+                            "method": "attrEnum",
+                            "name": "defaultCredit",
+                            "wireName": "default-credit",
+                            "type": "enum",
+                            "required": true
+                          },
+                          {
+                            "method": "attrEnum",
+                            "name": "defaultDebit",
+                            "wireName": "default-debit",
+                            "type": "enum",
+                            "required": true
+                          },
+                          {
+                            "method": "maybeAttrEnum",
+                            "name": "defaultCreditP2p",
+                            "wireName": "default-credit-p2p",
+                            "type": "enum",
+                            "required": false
+                          },
+                          {
+                            "method": "maybeAttrEnum",
+                            "name": "defaultCreditP2m",
+                            "wireName": "default-credit-p2m",
+                            "type": "enum",
+                            "required": false
+                          },
+                          {
+                            "method": "maybeAttrEnum",
+                            "name": "defaultDebitP2p",
+                            "wireName": "default-debit-p2p",
+                            "type": "enum",
+                            "required": false
+                          },
+                          {
+                            "method": "maybeAttrEnum",
+                            "name": "defaultDebitP2m",
+                            "wireName": "default-debit-p2m",
+                            "type": "enum",
+                            "required": false
+                          },
+                          {
+                            "method": "attrString",
+                            "name": "credentialId",
+                            "wireName": "credential-id",
+                            "type": "string",
+                            "required": true
+                          },
+                          {
+                            "method": "maybeAttrString",
+                            "name": "country",
+                            "wireName": "country",
+                            "type": "string",
+                            "required": false
+                          },
+                          {
+                            "method": "maybeAttrString",
+                            "name": "created",
+                            "wireName": "created",
+                            "type": "string",
+                            "required": false
+                          },
+                          {
+                            "method": "maybeAttrEnum",
+                            "name": "p2pEligible",
+                            "wireName": "p2p-eligible",
+                            "type": "enum",
+                            "required": false
+                          },
+                          {
+                            "method": "maybeAttrEnum",
+                            "name": "p2mEligible",
+                            "wireName": "p2m-eligible",
+                            "type": "enum",
+                            "required": false
+                          },
+                          {
+                            "method": "attrEnum",
+                            "name": "capabilitiesEditable",
+                            "wireName": "editable",
+                            "type": "enum",
+                            "required": true,
+                            "sourcePath": [
+                              "capabilities"
+                            ]
+                          },
+                          {
+                            "method": "attrEnum",
+                            "name": "capabilitiesVerifiable",
+                            "wireName": "verifiable",
+                            "type": "enum",
+                            "required": true,
+                            "sourcePath": [
+                              "capabilities"
+                            ]
+                          },
+                          {
+                            "method": "attrEnum",
+                            "name": "capabilitiesDefaultEligible",
+                            "wireName": "default-eligible",
+                            "type": "enum",
+                            "required": true,
+                            "sourcePath": [
+                              "capabilities"
+                            ]
+                          },
+                          {
+                            "method": "maybeAttrEnum",
+                            "name": "capabilitiesDefaultEligibleP2p",
+                            "wireName": "default-eligible-p2p",
+                            "type": "enum",
+                            "required": false,
+                            "sourcePath": [
+                              "capabilities"
+                            ]
+                          },
+                          {
+                            "method": "maybeAttrEnum",
+                            "name": "capabilitiesDefaultEligibleP2m",
+                            "wireName": "default-eligible-p2m",
+                            "type": "enum",
+                            "required": false,
+                            "sourcePath": [
+                              "capabilities"
+                            ]
+                          },
+                          {
+                            "method": "attrEnum",
+                            "name": "capabilitiesP2pSend",
+                            "wireName": "p2p-send",
+                            "type": "enum",
+                            "required": true,
+                            "sourcePath": [
+                              "capabilities"
+                            ]
+                          },
+                          {
+                            "method": "attrEnum",
+                            "name": "capabilitiesP2pReceive",
+                            "wireName": "p2p-receive",
+                            "type": "enum",
+                            "required": true,
+                            "sourcePath": [
+                              "capabilities"
+                            ]
+                          },
+                          {
+                            "method": "attrEnum",
+                            "name": "capabilitiesP2mSend",
+                            "wireName": "p2m-send",
+                            "type": "enum",
+                            "required": true,
+                            "sourcePath": [
+                              "capabilities"
+                            ]
+                          },
+                          {
+                            "method": "attrEnum",
+                            "name": "capabilitiesP2mReceive",
+                            "wireName": "p2m-receive",
+                            "type": "enum",
+                            "required": true,
+                            "sourcePath": [
+                              "capabilities"
+                            ]
+                          }
+                        ],
+                        "assertions": [
+                          {
+                            "kind": "tag",
+                            "name": "card"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ],
+                "repeats": true
+              },
+              {
+                "method": "child",
+                "name": "bank",
+                "type": "string",
+                "required": true,
+                "tag": "bank",
+                "children": [
+                  {
+                    "method": "attrString",
+                    "name": "type",
+                    "wireName": "type",
+                    "type": "string",
+                    "required": true
+                  },
+                  {
+                    "method": "maybeAttrString",
+                    "name": "vpa",
+                    "wireName": "vpa",
+                    "type": "string",
+                    "required": false
+                  },
+                  {
+                    "method": "attrString",
+                    "name": "provider",
+                    "wireName": "provider",
+                    "type": "string",
+                    "required": true
+                  },
+                  {
+                    "method": "maybeAttrString",
+                    "name": "vpaId",
+                    "wireName": "vpa-id",
+                    "type": "string",
+                    "required": false
+                  },
+                  {
+                    "method": "attrString",
+                    "name": "accountNumber",
+                    "wireName": "account-number",
+                    "type": "string",
+                    "required": true
+                  },
+                  {
+                    "method": "maybeAttrString",
+                    "name": "mmid",
+                    "wireName": "mmid",
+                    "type": "string",
+                    "required": false
+                  },
+                  {
+                    "method": "maybeAttrString",
+                    "name": "accountName",
+                    "wireName": "account-name",
+                    "type": "string",
+                    "required": false
+                  },
+                  {
+                    "method": "attrEnum",
+                    "name": "isMpinSet",
+                    "wireName": "is-mpin-set",
+                    "type": "enum",
+                    "required": true
+                  },
+                  {
+                    "method": "attrInt",
+                    "name": "atmPinLength",
+                    "wireName": "atm-pin-length",
+                    "type": "integer",
+                    "required": true,
+                    "intMin": 0,
+                    "intMax": 100
+                  },
+                  {
+                    "method": "attrInt",
+                    "name": "mpinLength",
+                    "wireName": "mpin-length",
+                    "type": "integer",
+                    "required": true,
+                    "intMin": 0,
+                    "intMax": 100
+                  },
+                  {
+                    "method": "attrInt",
+                    "name": "otpLength",
+                    "wireName": "otp-length",
+                    "type": "integer",
+                    "required": true,
+                    "intMin": 0,
+                    "intMax": 100
+                  },
+                  {
+                    "method": "maybeAttrString",
+                    "name": "image",
+                    "wireName": "image",
+                    "type": "string",
+                    "required": false
+                  },
+                  {
+                    "method": "maybeAttrString",
+                    "name": "bankName",
+                    "wireName": "bank-name",
+                    "type": "string",
+                    "required": false
+                  },
+                  {
+                    "method": "maybeAttrString",
+                    "name": "bankPhoneNumber",
+                    "wireName": "bank-phone-number",
+                    "type": "string",
+                    "required": false
+                  },
+                  {
+                    "method": "maybeAttrString",
+                    "name": "code",
+                    "wireName": "code",
+                    "type": "string",
+                    "required": false
+                  },
+                  {
+                    "method": "attrEnum",
+                    "name": "pinFormatVersion",
+                    "wireName": "pin-format-version",
+                    "type": "enum",
+                    "required": true
+                  },
+                  {
+                    "method": "maybeAttrString",
+                    "name": "upiBankInfo",
+                    "wireName": "upi-bank-info",
+                    "type": "string",
+                    "required": false
+                  },
+                  {
+                    "method": "maybeAttrString",
+                    "name": "transactionPrefix",
+                    "wireName": "transaction-prefix",
+                    "type": "string",
+                    "required": false
+                  },
+                  {
+                    "method": "maybeAttrString",
+                    "name": "accountType",
+                    "wireName": "account-type",
+                    "type": "string",
+                    "required": false
+                  },
+                  {
+                    "method": "maybeAttrInt",
+                    "name": "bankRefId",
+                    "wireName": "bank-ref-id",
+                    "type": "integer",
+                    "required": false
+                  },
+                  {
+                    "method": "maybeAttrString",
+                    "name": "ifscCode",
+                    "wireName": "ifsc-code",
+                    "type": "string",
+                    "required": false
+                  },
+                  {
+                    "method": "maybeAttrString",
+                    "name": "accountRefId",
+                    "wireName": "account-ref-id",
+                    "type": "string",
+                    "required": false
+                  },
+                  {
+                    "method": "maybeAttrEnum",
+                    "name": "isAadhaarEnabled",
+                    "wireName": "is-aadhaar-enabled",
+                    "type": "enum",
+                    "required": false
+                  },
+                  {
+                    "method": "maybeAttrEnum",
+                    "name": "isInternationalPayEnabled",
+                    "wireName": "is_international_pay_enabled",
+                    "type": "enum",
+                    "required": false
+                  },
+                  {
+                    "method": "attrEnum",
+                    "name": "defaultCredit",
+                    "wireName": "default-credit",
+                    "type": "enum",
+                    "required": true
+                  },
+                  {
+                    "method": "attrEnum",
+                    "name": "defaultDebit",
+                    "wireName": "default-debit",
+                    "type": "enum",
+                    "required": true
+                  },
+                  {
+                    "method": "maybeAttrEnum",
+                    "name": "defaultCreditP2p",
+                    "wireName": "default-credit-p2p",
+                    "type": "enum",
+                    "required": false
+                  },
+                  {
+                    "method": "maybeAttrEnum",
+                    "name": "defaultCreditP2m",
+                    "wireName": "default-credit-p2m",
+                    "type": "enum",
+                    "required": false
+                  },
+                  {
+                    "method": "maybeAttrEnum",
+                    "name": "defaultDebitP2p",
+                    "wireName": "default-debit-p2p",
+                    "type": "enum",
+                    "required": false
+                  },
+                  {
+                    "method": "maybeAttrEnum",
+                    "name": "defaultDebitP2m",
+                    "wireName": "default-debit-p2m",
+                    "type": "enum",
+                    "required": false
+                  },
+                  {
+                    "method": "attrString",
+                    "name": "credentialId",
+                    "wireName": "credential-id",
+                    "type": "string",
+                    "required": true
+                  },
+                  {
+                    "method": "maybeAttrString",
+                    "name": "country",
+                    "wireName": "country",
+                    "type": "string",
+                    "required": false
+                  },
+                  {
+                    "method": "maybeAttrString",
+                    "name": "created",
+                    "wireName": "created",
+                    "type": "string",
+                    "required": false
+                  },
+                  {
+                    "method": "maybeAttrEnum",
+                    "name": "p2pEligible",
+                    "wireName": "p2p-eligible",
+                    "type": "enum",
+                    "required": false
+                  },
+                  {
+                    "method": "maybeAttrEnum",
+                    "name": "p2mEligible",
+                    "wireName": "p2m-eligible",
+                    "type": "enum",
+                    "required": false
+                  }
+                ],
+                "repeats": true
+              },
+              {
+                "method": "child",
+                "name": "merchant",
+                "type": "string",
+                "required": true,
+                "tag": "merchant",
+                "children": [
+                  {
+                    "method": "maybeAttrString",
+                    "name": "gatewayName",
+                    "wireName": "gateway-name",
+                    "type": "string",
+                    "required": false
+                  },
+                  {
+                    "method": "attrEnum",
+                    "name": "displayState",
+                    "wireName": "display-state",
+                    "type": "enum",
+                    "required": true
+                  },
+                  {
+                    "method": "maybeAttrString",
+                    "name": "dashboardUrl",
+                    "wireName": "dashboard-url",
+                    "type": "string",
+                    "required": false
+                  },
+                  {
+                    "method": "maybeAttrString",
+                    "name": "logoUri",
+                    "wireName": "logo-uri",
+                    "type": "string",
+                    "required": false
+                  },
+                  {
+                    "method": "maybeAttrInt",
+                    "name": "maxInstallmentCount",
+                    "wireName": "max_installment_count",
+                    "type": "integer",
+                    "required": false,
+                    "intMin": 0,
+                    "intMax": 50
+                  },
+                  {
+                    "method": "attrString",
+                    "name": "merchantId",
+                    "wireName": "merchant-id",
+                    "type": "string",
+                    "required": true
+                  },
+                  {
+                    "method": "maybeAttrString",
+                    "name": "businessName",
+                    "wireName": "business-name",
+                    "type": "string",
+                    "required": false
+                  },
+                  {
+                    "method": "attrEnum",
+                    "name": "canSell",
+                    "wireName": "can-sell",
+                    "type": "enum",
+                    "required": true
+                  },
+                  {
+                    "method": "attrEnum",
+                    "name": "canPayout",
+                    "wireName": "can-payout",
+                    "type": "enum",
+                    "required": true
+                  },
+                  {
+                    "method": "attrEnum",
+                    "name": "canAddPayout",
+                    "wireName": "can-add-payout",
+                    "type": "enum",
+                    "required": true
+                  },
+                  {
+                    "method": "maybeAttrString",
+                    "name": "supportPhoneNumber",
+                    "wireName": "support-phone-number",
+                    "type": "string",
+                    "required": false
+                  },
+                  {
+                    "method": "maybeAttrString",
+                    "name": "providerType",
+                    "wireName": "provider-type",
+                    "type": "string",
+                    "required": false
+                  },
+                  {
+                    "method": "maybeAttrEnum",
+                    "name": "pixOnboardingState",
+                    "wireName": "pix-onboarding-state",
+                    "type": "enum",
+                    "required": false
+                  },
+                  {
+                    "method": "attrString",
+                    "name": "credentialId",
+                    "wireName": "credential-id",
+                    "type": "string",
+                    "required": true
+                  },
+                  {
+                    "method": "maybeAttrString",
+                    "name": "country",
+                    "wireName": "country",
+                    "type": "string",
+                    "required": false
+                  },
+                  {
+                    "method": "maybeAttrString",
+                    "name": "created",
+                    "wireName": "created",
+                    "type": "string",
+                    "required": false
+                  },
+                  {
+                    "method": "maybeAttrEnum",
+                    "name": "p2pEligible",
+                    "wireName": "p2p-eligible",
+                    "type": "enum",
+                    "required": false
+                  },
+                  {
+                    "method": "maybeAttrEnum",
+                    "name": "p2mEligible",
+                    "wireName": "p2m-eligible",
+                    "type": "enum",
+                    "required": false
+                  },
+                  {
+                    "method": "child",
+                    "name": "payout",
+                    "type": "string",
+                    "required": true,
+                    "tag": "payout",
+                    "children": [
+                      {
+                        "method": "",
+                        "name": "payoutBankOrPrepaidCardMixinGroup",
+                        "type": "union",
+                        "required": true,
+                        "unionVariants": [
+                          {
+                            "name": "PayoutBank",
+                            "fields": [
+                              {
+                                "method": "attrString",
+                                "name": "type",
+                                "wireName": "type",
+                                "type": "string",
+                                "required": true
+                              },
+                              {
+                                "method": "maybeAttrString",
+                                "name": "accountNumber",
+                                "wireName": "account-number",
+                                "type": "string",
+                                "required": false
+                              },
+                              {
+                                "method": "attrString",
+                                "name": "bankName",
+                                "wireName": "bank-name",
+                                "type": "string",
+                                "required": true
+                              },
+                              {
+                                "method": "maybeAttrString",
+                                "name": "code",
+                                "wireName": "code",
+                                "type": "string",
+                                "required": false
+                              },
+                              {
+                                "method": "attrEnum",
+                                "name": "verificationStatus",
+                                "wireName": "verification-status",
+                                "type": "enum",
+                                "required": true
+                              },
+                              {
+                                "method": "attrString",
+                                "name": "credentialId",
+                                "wireName": "credential-id",
+                                "type": "string",
+                                "required": true
+                              },
+                              {
+                                "method": "maybeAttrString",
+                                "name": "country",
+                                "wireName": "country",
+                                "type": "string",
+                                "required": false
+                              },
+                              {
+                                "method": "maybeAttrString",
+                                "name": "created",
+                                "wireName": "created",
+                                "type": "string",
+                                "required": false
+                              },
+                              {
+                                "method": "maybeAttrEnum",
+                                "name": "p2pEligible",
+                                "wireName": "p2p-eligible",
+                                "type": "enum",
+                                "required": false
+                              },
+                              {
+                                "method": "maybeAttrEnum",
+                                "name": "p2mEligible",
+                                "wireName": "p2m-eligible",
+                                "type": "enum",
+                                "required": false
+                              }
+                            ],
+                            "assertions": [
+                              {
+                                "kind": "tag",
+                                "name": "payout"
+                              },
+                              {
+                                "kind": "attr",
+                                "name": "type",
+                                "value": "bank"
+                              }
+                            ]
+                          },
+                          {
+                            "name": "PayoutPrepaidCard",
+                            "fields": [
+                              {
+                                "method": "attrString",
+                                "name": "type",
+                                "wireName": "type",
+                                "type": "string",
+                                "required": true
+                              },
+                              {
+                                "method": "attrString",
+                                "name": "last4",
+                                "wireName": "last4",
+                                "type": "string",
+                                "required": true
+                              },
+                              {
+                                "method": "attrString",
+                                "name": "credentialId",
+                                "wireName": "credential-id",
+                                "type": "string",
+                                "required": true
+                              },
+                              {
+                                "method": "maybeAttrString",
+                                "name": "country",
+                                "wireName": "country",
+                                "type": "string",
+                                "required": false
+                              },
+                              {
+                                "method": "maybeAttrString",
+                                "name": "created",
+                                "wireName": "created",
+                                "type": "string",
+                                "required": false
+                              },
+                              {
+                                "method": "maybeAttrEnum",
+                                "name": "p2pEligible",
+                                "wireName": "p2p-eligible",
+                                "type": "enum",
+                                "required": false
+                              },
+                              {
+                                "method": "maybeAttrEnum",
+                                "name": "p2mEligible",
+                                "wireName": "p2m-eligible",
+                                "type": "enum",
+                                "required": false
+                              }
+                            ],
+                            "assertions": [
+                              {
+                                "kind": "tag",
+                                "name": "payout"
+                              },
+                              {
+                                "kind": "attr",
+                                "name": "type",
+                                "value": "prepaid-card"
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ],
+                    "repeats": true
+                  }
+                ],
+                "repeats": true
+              },
+              {
+                "method": "child",
+                "name": "alias",
+                "type": "string",
+                "required": true,
+                "tag": "alias",
+                "children": [
+                  {
+                    "method": "maybeAttrString",
+                    "name": "type",
+                    "wireName": "type",
+                    "type": "string",
+                    "required": false
+                  },
+                  {
+                    "method": "attrString",
+                    "name": "aliasValue",
+                    "wireName": "alias_value",
+                    "type": "string",
+                    "required": true
+                  },
+                  {
+                    "method": "attrString",
+                    "name": "aliasId",
+                    "wireName": "alias_id",
+                    "type": "string",
+                    "required": true
+                  },
+                  {
+                    "method": "attrEnum",
+                    "name": "aliasType",
+                    "wireName": "alias_type",
+                    "type": "enum",
+                    "required": true
+                  },
+                  {
+                    "method": "maybeAttrEnum",
+                    "name": "aliasStatus",
+                    "wireName": "alias_status",
+                    "type": "enum",
+                    "required": false
+                  }
+                ],
+                "repeats": true
+              },
+              {
+                "method": "child",
+                "name": "customPaymentMethod",
+                "type": "string",
+                "required": true,
+                "tag": "custom_payment_method",
+                "children": [
+                  {
+                    "method": "attrEnum",
+                    "name": "type",
+                    "wireName": "type",
+                    "type": "enum",
+                    "required": true
+                  },
+                  {
+                    "method": "maybeAttrString",
+                    "name": "country",
+                    "wireName": "country",
+                    "type": "string",
+                    "required": false
+                  },
+                  {
+                    "method": "maybeAttrString",
+                    "name": "created",
+                    "wireName": "created",
+                    "type": "string",
+                    "required": false
+                  },
+                  {
+                    "method": "maybeAttrEnum",
+                    "name": "flow",
+                    "wireName": "flow",
+                    "type": "enum",
+                    "required": false
+                  },
+                  {
+                    "method": "attrString",
+                    "name": "credentialId",
+                    "wireName": "credential-id",
+                    "type": "string",
+                    "required": true
+                  },
+                  {
+                    "method": "maybeAttrEnum",
+                    "name": "p2pEligible",
+                    "wireName": "p2p-eligible",
+                    "type": "enum",
+                    "required": false
+                  },
+                  {
+                    "method": "maybeAttrEnum",
+                    "name": "p2mEligible",
+                    "wireName": "p2m-eligible",
+                    "type": "enum",
+                    "required": false
+                  },
+                  {
+                    "method": "",
+                    "name": "customPaymentMethodMetaDataInfoMixin",
+                    "type": "string",
+                    "required": false,
+                    "children": [
+                      {
+                        "method": "child",
+                        "name": "metadata",
+                        "type": "string",
+                        "required": true,
+                        "tag": "metadata",
+                        "children": [
+                          {
+                            "method": "attrString",
+                            "name": "key",
+                            "wireName": "key",
+                            "type": "string",
+                            "required": true
+                          },
+                          {
+                            "method": "attrString",
+                            "name": "value",
+                            "wireName": "value",
+                            "type": "string",
+                            "required": true
+                          }
+                        ],
+                        "repeats": true,
+                        "sourcePath": [
+                          "metadata_info"
+                        ]
+                      }
+                    ],
+                    "sameNode": true
+                  }
+                ],
+                "repeats": true
+              }
+            ],
+            "repeats": false
+          },
+          {
+            "method": "attrString",
+            "name": "type",
+            "wireName": "type",
+            "type": "string",
+            "required": true
+          }
+        ],
+        "variants": [
+          {
+            "tag": "RemoveCustomPaymentMethodResponseSuccess",
+            "moduleName": "WASmaxInBrPaymentRemoveCustomPaymentMethodResponseSuccess",
+            "kind": "success",
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "result"
+              }
+            ],
+            "fields": [
+              {
+                "method": "child",
+                "name": "accountPaymentMethodsMixin",
+                "type": "string",
+                "required": true,
+                "tag": "account",
+                "children": [
+                  {
+                    "method": "maybeAttrInt",
+                    "name": "version",
+                    "wireName": "version",
+                    "type": "integer",
+                    "required": false
+                  },
+                  {
+                    "method": "maybeAttrString",
+                    "name": "instanceId",
+                    "wireName": "instance-id",
+                    "type": "string",
+                    "required": false
+                  },
+                  {
+                    "method": "maybeAttrString",
+                    "name": "waSupportPhoneNumber",
+                    "wireName": "wa-support-phone-number",
+                    "type": "string",
+                    "required": false
+                  },
+                  {
+                    "method": "child",
+                    "name": "card",
+                    "type": "string",
+                    "required": true,
+                    "tag": "card",
+                    "children": [
+                      {
+                        "method": "",
+                        "name": "bROrMXOrESCardMixinGroup",
+                        "type": "union",
+                        "required": true,
+                        "unionVariants": [
+                          {
+                            "name": "BRCard",
+                            "fields": [
+                              {
+                                "method": "attrString",
+                                "name": "imageContentId",
+                                "wireName": "image-content-id",
+                                "type": "string",
+                                "required": true
+                              },
+                              {
+                                "method": "attrString",
+                                "name": "bindingType",
+                                "wireName": "binding-type",
+                                "type": "string",
+                                "required": true
+                              },
+                              {
+                                "method": "attrEnum",
+                                "name": "needsDeviceBinding",
+                                "wireName": "needs-device-binding",
+                                "type": "enum",
+                                "required": true
+                              },
+                              {
+                                "method": "maybeAttrEnum",
+                                "name": "state",
+                                "wireName": "state",
+                                "type": "enum",
+                                "required": false
+                              },
+                              {
+                                "method": "maybeAttrString",
+                                "name": "bankName",
+                                "wireName": "bank-name",
+                                "type": "string",
+                                "required": false
+                              },
+                              {
+                                "method": "maybeAttrString",
+                                "name": "bankPhoneNumber",
+                                "wireName": "bank-phone-number",
+                                "type": "string",
+                                "required": false
+                              },
+                              {
+                                "method": "maybeAttrEnum",
+                                "name": "automaticBinding",
+                                "wireName": "automatic-binding",
+                                "type": "enum",
+                                "required": false
+                              },
+                              {
+                                "method": "attrString",
+                                "name": "last4",
+                                "wireName": "last4",
+                                "type": "string",
+                                "required": true
+                              },
+                              {
+                                "method": "attrEnum",
+                                "name": "verified",
+                                "wireName": "verified",
+                                "type": "enum",
+                                "required": true
+                              },
+                              {
+                                "method": "attrString",
+                                "name": "type",
+                                "wireName": "type",
+                                "type": "string",
+                                "required": true
+                              },
+                              {
+                                "method": "attrString",
+                                "name": "networkType",
+                                "wireName": "network-type",
+                                "type": "string",
+                                "required": true
+                              },
+                              {
+                                "method": "attrString",
+                                "name": "timeLastAdded",
+                                "wireName": "time-last-added",
+                                "type": "string",
+                                "required": true
+                              },
+                              {
+                                "method": "maybeAttrEnum",
+                                "name": "displayState",
+                                "wireName": "display-state",
+                                "type": "enum",
+                                "required": false
+                              },
+                              {
+                                "method": "attrEnum",
+                                "name": "defaultCredit",
+                                "wireName": "default-credit",
+                                "type": "enum",
+                                "required": true
+                              },
+                              {
+                                "method": "attrEnum",
+                                "name": "defaultDebit",
+                                "wireName": "default-debit",
+                                "type": "enum",
+                                "required": true
+                              },
+                              {
+                                "method": "maybeAttrEnum",
+                                "name": "defaultCreditP2p",
+                                "wireName": "default-credit-p2p",
+                                "type": "enum",
+                                "required": false
+                              },
+                              {
+                                "method": "maybeAttrEnum",
+                                "name": "defaultCreditP2m",
+                                "wireName": "default-credit-p2m",
+                                "type": "enum",
+                                "required": false
+                              },
+                              {
+                                "method": "maybeAttrEnum",
+                                "name": "defaultDebitP2p",
+                                "wireName": "default-debit-p2p",
+                                "type": "enum",
+                                "required": false
+                              },
+                              {
+                                "method": "maybeAttrEnum",
+                                "name": "defaultDebitP2m",
+                                "wireName": "default-debit-p2m",
+                                "type": "enum",
+                                "required": false
+                              },
+                              {
+                                "method": "attrString",
+                                "name": "credentialId",
+                                "wireName": "credential-id",
+                                "type": "string",
+                                "required": true
+                              },
+                              {
+                                "method": "maybeAttrString",
+                                "name": "country",
+                                "wireName": "country",
+                                "type": "string",
+                                "required": false
+                              },
+                              {
+                                "method": "maybeAttrString",
+                                "name": "created",
+                                "wireName": "created",
+                                "type": "string",
+                                "required": false
+                              },
+                              {
+                                "method": "maybeAttrEnum",
+                                "name": "p2pEligible",
+                                "wireName": "p2p-eligible",
+                                "type": "enum",
+                                "required": false
+                              },
+                              {
+                                "method": "maybeAttrEnum",
+                                "name": "p2mEligible",
+                                "wireName": "p2m-eligible",
+                                "type": "enum",
+                                "required": false
+                              },
+                              {
+                                "method": "attrEnum",
+                                "name": "capabilitiesEditable",
+                                "wireName": "editable",
+                                "type": "enum",
+                                "required": true,
+                                "sourcePath": [
+                                  "capabilities"
+                                ]
+                              },
+                              {
+                                "method": "attrEnum",
+                                "name": "capabilitiesVerifiable",
+                                "wireName": "verifiable",
+                                "type": "enum",
+                                "required": true,
+                                "sourcePath": [
+                                  "capabilities"
+                                ]
+                              },
+                              {
+                                "method": "attrEnum",
+                                "name": "capabilitiesDefaultEligible",
+                                "wireName": "default-eligible",
+                                "type": "enum",
+                                "required": true,
+                                "sourcePath": [
+                                  "capabilities"
+                                ]
+                              },
+                              {
+                                "method": "maybeAttrEnum",
+                                "name": "capabilitiesDefaultEligibleP2p",
+                                "wireName": "default-eligible-p2p",
+                                "type": "enum",
+                                "required": false,
+                                "sourcePath": [
+                                  "capabilities"
+                                ]
+                              },
+                              {
+                                "method": "maybeAttrEnum",
+                                "name": "capabilitiesDefaultEligibleP2m",
+                                "wireName": "default-eligible-p2m",
+                                "type": "enum",
+                                "required": false,
+                                "sourcePath": [
+                                  "capabilities"
+                                ]
+                              },
+                              {
+                                "method": "attrEnum",
+                                "name": "capabilitiesP2pSend",
+                                "wireName": "p2p-send",
+                                "type": "enum",
+                                "required": true,
+                                "sourcePath": [
+                                  "capabilities"
+                                ]
+                              },
+                              {
+                                "method": "attrEnum",
+                                "name": "capabilitiesP2pReceive",
+                                "wireName": "p2p-receive",
+                                "type": "enum",
+                                "required": true,
+                                "sourcePath": [
+                                  "capabilities"
+                                ]
+                              },
+                              {
+                                "method": "attrEnum",
+                                "name": "capabilitiesP2mSend",
+                                "wireName": "p2m-send",
+                                "type": "enum",
+                                "required": true,
+                                "sourcePath": [
+                                  "capabilities"
+                                ]
+                              },
+                              {
+                                "method": "attrEnum",
+                                "name": "capabilitiesP2mReceive",
+                                "wireName": "p2m-receive",
+                                "type": "enum",
+                                "required": true,
+                                "sourcePath": [
+                                  "capabilities"
+                                ]
+                              },
+                              {
+                                "method": "",
+                                "name": "comboCardCapabilitiesMixin",
+                                "type": "string",
+                                "required": false,
+                                "children": [
+                                  {
+                                    "method": "attrEnum",
+                                    "name": "capabilitiesP2mCreditEligible",
+                                    "wireName": "p2m-credit-eligible",
+                                    "type": "enum",
+                                    "required": true,
+                                    "sourcePath": [
+                                      "capabilities"
+                                    ]
+                                  },
+                                  {
+                                    "method": "attrEnum",
+                                    "name": "capabilitiesP2mDebitEligible",
+                                    "wireName": "p2m-debit-eligible",
+                                    "type": "enum",
+                                    "required": true,
+                                    "sourcePath": [
+                                      "capabilities"
+                                    ]
+                                  }
+                                ],
+                                "sameNode": true
+                              }
+                            ],
+                            "assertions": [
+                              {
+                                "kind": "tag",
+                                "name": "card"
+                              }
+                            ]
+                          },
+                          {
+                            "name": "MXCard",
+                            "fields": [
+                              {
+                                "method": "attrString",
+                                "name": "image",
+                                "wireName": "image",
+                                "type": "string",
+                                "required": true
+                              },
+                              {
+                                "method": "attrString",
+                                "name": "last4",
+                                "wireName": "last4",
+                                "type": "string",
+                                "required": true
+                              },
+                              {
+                                "method": "attrEnum",
+                                "name": "verified",
+                                "wireName": "verified",
+                                "type": "enum",
+                                "required": true
+                              },
+                              {
+                                "method": "attrString",
+                                "name": "type",
+                                "wireName": "type",
+                                "type": "string",
+                                "required": true
+                              },
+                              {
+                                "method": "attrString",
+                                "name": "networkType",
+                                "wireName": "network-type",
+                                "type": "string",
+                                "required": true
+                              },
+                              {
+                                "method": "attrString",
+                                "name": "timeLastAdded",
+                                "wireName": "time-last-added",
+                                "type": "string",
+                                "required": true
+                              },
+                              {
+                                "method": "maybeAttrEnum",
+                                "name": "displayState",
+                                "wireName": "display-state",
+                                "type": "enum",
+                                "required": false
+                              },
+                              {
+                                "method": "attrEnum",
+                                "name": "defaultCredit",
+                                "wireName": "default-credit",
+                                "type": "enum",
+                                "required": true
+                              },
+                              {
+                                "method": "attrEnum",
+                                "name": "defaultDebit",
+                                "wireName": "default-debit",
+                                "type": "enum",
+                                "required": true
+                              },
+                              {
+                                "method": "maybeAttrEnum",
+                                "name": "defaultCreditP2p",
+                                "wireName": "default-credit-p2p",
+                                "type": "enum",
+                                "required": false
+                              },
+                              {
+                                "method": "maybeAttrEnum",
+                                "name": "defaultCreditP2m",
+                                "wireName": "default-credit-p2m",
+                                "type": "enum",
+                                "required": false
+                              },
+                              {
+                                "method": "maybeAttrEnum",
+                                "name": "defaultDebitP2p",
+                                "wireName": "default-debit-p2p",
+                                "type": "enum",
+                                "required": false
+                              },
+                              {
+                                "method": "maybeAttrEnum",
+                                "name": "defaultDebitP2m",
+                                "wireName": "default-debit-p2m",
+                                "type": "enum",
+                                "required": false
+                              },
+                              {
+                                "method": "attrString",
+                                "name": "credentialId",
+                                "wireName": "credential-id",
+                                "type": "string",
+                                "required": true
+                              },
+                              {
+                                "method": "maybeAttrString",
+                                "name": "country",
+                                "wireName": "country",
+                                "type": "string",
+                                "required": false
+                              },
+                              {
+                                "method": "maybeAttrString",
+                                "name": "created",
+                                "wireName": "created",
+                                "type": "string",
+                                "required": false
+                              },
+                              {
+                                "method": "maybeAttrEnum",
+                                "name": "p2pEligible",
+                                "wireName": "p2p-eligible",
+                                "type": "enum",
+                                "required": false
+                              },
+                              {
+                                "method": "maybeAttrEnum",
+                                "name": "p2mEligible",
+                                "wireName": "p2m-eligible",
+                                "type": "enum",
+                                "required": false
+                              },
+                              {
+                                "method": "attrEnum",
+                                "name": "capabilitiesEditable",
+                                "wireName": "editable",
+                                "type": "enum",
+                                "required": true,
+                                "sourcePath": [
+                                  "capabilities"
+                                ]
+                              },
+                              {
+                                "method": "attrEnum",
+                                "name": "capabilitiesVerifiable",
+                                "wireName": "verifiable",
+                                "type": "enum",
+                                "required": true,
+                                "sourcePath": [
+                                  "capabilities"
+                                ]
+                              },
+                              {
+                                "method": "attrEnum",
+                                "name": "capabilitiesDefaultEligible",
+                                "wireName": "default-eligible",
+                                "type": "enum",
+                                "required": true,
+                                "sourcePath": [
+                                  "capabilities"
+                                ]
+                              },
+                              {
+                                "method": "maybeAttrEnum",
+                                "name": "capabilitiesDefaultEligibleP2p",
+                                "wireName": "default-eligible-p2p",
+                                "type": "enum",
+                                "required": false,
+                                "sourcePath": [
+                                  "capabilities"
+                                ]
+                              },
+                              {
+                                "method": "maybeAttrEnum",
+                                "name": "capabilitiesDefaultEligibleP2m",
+                                "wireName": "default-eligible-p2m",
+                                "type": "enum",
+                                "required": false,
+                                "sourcePath": [
+                                  "capabilities"
+                                ]
+                              },
+                              {
+                                "method": "attrEnum",
+                                "name": "capabilitiesP2pSend",
+                                "wireName": "p2p-send",
+                                "type": "enum",
+                                "required": true,
+                                "sourcePath": [
+                                  "capabilities"
+                                ]
+                              },
+                              {
+                                "method": "attrEnum",
+                                "name": "capabilitiesP2pReceive",
+                                "wireName": "p2p-receive",
+                                "type": "enum",
+                                "required": true,
+                                "sourcePath": [
+                                  "capabilities"
+                                ]
+                              },
+                              {
+                                "method": "attrEnum",
+                                "name": "capabilitiesP2mSend",
+                                "wireName": "p2m-send",
+                                "type": "enum",
+                                "required": true,
+                                "sourcePath": [
+                                  "capabilities"
+                                ]
+                              },
+                              {
+                                "method": "attrEnum",
+                                "name": "capabilitiesP2mReceive",
+                                "wireName": "p2m-receive",
+                                "type": "enum",
+                                "required": true,
+                                "sourcePath": [
+                                  "capabilities"
+                                ]
+                              }
+                            ],
+                            "assertions": [
+                              {
+                                "kind": "tag",
+                                "name": "card"
+                              }
+                            ]
+                          },
+                          {
+                            "name": "ESCard",
+                            "fields": [
+                              {
+                                "method": "attrString",
+                                "name": "last4",
+                                "wireName": "last4",
+                                "type": "string",
+                                "required": true
+                              },
+                              {
+                                "method": "attrEnum",
+                                "name": "verified",
+                                "wireName": "verified",
+                                "type": "enum",
+                                "required": true
+                              },
+                              {
+                                "method": "attrString",
+                                "name": "type",
+                                "wireName": "type",
+                                "type": "string",
+                                "required": true
+                              },
+                              {
+                                "method": "attrString",
+                                "name": "networkType",
+                                "wireName": "network-type",
+                                "type": "string",
+                                "required": true
+                              },
+                              {
+                                "method": "attrString",
+                                "name": "timeLastAdded",
+                                "wireName": "time-last-added",
+                                "type": "string",
+                                "required": true
+                              },
+                              {
+                                "method": "maybeAttrEnum",
+                                "name": "displayState",
+                                "wireName": "display-state",
+                                "type": "enum",
+                                "required": false
+                              },
+                              {
+                                "method": "attrEnum",
+                                "name": "defaultCredit",
+                                "wireName": "default-credit",
+                                "type": "enum",
+                                "required": true
+                              },
+                              {
+                                "method": "attrEnum",
+                                "name": "defaultDebit",
+                                "wireName": "default-debit",
+                                "type": "enum",
+                                "required": true
+                              },
+                              {
+                                "method": "maybeAttrEnum",
+                                "name": "defaultCreditP2p",
+                                "wireName": "default-credit-p2p",
+                                "type": "enum",
+                                "required": false
+                              },
+                              {
+                                "method": "maybeAttrEnum",
+                                "name": "defaultCreditP2m",
+                                "wireName": "default-credit-p2m",
+                                "type": "enum",
+                                "required": false
+                              },
+                              {
+                                "method": "maybeAttrEnum",
+                                "name": "defaultDebitP2p",
+                                "wireName": "default-debit-p2p",
+                                "type": "enum",
+                                "required": false
+                              },
+                              {
+                                "method": "maybeAttrEnum",
+                                "name": "defaultDebitP2m",
+                                "wireName": "default-debit-p2m",
+                                "type": "enum",
+                                "required": false
+                              },
+                              {
+                                "method": "attrString",
+                                "name": "credentialId",
+                                "wireName": "credential-id",
+                                "type": "string",
+                                "required": true
+                              },
+                              {
+                                "method": "maybeAttrString",
+                                "name": "country",
+                                "wireName": "country",
+                                "type": "string",
+                                "required": false
+                              },
+                              {
+                                "method": "maybeAttrString",
+                                "name": "created",
+                                "wireName": "created",
+                                "type": "string",
+                                "required": false
+                              },
+                              {
+                                "method": "maybeAttrEnum",
+                                "name": "p2pEligible",
+                                "wireName": "p2p-eligible",
+                                "type": "enum",
+                                "required": false
+                              },
+                              {
+                                "method": "maybeAttrEnum",
+                                "name": "p2mEligible",
+                                "wireName": "p2m-eligible",
+                                "type": "enum",
+                                "required": false
+                              },
+                              {
+                                "method": "attrEnum",
+                                "name": "capabilitiesEditable",
+                                "wireName": "editable",
+                                "type": "enum",
+                                "required": true,
+                                "sourcePath": [
+                                  "capabilities"
+                                ]
+                              },
+                              {
+                                "method": "attrEnum",
+                                "name": "capabilitiesVerifiable",
+                                "wireName": "verifiable",
+                                "type": "enum",
+                                "required": true,
+                                "sourcePath": [
+                                  "capabilities"
+                                ]
+                              },
+                              {
+                                "method": "attrEnum",
+                                "name": "capabilitiesDefaultEligible",
+                                "wireName": "default-eligible",
+                                "type": "enum",
+                                "required": true,
+                                "sourcePath": [
+                                  "capabilities"
+                                ]
+                              },
+                              {
+                                "method": "maybeAttrEnum",
+                                "name": "capabilitiesDefaultEligibleP2p",
+                                "wireName": "default-eligible-p2p",
+                                "type": "enum",
+                                "required": false,
+                                "sourcePath": [
+                                  "capabilities"
+                                ]
+                              },
+                              {
+                                "method": "maybeAttrEnum",
+                                "name": "capabilitiesDefaultEligibleP2m",
+                                "wireName": "default-eligible-p2m",
+                                "type": "enum",
+                                "required": false,
+                                "sourcePath": [
+                                  "capabilities"
+                                ]
+                              },
+                              {
+                                "method": "attrEnum",
+                                "name": "capabilitiesP2pSend",
+                                "wireName": "p2p-send",
+                                "type": "enum",
+                                "required": true,
+                                "sourcePath": [
+                                  "capabilities"
+                                ]
+                              },
+                              {
+                                "method": "attrEnum",
+                                "name": "capabilitiesP2pReceive",
+                                "wireName": "p2p-receive",
+                                "type": "enum",
+                                "required": true,
+                                "sourcePath": [
+                                  "capabilities"
+                                ]
+                              },
+                              {
+                                "method": "attrEnum",
+                                "name": "capabilitiesP2mSend",
+                                "wireName": "p2m-send",
+                                "type": "enum",
+                                "required": true,
+                                "sourcePath": [
+                                  "capabilities"
+                                ]
+                              },
+                              {
+                                "method": "attrEnum",
+                                "name": "capabilitiesP2mReceive",
+                                "wireName": "p2m-receive",
+                                "type": "enum",
+                                "required": true,
+                                "sourcePath": [
+                                  "capabilities"
+                                ]
+                              }
+                            ],
+                            "assertions": [
+                              {
+                                "kind": "tag",
+                                "name": "card"
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ],
+                    "repeats": true
+                  },
+                  {
+                    "method": "child",
+                    "name": "bank",
+                    "type": "string",
+                    "required": true,
+                    "tag": "bank",
+                    "children": [
+                      {
+                        "method": "attrString",
+                        "name": "type",
+                        "wireName": "type",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "maybeAttrString",
+                        "name": "vpa",
+                        "wireName": "vpa",
+                        "type": "string",
+                        "required": false
+                      },
+                      {
+                        "method": "attrString",
+                        "name": "provider",
+                        "wireName": "provider",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "maybeAttrString",
+                        "name": "vpaId",
+                        "wireName": "vpa-id",
+                        "type": "string",
+                        "required": false
+                      },
+                      {
+                        "method": "attrString",
+                        "name": "accountNumber",
+                        "wireName": "account-number",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "maybeAttrString",
+                        "name": "mmid",
+                        "wireName": "mmid",
+                        "type": "string",
+                        "required": false
+                      },
+                      {
+                        "method": "maybeAttrString",
+                        "name": "accountName",
+                        "wireName": "account-name",
+                        "type": "string",
+                        "required": false
+                      },
+                      {
+                        "method": "attrEnum",
+                        "name": "isMpinSet",
+                        "wireName": "is-mpin-set",
+                        "type": "enum",
+                        "required": true
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "atmPinLength",
+                        "wireName": "atm-pin-length",
+                        "type": "integer",
+                        "required": true,
+                        "intMin": 0,
+                        "intMax": 100
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "mpinLength",
+                        "wireName": "mpin-length",
+                        "type": "integer",
+                        "required": true,
+                        "intMin": 0,
+                        "intMax": 100
+                      },
+                      {
+                        "method": "attrInt",
+                        "name": "otpLength",
+                        "wireName": "otp-length",
+                        "type": "integer",
+                        "required": true,
+                        "intMin": 0,
+                        "intMax": 100
+                      },
+                      {
+                        "method": "maybeAttrString",
+                        "name": "image",
+                        "wireName": "image",
+                        "type": "string",
+                        "required": false
+                      },
+                      {
+                        "method": "maybeAttrString",
+                        "name": "bankName",
+                        "wireName": "bank-name",
+                        "type": "string",
+                        "required": false
+                      },
+                      {
+                        "method": "maybeAttrString",
+                        "name": "bankPhoneNumber",
+                        "wireName": "bank-phone-number",
+                        "type": "string",
+                        "required": false
+                      },
+                      {
+                        "method": "maybeAttrString",
+                        "name": "code",
+                        "wireName": "code",
+                        "type": "string",
+                        "required": false
+                      },
+                      {
+                        "method": "attrEnum",
+                        "name": "pinFormatVersion",
+                        "wireName": "pin-format-version",
+                        "type": "enum",
+                        "required": true
+                      },
+                      {
+                        "method": "maybeAttrString",
+                        "name": "upiBankInfo",
+                        "wireName": "upi-bank-info",
+                        "type": "string",
+                        "required": false
+                      },
+                      {
+                        "method": "maybeAttrString",
+                        "name": "transactionPrefix",
+                        "wireName": "transaction-prefix",
+                        "type": "string",
+                        "required": false
+                      },
+                      {
+                        "method": "maybeAttrString",
+                        "name": "accountType",
+                        "wireName": "account-type",
+                        "type": "string",
+                        "required": false
+                      },
+                      {
+                        "method": "maybeAttrInt",
+                        "name": "bankRefId",
+                        "wireName": "bank-ref-id",
+                        "type": "integer",
+                        "required": false
+                      },
+                      {
+                        "method": "maybeAttrString",
+                        "name": "ifscCode",
+                        "wireName": "ifsc-code",
+                        "type": "string",
+                        "required": false
+                      },
+                      {
+                        "method": "maybeAttrString",
+                        "name": "accountRefId",
+                        "wireName": "account-ref-id",
+                        "type": "string",
+                        "required": false
+                      },
+                      {
+                        "method": "maybeAttrEnum",
+                        "name": "isAadhaarEnabled",
+                        "wireName": "is-aadhaar-enabled",
+                        "type": "enum",
+                        "required": false
+                      },
+                      {
+                        "method": "maybeAttrEnum",
+                        "name": "isInternationalPayEnabled",
+                        "wireName": "is_international_pay_enabled",
+                        "type": "enum",
+                        "required": false
+                      },
+                      {
+                        "method": "attrEnum",
+                        "name": "defaultCredit",
+                        "wireName": "default-credit",
+                        "type": "enum",
+                        "required": true
+                      },
+                      {
+                        "method": "attrEnum",
+                        "name": "defaultDebit",
+                        "wireName": "default-debit",
+                        "type": "enum",
+                        "required": true
+                      },
+                      {
+                        "method": "maybeAttrEnum",
+                        "name": "defaultCreditP2p",
+                        "wireName": "default-credit-p2p",
+                        "type": "enum",
+                        "required": false
+                      },
+                      {
+                        "method": "maybeAttrEnum",
+                        "name": "defaultCreditP2m",
+                        "wireName": "default-credit-p2m",
+                        "type": "enum",
+                        "required": false
+                      },
+                      {
+                        "method": "maybeAttrEnum",
+                        "name": "defaultDebitP2p",
+                        "wireName": "default-debit-p2p",
+                        "type": "enum",
+                        "required": false
+                      },
+                      {
+                        "method": "maybeAttrEnum",
+                        "name": "defaultDebitP2m",
+                        "wireName": "default-debit-p2m",
+                        "type": "enum",
+                        "required": false
+                      },
+                      {
+                        "method": "attrString",
+                        "name": "credentialId",
+                        "wireName": "credential-id",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "maybeAttrString",
+                        "name": "country",
+                        "wireName": "country",
+                        "type": "string",
+                        "required": false
+                      },
+                      {
+                        "method": "maybeAttrString",
+                        "name": "created",
+                        "wireName": "created",
+                        "type": "string",
+                        "required": false
+                      },
+                      {
+                        "method": "maybeAttrEnum",
+                        "name": "p2pEligible",
+                        "wireName": "p2p-eligible",
+                        "type": "enum",
+                        "required": false
+                      },
+                      {
+                        "method": "maybeAttrEnum",
+                        "name": "p2mEligible",
+                        "wireName": "p2m-eligible",
+                        "type": "enum",
+                        "required": false
+                      }
+                    ],
+                    "repeats": true
+                  },
+                  {
+                    "method": "child",
+                    "name": "merchant",
+                    "type": "string",
+                    "required": true,
+                    "tag": "merchant",
+                    "children": [
+                      {
+                        "method": "maybeAttrString",
+                        "name": "gatewayName",
+                        "wireName": "gateway-name",
+                        "type": "string",
+                        "required": false
+                      },
+                      {
+                        "method": "attrEnum",
+                        "name": "displayState",
+                        "wireName": "display-state",
+                        "type": "enum",
+                        "required": true
+                      },
+                      {
+                        "method": "maybeAttrString",
+                        "name": "dashboardUrl",
+                        "wireName": "dashboard-url",
+                        "type": "string",
+                        "required": false
+                      },
+                      {
+                        "method": "maybeAttrString",
+                        "name": "logoUri",
+                        "wireName": "logo-uri",
+                        "type": "string",
+                        "required": false
+                      },
+                      {
+                        "method": "maybeAttrInt",
+                        "name": "maxInstallmentCount",
+                        "wireName": "max_installment_count",
+                        "type": "integer",
+                        "required": false,
+                        "intMin": 0,
+                        "intMax": 50
+                      },
+                      {
+                        "method": "attrString",
+                        "name": "merchantId",
+                        "wireName": "merchant-id",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "maybeAttrString",
+                        "name": "businessName",
+                        "wireName": "business-name",
+                        "type": "string",
+                        "required": false
+                      },
+                      {
+                        "method": "attrEnum",
+                        "name": "canSell",
+                        "wireName": "can-sell",
+                        "type": "enum",
+                        "required": true
+                      },
+                      {
+                        "method": "attrEnum",
+                        "name": "canPayout",
+                        "wireName": "can-payout",
+                        "type": "enum",
+                        "required": true
+                      },
+                      {
+                        "method": "attrEnum",
+                        "name": "canAddPayout",
+                        "wireName": "can-add-payout",
+                        "type": "enum",
+                        "required": true
+                      },
+                      {
+                        "method": "maybeAttrString",
+                        "name": "supportPhoneNumber",
+                        "wireName": "support-phone-number",
+                        "type": "string",
+                        "required": false
+                      },
+                      {
+                        "method": "maybeAttrString",
+                        "name": "providerType",
+                        "wireName": "provider-type",
+                        "type": "string",
+                        "required": false
+                      },
+                      {
+                        "method": "maybeAttrEnum",
+                        "name": "pixOnboardingState",
+                        "wireName": "pix-onboarding-state",
+                        "type": "enum",
+                        "required": false
+                      },
+                      {
+                        "method": "attrString",
+                        "name": "credentialId",
+                        "wireName": "credential-id",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "maybeAttrString",
+                        "name": "country",
+                        "wireName": "country",
+                        "type": "string",
+                        "required": false
+                      },
+                      {
+                        "method": "maybeAttrString",
+                        "name": "created",
+                        "wireName": "created",
+                        "type": "string",
+                        "required": false
+                      },
+                      {
+                        "method": "maybeAttrEnum",
+                        "name": "p2pEligible",
+                        "wireName": "p2p-eligible",
+                        "type": "enum",
+                        "required": false
+                      },
+                      {
+                        "method": "maybeAttrEnum",
+                        "name": "p2mEligible",
+                        "wireName": "p2m-eligible",
+                        "type": "enum",
+                        "required": false
+                      },
+                      {
+                        "method": "child",
+                        "name": "payout",
+                        "type": "string",
+                        "required": true,
+                        "tag": "payout",
+                        "children": [
+                          {
+                            "method": "",
+                            "name": "payoutBankOrPrepaidCardMixinGroup",
+                            "type": "union",
+                            "required": true,
+                            "unionVariants": [
+                              {
+                                "name": "PayoutBank",
+                                "fields": [
+                                  {
+                                    "method": "attrString",
+                                    "name": "type",
+                                    "wireName": "type",
+                                    "type": "string",
+                                    "required": true
+                                  },
+                                  {
+                                    "method": "maybeAttrString",
+                                    "name": "accountNumber",
+                                    "wireName": "account-number",
+                                    "type": "string",
+                                    "required": false
+                                  },
+                                  {
+                                    "method": "attrString",
+                                    "name": "bankName",
+                                    "wireName": "bank-name",
+                                    "type": "string",
+                                    "required": true
+                                  },
+                                  {
+                                    "method": "maybeAttrString",
+                                    "name": "code",
+                                    "wireName": "code",
+                                    "type": "string",
+                                    "required": false
+                                  },
+                                  {
+                                    "method": "attrEnum",
+                                    "name": "verificationStatus",
+                                    "wireName": "verification-status",
+                                    "type": "enum",
+                                    "required": true
+                                  },
+                                  {
+                                    "method": "attrString",
+                                    "name": "credentialId",
+                                    "wireName": "credential-id",
+                                    "type": "string",
+                                    "required": true
+                                  },
+                                  {
+                                    "method": "maybeAttrString",
+                                    "name": "country",
+                                    "wireName": "country",
+                                    "type": "string",
+                                    "required": false
+                                  },
+                                  {
+                                    "method": "maybeAttrString",
+                                    "name": "created",
+                                    "wireName": "created",
+                                    "type": "string",
+                                    "required": false
+                                  },
+                                  {
+                                    "method": "maybeAttrEnum",
+                                    "name": "p2pEligible",
+                                    "wireName": "p2p-eligible",
+                                    "type": "enum",
+                                    "required": false
+                                  },
+                                  {
+                                    "method": "maybeAttrEnum",
+                                    "name": "p2mEligible",
+                                    "wireName": "p2m-eligible",
+                                    "type": "enum",
+                                    "required": false
+                                  }
+                                ],
+                                "assertions": [
+                                  {
+                                    "kind": "tag",
+                                    "name": "payout"
+                                  },
+                                  {
+                                    "kind": "attr",
+                                    "name": "type",
+                                    "value": "bank"
+                                  }
+                                ]
+                              },
+                              {
+                                "name": "PayoutPrepaidCard",
+                                "fields": [
+                                  {
+                                    "method": "attrString",
+                                    "name": "type",
+                                    "wireName": "type",
+                                    "type": "string",
+                                    "required": true
+                                  },
+                                  {
+                                    "method": "attrString",
+                                    "name": "last4",
+                                    "wireName": "last4",
+                                    "type": "string",
+                                    "required": true
+                                  },
+                                  {
+                                    "method": "attrString",
+                                    "name": "credentialId",
+                                    "wireName": "credential-id",
+                                    "type": "string",
+                                    "required": true
+                                  },
+                                  {
+                                    "method": "maybeAttrString",
+                                    "name": "country",
+                                    "wireName": "country",
+                                    "type": "string",
+                                    "required": false
+                                  },
+                                  {
+                                    "method": "maybeAttrString",
+                                    "name": "created",
+                                    "wireName": "created",
+                                    "type": "string",
+                                    "required": false
+                                  },
+                                  {
+                                    "method": "maybeAttrEnum",
+                                    "name": "p2pEligible",
+                                    "wireName": "p2p-eligible",
+                                    "type": "enum",
+                                    "required": false
+                                  },
+                                  {
+                                    "method": "maybeAttrEnum",
+                                    "name": "p2mEligible",
+                                    "wireName": "p2m-eligible",
+                                    "type": "enum",
+                                    "required": false
+                                  }
+                                ],
+                                "assertions": [
+                                  {
+                                    "kind": "tag",
+                                    "name": "payout"
+                                  },
+                                  {
+                                    "kind": "attr",
+                                    "name": "type",
+                                    "value": "prepaid-card"
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ],
+                        "repeats": true
+                      }
+                    ],
+                    "repeats": true
+                  },
+                  {
+                    "method": "child",
+                    "name": "alias",
+                    "type": "string",
+                    "required": true,
+                    "tag": "alias",
+                    "children": [
+                      {
+                        "method": "maybeAttrString",
+                        "name": "type",
+                        "wireName": "type",
+                        "type": "string",
+                        "required": false
+                      },
+                      {
+                        "method": "attrString",
+                        "name": "aliasValue",
+                        "wireName": "alias_value",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrString",
+                        "name": "aliasId",
+                        "wireName": "alias_id",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "attrEnum",
+                        "name": "aliasType",
+                        "wireName": "alias_type",
+                        "type": "enum",
+                        "required": true
+                      },
+                      {
+                        "method": "maybeAttrEnum",
+                        "name": "aliasStatus",
+                        "wireName": "alias_status",
+                        "type": "enum",
+                        "required": false
+                      }
+                    ],
+                    "repeats": true
+                  },
+                  {
+                    "method": "child",
+                    "name": "customPaymentMethod",
+                    "type": "string",
+                    "required": true,
+                    "tag": "custom_payment_method",
+                    "children": [
+                      {
+                        "method": "attrEnum",
+                        "name": "type",
+                        "wireName": "type",
+                        "type": "enum",
+                        "required": true
+                      },
+                      {
+                        "method": "maybeAttrString",
+                        "name": "country",
+                        "wireName": "country",
+                        "type": "string",
+                        "required": false
+                      },
+                      {
+                        "method": "maybeAttrString",
+                        "name": "created",
+                        "wireName": "created",
+                        "type": "string",
+                        "required": false
+                      },
+                      {
+                        "method": "maybeAttrEnum",
+                        "name": "flow",
+                        "wireName": "flow",
+                        "type": "enum",
+                        "required": false
+                      },
+                      {
+                        "method": "attrString",
+                        "name": "credentialId",
+                        "wireName": "credential-id",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "maybeAttrEnum",
+                        "name": "p2pEligible",
+                        "wireName": "p2p-eligible",
+                        "type": "enum",
+                        "required": false
+                      },
+                      {
+                        "method": "maybeAttrEnum",
+                        "name": "p2mEligible",
+                        "wireName": "p2m-eligible",
+                        "type": "enum",
+                        "required": false
+                      },
+                      {
+                        "method": "",
+                        "name": "customPaymentMethodMetaDataInfoMixin",
+                        "type": "string",
+                        "required": false,
+                        "children": [
+                          {
+                            "method": "child",
+                            "name": "metadata",
+                            "type": "string",
+                            "required": true,
+                            "tag": "metadata",
+                            "children": [
+                              {
+                                "method": "attrString",
+                                "name": "key",
+                                "wireName": "key",
+                                "type": "string",
+                                "required": true
+                              },
+                              {
+                                "method": "attrString",
+                                "name": "value",
+                                "wireName": "value",
+                                "type": "string",
+                                "required": true
+                              }
+                            ],
+                            "repeats": true,
+                            "sourcePath": [
+                              "metadata_info"
+                            ]
+                          }
+                        ],
+                        "sameNode": true
+                      }
+                    ],
+                    "repeats": true
+                  }
+                ],
+                "repeats": false
+              },
+              {
+                "method": "attrString",
+                "name": "type",
+                "wireName": "type",
+                "type": "string",
+                "required": true
+              }
+            ]
+          },
+          {
+            "tag": "RemoveCustomPaymentMethodResponseError",
+            "moduleName": "WASmaxInBrPaymentRemoveCustomPaymentMethodResponseError",
+            "kind": "error",
+            "assertions": [
+              {
+                "kind": "tag",
+                "name": "iq"
+              },
+              {
+                "kind": "attr",
+                "name": "type",
+                "value": "error"
+              }
+            ],
+            "fields": [
+              {
+                "method": "attrString",
+                "name": "type",
+                "wireName": "type",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "attrString",
+                "name": "errorText",
+                "wireName": "text",
+                "type": "string",
+                "required": true,
+                "sourcePath": [
+                  "error"
+                ]
+              },
+              {
+                "method": "attrInt",
+                "name": "errorCode",
+                "wireName": "code",
+                "type": "integer",
+                "required": true,
+                "sourcePath": [
+                  "error"
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "moduleName": "WASmaxOutProfilePictureGetRequest",
       "namespace": "w:profile:picture",
       "iqType": "get",
@@ -81237,14 +84154,6 @@
     },
     {
       "moduleName": "WASmaxOutStatsBaseIQSetRequestMixin",
-      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
-    },
-    {
-      "moduleName": "WASmaxOutSupportBaseIQSetRequestMixin",
-      "reason": "mixin fragment (folded into requests, not a standalone stanza)"
-    },
-    {
-      "moduleName": "WASmaxOutSupportHackBaseIQSetRequestMixin",
       "reason": "mixin fragment (folded into requests, not a standalone stanza)"
     },
     {

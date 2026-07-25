@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1043466400",
+  "waVersion": "2.3000.1043853937",
   "configs": [
     {
       "module": "WAWebABPropsConfigs",
@@ -131,6 +131,14 @@
       "code": 31064,
       "valueType": "bool",
       "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "ai_account_linking_enabled",
+      "code": 13856,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -673,7 +681,8 @@
       "name": "ai_maiba_wass_migration_sending",
       "code": 27084,
       "valueType": "bool",
-      "default": false
+      "default": false,
+      "altDefault": true
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -884,6 +893,20 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "ai_rich_response_forward_media_receiving_enabled",
+      "code": 21363,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "ai_rich_response_forward_media_sending_enabled",
+      "code": 20747,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "ai_rich_response_forward_receiving_enabled",
       "code": 16682,
       "valueType": "bool",
@@ -1090,6 +1113,13 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "ai_subscription_enabled",
+      "code": 25927,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "ai_subscription_imagine_intent_enabled",
       "code": 28585,
       "valueType": "bool",
@@ -1143,6 +1173,13 @@
       "code": 24109,
       "valueType": "bool",
       "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "ai_unified_response_mutation_enabled",
+      "code": 17805,
+      "valueType": "bool",
+      "default": true
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -1413,6 +1450,14 @@
       "code": 32723,
       "valueType": "bool",
       "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "aura_focus_lists_schedule_enabled",
+      "code": 33413,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -1828,6 +1873,21 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "biz_ai_fab_enabled",
+      "code": 33531,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "biz_ai_handoff_timing_sync_enabled",
+      "code": 33602,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "biz_ai_in_thread_unmute_v2",
       "code": 15523,
       "valueType": "bool",
@@ -1849,6 +1909,14 @@
       "valueType": "bool",
       "default": false,
       "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "biz_ai_priority_list_item_expire_days",
+      "code": 16472,
+      "valueType": "int",
+      "default": 14,
+      "altDefault": 1
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -2401,6 +2469,13 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "calling_dual_stream_camera_auto_off_battery_threshold_pct",
+      "code": 33552,
+      "valueType": "int",
+      "default": 15
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "calling_dual_stream_camera_auto_off_enabled",
       "code": 32896,
       "valueType": "bool",
@@ -2412,6 +2487,13 @@
       "code": 33235,
       "valueType": "bool",
       "default": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "calling_dual_stream_camera_auto_off_poor_network_time_ms",
+      "code": 33548,
+      "valueType": "int",
+      "default": 5800
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -3359,14 +3441,6 @@
     },
     {
       "module": "WAWebABPropsConfigs",
-      "name": "channels_question_follower_enabled",
-      "code": 17425,
-      "valueType": "bool",
-      "default": false,
-      "altDefault": true
-    },
-    {
-      "module": "WAWebABPropsConfigs",
       "name": "channels_question_follower_m2_enabled",
       "code": 26911,
       "valueType": "bool",
@@ -3519,6 +3593,13 @@
       "valueType": "bool",
       "default": false,
       "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "channels_recommendation_unit_removal_v1_enabled",
+      "code": 33761,
+      "valueType": "bool",
+      "default": false
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -3845,6 +3926,13 @@
       "code": 33497,
       "valueType": "int",
       "default": 0
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "companion_contact_refresh_receiver",
+      "code": 33635,
+      "valueType": "bool",
+      "default": false
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -4958,6 +5046,14 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "enable_fsa_save_as",
+      "code": 33783,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "enable_futureproof_galaxy_flow_message_for_business_numbers",
       "code": 22311,
       "valueType": "string",
@@ -5122,6 +5218,13 @@
       "module": "WAWebABPropsConfigs",
       "name": "enable_peer_snapshot_recovery",
       "code": 16329,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "enable_poll_results_contact_info_entry_point",
+      "code": 33818,
       "valueType": "bool",
       "default": false
     },
@@ -5388,6 +5491,13 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "enable_web_voip_audio_driver_lifetime_fix",
+      "code": 33581,
+      "valueType": "bool",
+      "default": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "enable_web_voip_dynamic_fps_throttle",
       "code": 25394,
       "valueType": "bool",
@@ -5448,6 +5558,20 @@
       "code": 29764,
       "valueType": "bool",
       "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "enable_web_voip_webtransport_fallback",
+      "code": 33539,
+      "valueType": "bool",
+      "default": true
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "enable_web_voip_worker_pool_reclaim_on_rejoin",
+      "code": 33597,
+      "valueType": "bool",
+      "default": true
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -5550,13 +5674,6 @@
       "code": 6207,
       "valueType": "int",
       "default": 100
-    },
-    {
-      "module": "WAWebABPropsConfigs",
-      "name": "events_create",
-      "code": 5562,
-      "valueType": "bool",
-      "default": true
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -5706,13 +5823,6 @@
       "module": "WAWebABPropsConfigs",
       "name": "fetch_qp_via_graphql_web_enabled",
       "code": 28158,
-      "valueType": "bool",
-      "default": false
-    },
-    {
-      "module": "WAWebABPropsConfigs",
-      "name": "flattened_reactions_collection",
-      "code": 4390,
       "valueType": "bool",
       "default": false
     },
@@ -8365,7 +8475,7 @@
       "name": "payments_upr_bubble_countries",
       "code": 29342,
       "valueType": "string",
-      "default": "MX"
+      "default": "MX, ID, HK, TW, AE, EG, TR"
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -9732,6 +9842,13 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "smb_contact_manager_sublist_enabled",
+      "code": 33708,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "smb_core_biz_profile_preview",
       "code": 26441,
       "valueType": "bool",
@@ -9934,13 +10051,6 @@
       "code": 10272,
       "valueType": "int",
       "default": 5000
-    },
-    {
-      "module": "WAWebABPropsConfigs",
-      "name": "smb_notes_v1_enabled",
-      "code": 7710,
-      "valueType": "bool",
-      "default": false
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -11072,6 +11182,13 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "username_search_without_atsign_enabled",
+      "code": 32948,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "username_security_code_generation",
       "code": 7468,
       "valueType": "bool",
@@ -11503,6 +11620,27 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "wa_native_ads_web_creation_dummy",
+      "code": 33640,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "wa_native_ads_web_creation_rollout",
+      "code": 33639,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "wa_native_ads_web_creation_rollout_no_exposure",
+      "code": 33752,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "wa_native_ads_xplat_draft_ads_ms1a_dummy_enabled",
       "code": 33374,
       "valueType": "bool",
@@ -11572,6 +11710,14 @@
       "code": 31560,
       "valueType": "bool",
       "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "wa_settings_read_receipts_copy_v2",
+      "code": 33610,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -11750,6 +11896,13 @@
       "module": "WAWebABPropsConfigs",
       "name": "wa_web_broadcast_disappearing_messages_fix",
       "code": 31499,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "wa_web_buttons_response_prop_removal_killswitch",
+      "code": 33817,
       "valueType": "bool",
       "default": false
     },
@@ -11982,6 +12135,14 @@
       "code": 25455,
       "valueType": "bool",
       "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "wa_web_defense_mode_quarantine_extra_pn_check",
+      "code": 33541,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -12684,6 +12845,13 @@
       "code": 25309,
       "valueType": "string",
       "default": ""
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "wa_web_win_hybrid_plus_enabled",
+      "code": 33753,
+      "valueType": "bool",
+      "default": false
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -13900,6 +14068,13 @@
     },
     {
       "module": "WAWebABPropsConfigs",
+      "name": "web_email_invites_group_info",
+      "code": 33556,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
       "name": "web_enable_biz_catalog_view_ps_logging",
       "code": 2056,
       "valueType": "bool",
@@ -14213,6 +14388,14 @@
       "code": 27753,
       "valueType": "bool",
       "default": false
+    },
+    {
+      "module": "WAWebABPropsConfigs",
+      "name": "web_memlab_fixes",
+      "code": 33563,
+      "valueType": "bool",
+      "default": false,
+      "altDefault": true
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -14729,13 +14912,6 @@
       "valueType": "bool",
       "default": false,
       "altDefault": true
-    },
-    {
-      "module": "WAWebABPropsConfigs",
-      "name": "web_status_psa",
-      "code": 873,
-      "valueType": "bool",
-      "default": false
     },
     {
       "module": "WAWebABPropsConfigs",
@@ -15531,7 +15707,8 @@
       "name": "ai_maiba_wass_migration_sending",
       "code": 27084,
       "valueType": "bool",
-      "default": false
+      "default": false,
+      "altDefault": true
     },
     {
       "module": "WAWebHybridABPropsConfigs",
@@ -15780,6 +15957,13 @@
     },
     {
       "module": "WAWebHybridABPropsConfigs",
+      "name": "calling_dual_stream_camera_auto_off_battery_threshold_pct",
+      "code": 33552,
+      "valueType": "int",
+      "default": 15
+    },
+    {
+      "module": "WAWebHybridABPropsConfigs",
       "name": "calling_dual_stream_camera_auto_off_enabled",
       "code": 32896,
       "valueType": "bool",
@@ -15791,6 +15975,13 @@
       "code": 33235,
       "valueType": "bool",
       "default": true
+    },
+    {
+      "module": "WAWebHybridABPropsConfigs",
+      "name": "calling_dual_stream_camera_auto_off_poor_network_time_ms",
+      "code": 33548,
+      "valueType": "int",
+      "default": 5800
     },
     {
       "module": "WAWebHybridABPropsConfigs",
@@ -16233,6 +16424,13 @@
       "module": "WAWebHybridABPropsConfigs",
       "name": "enable_offer_v2_upgrade",
       "code": 26435,
+      "valueType": "bool",
+      "default": false
+    },
+    {
+      "module": "WAWebHybridABPropsConfigs",
+      "name": "enable_poll_results_contact_info_entry_point",
+      "code": 33818,
       "valueType": "bool",
       "default": false
     },

@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1043466400",
+  "waVersion": "2.3000.1043853937",
   "requests": [
     {
       "tag": "notification",
@@ -1470,6 +1470,12 @@
                   {
                     "method": "",
                     "name": "hasPaidPartnershipContentMixin",
+                    "type": "bool",
+                    "required": true
+                  },
+                  {
+                    "method": "",
+                    "name": "hasNewsletterAIContentMetaMixin",
                     "type": "bool",
                     "required": true
                   },
@@ -5110,6 +5116,12 @@
           {
             "method": "",
             "name": "hasPaidPartnershipContentMixin",
+            "type": "bool",
+            "required": true
+          },
+          {
+            "method": "",
+            "name": "hasNewsletterAIContentMetaMixin",
             "type": "bool",
             "required": true
           },

@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1043466400",
+  "waVersion": "2.3000.1043853937",
   "stanzas": [
     {
       "stanzaType": "message",
@@ -365,6 +365,35 @@
     {
       "stanzaType": "message",
       "direction": "outgoing",
+      "moduleName": "WASmaxOutMessagePublishMetaPremiumTypeMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeMetaPremiumTypeMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [],
+      "children": [
+        {
+          "tag": "meta",
+          "attrs": [
+            {
+              "name": "premium_type",
+              "kind": "string",
+              "required": true
+            }
+          ],
+          "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
       "moduleName": "WASmaxOutMessagePublishMsgMetaOriginMixin",
       "exportedFunction": null,
       "allExports": [
@@ -385,6 +414,36 @@
             }
           ],
           "children": [],
+          "repeats": false
+        }
+      ],
+      "response": null,
+      "fragment": true
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutMessagePublishNewsletterAIContentMetaMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeNewsletterAIContentMetaMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [],
+      "children": [
+        {
+          "tag": "meta",
+          "attrs": [],
+          "children": [
+            {
+              "tag": "ai_content",
+              "attrs": [],
+              "children": [],
+              "repeats": false
+            }
+          ],
           "repeats": false
         }
       ],
@@ -3064,6 +3123,7 @@
         "ReceiptModeBitPosition",
         "genReceiptMetaModeNode",
         "sendBotInvokeResponseAcks",
+        "sendCoexV2SenderReceipt",
         "sendAggregateReceipts"
       ],
       "namespace": null,
@@ -5335,6 +5395,7 @@
         "ReceiptModeBitPosition",
         "genReceiptMetaModeNode",
         "sendBotInvokeResponseAcks",
+        "sendCoexV2SenderReceipt",
         "sendAggregateReceipts"
       ],
       "namespace": null,
@@ -5397,6 +5458,7 @@
         "ReceiptModeBitPosition",
         "genReceiptMetaModeNode",
         "sendBotInvokeResponseAcks",
+        "sendCoexV2SenderReceipt",
         "sendAggregateReceipts"
       ],
       "namespace": null,

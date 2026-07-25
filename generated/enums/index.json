@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1043466400",
+  "waVersion": "2.3000.1043853937",
   "enums": [
     {
       "name": "DGWAuth",
@@ -717,6 +717,25 @@
         {
           "name": "INSTAGRAM",
           "value": "INSTAGRAM"
+        }
+      ]
+    },
+    {
+      "name": "ENUM_ELIGIBLETOONBOARD_NOTELIGIBLE_ONBOARDED",
+      "module": "WASmaxInBizMarketingMessageEnums",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "ELIGIBLE_TO_ONBOARD",
+          "value": "ELIGIBLE_TO_ONBOARD"
+        },
+        {
+          "name": "NOT_ELIGIBLE",
+          "value": "NOT_ELIGIBLE"
+        },
+        {
+          "name": "ONBOARDED",
+          "value": "ONBOARDED"
         }
       ]
     },
@@ -5212,6 +5231,29 @@
       ]
     },
     {
+      "name": "AiContentModalVariant",
+      "module": "WAWebNewsletterAiContentInfoModalTypes",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "ADMIN_NUX",
+          "value": "admin_nux"
+        },
+        {
+          "name": "ADMIN_CONFIRMATION",
+          "value": "admin_confirmation"
+        },
+        {
+          "name": "ADMIN_INFO",
+          "value": "admin_info"
+        },
+        {
+          "name": "VIEWER_INFO",
+          "value": "viewer_info"
+        }
+      ]
+    },
+    {
       "name": "NewsletterCompanionGating",
       "module": "WAWebNewsletterCommonGatingUtils",
       "valueKind": "int",
@@ -8230,6 +8272,10 @@
         {
           "name": "AI_RESPONDING",
           "value": 11
+        },
+        {
+          "name": "LEAD",
+          "value": 16
         }
       ]
     },
@@ -10138,36 +10184,6 @@
       ]
     },
     {
-      "name": "AppState_v2581",
-      "module": "WAWebWindowsHybridBridgeNativeAppState.v2581",
-      "valueKind": "string",
-      "variants": [
-        {
-          "name": "Normal",
-          "value": "normal"
-        },
-        {
-          "name": "MinimizedToTray",
-          "value": "minimizedToTray"
-        }
-      ]
-    },
-    {
-      "name": "AppState_v2582",
-      "module": "WAWebWindowsHybridBridgeNativeAppState.v2582",
-      "valueKind": "string",
-      "variants": [
-        {
-          "name": "Normal",
-          "value": "normal"
-        },
-        {
-          "name": "MinimizedToTray",
-          "value": "minimizedToTray"
-        }
-      ]
-    },
-    {
       "name": "AppState_v2583",
       "module": "WAWebWindowsHybridBridgeNativeAppState.v2583",
       "valueKind": "string",
@@ -10680,6 +10696,21 @@
     {
       "name": "AppState_v2628",
       "module": "WAWebWindowsHybridBridgeNativeAppState.v2628",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "Normal",
+          "value": "normal"
+        },
+        {
+          "name": "MinimizedToTray",
+          "value": "minimizedToTray"
+        }
+      ]
+    },
+    {
+      "name": "AppState_v2629",
+      "module": "WAWebWindowsHybridBridgeNativeAppState.v2629",
       "valueKind": "string",
       "variants": [
         {

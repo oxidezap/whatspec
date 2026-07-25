@@ -1,7 +1,7 @@
 syntax = "proto2";
 package whatsapp;
 
-/// WhatsApp Version: 2.3000.1043466400
+/// WhatsApp Version: 2.3000.1043853937
 
 message ADVDeviceIdentity {
   optional uint32 rawId = 1;
@@ -451,6 +451,9 @@ message BotCapabilityMetadata {
     AI_RICH_RESPONSE_MAPS_V2_ENABLED = 64;
     AI_SUBSCRIPTION_METERING_ENABLED = 65;
     RICH_RESPONSE_SPORTS_WIDGET_ENABLED = 66;
+    AI_RICH_RESPONSE_ARTIFACTS_ENABLED = 67;
+    AI_RICH_RESPONSE_EMAIL_CALENDAR_ENABLED = 68;
+    AI_RICH_RESPONSE_REMINDERS_ENABLED = 69;
   }
 }
 
@@ -5698,6 +5701,7 @@ message SyncActionValue {
       EXAMPLE_RESPONSES = 3;
       KNOWLEDGE = 4;
       LEAD_GEN = 5;
+      HANDOFF_REMOVAL_TIMING = 6;
     }
   }
 
@@ -5890,6 +5894,7 @@ message SyncActionValue {
       LOCKED = 13;
       INVITES = 14;
       THIRD_PARTY = 15;
+      LEAD = 16;
     }
   }
 

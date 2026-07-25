@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1043466400",
+  "waVersion": "2.3000.1043853937",
   "events": [
     {
       "name": "GroupCreateC",
@@ -12873,6 +12873,11 @@
           "kind": "timer"
         },
         {
+          "name": "videoRenderUniqueFps",
+          "id": 3076,
+          "kind": "number"
+        },
+        {
           "name": "videoRenderedRxBitrate",
           "id": 2587,
           "kind": "number"
@@ -14959,8 +14964,6 @@
       "consumers": [
         "WAWebCrashlog",
         "WAWebWindowsHybridBridgeWam",
-        "WAWebWindowsHybridBridgeWam.v2581",
-        "WAWebWindowsHybridBridgeWam.v2582",
         "WAWebWindowsHybridBridgeWam.v2583",
         "WAWebWindowsHybridBridgeWam.v2584",
         "WAWebWindowsHybridBridgeWam.v2585",
@@ -14995,7 +14998,8 @@
         "WAWebWindowsHybridBridgeWam.v2625",
         "WAWebWindowsHybridBridgeWam.v2626",
         "WAWebWindowsHybridBridgeWam.v2627",
-        "WAWebWindowsHybridBridgeWam.v2628"
+        "WAWebWindowsHybridBridgeWam.v2628",
+        "WAWebWindowsHybridBridgeWam.v2629"
       ]
     },
     {
@@ -16550,8 +16554,7 @@
         }
       ],
       "consumers": [
-        "WAWebWamAppLaunchReporter",
-        "WAWebWindowsWamAppLaunchReporter"
+        "WAWebWamAppLaunchReporter"
       ]
     },
     {
@@ -18476,7 +18479,8 @@
         "WAWebWindowsHybridBridgeWam.v2625",
         "WAWebWindowsHybridBridgeWam.v2626",
         "WAWebWindowsHybridBridgeWam.v2627",
-        "WAWebWindowsHybridBridgeWam.v2628"
+        "WAWebWindowsHybridBridgeWam.v2628",
+        "WAWebWindowsHybridBridgeWam.v2629"
       ]
     },
     {
@@ -23762,6 +23766,12 @@
           "id": 4,
           "kind": "enum",
           "module": "WAWebWamEnumPaymentActionTargets"
+        },
+        {
+          "name": "customPaymentMethodsSyncStatus",
+          "id": 48,
+          "kind": "enum",
+          "module": "WAWebWamEnumCustomPaymentMethodsSyncStatus"
         },
         {
           "name": "merchantType",
@@ -31892,6 +31902,11 @@
           "kind": "boolean"
         },
         {
+          "name": "isFromPill",
+          "id": 63,
+          "kind": "boolean"
+        },
+        {
           "name": "isIasSubscriber",
           "id": 62,
           "kind": "boolean"
@@ -31965,6 +31980,12 @@
           "name": "notificationEnabled",
           "id": 5,
           "kind": "boolean"
+        },
+        {
+          "name": "pillEntryPoint",
+          "id": 64,
+          "kind": "enum",
+          "module": "WAWebWamEnumPillEntryPoint"
         },
         {
           "name": "qbmFlag",
@@ -32203,6 +32224,11 @@
           "kind": "boolean"
         },
         {
+          "name": "isFromPill",
+          "id": 60,
+          "kind": "boolean"
+        },
+        {
           "name": "isIasSubscriber",
           "id": 59,
           "kind": "boolean"
@@ -32251,6 +32277,12 @@
           "name": "messageTypeStr",
           "id": 6,
           "kind": "string"
+        },
+        {
+          "name": "pillEntryPoint",
+          "id": 61,
+          "kind": "enum",
+          "module": "WAWebWamEnumPillEntryPoint"
         },
         {
           "name": "qbmFlag",
@@ -37388,6 +37420,81 @@
       ]
     },
     {
+      "name": "Ctwa1pdConversion",
+      "code": 5140,
+      "module": "WAWebCtwa1pdConversionWamEvent",
+      "channel": "private",
+      "weights": [
+        1,
+        1,
+        1
+      ],
+      "privateStatsId": 0,
+      "fields": [
+        {
+          "name": "bizPlatform",
+          "id": 3,
+          "kind": "enum",
+          "module": "WAWebWamEnumBizPlatform"
+        },
+        {
+          "name": "ctwa1pdConversionMetadata",
+          "id": 8,
+          "kind": "string"
+        },
+        {
+          "name": "ctwa1pdConversionSchemaVersion",
+          "id": 9,
+          "kind": "integer"
+        },
+        {
+          "name": "ctwa1pdConversionType",
+          "id": 1,
+          "kind": "enum",
+          "module": "WAWebWamEnumCtwa1pdConversionType"
+        },
+        {
+          "name": "ctwaConversationDepth",
+          "id": 10,
+          "kind": "integer"
+        },
+        {
+          "name": "ctwaConversationRepeat",
+          "id": 11,
+          "kind": "integer"
+        },
+        {
+          "name": "ctwaDirectionFrom",
+          "id": 12,
+          "kind": "enum",
+          "module": "WAWebWamEnumCtwaDirectionFrom"
+        },
+        {
+          "name": "ctwaSignals",
+          "id": 7,
+          "kind": "string"
+        },
+        {
+          "name": "ctwaTrackingPayload",
+          "id": 2,
+          "kind": "string"
+        },
+        {
+          "name": "isLatestConversionToken",
+          "id": 13,
+          "kind": "boolean"
+        },
+        {
+          "name": "twoMeasurementEnabled",
+          "id": 14,
+          "kind": "boolean"
+        }
+      ],
+      "consumers": [
+        "WAWebSmb1pdConversionSignalAction"
+      ]
+    },
+    {
       "name": "QbmMessageClick",
       "code": 5178,
       "module": "WAWebQbmMessageClickWamEvent",
@@ -37493,6 +37600,11 @@
           "kind": "boolean"
         },
         {
+          "name": "isFromPill",
+          "id": 36,
+          "kind": "boolean"
+        },
+        {
           "name": "isIasSubscriber",
           "id": 35,
           "kind": "boolean"
@@ -37526,6 +37638,12 @@
           "name": "messageTypeStr",
           "id": 7,
           "kind": "string"
+        },
+        {
+          "name": "pillEntryPoint",
+          "id": 37,
+          "kind": "enum",
+          "module": "WAWebWamEnumPillEntryPoint"
         },
         {
           "name": "qbmFlag",
@@ -40128,6 +40246,11 @@
           "kind": "integer"
         },
         {
+          "name": "numberOfPnOnlyGroupsNotMember",
+          "id": 20,
+          "kind": "integer"
+        },
+        {
           "name": "numberOfPnhCtwaThreadsKnownMapping",
           "id": 2,
           "kind": "integer"
@@ -40517,6 +40640,11 @@
           "kind": "boolean"
         },
         {
+          "name": "isFromPill",
+          "id": 32,
+          "kind": "boolean"
+        },
+        {
           "name": "isIasSubscriber",
           "id": 31,
           "kind": "boolean"
@@ -40562,6 +40690,12 @@
           "id": 8,
           "kind": "enum",
           "module": "WAWebWamEnumMessageLevelAction"
+        },
+        {
+          "name": "pillEntryPoint",
+          "id": 33,
+          "kind": "enum",
+          "module": "WAWebWamEnumPillEntryPoint"
         },
         {
           "name": "submessageFieldJsonArray",
@@ -46177,6 +46311,16 @@
           "module": "WAWebWamEnumDyiReportTypeCode"
         },
         {
+          "name": "dyiRequestErrorMessage",
+          "id": 3,
+          "kind": "string"
+        },
+        {
+          "name": "dyiRequestSuccess",
+          "id": 4,
+          "kind": "boolean"
+        },
+        {
           "name": "dyiTriggerType",
           "id": 2,
           "kind": "enum",
@@ -49612,6 +49756,10 @@
         {
           "key": "DRAWING",
           "value": 22
+        },
+        {
+          "key": "EVENT_V2_CREATION",
+          "value": 23
         }
       ]
     },
@@ -51846,6 +51994,10 @@
         {
           "key": "QUICK_REPLY_SETTINGS",
           "value": 14
+        },
+        {
+          "key": "EVENT_COMPOSER",
+          "value": 15
         }
       ]
     },
@@ -57920,6 +58072,10 @@
         {
           "key": "CALLS_TAB_GLOBAL_SEARCH",
           "value": 6
+        },
+        {
+          "key": "EVENT_INVITE",
+          "value": 7
         }
       ]
     },
@@ -58348,6 +58504,136 @@
       ]
     },
     {
+      "name": "CTWA_1PD_CONVERSION_TYPE",
+      "module": "WAWebWamEnumCtwa1pdConversionType",
+      "variants": [
+        {
+          "key": "FIRST_CUSTOMER_MESSAGE",
+          "value": 0
+        },
+        {
+          "key": "FIRST_CUSTOMER_MESSAGE_CONTINUATION",
+          "value": 1
+        },
+        {
+          "key": "FIRST_BIZ_REPLY",
+          "value": 2
+        },
+        {
+          "key": "FIRST_BIZ_REPLY_CONTINUATION",
+          "value": 3
+        },
+        {
+          "key": "SECOND_CUSTOMER_MESSAGE",
+          "value": 4
+        },
+        {
+          "key": "SECOND_CUSTOMER_MESSAGE_CONTINUATION",
+          "value": 5
+        },
+        {
+          "key": "SECOND_BIZ_REPLY",
+          "value": 6
+        },
+        {
+          "key": "SECOND_BIZ_REPLY_CONTINUATION",
+          "value": 7
+        },
+        {
+          "key": "THIRD_CUSTOMER_MESSAGE",
+          "value": 8
+        },
+        {
+          "key": "THIRD_CUSTOMER_MESSAGE_CONTINUATION",
+          "value": 9
+        },
+        {
+          "key": "THIRD_BIZ_REPLY",
+          "value": 10
+        },
+        {
+          "key": "FIRST_CUSTOMER_CALL",
+          "value": 11
+        },
+        {
+          "key": "FIRST_BIZ_CALL",
+          "value": 12
+        },
+        {
+          "key": "FIRST_CUSTOMER_LONG_CALL",
+          "value": 13
+        },
+        {
+          "key": "FIRST_BIZ_LONG_CALL",
+          "value": 14
+        },
+        {
+          "key": "WHATSAPP_FLOWS_SUBMITTED",
+          "value": 15
+        },
+        {
+          "key": "AGM_CTA_CLICK",
+          "value": 16
+        },
+        {
+          "key": "MESSAGE",
+          "value": 17
+        },
+        {
+          "key": "CALL",
+          "value": 18
+        },
+        {
+          "key": "LONG_CALL",
+          "value": 19
+        },
+        {
+          "key": "EXTRA_LONG_CALL",
+          "value": 20
+        },
+        {
+          "key": "BIZ_BLOCK",
+          "value": 21
+        },
+        {
+          "key": "BIZ_REPORT",
+          "value": 22
+        },
+        {
+          "key": "PAYMENT",
+          "value": 23
+        },
+        {
+          "key": "SHORT_CALL",
+          "value": 24
+        },
+        {
+          "key": "USER_BLOCK",
+          "value": 25
+        },
+        {
+          "key": "USER_REPORT",
+          "value": 26
+        },
+        {
+          "key": "USER_BLOCK_AND_REPORT",
+          "value": 27
+        },
+        {
+          "key": "MESSAGE_ON_DELIVERY",
+          "value": 28
+        },
+        {
+          "key": "CALL_OVER_120S",
+          "value": 29
+        },
+        {
+          "key": "BIZ_CONV_FEEDBACK",
+          "value": 30
+        }
+      ]
+    },
+    {
       "name": "CTWA_AD_ACCOUNT_TYPE",
       "module": "WAWebWamEnumCtwaAdAccountType",
       "variants": [
@@ -58551,6 +58837,24 @@
         },
         {
           "key": "CTWA_LOGIN_TYPE_WA_AD_ACCOUNT",
+          "value": 2
+        }
+      ]
+    },
+    {
+      "name": "CUSTOM_PAYMENT_METHODS_SYNC_STATUS",
+      "module": "WAWebWamEnumCustomPaymentMethodsSyncStatus",
+      "variants": [
+        {
+          "key": "ATTEMPT",
+          "value": 0
+        },
+        {
+          "key": "SUCCESS",
+          "value": 1
+        },
+        {
+          "key": "FAILURE",
           "value": 2
         }
       ]
@@ -59654,6 +59958,14 @@
         {
           "key": "DEEP_LINK_WINBACK_METRICS",
           "value": 253
+        },
+        {
+          "key": "DEEP_LINK_AGE_COLLECTION",
+          "value": 254
+        },
+        {
+          "key": "DEEP_LINK_SETTINGS_ACCOUNT_PASSWORD",
+          "value": 255
         }
       ]
     },
@@ -60046,6 +60358,14 @@
         {
           "key": "HARD_REFRESH",
           "value": 5
+        },
+        {
+          "key": "NOTIFICATION_MESSAGE_OPT_IN",
+          "value": 6
+        },
+        {
+          "key": "NOTIFICATION_CALL_OPT_IN",
+          "value": 7
         }
       ]
     },
@@ -64902,6 +65222,30 @@
         {
           "key": "ATTACHMENT_TRAY_OPEN_CLICK",
           "value": 99
+        },
+        {
+          "key": "RESTYLE_OPTION_VIEWED",
+          "value": 100
+        },
+        {
+          "key": "RESTYLE_OPTION_CLICKED",
+          "value": 101
+        },
+        {
+          "key": "RESTYLE_LONG_PRESSED",
+          "value": 102
+        },
+        {
+          "key": "SAVE_BUTTON_CLICKED",
+          "value": 103
+        },
+        {
+          "key": "REPORT_BUTTON_CLICKED",
+          "value": 104
+        },
+        {
+          "key": "REPORT_SUBMITTED",
+          "value": 105
         }
       ]
     },
@@ -70328,6 +70672,22 @@
         {
           "key": "LWI_ACTION_WINBACK_AUTO_OPEN_SUPPRESSED",
           "value": 536
+        },
+        {
+          "key": "LWI_ACTION_WINBACK_AD_COMPLETION_BOTTOMSHEET_LOADING_ERROR",
+          "value": 537
+        },
+        {
+          "key": "LWI_ACTION_WINBACK_THRESHOLD_BOTTOMSHEET_LOADING_ERROR",
+          "value": 538
+        },
+        {
+          "key": "QR_SCANNER_ZOOM",
+          "value": 539
+        },
+        {
+          "key": "LWI_ACTION_WINBACK_THRESHOLD_SCALE_CLICK",
+          "value": 540
         }
       ]
     },
@@ -73424,6 +73784,14 @@
         {
           "key": "SPEAK",
           "value": 36
+        },
+        {
+          "key": "VIEW_TRANSLATION",
+          "value": 37
+        },
+        {
+          "key": "REMOVE_TRANSLATION",
+          "value": 38
         }
       ]
     },
@@ -76182,6 +76550,30 @@
         {
           "key": "NEWSLETTER_MILESTONE_UPDATE_FORWARDS",
           "value": 65
+        },
+        {
+          "key": "EVENT_INVITE_MESSAGE",
+          "value": 66
+        },
+        {
+          "key": "EVENT_V2_UPDATE",
+          "value": 67
+        },
+        {
+          "key": "EVENT_V2_RSVP",
+          "value": 68
+        },
+        {
+          "key": "EVENT_V2_DELETE",
+          "value": 69
+        },
+        {
+          "key": "EVENT_V2_REMINDER",
+          "value": 70
+        },
+        {
+          "key": "EVENT_V2_SUSPENDED",
+          "value": 71
         }
       ]
     },
@@ -78766,6 +79158,38 @@
         {
           "key": "VIEW_IN_CHAT",
           "value": 355
+        },
+        {
+          "key": "SYNCD_SEND_STORE",
+          "value": 356
+        },
+        {
+          "key": "SYNCD_SEND_REMOVE",
+          "value": 357
+        },
+        {
+          "key": "SYNCD_APPLY_STORE",
+          "value": 358
+        },
+        {
+          "key": "SYNCD_APPLY_REMOVE",
+          "value": 359
+        },
+        {
+          "key": "AMOUNT_DETECT_ADD_PIX_KEY",
+          "value": 360
+        },
+        {
+          "key": "AMOUNT_DETECT_SEND_PIX_KEY",
+          "value": 361
+        },
+        {
+          "key": "AMOUNT_DETECT_REQUEST_PAYMENT",
+          "value": 362
+        },
+        {
+          "key": "AMOUNT_DETECT_GO_TO_PAYMENTS",
+          "value": 363
         }
       ]
     },
@@ -79428,6 +79852,24 @@
         {
           "key": "CLICK_INVITE_TO_WHATSAPP",
           "value": 11
+        }
+      ]
+    },
+    {
+      "name": "PILL_ENTRY_POINT",
+      "module": "WAWebWamEnumPillEntryPoint",
+      "variants": [
+        {
+          "key": "LINK",
+          "value": 0
+        },
+        {
+          "key": "PHONE",
+          "value": 1
+        },
+        {
+          "key": "CONTACT",
+          "value": 2
         }
       ]
     },
@@ -90618,6 +91060,14 @@
         {
           "key": "BB_MESSAGE_PACKS_META_ONE_TAB",
           "value": 321
+        },
+        {
+          "key": "GEN_AI_BOOK_APPOINTMENTS_NUX",
+          "value": 322
+        },
+        {
+          "key": "GEN_AI_BOOK_APPOINTMENTS_OUTLOOK_CONNECT",
+          "value": 323
         }
       ]
     },
@@ -93716,6 +94166,10 @@
         {
           "key": "APP_SWITCH_TO_IG_KEY_FLOW",
           "value": 91
+        },
+        {
+          "key": "ACTIVATION_REQUEST_JITTERED",
+          "value": 92
         }
       ]
     },
@@ -95572,6 +96026,10 @@
         {
           "key": "START_CALL",
           "value": 13
+        },
+        {
+          "key": "GO_TO_CALLS",
+          "value": 14
         }
       ]
     },
