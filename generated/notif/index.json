@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1043853937",
+  "waVersion": "2.3000.1043873090",
   "dispatcherModules": [
     "WAWebCommsHandleLoggedInStanza",
     "WAWebCommsHandleWorkerCompatibleStanza"
