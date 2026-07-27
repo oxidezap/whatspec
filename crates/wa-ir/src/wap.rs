@@ -105,26 +105,42 @@ pub fn is_optional_method(m: &str) -> bool {
 }
 
 /// The scalar [`ParsedFieldType`] a response accessor decodes to.
+///
+/// `maybeAttrX` is derived from `attrX` rather than enumerated beside it. The two decode
+/// identically — the `maybe` spelling only tolerates absence — so listing both invites
+/// exactly the bug that motivated this: `maybeAttrPhoneUserJid` was missing from the
+/// table and reported a PN user JID as a bare `string`, the conflation this module's own
+/// note calls protocol-safety-critical. Deriving means a flavour added to the table
+/// covers both spellings, and one that is never added defaults visibly for both.
 pub fn method_field_type(m: &str) -> ParsedFieldType {
+    if let Some(rest) = m.strip_prefix("maybe")
+        && let Some(first) = rest.chars().next()
+    {
+        let attr: String = first.to_lowercase().chain(rest.chars().skip(1)).collect();
+        return method_field_type(&attr);
+    }
     match m {
-        ATTR_STRING | MAYBE_ATTR_STRING => ParsedFieldType::String,
+        ATTR_STRING => ParsedFieldType::String,
         // An enum accessor decodes to an enum, not a bare string. The smax side already
         // types these `Enum` through its own normalizer, so mapping them to `String` here
         // made one concept two types across domains — 486 fields said `enum` and 28 said
         // `string` for the same accessors — and left an `enumRef` hanging off a field a
         // consumer filtering on `type == "enum"` would never look at.
-        ATTR_ENUM | MAYBE_ATTR_ENUM | ATTR_ENUM_VALUES => ParsedFieldType::Enum,
-        ATTR_INT | MAYBE_ATTR_INT | ATTR_TIME | MAYBE_ATTR_TIME => ParsedFieldType::Integer,
+        ATTR_ENUM | ATTR_ENUM_VALUES => ParsedFieldType::Enum,
+        // `attrFutureTime` range-checks a unix time it read with `attrInt`; `contentUint`
+        // decodes an unsigned integer out of the content bytes.
+        ATTR_INT | ATTR_TIME | "attrIntRange" | "attrFutureTime" | CONTENT_INT | "contentUint" => {
+            ParsedFieldType::Integer
+        }
         // Each JID accessor pins the flavor (server/format) it validates. Keeping the
         // flavor — rather than collapsing to a bare `Jid` — is protocol-safety-critical:
         // a LID user JID and a PN user JID are different identities for the same person.
-        ATTR_USER_JID | MAYBE_ATTR_USER_JID => ParsedFieldType::UserJid,
+        ATTR_USER_JID => ParsedFieldType::UserJid,
         // The `phone*` spellings are the explicit-PN aliases of the plain user/device
-        // accessors. Missing them typed a PN user JID as a bare `string`, which is
-        // exactly the conflation the note above calls protocol-safety-critical.
-        "attrPhoneUserJid" | "maybeAttrPhoneUserJid" => ParsedFieldType::UserJid,
+        // accessors.
+        "attrPhoneUserJid" => ParsedFieldType::UserJid,
         "attrPhoneDeviceJid" => ParsedFieldType::DeviceJid,
-        ATTR_LID_USER_JID | MAYBE_ATTR_LID_USER_JID => ParsedFieldType::LidUserJid,
+        ATTR_LID_USER_JID => ParsedFieldType::LidUserJid,
         ATTR_DEVICE_JID => ParsedFieldType::DeviceJid,
         ATTR_LID_DEVICE_JID => ParsedFieldType::LidDeviceJid,
         ATTR_GROUP_JID => ParsedFieldType::GroupJid,
@@ -132,7 +148,10 @@ pub fn method_field_type(m: &str) -> ParsedFieldType {
         ATTR_CALL_JID => ParsedFieldType::CallJid,
         ATTR_BROADCAST_JID => ParsedFieldType::BroadcastJid,
         ATTR_STATUS_JID => ParsedFieldType::StatusJid,
-        ATTR_JID_WITH_TYPE | "attrJidEnum" => ParsedFieldType::JidTyped,
+        // `attrFromJidChat` / `attrFromJidPhoneChat` both delegate to `attrJidWithType`.
+        ATTR_JID_WITH_TYPE | "attrJidEnum" | "attrFromJidChat" | "attrFromJidPhoneChat" => {
+            ParsedFieldType::JidTyped
+        }
         // `attrWapJid`/`attrChatJid`/`attrFromJid` accept more than one flavor
         // (a chat is a user or a group), so they stay a generic `Jid`.
         ATTR_WAP_JID | ATTR_CHAT_JID | ATTR_FROM_JID => ParsedFieldType::Jid,
@@ -141,11 +160,13 @@ pub fn method_field_type(m: &str) -> ParsedFieldType {
         "attrPhoneChatJid" | "attrDomainJid" | "attrLidJid" | "attrFromPhoneJid" => {
             ParsedFieldType::Jid
         }
-        // Range-checked integers and the enum accessors, whose raw spellings the legacy
-        // parsers use directly.
-        "attrIntRange" | "contentInt" => ParsedFieldType::Integer,
-        "attrStringEnum" | "contentStringEnum" | "attrEnumOrNullIfUnknown" => ParsedFieldType::Enum,
-        CONTENT_BYTES => ParsedFieldType::Bytes,
+        // The enum accessors, whose raw spellings the legacy parsers use directly.
+        // `contentEnum` reads the content as a string and looks it up.
+        "attrStringEnum" | "contentStringEnum" | "contentEnum" | "attrEnumOrNullIfUnknown" => {
+            ParsedFieldType::Enum
+        }
+        // Every content accessor that yields raw bytes, whatever length rule it applies.
+        CONTENT_BYTES | "contentBytesRange" | "contentLiteralBytes" => ParsedFieldType::Bytes,
         _ => ParsedFieldType::String,
     }
 }
@@ -211,6 +232,87 @@ mod tests {
             MAYBE_CHILD,
         ] {
             assert!(!is_attr_method(m), "{m}");
+        }
+    }
+
+    #[test]
+    fn maybe_spellings_inherit_their_base_accessor() {
+        // The rule that replaced enumerating both spellings: a `maybe` variant decodes
+        // exactly like its base, so a flavour listed once covers both — and a flavour
+        // never listed defaults visibly for both instead of only for the `maybe` half,
+        // which is how `maybeAttrPhoneUserJid` came to report a PN user JID as a string.
+        for base in [
+            ATTR_STRING,
+            ATTR_INT,
+            ATTR_ENUM,
+            ATTR_TIME,
+            ATTR_USER_JID,
+            ATTR_LID_USER_JID,
+            ATTR_GROUP_JID,
+            ATTR_DEVICE_JID,
+            ATTR_NEWSLETTER_JID,
+            "attrPhoneUserJid",
+        ] {
+            let maybe = format!("maybe{}{}", base[..1].to_uppercase(), &base[1..]);
+            assert_eq!(
+                method_field_type(&maybe),
+                method_field_type(base),
+                "{maybe} must decode like {base}"
+            );
+        }
+        // The PN/LID split survives the derivation — the distinction this module calls
+        // protocol-safety-critical.
+        assert_eq!(
+            method_field_type("maybeAttrPhoneUserJid"),
+            ParsedFieldType::UserJid
+        );
+        assert_eq!(
+            method_field_type(MAYBE_ATTR_LID_USER_JID),
+            ParsedFieldType::LidUserJid
+        );
+        assert_ne!(
+            method_field_type("maybeAttrPhoneUserJid"),
+            method_field_type(MAYBE_ATTR_LID_USER_JID)
+        );
+    }
+
+    #[test]
+    fn every_bundle_accessor_is_classified() {
+        // The accessors WA's parsers actually use, swept from the bundle. Anything here
+        // that falls through to `String` is either genuinely a string or a flavour we are
+        // silently dropping — so the list is pinned, and a new one must be judged rather
+        // than defaulting quietly.
+        for (m, want) in [
+            ("attrFutureTime", ParsedFieldType::Integer),
+            ("attrIntRange", ParsedFieldType::Integer),
+            ("contentUint", ParsedFieldType::Integer),
+            ("contentEnum", ParsedFieldType::Enum),
+            ("attrStringEnum", ParsedFieldType::Enum),
+            ("contentStringEnum", ParsedFieldType::Enum),
+            ("attrEnumOrNullIfUnknown", ParsedFieldType::Enum),
+            ("contentBytesRange", ParsedFieldType::Bytes),
+            ("contentLiteralBytes", ParsedFieldType::Bytes),
+            ("maybeAttrGroupJid", ParsedFieldType::GroupJid),
+            ("attrPhoneDeviceJid", ParsedFieldType::DeviceJid),
+            ("attrFromJidChat", ParsedFieldType::JidTyped),
+            ("attrFromJidPhoneChat", ParsedFieldType::JidTyped),
+            ("attrJidEnum", ParsedFieldType::JidTyped),
+            ("attrDomainJid", ParsedFieldType::Jid),
+            ("attrLidJid", ParsedFieldType::Jid),
+            ("attrPhoneChatJid", ParsedFieldType::Jid),
+            ("attrFromPhoneJid", ParsedFieldType::Jid),
+        ] {
+            assert_eq!(method_field_type(m), want, "{m}");
+        }
+        // Genuinely strings: a stanza id, and the reference helpers whose type comes from
+        // the accessor they wrap.
+        for m in [
+            ATTR_STRING,
+            CONTENT_STRING,
+            "attrStanzaId",
+            "attrStringFromReference",
+        ] {
+            assert_eq!(method_field_type(m), ParsedFieldType::String, "{m}");
         }
     }
 
