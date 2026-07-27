@@ -8,7 +8,12 @@ use wa_ir::{AppstateAction, AppstateIr};
 
 use crate::text::{skip_expr, skip_string, skip_ws};
 
-const SYNCD_CONST: &str = "WASyncdConst";
+/// WA renamed this module `WASyncdConst` -> `WAWebSyncdConst` (first seen in
+/// 2.3000.1043899084). Both spellings are accepted so the extractor survives the
+/// rename landing/reverting across bundle rollouts; the first one found wins.
+const SYNCD_CONST_MODULES: [&str; 2] = ["WAWebSyncdConst", "WASyncdConst"];
+/// Matches either spelling in `<require>("<module>")` references.
+const SYNCD_CONST_REF: &str = r#"\("WA(?:Web)?SyncdConst"\)"#;
 const HANDLER_ACTIONS: &str = "WAWebCollectionHandlerActions";
 const ASSERT_THIS: &str = "babelHelpers.assertThisInitialized";
 
@@ -84,7 +89,7 @@ impl<'a> ModuleBodies<'a> {
     }
 }
 
-// ─── WASyncdConst: action key→wire name, collection key→wire name, constants ───
+// ─── WAWebSyncdConst: action key→wire name, collection key→wire name, consts ───
 
 #[derive(Default)]
 struct SyncdConst {
@@ -108,7 +113,7 @@ static SYNCD_CONST_CONST: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\bl\.([A-Z][A-Z0-9_]*)\s*=\s*([^,;]+)").unwrap());
 
 fn parse_syncd_const(bodies: &ModuleBodies) -> SyncdConst {
-    let Some(body) = bodies.get(SYNCD_CONST) else {
+    let Some(body) = SYNCD_CONST_MODULES.iter().find_map(|m| bodies.get(m)) else {
         return SyncdConst::default();
     };
     let actions = parse_enum_literal(body, "Actions").into_iter().collect();
@@ -342,13 +347,16 @@ static CAPTURE_THIS: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\b([A-Za-z_$][\w$]*)\s*=\s*[A-Za-z_$][\w$]*\.call\.apply\(").unwrap()
 });
 static ACTION_KEY: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"\bgetAction\s*=\s*function\s*\([^)]*\)\s*\{\s*return\s+[A-Za-z_$][\w$]*\("WASyncdConst"\)\.Actions\.([A-Za-z_$][\w$]*)"#).unwrap()
+    Regex::new(&format!(
+        r#"\bgetAction\s*=\s*function\s*\([^)]*\)\s*\{{\s*return\s+[A-Za-z_$][\w$]*{SYNCD_CONST_REF}\.Actions\.([A-Za-z_$][\w$]*)"#
+    ))
+    .unwrap()
 });
 static VERSION: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"\bgetVersion\s*=\s*function\s*\([^)]*\)\s*\{\s*return\s+([^;}]+)"#).unwrap()
 });
 static VERSION_CONST: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"\("WASyncdConst"\)\.([A-Z][A-Z0-9_]*)"#).unwrap());
+    LazyLock::new(|| Regex::new(&format!(r#"{SYNCD_CONST_REF}\.([A-Z][A-Z0-9_]*)"#)).unwrap());
 
 /// `this`-capture var + the constructor-body slice around `assertThisInitialized`.
 fn ctor_context(fb: &str) -> (String, Option<&str>) {
@@ -386,7 +394,8 @@ fn ctor_context(fb: &str) -> (String, Option<&str>) {
 
 fn match_syncd_const_ref(expr: &str, table: &str) -> Option<String> {
     let re = Regex::new(&format!(
-        r#"\("WASyncdConst"\)\.{}\.([A-Za-z_$][\w$]*)"#,
+        r#"{}\.{}\.([A-Za-z_$][\w$]*)"#,
+        SYNCD_CONST_REF,
         regex::escape(table)
     ))
     .unwrap();
@@ -1441,21 +1450,56 @@ mod tests {
 
     #[test]
     fn find_body_and_enum_literal() {
-        let src = r#"__d("WASyncdConst",["$InternalEnum"],(function(t,n,r,o,a,i,l){
-            var e,g=(e=n("$InternalEnum"))({Star:"star",Mute:"mute"}),h=e({Regular:"regular",RegularLow:"regular_low"});
+        // Both module spellings must parse: WA renamed it mid-2026 and either
+        // could show up in a bundle.
+        for module in SYNCD_CONST_MODULES {
+            let src = format!(
+                r#"__d("{module}",["$InternalEnum"],(function(t,n,r,o,a,i,l){{
+            var e,g=(e=n("$InternalEnum"))({{Star:"star",Mute:"mute"}}),h=e({{Regular:"regular",RegularLow:"regular_low"}});
             l.Actions=g,l.CollectionName=h,l.MAX=7,l.MIN=0;
-        }),1);"#;
-        let sc = parse_syncd_const(&ModuleBodies::scan(src));
-        assert_eq!(sc.actions.get("Star").map(String::as_str), Some("star"));
-        assert_eq!(sc.actions.get("Mute").map(String::as_str), Some("mute"));
-        assert_eq!(
-            sc.collections,
-            vec![
-                ("Regular".to_string(), "regular".to_string()),
-                ("RegularLow".to_string(), "regular_low".to_string()),
-            ]
-        );
-        assert_eq!(sc.constants.get("MAX"), Some(&7));
+        }}),1);"#
+            );
+            let sc = parse_syncd_const(&ModuleBodies::scan(&src));
+            assert_eq!(
+                sc.actions.get("Star").map(String::as_str),
+                Some("star"),
+                "{module}"
+            );
+            assert_eq!(sc.actions.get("Mute").map(String::as_str), Some("mute"));
+            assert_eq!(
+                sc.collections,
+                vec![
+                    ("Regular".to_string(), "regular".to_string()),
+                    ("RegularLow".to_string(), "regular_low".to_string()),
+                ]
+            );
+            assert_eq!(sc.constants.get("MAX"), Some(&7));
+
+            // …and so must the reference regexes that reach into it.
+            let expr = format!(r#"return o("{module}").Actions.Star"#);
+            assert_eq!(
+                match_syncd_const_ref(&expr, "Actions").as_deref(),
+                Some("Star"),
+                "{module}"
+            );
+            let fb = format!(r#"e.getAction=function(){{return o("{module}").Actions.Mute}};"#);
+            assert_eq!(
+                ACTION_KEY
+                    .captures(&fb)
+                    .map(|c| c[1].to_string())
+                    .as_deref(),
+                Some("Mute"),
+                "{module}"
+            );
+            assert_eq!(
+                resolve_version(
+                    Some(&format!(r#"o("{module}").MAX"#)),
+                    &HashMap::from([("MAX".to_string(), 7i64)])
+                ),
+                Some(7),
+                "{module}"
+            );
+        }
     }
 
     #[test]
