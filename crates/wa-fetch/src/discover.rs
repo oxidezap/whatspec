@@ -1,7 +1,7 @@
 //! Browserless discovery of WA Web bundle URLs + version, from the static HTML
 //! and its `data-sjs` JSON payloads.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::{Context, Result};
 use serde_json::Value;
@@ -41,8 +41,36 @@ pub struct Discovered {
     pub js: Vec<String>,
     /// WASM URLs referenced anywhere in the page JSON.
     pub wasm: Vec<String>,
+    /// The page's bootloader resource map: `bx` id → resource URI. The JS never
+    /// carries a wasm URL — it asks the bootloader for a numeric id — so this is the
+    /// only thing that turns an id into something fetchable. The page inlines just
+    /// the ids the initial route needs; the rest come from the bootloader endpoint
+    /// (see the `bootloader` module).
+    pub bx_data: BTreeMap<String, String>,
+    /// Parameters for calling the bootloader endpoint, when the page shipped them all.
+    pub bootloader: Option<BootloaderParams>,
+    /// Components the page declares as server-fetchable (`be: 1`) but whose resource
+    /// hashes it did **not** inline — exactly the set worth asking the bootloader
+    /// endpoint about. Sorted.
+    pub deferred_components: Vec<String>,
     /// Per-source counts for diagnosing what the static page actually exposes.
     pub by_source: Sources,
+}
+
+/// Everything the `/ajax/bootloader-endpoint/` call needs, recovered from the page's
+/// `SiteData` + `BootloaderEndpointConfig` defines. Absent fields make the call
+/// pointless (the server rejects or ignores an unstamped request), so this is only
+/// produced when the whole set is present.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct BootloaderParams {
+    pub endpoint_uri: String,
+    pub client_revision: String,
+    pub haste_session: String,
+    pub hsi: String,
+    pub spin_rev: String,
+    pub spin_branch: String,
+    pub spin_time: String,
+    pub comet_env: String,
 }
 
 #[derive(Debug, Default)]
@@ -93,6 +121,12 @@ pub fn discover_from_html(status: u16, html: &str, base_url: &str) -> Result<Dis
 
     let mut js: BTreeSet<String> = BTreeSet::new();
     let mut wasm: BTreeSet<String> = BTreeSet::new();
+    // Resource-hash keys the page inlined, and the components that need them — the two
+    // halves of "which components would still have to be asked for".
+    let mut rsrc_keys: BTreeSet<String> = BTreeSet::new();
+    let mut components: BTreeMap<String, ComponentEntry> = BTreeMap::new();
+    let mut site_data: Option<serde_json::Map<String, Value>> = None;
+    let mut endpoint_uri: Option<String> = None;
 
     for script in extract_scripts(html) {
         // Phase 1: <script src="...">
@@ -112,7 +146,25 @@ pub fn discover_from_html(status: u16, html: &str, base_url: &str) -> Result<Dis
         // Phase 2: <script type="application/json" data-sjs> JSON payloads.
         if script.attrs.contains("data-sjs") {
             if let Ok(v) = serde_json::from_str::<Value>(script.body) {
-                walk_require(&v, &mut js, &mut out.by_source);
+                walk_require(
+                    &v,
+                    &mut js,
+                    &mut rsrc_keys,
+                    &mut components,
+                    &mut out.by_source,
+                );
+                // `bxData` rides along in several places (a `hsdp` payload on an inline
+                // define, a top-level blob), so it is collected by shape, not by path.
+                collect_bx_data(&v, &mut out.bx_data);
+                if site_data.is_none() {
+                    site_data = find_define_config(&v, "SiteData").cloned();
+                }
+                if endpoint_uri.is_none() {
+                    endpoint_uri = find_define_config(&v, "BootloaderEndpointConfig")
+                        .and_then(|c| c.get("endpointURI"))
+                        .and_then(Value::as_str)
+                        .map(str::to_string);
+                }
                 if out.client_revision.is_none() {
                     out.client_revision = find_client_revision(&v);
                 }
@@ -121,10 +173,75 @@ pub fn discover_from_html(status: u16, html: &str, base_url: &str) -> Result<Dis
         }
     }
 
+    // A wasm URI in the page's own resource map is as good as one found by scanning the
+    // raw text — union them so the caller sees one list either way.
+    for uri in out.bx_data.values() {
+        if is_wasm_url(uri) {
+            wasm.insert(uri.clone());
+        }
+    }
+
+    out.deferred_components = components
+        .into_iter()
+        .filter(|(_, c)| c.server_fetchable && c.hashes.iter().any(|h| !rsrc_keys.contains(h)))
+        .map(|(name, _)| name)
+        .collect();
+    out.bootloader = site_data
+        .as_ref()
+        .zip(endpoint_uri)
+        .and_then(|(site, uri)| BootloaderParams::from_page(site, uri));
+
     out.wa_version = out.client_revision.map(build_wa_version);
     out.js = js.into_iter().collect();
     out.wasm = wasm.into_iter().collect();
     Ok(out)
+}
+
+/// Is this URL a WebAssembly payload? Query/fragment is ignored so a cache-busted URL
+/// still counts.
+pub(crate) fn is_wasm_url(url: &str) -> bool {
+    url.split(['?', '#'])
+        .next()
+        .unwrap_or(url)
+        .ends_with(".wasm")
+}
+
+impl BootloaderParams {
+    /// Read the endpoint parameters out of a `SiteData` define config. Returns `None`
+    /// unless every field is present: a partially-stamped request is answered with a
+    /// payload that carries no resources, which would look like "nothing to resolve"
+    /// instead of "we asked wrong".
+    fn from_page(site: &serde_json::Map<String, Value>, endpoint_uri: String) -> Option<Self> {
+        // `SiteData` mixes number and string scalars (`__spin_r` is numeric,
+        // `haste_session` is a string); the request stamps them all as text.
+        fn scalar(site: &serde_json::Map<String, Value>, key: &str) -> Option<String> {
+            match site.get(key)? {
+                Value::String(s) => Some(s.clone()),
+                Value::Number(n) => Some(n.to_string()),
+                Value::Bool(b) => Some(b.to_string()),
+                _ => None,
+            }
+        }
+        Some(Self {
+            endpoint_uri,
+            client_revision: scalar(site, "client_revision")?,
+            haste_session: scalar(site, "haste_session")?,
+            hsi: scalar(site, "hsi")?,
+            spin_rev: scalar(site, "__spin_r")?,
+            spin_branch: scalar(site, "__spin_b")?,
+            spin_time: scalar(site, "__spin_t")?,
+            comet_env: scalar(site, "comet_env")?,
+        })
+    }
+}
+
+/// One `compMap` entry, reduced to what candidate selection needs.
+#[derive(Debug, Default)]
+struct ComponentEntry {
+    /// Resource hashes the component needs (`r`).
+    hashes: Vec<String>,
+    /// `be: 1` — the server will serve this component's resources on request.
+    server_fetchable: bool,
 }
 
 /// Build the WA Web version string from `SiteData.client_revision`.
@@ -218,7 +335,13 @@ fn attr_value<'a>(attrs: &'a str, name: &str) -> Option<&'a str> {
 
 // ─── data-sjs `require` walk (Bootloader.rsrcMap + ScheduledServerJS.__d) ─────────
 
-fn walk_require(v: &Value, js: &mut BTreeSet<String>, src: &mut Sources) {
+fn walk_require(
+    v: &Value,
+    js: &mut BTreeSet<String>,
+    rsrc_keys: &mut BTreeSet<String>,
+    components: &mut BTreeMap<String, ComponentEntry>,
+    src: &mut Sources,
+) {
     let Some(require) = v.get("require").and_then(Value::as_array) else {
         return;
     };
@@ -239,7 +362,10 @@ fn walk_require(v: &Value, js: &mut BTreeSet<String>, src: &mut Sources) {
         {
             for arg in args {
                 if let Some(map) = arg.get("rsrcMap").and_then(Value::as_object) {
-                    for val in map.values() {
+                    for (hash, val) in map {
+                        // Every inlined hash counts (js *and* css): a component whose
+                        // hashes are all here needs no server round-trip.
+                        rsrc_keys.insert(hash.clone());
                         if val.get("type").and_then(Value::as_str) == Some("js")
                             && let Some(s) = val.get("src").and_then(Value::as_str)
                         {
@@ -247,6 +373,19 @@ fn walk_require(v: &Value, js: &mut BTreeSet<String>, src: &mut Sources) {
                             if host_of(&u).as_deref() == Some(ALLOWED_HOST) && js.insert(u) {
                                 src.rsrc_map += 1;
                             }
+                        }
+                    }
+                }
+                if let Some(map) = arg.get("compMap").and_then(Value::as_object) {
+                    for (name, val) in map {
+                        let entry = components.entry(name.clone()).or_default();
+                        if let Some(hashes) = val.get("r").and_then(Value::as_array) {
+                            entry.hashes.extend(
+                                hashes.iter().filter_map(Value::as_str).map(str::to_string),
+                            );
+                        }
+                        if val.get("be").and_then(Value::as_u64) == Some(1) {
+                            entry.server_fetchable = true;
                         }
                     }
                 }
@@ -306,6 +445,56 @@ fn scan_wasm_urls(text: &str, wasm: &mut BTreeSet<String>, src: &mut Sources) {
             }
         }
         search = end;
+    }
+}
+
+/// Collect every `{"bxData": {"<id>": {"uri": "…"}}}` map found anywhere in a payload,
+/// unescaping the URIs. First write wins for a given id — matching the runtime, whose
+/// `bx.add` keeps the entry already registered.
+///
+/// Public within the crate so the bootloader-endpoint response (same shape, different
+/// envelope) is parsed by exactly this code.
+pub(crate) fn collect_bx_data(v: &Value, out: &mut BTreeMap<String, String>) {
+    match v {
+        Value::Object(map) => {
+            if let Some(bx) = map.get("bxData").and_then(Value::as_object) {
+                for (id, entry) in bx {
+                    if let Some(uri) = entry.get("uri").and_then(Value::as_str)
+                        && !out.contains_key(id)
+                    {
+                        out.insert(id.clone(), unescape_json_url(uri));
+                    }
+                }
+            }
+            for val in map.values() {
+                collect_bx_data(val, out);
+            }
+        }
+        Value::Array(arr) => {
+            for val in arr {
+                collect_bx_data(val, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Find the config object of an inline define entry — `["<name>", [deps], {config}, id]`
+/// — anywhere in a payload. The page ships `SiteData` and `BootloaderEndpointConfig`
+/// this way, nested under `require`/`__d`/`__bbox` depending on the build.
+fn find_define_config<'a>(v: &'a Value, name: &str) -> Option<&'a serde_json::Map<String, Value>> {
+    match v {
+        Value::Array(arr) => {
+            if arr.len() >= 3
+                && arr[0].as_str() == Some(name)
+                && let Some(config) = arr[2].as_object()
+            {
+                return Some(config);
+            }
+            arr.iter().find_map(|x| find_define_config(x, name))
+        }
+        Value::Object(map) => map.values().find_map(|x| find_define_config(x, name)),
+        _ => None,
     }
 }
 
@@ -451,5 +640,148 @@ mod tests {
         assert_eq!(find_client_revision(&v), Some(7));
         let none: Value = serde_json::from_str(r#"{"a":[1,2,"x"]}"#).unwrap();
         assert_eq!(find_client_revision(&none), None);
+    }
+
+    /// A page shaped like the real one for the bootloader-facing fields: a `hsdp.bxData`
+    /// on an inline define, a `compMap` with a server-fetchable component whose hash the
+    /// page did *not* inline, and the `SiteData`/`BootloaderEndpointConfig` stamps.
+    const BOOTLOADER_SAMPLE: &str = r#"
+    <script type="application/json" data-sjs>
+    {"require":[
+      ["Bootloader","handlePayload",null,[{
+        "rsrcMap":{"h1":{"type":"js","src":"https://static.whatsapp.net/rsrc.php/a.js"}},
+        "compMap":{
+          "Inlined":{"r":["h1"],"be":1},
+          "Deferred":{"r":["h1","h2"],"be":1},
+          "NotServerFetchable":{"r":["h9"]}
+        }
+      }]],
+      ["ScheduledServerJS","handle",null,[{"__d":[
+        ["WAMediaWasmWorkerResource",[],{"hsdp":{"bxData":{
+          "237":{"uri":"https:\/\/static.whatsapp.net\/rsrc.php\/y\/media.wasm"},
+          "9547":{"uri":"https:\/\/static.whatsapp.net\/rsrc.php\/y\/icon.webp"}
+        }}},-1],
+        ["SiteData",[],{"client_revision":1043893604,"haste_session":"20261.HYP:x",
+          "hsi":"7551","__spin_r":1043,"__spin_b":"trunk","__spin_t":1753600000,
+          "comet_env":17},270],
+        ["BootloaderEndpointConfig",[],
+          {"endpointURI":"https://web.whatsapp.com/ajax/bootloader-endpoint/"},271]
+      ]}]]
+    ]}
+    </script>
+    "#;
+
+    #[test]
+    fn extracts_bx_data_deferred_components_and_bootloader_params() {
+        let d = discover_from_html(200, BOOTLOADER_SAMPLE, WA_WEB_URL).unwrap();
+
+        // bxData is collected by shape (nested under an inline define's hsdp), keeping
+        // every resource kind — filtering to wasm is the resolver's job.
+        assert_eq!(d.bx_data.len(), 2, "{:?}", d.bx_data);
+        assert_eq!(
+            d.bx_data.get("237").map(String::as_str),
+            Some("https://static.whatsapp.net/rsrc.php/y/media.wasm"),
+            "escaped URI unescaped"
+        );
+        assert!(d.bx_data.contains_key("9547"), "non-wasm handles kept too");
+        // A page-inlined wasm URI shows up in the wasm list without a text scan.
+        assert!(
+            d.wasm
+                .contains(&"https://static.whatsapp.net/rsrc.php/y/media.wasm".to_string())
+        );
+
+        // Only the `be: 1` component with an un-inlined hash is worth asking about.
+        assert_eq!(d.deferred_components, ["Deferred"]);
+
+        let params = d.bootloader.expect("every stamp present");
+        assert_eq!(
+            params.endpoint_uri,
+            "https://web.whatsapp.com/ajax/bootloader-endpoint/"
+        );
+        assert_eq!(params.client_revision, "1043893604", "numeric → text");
+        assert_eq!(params.haste_session, "20261.HYP:x");
+        assert_eq!(params.spin_rev, "1043");
+        assert_eq!(params.spin_branch, "trunk");
+        assert_eq!(params.spin_time, "1753600000");
+        assert_eq!(params.comet_env, "17");
+    }
+
+    #[test]
+    fn the_first_payload_wins_for_a_repeated_handle() {
+        // Matches the runtime, whose `bx.add` keeps the entry already registered.
+        let html = r#"
+        <script type="application/json" data-sjs>
+        {"bxData":{"1":{"uri":"https://static.whatsapp.net/first.wasm"}}}
+        </script>
+        <script type="application/json" data-sjs>
+        {"bxData":{"1":{"uri":"https://static.whatsapp.net/second.wasm"}}}
+        </script>"#;
+        let d = discover_from_html(200, html, WA_WEB_URL).unwrap();
+        assert_eq!(
+            d.bx_data.get("1").map(String::as_str),
+            Some("https://static.whatsapp.net/first.wasm")
+        );
+    }
+
+    #[test]
+    fn bootloader_params_need_the_whole_stamp_set() {
+        // `hsi` missing → no params at all, rather than a request the server answers
+        // with an empty payload (which would read as "nothing to resolve").
+        let html = r#"
+        <script type="application/json" data-sjs>
+        {"require":[["ScheduledServerJS","handle",null,[{"__d":[
+          ["SiteData",[],{"client_revision":1,"haste_session":"h","__spin_r":1,
+            "__spin_b":"b","__spin_t":1,"comet_env":17},1],
+          ["BootloaderEndpointConfig",[],{"endpointURI":"https://x/be/"},2]
+        ]}]]]}
+        </script>"#;
+        assert!(
+            discover_from_html(200, html, WA_WEB_URL)
+                .unwrap()
+                .bootloader
+                .is_none()
+        );
+
+        // Endpoint URI missing → likewise none, even with a complete SiteData.
+        let html = r#"
+        <script type="application/json" data-sjs>
+        {"require":[["ScheduledServerJS","handle",null,[{"__d":[
+          ["SiteData",[],{"client_revision":1,"haste_session":"h","hsi":"i","__spin_r":1,
+            "__spin_b":"b","__spin_t":1,"comet_env":17},1]
+        ]}]]]}
+        </script>"#;
+        assert!(
+            discover_from_html(200, html, WA_WEB_URL)
+                .unwrap()
+                .bootloader
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn a_fully_inlined_page_defers_nothing() {
+        let html = r#"
+        <script type="application/json" data-sjs>
+        {"require":[["Bootloader","handlePayload",null,[{
+          "rsrcMap":{"h1":{"type":"js","src":"https://static.whatsapp.net/a.js"},
+                     "h2":{"type":"css","src":"https://static.whatsapp.net/a.css"}},
+          "compMap":{"All":{"r":["h1","h2"],"be":1}}
+        }]]]}
+        </script>"#;
+        let d = discover_from_html(200, html, WA_WEB_URL).unwrap();
+        assert!(
+            d.deferred_components.is_empty(),
+            "a css hash counts as inlined too: {:?}",
+            d.deferred_components
+        );
+    }
+
+    #[test]
+    fn is_wasm_url_ignores_query_and_fragment() {
+        assert!(is_wasm_url("https://h/a.wasm"));
+        assert!(is_wasm_url("https://h/a.wasm?v=2"));
+        assert!(is_wasm_url("https://h/a.wasm#x"));
+        assert!(!is_wasm_url("https://h/a.wasm.js"));
+        assert!(!is_wasm_url("https://h/wasm"));
     }
 }

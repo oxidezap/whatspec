@@ -28,6 +28,7 @@ DOMAINS = [
     ("stanza/index.json", "schema/stanza.schema.json"),
     ("incoming/index.json", "schema/incoming.schema.json"),
     ("srvreq/index.json", "schema/srvreq.schema.json"),
+    ("wasm/index.json", "schema/wasm.schema.json"),
 ]
 
 

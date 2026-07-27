@@ -2,20 +2,29 @@
 //! versioned artifacts (IQ specs, WAProto.proto, mex operations, appstate
 //! schemas) to disk, ready to be committed — locally or from CI.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
 mod lock;
-use lock::{BundleId, BundleLock};
+use lock::{BundleId, BundleLock, WasmLock, WasmLockEntry};
 
 #[cfg(feature = "fetch")]
 mod restore;
 
 /// The committed bundle lockfile, written next to the domain artifacts.
 const BUNDLE_LOCK_NAME: &str = "bundles.lock.json";
+/// Every WebAssembly module starts with this header; a download that doesn't is an error
+/// page, not a payload.
+#[cfg(feature = "fetch")]
+const WASM_MAGIC: &[u8] = b"\0asm";
+
+/// The committed wasm lockfile — what a `--wasm` fetch resolved and stored. Separate
+/// from [`BUNDLE_LOCK_NAME`] because wasm is not an input to `generated/`; see
+/// [`lock::WasmLock`].
+const WASM_LOCK_NAME: &str = "wasm.lock.json";
 
 const DEFAULT_OUT: &str = "generated";
 const UNKNOWN_VERSION: &str = "unknown";
@@ -32,6 +41,8 @@ const FLAG_ALLOW_SHRINK: &str = "--allow-shrink";
 const FLAG_FROM_LOCK: &str = "--from-lock";
 const FLAG_ARCHIVE: &str = "--archive";
 const FLAG_REPO: &str = "--repo";
+const FLAG_WASM: &str = "--wasm";
+const FLAG_WASM_OUT: &str = "--wasm-out";
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -56,6 +67,7 @@ fn parse_restore_args(args: &[String]) -> Result<restore::RestoreOptions> {
     let mut cache: Option<PathBuf> = None;
     let mut archive: Option<String> = None;
     let mut repo: Option<String> = None;
+    let mut wasm = false;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -79,6 +91,10 @@ fn parse_restore_args(args: &[String]) -> Result<restore::RestoreOptions> {
                 repo = Some(arg_value(args, i, FLAG_REPO)?.to_string());
                 i += 2;
             }
+            FLAG_WASM => {
+                wasm = true;
+                i += 1;
+            }
             other => anyhow::bail!("unknown flag: {other}"),
         }
     }
@@ -95,6 +111,7 @@ fn parse_restore_args(args: &[String]) -> Result<restore::RestoreOptions> {
         }
     };
     let mut opts = restore::RestoreOptions::new(lock_path, target);
+    opts.wasm = wasm;
     opts.archive = archive;
     if let Some(repo) = repo {
         opts.repo = repo;
@@ -120,7 +137,8 @@ fn usage() -> String {
         "whatspec — WhatsApp Web spec extractor\n\n\
          usage:\n  \
          whatspec update [{FLAG_OUT} <dir>] [{FLAG_BUNDLES} <dir>] [{FLAG_WA_VERSION} <ver>]\n                  \
-         [{FLAG_SAVE_BUNDLES} <dir>] [{FLAG_CACHE} <dir>] [{FLAG_CHECK}] [{FLAG_ALLOW_SHRINK}]\n\n\
+         [{FLAG_SAVE_BUNDLES} <dir>] [{FLAG_CACHE} <dir>] [{FLAG_WASM}] [{FLAG_WASM_OUT} <dir>]\n                  \
+         [{FLAG_CHECK}] [{FLAG_ALLOW_SHRINK}]\n\n\
          Fetches web.whatsapp.com bundles (or reads {FLAG_BUNDLES} <dir> of .js files),\n\
          extracts IQ specs / WAProto.proto / mex operations / appstate schemas, and writes\n\
          them under <dir> (default `{DEFAULT_OUT}`), stamped with the WhatsApp version.\n\n\
@@ -132,7 +150,7 @@ fn usage() -> String {
          Compares two generated output directories (by their `manifest.json` + `index.json`s)\n\
          and prints version/count deltas and the namespaces/operations/actions added or removed.\n\n\
          whatspec restore {FLAG_FROM_LOCK} <bundles.lock.json> ({FLAG_OUT} <dir> | {FLAG_CACHE} <dir>)\n                  \
-         [{FLAG_ARCHIVE} <path|url>] [{FLAG_REPO} <owner/repo>]\n\n\
+         [{FLAG_WASM}] [{FLAG_ARCHIVE} <path|url>] [{FLAG_REPO} <owner/repo>]\n\n\
          Rebuilds the exact bundle set a `generated/` snapshot was built from — pulled from the\n\
          durable release store (or {FLAG_ARCHIVE}) and verified against the lock. {FLAG_OUT} writes\n\
          flat files for `update {FLAG_BUNDLES}`; {FLAG_CACHE} writes the reusable local-cache format.\n\n\
@@ -143,6 +161,9 @@ fn usage() -> String {
          {FLAG_SAVE_BUNDLES} <dir>  persist fetched bundles to <dir>\n  \
          {FLAG_CACHE} <dir>         update: reuse a complete version cache, else re-download;\n                             \
          restore: seed that cache directly from the verified release archive\n  \
+         {FLAG_WASM}               update: also resolve/fetch/store the client wasm payloads;\n                             \
+         restore: restore the wasm set from a wasm.lock.json\n  \
+         {FLAG_WASM_OUT} <dir>      update: write fetched wasm here, named by URL hash (implies {FLAG_WASM})\n  \
          {FLAG_FILE} <path>         (mex-ids) the mex_ids.rs to refresh in place\n  \
          {FLAG_FROM_LOCK} <path>     (restore) the committed bundles.lock.json to restore\n  \
          {FLAG_ARCHIVE} <path|url>   (restore) explicit archive instead of the derived release URL\n  \
@@ -167,6 +188,18 @@ struct Options {
     /// download; anything else re-downloads from scratch.
     #[cfg_attr(not(feature = "fetch"), allow(dead_code))]
     cache_dir: Option<PathBuf>,
+    /// Resolve, download and store the client's wasm payloads alongside the JS bundles.
+    /// Off by default: it is ~40 MB of extra download that no `generated/` artifact
+    /// depends on.
+    #[cfg_attr(not(feature = "fetch"), allow(dead_code))]
+    wasm: bool,
+    /// Write the fetched wasm payloads into this directory, each named by its
+    /// content-hashed URL segment (`COs9e0Kj0ic.wasm`) — the identity WhatsApp serves it
+    /// under and the one a wasm runner keys on, *not* the `bx` handle that resolved it
+    /// (the handle lives in `wasm.lock.json`, joined by `bxId`). Implies
+    /// [`Options::wasm`].
+    #[cfg_attr(not(feature = "fetch"), allow(dead_code))]
+    wasm_out: Option<PathBuf>,
     check: bool,
     /// Accept an output that shrinks below the committed `manifest.json` counts.
     /// Off by default: a drop trips the regression guard and aborts the write.
@@ -201,6 +234,16 @@ fn parse_update_args(args: &[String]) -> Result<Options> {
                 opts.cache_dir = Some(PathBuf::from(arg_value(args, i, FLAG_CACHE)?));
                 i += 2;
             }
+            FLAG_WASM => {
+                opts.wasm = true;
+                i += 1;
+            }
+            FLAG_WASM_OUT => {
+                opts.wasm_out = Some(PathBuf::from(arg_value(args, i, FLAG_WASM_OUT)?));
+                // Asking for the output is asking for the fetch.
+                opts.wasm = true;
+                i += 2;
+            }
             FLAG_CHECK => {
                 opts.check = true;
                 i += 1;
@@ -212,6 +255,17 @@ fn parse_update_args(args: &[String]) -> Result<Options> {
             other => anyhow::bail!("unknown flag: {other}"),
         }
     }
+    // Wasm cannot be resolved from local bundles: the `bx` id → URL map is server state,
+    // absent from the `.js` files. Refuse the combination rather than exit 0 having
+    // silently produced no payloads (and no `--wasm-out` directory), which would let
+    // automation believe collection succeeded.
+    if opts.bundles_dir.is_some() && opts.wasm {
+        anyhow::bail!(
+            "{FLAG_WASM}/{FLAG_WASM_OUT} cannot be combined with {FLAG_BUNDLES}: wasm URLs \
+             live in the live page's bootloader data, not in the .js bundles — drop \
+             {FLAG_BUNDLES} to resolve them"
+        );
+    }
     Ok(opts)
 }
 
@@ -222,6 +276,7 @@ fn update(args: &[String]) -> Result<()> {
         wa_version,
         source,
         bundles,
+        wasm,
         authoritative,
     } = load_source(&opts)?;
     eprintln!("WhatsApp version: {wa_version}");
@@ -290,10 +345,30 @@ fn update(args: &[String]) -> Result<()> {
         );
     }
 
+    // The wasm lock is written only when this run actually resolved payloads. A plain
+    // `update` (no `--wasm`) must leave a previously committed wasm lock alone rather
+    // than truncate it to an empty set it never looked for.
+    if authoritative && opts.wasm && wasm.is_empty() {
+        warn_if_wasm_lock_is_now_stale(&opts.out.join(WASM_LOCK_NAME), &wa_version);
+    }
+    if authoritative && !wasm.is_empty() {
+        let lock_path = opts.out.join(WASM_LOCK_NAME);
+        warn_if_wasm_shrank(&lock_path, &wasm);
+        let lock = WasmLock::new(&wa_version, wasm);
+        fs::write(&lock_path, lock.to_pretty_json())
+            .with_context(|| format!("write {}", lock_path.display()))?;
+        eprintln!(
+            "wrote {} ({} payloads, wasmSetHash {})",
+            lock_path.display(),
+            lock.wasm_count,
+            &lock.wasm_set_hash[..12]
+        );
+    }
+
     eprintln!(
         "wrote artifacts to {}: {} iq modules, {} proto entities, {} mex ops, {} appstate actions, \
          {} abprops, {} enums, {} wam events, {} notif types, {} stanzas, {} incoming, {} srvreq, \
-         {}+{} tokens",
+         {}+{} tokens, {} wasm binaries / {} wasm-evidenced of {} bx handles",
         opts.out.display(),
         counts.iq_modules,
         counts.proto_entities,
@@ -307,9 +382,78 @@ fn update(args: &[String]) -> Result<()> {
         counts.incoming_defs,
         counts.server_request_defs,
         counts.token_single_byte,
-        counts.token_double_byte
+        counts.token_double_byte,
+        counts.wasm_binaries,
+        counts.wasm_wasm_handles,
+        counts.wasm_resources
     );
     Ok(())
+}
+
+/// Warn when a requested wasm fetch came back empty and leaves behind a lock stamped with
+/// a *different* version — the committed lock then describes payloads for an older tree.
+///
+/// The lock is not deleted: its archive is published and still restorable, and discarding a
+/// valid pin because one run was unlucky would lose data. Both files carry their
+/// `waVersion`, so the mismatch is visible rather than implied — but it must be said out
+/// loud, since the run otherwise succeeds.
+fn warn_if_wasm_lock_is_now_stale(lock_path: &Path, wa_version: &str) {
+    let Ok(raw) = fs::read_to_string(lock_path) else {
+        return;
+    };
+    let Ok(prior) = serde_json::from_str::<WasmLock>(&raw) else {
+        return;
+    };
+    if prior.wa_version == wa_version {
+        return;
+    }
+    eprintln!(
+        "wasm lock: resolved nothing for {wa_version}, so {} still pins {} payload(s) for \
+         {} — it no longer describes this tree (restoring it into this version's cache \
+         will be refused). Re-run to refresh it.",
+        lock_path.display(),
+        prior.wasm_count,
+        prior.wa_version
+    );
+}
+
+/// Warn when this run resolved fewer payloads than the committed lock records.
+///
+/// Not a hard failure like the domain floor guard: the bootloader endpoint answers the
+/// same request with varying subsets, so a smaller set is often server variance rather
+/// than an upstream removal — and blocking a spec update on it would be wrong. But it must
+/// never pass silently: the lock is about to be overwritten, and with it the set the
+/// durable archive is published from.
+fn warn_if_wasm_shrank(lock_path: &Path, resolved: &[WasmLockEntry]) {
+    let Ok(raw) = fs::read_to_string(lock_path) else {
+        return;
+    };
+    let Ok(prior) = serde_json::from_str::<WasmLock>(&raw) else {
+        eprintln!(
+            "wasm lock: prior {} is unparseable — overwriting",
+            lock_path.display()
+        );
+        return;
+    };
+    if prior.wasm_count <= resolved.len() {
+        return;
+    }
+    let now: BTreeSet<&str> = resolved.iter().map(|e| e.sha256.as_str()).collect();
+    let dropped: Vec<&str> = prior
+        .wasm
+        .iter()
+        .filter(|e| !now.contains(e.sha256.as_str()))
+        .map(|e| e.file_name.as_str())
+        .collect();
+    eprintln!(
+        "wasm lock: resolved {} payload(s), previously {} — {} no longer resolvable ({}). \
+         Likely bootloader-endpoint variance; re-run to confirm before relying on the \
+         published archive.",
+        resolved.len(),
+        prior.wasm_count,
+        dropped.len(),
+        dropped.join(", ")
+    );
 }
 
 fn arg_value<'a>(args: &'a [String], i: usize, flag: &str) -> Result<&'a str> {
@@ -616,6 +760,12 @@ struct Counts {
     /// token) and the total across all double-byte dictionaries.
     token_single_byte: usize,
     token_double_byte: usize,
+    wasm_binaries: usize,
+    wasm_resources: usize,
+    /// Handles carrying wasm evidence — the meaningful coverage number. The total
+    /// `wasm_resources` counts every bootloader handle, most of which address images and
+    /// churn with unrelated UI changes.
+    wasm_wasm_handles: usize,
 }
 
 /// Extraction-quality signals for the IQ domain, emitted under `diagnostics.iq`
@@ -648,6 +798,10 @@ struct Loaded {
     wa_version: String,
     source: String,
     bundles: Vec<BundleId>,
+    /// Wasm payloads this run resolved and downloaded, empty unless `--wasm` was asked
+    /// for on the fetch path. Never part of `source`: these are binaries, and the
+    /// extractors parse `source` as JavaScript.
+    wasm: Vec<WasmLockEntry>,
     /// `true` only for the fetch path, which knows every bundle's origin URL and is
     /// therefore the *authoritative* source of a full lockfile. The offline `--bundles`
     /// path fingerprints the same inputs (for `--check`) but never rewrites the lock,
@@ -669,6 +823,10 @@ fn load_source(opts: &Options) -> Result<Loaded> {
                 wa_version,
                 source,
                 bundles,
+                // The offline path has no network: wasm can't be resolved from a
+                // directory of `.js` files, so it stays empty (and the committed wasm
+                // lock is left untouched — see `authoritative`).
+                wasm: Vec::new(),
                 authoritative: false,
             })
         }
@@ -782,10 +940,12 @@ fn fetch_source(opts: &Options) -> Result<Loaded> {
                     bundles.len()
                 );
                 maybe_save_bundles(opts, &bundles)?;
+                let wasm = load_wasm(opts, &discovered, Some(remote_version.as_str()))?;
                 return Ok(Loaded {
                     wa_version: version,
                     source: concat_bundles(&bundles),
                     bundles: bundle_ids(&bundles),
+                    wasm,
                     authoritative: true,
                 });
             }
@@ -826,10 +986,16 @@ fn fetch_source(opts: &Options) -> Result<Loaded> {
     }
 
     maybe_save_bundles(opts, &outcome.bundles)?;
+    // Wasm is resolved after the JS set is complete and cached: it is auxiliary, so it
+    // must never be able to cost the (expensive) JS download a retry.
+    // The discovered version keys the cache; it does not gate the fetch. A run stamped
+    // with `--wa-version` over an unreadable page still collects its payloads.
+    let wasm = load_wasm(opts, &discovered, discovered.wa_version.as_deref())?;
     Ok(Loaded {
         wa_version: version,
         source: concat_bundles(&outcome.bundles),
         bundles: bundle_ids(&outcome.bundles),
+        wasm,
         authoritative: true,
     })
 }
@@ -854,6 +1020,329 @@ fn concat_bundles(bundles: &[wa_fetch::Bundle]) -> String {
         push_bundle(&mut source, &bundle.bytes);
     }
     source
+}
+
+/// Resolve, fetch (or reuse from cache) and persist the client's wasm payloads.
+///
+/// A no-op unless `--wasm` was asked for. The payloads are auxiliary — no `generated/`
+/// artifact depends on them — so **nothing here fails the run**: a dead bootloader
+/// endpoint, a partial download or an unwritable cache degrades to fewer (or zero)
+/// payloads with the reason on stderr, rather than aborting a spec update. Only
+/// `--wasm-out`, an explicit user request for files on disk, is allowed to error.
+///
+/// # Why the cache never short-circuits resolution
+///
+/// The bootloader endpoint answers with varying subsets, so **no run can establish that
+/// it saw the whole set** — not even one where nothing failed, since the resolver stops on
+/// a round that merely added nothing new. Treating any live result as final would freeze
+/// it: later runs would hit the cache and never ask again, so a payload that only appears
+/// in some responses would be lost for that version forever.
+///
+/// So resolution runs every time (four small JSON requests), and the cache is a **byte
+/// pool**: payloads already downloaded are reused instead of re-fetched, and the version's
+/// set *accumulates* across runs rather than being replaced by the latest sample. That is
+/// the honest model for a best-effort superset.
+#[cfg(feature = "fetch")]
+fn load_wasm(
+    opts: &Options,
+    discovered: &wa_fetch::Discovered,
+    remote_version: Option<&str>,
+) -> Result<Vec<WasmLockEntry>> {
+    if !opts.wasm {
+        return Ok(Vec::new());
+    }
+
+    // The cache is keyed by the *discovered* version. Without one it can't be used at all
+    // — but resolution and download still can, so a `--wa-version`-stamped run with an
+    // unreadable page still collects its payloads.
+    let cache = opts
+        .cache_dir
+        .as_ref()
+        .zip(remote_version)
+        .map(|(dir, _)| wa_fetch::BundleCache::new(dir.clone()));
+    if opts.cache_dir.is_some() && remote_version.is_none() {
+        eprintln!("wasm cache disabled: remote version is undetectable, cannot key the cache");
+    }
+
+    let resolution = wa_fetch::resolve_wasm(discovered, &wa_fetch::WasmResolveOptions::default());
+    eprintln!(
+        "resolved {} wasm payload(s): {} from the page, {} handle(s) after {} bootloader \
+         round(s) ({} request(s))",
+        resolution.urls.len(),
+        resolution.from_page,
+        resolution.by_id.len(),
+        resolution.rounds,
+        resolution.requests
+    );
+    for why in &resolution.failures {
+        eprintln!("  wasm resolution: {why}");
+    }
+
+    // Bytes already paid for in an earlier run of this same version. Salvaged one by one:
+    // a single corrupt file must not discard the rest, because the set that gets re-stored
+    // below would then be permanently smaller.
+    let mut cached: BTreeMap<String, wa_fetch::Bundle> = BTreeMap::new();
+    if let Some((cache, version)) = cache.as_ref().zip(remote_version) {
+        let (payloads, skipped) = cache.wasm_payloads(version);
+        for why in &skipped {
+            eprintln!("  wasm cache: {why}");
+        }
+        cached.extend(payloads.into_iter().map(|b| (b.url.clone(), b)));
+    }
+
+    let to_download: Vec<String> = resolution
+        .urls
+        .iter()
+        .filter(|u| !cached.contains_key(*u))
+        .cloned()
+        .collect();
+    let outcome = wa_fetch::download_bundles(
+        &to_download,
+        &wa_fetch::DownloadOptions {
+            // Pinned for this path rather than inherited from the JS-tuned default. The
+            // biggest payload observed is ~11 MB; the cap is a bound on a hostile or broken
+            // response, and exceeding it is a hard download failure (never a truncated body
+            // that would still carry a `\0asm` header past the check below).
+            max_bytes: 64 * 1024 * 1024,
+            ..Default::default()
+        },
+    );
+    for f in &outcome.failures {
+        eprintln!("  wasm download failed: {} — {}", f.url, f.error);
+    }
+
+    // A 2xx anti-bot or error page is a "successful" download as far as the transport is
+    // concerned. Hashing, locking and publishing one would propagate a body no runner can
+    // instantiate, and restore would faithfully verify the corruption forever after. The
+    // same check covers cached bytes: `wasm_payloads` proves they are the bytes recorded,
+    // not that those bytes were ever a module (a lock-restored cache is hash-verified too).
+    let mut discarded = 0usize;
+    let mut keep = |b: &wa_fetch::Bundle| {
+        let ok = b.bytes.starts_with(WASM_MAGIC);
+        if !ok {
+            discarded += 1;
+            eprintln!(
+                "  discarding {}: {} bytes that are not a wasm module (no \\0asm header)",
+                b.url,
+                b.bytes.len()
+            );
+        }
+        ok
+    };
+    let downloaded: Vec<wa_fetch::Bundle> =
+        outcome.bundles.into_iter().filter(|b| keep(b)).collect();
+    let reused: Vec<wa_fetch::Bundle> = cached.into_values().filter(|b| keep(b)).collect();
+    let (new_count, reused_count) = (downloaded.len(), reused.len());
+
+    // The set for a version accumulates: a payload cached by an earlier run stays even if
+    // this run's responses didn't mention it (the endpoint's subsets vary), and a newly
+    // resolved one joins it. Fresh bytes win on a shared URL.
+    let mut merged: BTreeMap<String, wa_fetch::Bundle> =
+        reused.into_iter().map(|b| (b.url.clone(), b)).collect();
+    merged.extend(downloaded.into_iter().map(|b| (b.url.clone(), b)));
+    let payloads = with_lock_safe_file_names(merged.into_values().collect());
+
+    eprintln!(
+        "wasm set: {} payload(s), {:.1} MB ({new_count} newly downloaded, {reused_count} \
+         reused from cache{})",
+        payloads.len(),
+        payloads.iter().map(|b| b.bytes.len()).sum::<usize>() as f64 / 1e6,
+        if discarded > 0 {
+            format!(", {discarded} discarded as non-wasm")
+        } else {
+            String::new()
+        }
+    );
+    if payloads.is_empty() {
+        // Still sweep: an explicit `--wasm-out` that produced nothing must not leave the
+        // previous run's payloads behind, or a runner would consume a set no lock
+        // describes. Not an error — a blocked resolution must not fail a spec update.
+        maybe_save_wasm(opts, &payloads)?;
+        return Ok(Vec::new());
+    }
+
+    // Handles: what this run resolved, plus what the cache recorded for payloads it is
+    // carrying over (their `bx` ids were learned in the run that downloaded them).
+    let mut handles = invert(&discovered.bx_data);
+    if let Some(cache) = &cache {
+        handles.extend(cache.wasm_handles());
+    }
+    handles.extend(resolution.handle_by_url());
+
+    // The wasm cache attaches to the JS cache for the same version; if that isn't there
+    // (e.g. the JS came straight from a download with no `--cache`), skip caching rather
+    // than fail — the payloads are already in hand for this run.
+    if let Some((cache, version)) = cache.as_ref().zip(remote_version)
+        && let Err(e) = cache.store_wasm(version, &payloads, &handles)
+    {
+        eprintln!("  wasm cache not updated: {e:#}");
+    }
+
+    let entries = wasm_entries(&payloads, &handles);
+    maybe_save_wasm(opts, &payloads)?;
+    Ok(entries)
+}
+
+/// Give every payload a file name that is unique across the set and safe on disk, deriving
+/// it from the URL rather than trusting the URL's last segment.
+///
+/// A payload's file name **is** its identity downstream: the lock records it, `--wasm-out`
+/// writes it, `publish-wasm.sh` matches on it, the archive carries it and a runner selects
+/// by it. WA serves content-hashed segments, so in practice the last segment is already
+/// unique and short and is kept verbatim — but two URLs *could* share one, or carry a
+/// segment past `NAME_MAX`, and then a writer would have to rename behind the lock's back.
+///
+/// Renaming here instead keeps all five in agreement **and** keeps the payload: the lock is
+/// what defines the name, so a disambiguated one is just as valid. Dropping the payload
+/// would publish an archive missing a module that could then never be restored.
+///
+/// Deterministic: names derive from the URL (not from a previous run's stored name), and
+/// the input is URL-ordered, so the same set always produces the same names.
+#[cfg(feature = "fetch")]
+fn with_lock_safe_file_names(payloads: Vec<wa_fetch::Bundle>) -> Vec<wa_fetch::Bundle> {
+    /// The bound `save_bundles` guards against, mirrored here because this path names the
+    /// files itself. Leaves ample room for the disambiguating suffix.
+    const MAX_NAME: usize = 128;
+
+    let mut taken: BTreeSet<String> = BTreeSet::new();
+    let mut out = Vec::with_capacity(payloads.len());
+    for mut b in payloads {
+        let preferred = wa_fetch::bundle_file_name(&b.url);
+        let usable = !preferred.is_empty()
+            && preferred.len() <= MAX_NAME
+            && preferred.ends_with(".wasm")
+            && Path::new(&preferred)
+                .file_name()
+                .is_some_and(|n| n == preferred.as_str());
+        let digest = wa_text::sha256_hex(b.url.as_bytes());
+        let base = if usable {
+            preferred
+        } else {
+            // Unusable segment: a bounded, URL-derived name that is still a `.wasm` file.
+            format!("{}.wasm", &digest[..16])
+        };
+
+        // Keep suffixing until the name is actually free. One pass is not enough: the
+        // digest-suffixed fallback could itself equal a name already assigned, and two lock
+        // entries sharing a file name is precisely what this function exists to prevent.
+        // Terminates — each attempt adds a distinct counter — and is deterministic, since
+        // the input is URL-ordered and every part derives from the URL.
+        let mut name = base.clone();
+        let mut attempt = 0u32;
+        while taken.contains(&name) {
+            attempt += 1;
+            let stem = truncate_on_char_boundary(base.trim_end_matches(".wasm"), MAX_NAME - 32);
+            name = format!("{stem}-{}-{attempt}.wasm", &digest[..8]);
+        }
+        if name != base {
+            eprintln!(
+                "  {} shares its file name with another payload — storing it as {name}",
+                b.url
+            );
+        }
+        taken.insert(name.clone());
+        b.file_name = name;
+        out.push(b);
+    }
+    out
+}
+
+/// Longest prefix of `s` that fits in `max_bytes` without splitting a character.
+///
+/// The input is a URL path segment, so it is *usually* ASCII — but slicing one that isn't
+/// at a byte index would panic, and a payload name must never be able to crash a run.
+#[cfg(feature = "fetch")]
+fn truncate_on_char_boundary(s: &str, max_bytes: usize) -> &str {
+    if s.len() <= max_bytes {
+        return s;
+    }
+    let end = s
+        .char_indices()
+        .map(|(i, _)| i)
+        .take_while(|i| *i <= max_bytes)
+        .last()
+        .unwrap_or(0);
+    &s[..end]
+}
+
+/// `bx` id → URI inverted into URI → `bx` id, lowest id winning on a shared URI (the
+/// input is sorted, so the choice is deterministic).
+#[cfg(feature = "fetch")]
+fn invert(by_id: &BTreeMap<String, String>) -> BTreeMap<String, String> {
+    let mut out = BTreeMap::new();
+    for (id, uri) in by_id {
+        out.entry(uri.clone()).or_insert_with(|| id.clone());
+    }
+    out
+}
+
+/// Pair each downloaded payload with the `bx` handle that resolved it (when one did),
+/// producing the wasm lockfile's entries.
+#[cfg(feature = "fetch")]
+fn wasm_entries(
+    payloads: &[wa_fetch::Bundle],
+    handle_by_url: &BTreeMap<String, String>,
+) -> Vec<WasmLockEntry> {
+    payloads
+        .iter()
+        .map(|b| WasmLockEntry {
+            bx_id: handle_by_url.get(&b.url).cloned(),
+            file_name: b.file_name.clone(),
+            url: b.url.clone(),
+            sha256: wa_text::sha256_hex(&b.bytes),
+            size: b.bytes.len() as u64,
+        })
+        .collect()
+}
+
+/// Honour `--wasm-out` if set (no-op otherwise). Files land under their content-hashed
+/// URL segment (`COs9e0Kj0ic.wasm`) — the layout a wasm runner can be pointed straight
+/// at. Deliberately not named by `bx` handle: the handle is provenance (recorded in the
+/// lock), while the URL segment is the payload's published identity.
+#[cfg(feature = "fetch")]
+fn maybe_save_wasm(opts: &Options, payloads: &[wa_fetch::Bundle]) -> Result<()> {
+    if let Some(dir) = &opts.wasm_out {
+        // Sweep first, as the restore path does: a payload dropped from the set would
+        // otherwise linger, so the directory would no longer be the lock's set — a runner
+        // pointed at it could load an obsolete binary, and publishing aborts on the extra
+        // name. Only `.wasm` is removed; anything else in the directory is not ours.
+        let swept = sweep_wasm_dir(dir)?;
+        // Written under exactly `Bundle::file_name`, which is what the lock records — not
+        // through `save_bundles`, whose collision/length fallback renames on disk and would
+        // leave the directory, the lock and the archive disagreeing about a payload's name.
+        // `load_wasm` has already dropped anything whose name isn't unique and safe, so the
+        // two can't diverge.
+        for b in payloads {
+            let path = dir.join(&b.file_name);
+            fs::write(&path, &b.bytes).with_context(|| format!("write {}", path.display()))?;
+        }
+        eprintln!(
+            "saved {} wasm payload(s) to {}{}",
+            payloads.len(),
+            dir.display(),
+            if swept > 0 {
+                format!(" ({swept} stale payload(s) removed)")
+            } else {
+                String::new()
+            }
+        );
+    }
+    Ok(())
+}
+
+/// Remove every `.wasm` in `dir` (created if absent), returning how many were removed.
+#[cfg(feature = "fetch")]
+fn sweep_wasm_dir(dir: &Path) -> Result<usize> {
+    fs::create_dir_all(dir).with_context(|| format!("create {}", dir.display()))?;
+    let mut removed = 0;
+    for entry in fs::read_dir(dir).with_context(|| format!("read {}", dir.display()))? {
+        let path = entry?.path();
+        if path.extension().and_then(|e| e.to_str()) == Some("wasm") {
+            fs::remove_file(&path).with_context(|| format!("remove stale {}", path.display()))?;
+            removed += 1;
+        }
+    }
+    Ok(removed)
 }
 
 /// Honour `--save-bundles` if set (no-op otherwise).
@@ -905,83 +1394,103 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
     // The extractors are independent and read-only over the shared inputs;
     // each returns `Result` so a failure surfaces with context instead of a
     // silent empty artifact or a bare panic.
-    let (iq, proto, mex, appstate, abprops, enums, wam, notif, stanza, tokens, incoming, srvreq) =
-        std::thread::scope(|s| {
-            let iq = s.spawn(|| -> Result<_> {
-                let mut a = Vec::new();
-                let c = push_iq(&mut a, wa_version, source, &module_defs)?;
-                Ok((a, c))
-            });
-            let proto = s.spawn(|| -> Result<_> {
-                let mut a = Vec::new();
-                let c = push_proto(&mut a, wa_version, source, &module_defs)?;
-                Ok((a, c))
-            });
-            let mex = s.spawn(|| -> Result<_> {
-                let mut a = Vec::new();
-                let c = push_mex(&mut a, wa_version, source, &module_defs)?;
-                Ok((a, c))
-            });
-            let appstate = s.spawn(|| -> Result<_> {
-                let mut a = Vec::new();
-                let c = push_appstate(&mut a, wa_version, source, &module_defs)?;
-                Ok((a, c))
-            });
-            let abprops = s.spawn(|| -> Result<_> {
-                let mut a = Vec::new();
-                let c = push_abprops(&mut a, wa_version, source, &module_defs)?;
-                Ok((a, c))
-            });
-            let enums = s.spawn(|| -> Result<_> {
-                let mut a = Vec::new();
-                let c = push_enums(&mut a, wa_version, source, &module_defs)?;
-                Ok((a, c))
-            });
-            let wam = s.spawn(|| -> Result<_> {
-                let mut a = Vec::new();
-                let c = push_wam(&mut a, wa_version, source, &module_defs)?;
-                Ok((a, c))
-            });
-            let notif = s.spawn(|| -> Result<_> {
-                let mut a = Vec::new();
-                let c = push_notif(&mut a, wa_version, source, &module_defs)?;
-                Ok((a, c))
-            });
-            let stanza = s.spawn(|| -> Result<_> {
-                let mut a = Vec::new();
-                let c = push_stanza(&mut a, wa_version, source, &module_defs)?;
-                Ok((a, c))
-            });
-            let tokens = s.spawn(|| -> Result<_> {
-                let mut a = Vec::new();
-                let c = push_tokens(&mut a, wa_version, source, &module_defs)?;
-                Ok((a, c))
-            });
-            let incoming = s.spawn(|| -> Result<_> {
-                let mut a = Vec::new();
-                let c = push_incoming(&mut a, wa_version, source, &module_defs)?;
-                Ok((a, c))
-            });
-            let srvreq = s.spawn(|| -> Result<_> {
-                let mut a = Vec::new();
-                let c = push_srvreq(&mut a, wa_version, source, &module_defs)?;
-                Ok((a, c))
-            });
-            (
-                joined("iq", iq),
-                joined("proto", proto),
-                joined("mex", mex),
-                joined("appstate", appstate),
-                joined("abprops", abprops),
-                joined("enums", enums),
-                joined("wam", wam),
-                joined("notif", notif),
-                joined("stanza", stanza),
-                joined("tokens", tokens),
-                joined("incoming", incoming),
-                joined("srvreq", srvreq),
-            )
+    #[allow(clippy::type_complexity)]
+    let (
+        iq,
+        proto,
+        mex,
+        appstate,
+        abprops,
+        enums,
+        wam,
+        notif,
+        stanza,
+        tokens,
+        incoming,
+        srvreq,
+        wasm,
+    ) = std::thread::scope(|s| {
+        let iq = s.spawn(|| -> Result<_> {
+            let mut a = Vec::new();
+            let c = push_iq(&mut a, wa_version, source, &module_defs)?;
+            Ok((a, c))
         });
+        let proto = s.spawn(|| -> Result<_> {
+            let mut a = Vec::new();
+            let c = push_proto(&mut a, wa_version, source, &module_defs)?;
+            Ok((a, c))
+        });
+        let mex = s.spawn(|| -> Result<_> {
+            let mut a = Vec::new();
+            let c = push_mex(&mut a, wa_version, source, &module_defs)?;
+            Ok((a, c))
+        });
+        let appstate = s.spawn(|| -> Result<_> {
+            let mut a = Vec::new();
+            let c = push_appstate(&mut a, wa_version, source, &module_defs)?;
+            Ok((a, c))
+        });
+        let abprops = s.spawn(|| -> Result<_> {
+            let mut a = Vec::new();
+            let c = push_abprops(&mut a, wa_version, source, &module_defs)?;
+            Ok((a, c))
+        });
+        let enums = s.spawn(|| -> Result<_> {
+            let mut a = Vec::new();
+            let c = push_enums(&mut a, wa_version, source, &module_defs)?;
+            Ok((a, c))
+        });
+        let wam = s.spawn(|| -> Result<_> {
+            let mut a = Vec::new();
+            let c = push_wam(&mut a, wa_version, source, &module_defs)?;
+            Ok((a, c))
+        });
+        let notif = s.spawn(|| -> Result<_> {
+            let mut a = Vec::new();
+            let c = push_notif(&mut a, wa_version, source, &module_defs)?;
+            Ok((a, c))
+        });
+        let stanza = s.spawn(|| -> Result<_> {
+            let mut a = Vec::new();
+            let c = push_stanza(&mut a, wa_version, source, &module_defs)?;
+            Ok((a, c))
+        });
+        let tokens = s.spawn(|| -> Result<_> {
+            let mut a = Vec::new();
+            let c = push_tokens(&mut a, wa_version, source, &module_defs)?;
+            Ok((a, c))
+        });
+        let incoming = s.spawn(|| -> Result<_> {
+            let mut a = Vec::new();
+            let c = push_incoming(&mut a, wa_version, source, &module_defs)?;
+            Ok((a, c))
+        });
+        let srvreq = s.spawn(|| -> Result<_> {
+            let mut a = Vec::new();
+            let c = push_srvreq(&mut a, wa_version, source, &module_defs)?;
+            Ok((a, c))
+        });
+        let wasm = s.spawn(|| -> Result<_> {
+            let mut a = Vec::new();
+            let c = push_wasm(&mut a, wa_version, source, &module_defs)?;
+            Ok((a, c))
+        });
+        (
+            joined("iq", iq),
+            joined("proto", proto),
+            joined("mex", mex),
+            joined("appstate", appstate),
+            joined("abprops", abprops),
+            joined("enums", enums),
+            joined("wam", wam),
+            joined("notif", notif),
+            joined("stanza", stanza),
+            joined("tokens", tokens),
+            joined("incoming", incoming),
+            joined("srvreq", srvreq),
+            joined("wasm", wasm),
+        )
+    });
 
     // Isolate per-domain failures: gather every extractor that errored or panicked so
     // one run reports all of them at once, then refuse to write a partial snapshot. A
@@ -1000,6 +1509,7 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
         tokens.as_ref().err(),
         incoming.as_ref().err(),
         srvreq.as_ref().err(),
+        wasm.as_ref().err(),
     ]
     .into_iter()
     .flatten()
@@ -1027,6 +1537,7 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
     let (tokens_arts, (token_single, token_double)) = tokens.expect(checked);
     let (incoming_arts, incoming_count) = incoming.expect(checked);
     let (srvreq_arts, srvreq_count) = srvreq.expect(checked);
+    let (wasm_arts, (wasm_binaries, wasm_resources, wasm_wasm_handles)) = wasm.expect(checked);
 
     // Fail loud if any domain extracted nothing — a real WA bundle always yields
     // all of these, so a zero means the bundle is incomplete or that extractor
@@ -1066,6 +1577,7 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
     artifacts.extend(tokens_arts);
     artifacts.extend(incoming_arts);
     artifacts.extend(srvreq_arts);
+    artifacts.extend(wasm_arts);
 
     // JSON Schema of the IR contract (one per domain), for cross-language
     // consumers to validate the `index.json` files and auto-generate IR types.
@@ -1094,6 +1606,9 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
         server_request_defs: srvreq_count,
         token_single_byte: token_single,
         token_double_byte: token_double,
+        wasm_binaries,
+        wasm_resources,
+        wasm_wasm_handles,
     };
 
     // The neutral, language-agnostic artifacts a consumer reads (one per domain).
@@ -1123,6 +1638,7 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
             "schema/incoming.schema.json",
         ),
         ("srvreq", "srvreq/index.json", "schema/srvreq.schema.json"),
+        ("wasm", "wasm/index.json", "schema/wasm.schema.json"),
     ];
     let domains: serde_json::Map<String, serde_json::Value> =
         neutral
@@ -1167,6 +1683,9 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
         "serverRequestDefs": counts.server_request_defs,
         "tokenSingleByte": counts.token_single_byte,
         "tokenDoubleByte": counts.token_double_byte,
+        "wasmBinaries": counts.wasm_binaries,
+        "wasmResources": counts.wasm_resources,
+        "wasmWasmHandles": counts.wasm_wasm_handles,
         "domains": domains,
         "diagnostics": {
             "iq": {
@@ -1225,6 +1744,12 @@ fn check_floor(out: &Path, counts: &Counts) -> Result<Vec<String>> {
         ("notifTypes", counts.notif_types),
         ("stanzaDefs", counts.stanza_defs),
         ("incomingDefs", counts.incoming_defs),
+        ("wasmBinaries", counts.wasm_binaries),
+        // Deliberately NOT `wasmResources`: it counts every bootloader handle, and most
+        // address theme images/tones that come and go with UI work. Guarding it would
+        // block an unrelated spec update behind `--allow-shrink`. The wasm-evidenced
+        // subset is the number that actually regresses when extraction breaks.
+        ("wasmWasmHandles", counts.wasm_wasm_handles),
         ("serverRequestDefs", counts.server_request_defs),
         ("tokenSingleByte", counts.token_single_byte),
         ("tokenDoubleByte", counts.token_double_byte),
@@ -1365,6 +1890,35 @@ fn push_srvreq(
         content: serde_json::to_string_pretty(&wa_ir::IrEnvelope::new(&ir))? + "\n",
     });
     Ok(count)
+}
+
+/// Emit the WebAssembly-surface catalog (`wasm/index.json`) — the emscripten payload
+/// names the bundle ships glue for, and the bootloader (`bx`) handles it resolves their
+/// bytes through, with the JS modules that consume each.
+///
+/// Purely static, so it reproduces offline like every other domain. The *resolved* URLs
+/// and content hashes are network state and live in `wasm.lock.json` instead; the `bx` id
+/// is the join key between the two.
+fn push_wasm(
+    artifacts: &mut Vec<Artifact>,
+    wa_version: &str,
+    source: &str,
+    module_defs: &[wa_transform::ModuleDefinition],
+) -> Result<(usize, usize, usize)> {
+    let ir = wa_wasm::extract_wasm_from_modules(source, module_defs, wa_version);
+    let counts = (
+        ir.binaries.len(),
+        ir.resources.len(),
+        ir.resources
+            .iter()
+            .filter(|r| !r.wasm_hint.is_empty())
+            .count(),
+    );
+    artifacts.push(Artifact {
+        rel_path: PathBuf::from("wasm/index.json"),
+        content: serde_json::to_string_pretty(&wa_ir::IrEnvelope::new(&ir))? + "\n",
+    });
+    Ok(counts)
 }
 
 fn push_iq(
@@ -1916,6 +2470,9 @@ mod tests {
             server_request_defs: 0,
             token_single_byte: 0,
             token_double_byte: 0,
+            wasm_binaries: 0,
+            wasm_resources: 0,
+            wasm_wasm_handles: 0,
         };
         let regressions = check_floor(&dir, &counts).unwrap();
         assert_eq!(regressions.len(), 2);
@@ -2013,5 +2570,139 @@ mod tests {
         let diffs = check_artifacts(&dir, &artifacts).unwrap();
         assert!(diffs.is_empty(), "reference-only .rs skipped: {diffs:?}");
         fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn wasm_flags_are_rejected_with_local_bundles() {
+        // Silently exiting 0 with no payloads (and no --wasm-out directory) would let
+        // automation believe collection succeeded.
+        for flags in [
+            vec!["--bundles", "b", "--wasm"],
+            vec!["--wasm-out", "w", "--bundles", "b"],
+        ] {
+            let args: Vec<String> = flags.iter().map(|s| s.to_string()).collect();
+            let err = parse_update_args(&args).unwrap_err().to_string();
+            assert!(err.contains("cannot be combined with --bundles"), "{err}");
+        }
+        // Either flag alone still parses.
+        assert!(parse_update_args(&["--wasm".to_string()]).is_ok());
+        assert!(parse_update_args(&["--bundles".to_string(), "b".to_string()]).is_ok());
+    }
+
+    #[cfg(feature = "fetch")]
+    #[test]
+    fn wasm_out_sweeps_payloads_that_left_the_set() {
+        let dir = std::env::temp_dir().join(format!("whatspec-wasm-out-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("gone.wasm"), b"old").unwrap();
+        // Not ours: a neighbouring file of another kind must survive.
+        fs::write(dir.join("notes.txt"), b"keep").unwrap();
+
+        assert_eq!(sweep_wasm_dir(&dir).unwrap(), 1);
+        assert!(!dir.join("gone.wasm").exists());
+        assert!(dir.join("notes.txt").exists());
+        // Creating a fresh directory is not an error and sweeps nothing.
+        let fresh = dir.join("fresh");
+        assert_eq!(sweep_wasm_dir(&fresh).unwrap(), 0);
+        assert!(fresh.is_dir());
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[cfg(feature = "fetch")]
+    #[test]
+    fn colliding_or_overlong_payload_names_are_disambiguated_not_dropped() {
+        let b = |url: &str| wa_fetch::Bundle {
+            file_name: wa_fetch::bundle_file_name(url),
+            url: url.to_string(),
+            bytes: b"\0asm".to_vec(),
+        };
+        // Two CDN shards serving the same last segment, plus one segment past NAME_MAX.
+        let long = format!("{}.wasm", "x".repeat(300));
+        let payloads = vec![
+            b("https://static.whatsapp.net/v4/ya/r/Same.wasm"),
+            b("https://static.whatsapp.net/v4/yb/r/Same.wasm"),
+            b(&format!("https://static.whatsapp.net/v4/yc/r/{long}")),
+        ];
+        let named = with_lock_safe_file_names(payloads.clone());
+
+        assert_eq!(named.len(), 3, "no payload is dropped");
+        let names: Vec<&str> = named.iter().map(|b| b.file_name.as_str()).collect();
+        assert_eq!(names[0], "Same.wasm", "the first keeps the readable name");
+        assert_ne!(names[1], names[0], "the second is disambiguated");
+        assert!(names.iter().all(|n| n.ends_with(".wasm")));
+        assert!(names.iter().all(|n| n.len() <= 128), "{names:?}");
+        assert_eq!(
+            names.iter().collect::<BTreeSet<_>>().len(),
+            3,
+            "all distinct: {names:?}"
+        );
+
+        // Deriving from the URL (never from a stored name) keeps it reproducible.
+        let again = with_lock_safe_file_names(payloads);
+        assert_eq!(
+            again
+                .iter()
+                .map(|b| b.file_name.clone())
+                .collect::<Vec<_>>(),
+            named
+                .iter()
+                .map(|b| b.file_name.clone())
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[cfg(feature = "fetch")]
+    #[test]
+    fn ordinary_payload_names_are_left_alone() {
+        // The real case: WA serves content-hashed segments, which must pass through
+        // untouched so the lock keeps naming what the CDN does.
+        let url = "https://static.whatsapp.net/rsrc.php/ye/r/COs9e0Kj0ic.wasm";
+        let named = with_lock_safe_file_names(vec![wa_fetch::Bundle {
+            url: url.to_string(),
+            file_name: "COs9e0Kj0ic.wasm".to_string(),
+            bytes: b"\0asm".to_vec(),
+        }]);
+        assert_eq!(named[0].file_name, "COs9e0Kj0ic.wasm");
+    }
+
+    #[cfg(feature = "fetch")]
+    #[test]
+    fn a_fallback_name_that_is_itself_taken_keeps_disambiguating() {
+        // The corner the single-pass version missed: the digest-suffixed fallback for one
+        // payload happens to be another payload's preferred name. Two lock entries sharing
+        // a file name is exactly what this function exists to prevent.
+        let url_a = "https://static.whatsapp.net/v4/ya/r/Same.wasm";
+        let url_b = "https://static.whatsapp.net/v4/yb/r/Same.wasm";
+        let digest_b = &wa_text::sha256_hex(url_b.as_bytes())[..8];
+        // A third payload whose *preferred* name is the fallback b would be given.
+        let squatter = format!("https://static.whatsapp.net/v4/yc/r/Same-{digest_b}-1.wasm");
+
+        let b = |url: &str| wa_fetch::Bundle {
+            file_name: wa_fetch::bundle_file_name(url),
+            url: url.to_string(),
+            bytes: b"\0asm".to_vec(),
+        };
+        let named = with_lock_safe_file_names(vec![b(url_a), b(&squatter), b(url_b)]);
+
+        let names: Vec<&str> = named.iter().map(|b| b.file_name.as_str()).collect();
+        assert_eq!(names.len(), 3);
+        assert_eq!(
+            names.iter().collect::<BTreeSet<_>>().len(),
+            3,
+            "all distinct even when the fallback was taken: {names:?}"
+        );
+        assert!(names.iter().all(|n| n.ends_with(".wasm") && n.len() <= 128));
+    }
+
+    #[test]
+    fn truncation_never_splits_a_character() {
+        // A non-ASCII segment must not panic the run.
+        assert_eq!(truncate_on_char_boundary("abcdef", 3), "abc");
+        assert_eq!(truncate_on_char_boundary("abc", 10), "abc");
+        let multi = "áéíóú";
+        let cut = truncate_on_char_boundary(multi, 3);
+        assert!(multi.starts_with(cut));
+        assert!(cut.len() <= 3, "{cut:?}");
     }
 }

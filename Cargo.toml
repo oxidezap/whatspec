@@ -18,6 +18,7 @@ members = [
     "crates/wa-tokens",
     "crates/wa-transform",
     "crates/wa-wam",
+    "crates/wa-wasm",
     "crates/whatspec",
 ]
 
@@ -70,3 +71,4 @@ wa-text = { path = "crates/wa-text" }
 wa-tokens = { path = "crates/wa-tokens" }
 wa-transform = { path = "crates/wa-transform" }
 wa-wam = { path = "crates/wa-wam" }
+wa-wasm = { path = "crates/wa-wasm" }

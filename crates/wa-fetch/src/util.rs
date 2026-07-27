@@ -20,9 +20,25 @@ pub(crate) fn origin_of(url: &str) -> String {
 }
 
 /// Lowercased host of a URL, or `None` if there's no `scheme://host`.
+///
+/// **Userinfo is stripped before the host is read.** In `https://static.whatsapp.net:443@evil.test/x`
+/// the authority's host is `evil.test` — everything before the last `@` is credentials — and an
+/// HTTP client connects there. Reading up to the first `:` would report `static.whatsapp.net`
+/// and hand an allowlist built on this function (bundle/payload host checks) a URL that fetches
+/// from somewhere else entirely. So: take the authority, drop userinfo, then the port.
 pub(crate) fn host_of(url: &str) -> Option<String> {
     let after = url.split("://").nth(1)?;
-    let host = after.split(['/', '?', '#', ':']).next()?;
+    let authority = after.split(['/', '?', '#']).next()?;
+    let host_port = authority.rsplit('@').next()?;
+    // An IPv6 literal keeps its brackets (`[::1]:8080`), so the port split must not cut
+    // inside one. Not a host we ever allow, but it must not parse into something we do.
+    let host = match host_port.strip_prefix('[') {
+        Some(rest) => match rest.split_once(']') {
+            Some((v6, _)) => v6,
+            None => return None,
+        },
+        None => host_port.split(':').next()?,
+    };
     if host.is_empty() {
         None
     } else {
@@ -63,6 +79,34 @@ mod tests {
         assert_eq!(origin_of("https://h.net"), "https://h.net");
         // No scheme: trim trailing slash.
         assert_eq!(origin_of("h.net/path/"), "h.net/path");
+    }
+
+    #[test]
+    fn host_extraction_strips_userinfo_and_port() {
+        // Regression: the authority's host is what a client connects to. Everything before
+        // the last `@` is userinfo, so these must NOT report `static.whatsapp.net`.
+        assert_eq!(
+            host_of("https://static.whatsapp.net:443@attacker.example/x.wasm").as_deref(),
+            Some("attacker.example")
+        );
+        assert_eq!(
+            host_of("https://static.whatsapp.net@attacker.example/x.wasm").as_deref(),
+            Some("attacker.example")
+        );
+        assert_eq!(
+            host_of("https://user:pass@a@b.example/x").as_deref(),
+            Some("b.example"),
+            "the LAST @ separates userinfo from host"
+        );
+        // A `@` in the path is not userinfo.
+        assert_eq!(
+            host_of("https://static.whatsapp.net/x@y.wasm").as_deref(),
+            Some("static.whatsapp.net")
+        );
+        // IPv6 literals keep their brackets out of the host, and don't leak a port.
+        assert_eq!(host_of("http://[::1]:8080/x").as_deref(), Some("::1"));
+        assert_eq!(host_of("http://[::1]/x").as_deref(), Some("::1"));
+        assert_eq!(host_of("http://[unterminated/x"), None);
     }
 
     #[test]

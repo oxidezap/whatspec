@@ -30,9 +30,15 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       # Regenerate AND keep the exact fetched bundles, so the same set can be
-      # archived to the durable store below (WhatsApp 404s old versions).
+      # archived to the durable store below (WhatsApp 404s old versions). `--wasm-out`
+      # additionally resolves and keeps the client's wasm payloads; they are auxiliary
+      # (no generated/ artifact depends on them), so a resolution failure degrades to
+      # fewer payloads rather than failing the run.
       - name: Regenerate specs
-        run: ./scripts/update.sh --save-bundles "$RUNNER_TEMP/bundles" ${{ inputs.allow_shrink && '--allow-shrink' || '' }}
+        run: |
+          ./scripts/update.sh --save-bundles "$RUNNER_TEMP/bundles" \
+            --wasm-out "$RUNNER_TEMP/wasm" \
+            ${{ inputs.allow_shrink && '--allow-shrink' || '' }}
 
       # Publish the exact input set as a Release asset (durable, WA-independent) and
       # commit generated/ + its bundles.lock.json together, so every committed
@@ -49,6 +55,20 @@ jobs:
           fi
           ver=$(jq -r .waVersion generated/manifest.json)
           ./scripts/publish-bundles.sh "$RUNNER_TEMP/bundles"
+          # The wasm archive is content-addressed with no version in its name, so an
+          # unchanged payload set is a no-op re-upload of identical bytes.
+          # Gate on this run's *result*, not on the directory existing: a run that resolves
+          # nothing still creates and sweeps the directory (so a stale payload can't linger),
+          # and the previous version's lock is deliberately left in place. Publishing then
+          # would compare that old lock against an empty directory and fail the step,
+          # blocking an otherwise valid JS update.
+          if [ -f generated/wasm.lock.json ] \
+             && [ -n "$(find "$RUNNER_TEMP/wasm" -name '*.wasm' -print -quit 2>/dev/null)" ] \
+             && [ "$(jq -r .waVersion generated/wasm.lock.json)" = "$ver" ]; then
+            ./scripts/publish-wasm.sh "$RUNNER_TEMP/wasm"
+          else
+            echo "no wasm resolved for ${ver} this run — skipping the wasm archive"
+          fi
           git add generated
           git commit -m "chore: update WhatsApp specs to ${ver}"
           git push

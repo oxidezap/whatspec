@@ -1,0 +1,371 @@
+{
+  "schemaVersion": "1.0.0",
+  "waVersion": "2.3000.1043873090",
+  "binaries": [
+    {
+      "name": "crypto_utils_v2.wasm",
+      "modules": [
+        "ls_voprf_utils_v2"
+      ]
+    },
+    {
+      "name": "dgwcppbridge.wasm",
+      "modules": [
+        "DGWCppBridge"
+      ]
+    },
+    {
+      "name": "liboqs_wasm_wrapper.wasm",
+      "modules": [
+        "WALiboqsWasm"
+      ]
+    },
+    {
+      "name": "smax-mocks/smax_mocks_wasm.wasm",
+      "modules": [
+        "WAWebDebugFlipper"
+      ]
+    },
+    {
+      "name": "smax_mocks_wasm.wasm",
+      "modules": [
+        "WASmaxMocksWasm"
+      ]
+    },
+    {
+      "name": "theia_ratls_wasm.wasm",
+      "modules": [
+        "WATheiaRaTlsWasm"
+      ]
+    }
+  ],
+  "resources": [
+    {
+      "bxId": "10047",
+      "consumers": [
+        "WAWebPtvMessageComponent"
+      ],
+      "wasmHint": []
+    },
+    {
+      "bxId": "10591",
+      "consumers": [
+        "WAWebMetaAiRingAssetResolver"
+      ],
+      "wasmHint": []
+    },
+    {
+      "bxId": "10639",
+      "consumers": [
+        "WAWebCommunityGeneralChatImage.react"
+      ],
+      "wasmHint": []
+    },
+    {
+      "bxId": "13603",
+      "consumers": [
+        "WAWebCallEndTone"
+      ],
+      "wasmHint": []
+    },
+    {
+      "bxId": "13763",
+      "consumers": [
+        "WAWebBizAiAssetResolver"
+      ],
+      "wasmHint": []
+    },
+    {
+      "bxId": "14943",
+      "consumers": [
+        "WAWebMetaAiRingAssetResolver"
+      ],
+      "wasmHint": []
+    },
+    {
+      "bxId": "25218",
+      "consumers": [
+        "WAWebThemeContext"
+      ],
+      "wasmHint": []
+    },
+    {
+      "bxId": "25221",
+      "consumers": [
+        "WAWebThemeContext"
+      ],
+      "wasmHint": []
+    },
+    {
+      "bxId": "25229",
+      "consumers": [
+        "WAWebThemeContext"
+      ],
+      "wasmHint": []
+    },
+    {
+      "bxId": "30933",
+      "consumers": [
+        "LSVoprfWasm"
+      ],
+      "wasmHint": [
+        "moduleName"
+      ]
+    },
+    {
+      "bxId": "31401",
+      "consumers": [
+        "WAWebThemeContext"
+      ],
+      "wasmHint": []
+    },
+    {
+      "bxId": "31402",
+      "consumers": [
+        "WAWebThemeContext"
+      ],
+      "wasmHint": []
+    },
+    {
+      "bxId": "31422",
+      "consumers": [
+        "WAWebThemeContext"
+      ],
+      "wasmHint": []
+    },
+    {
+      "bxId": "31849",
+      "consumers": [
+        "WAWebMetaVerifiedActiveSubscriberModal.react"
+      ],
+      "wasmHint": []
+    },
+    {
+      "bxId": "31850",
+      "consumers": [
+        "WAWebMetaVerifiedActiveSubscriberModal.react"
+      ],
+      "wasmHint": []
+    },
+    {
+      "bxId": "32107",
+      "consumers": [
+        "WAWebIntroPanel.react"
+      ],
+      "wasmHint": []
+    },
+    {
+      "bxId": "32108",
+      "consumers": [
+        "WAWebIntroPanel.react"
+      ],
+      "wasmHint": []
+    },
+    {
+      "bxId": "32180",
+      "consumers": [
+        "WAWebVoipInit",
+        "WAWebVoipWebWasmLoader"
+      ],
+      "wasmHint": [
+        "moduleName"
+      ]
+    },
+    {
+      "bxId": "33861",
+      "consumers": [
+        "WAGetKaleidoscopeWasm"
+      ],
+      "wasmHint": [
+        "moduleName",
+        "wasmModuleCacheDep"
+      ]
+    },
+    {
+      "bxId": "47418",
+      "consumers": [
+        "WAWebEBGetLabyrinthWaWasm"
+      ],
+      "wasmHint": [
+        "moduleName",
+        "wasmModuleCacheDep"
+      ]
+    },
+    {
+      "bxId": "47437",
+      "consumers": [
+        "WAGetLiboqsWasm"
+      ],
+      "wasmHint": [
+        "moduleName",
+        "wasmModuleCacheDep"
+      ]
+    },
+    {
+      "bxId": "47448",
+      "consumers": [
+        "WATheiaRaTls"
+      ],
+      "wasmHint": [
+        "wasmModuleCacheDep"
+      ]
+    },
+    {
+      "bxId": "482",
+      "consumers": [
+        "WAWebIntroPanel.react"
+      ],
+      "wasmHint": []
+    },
+    {
+      "bxId": "484",
+      "consumers": [
+        "WAWebIntroPanel.react"
+      ],
+      "wasmHint": []
+    },
+    {
+      "bxId": "78755",
+      "consumers": [
+        "WAWebAuraRingtoneDropdown.react",
+        "WAWebAuraRingtonePlayback"
+      ],
+      "wasmHint": []
+    },
+    {
+      "bxId": "78840",
+      "consumers": [
+        "WAWebBizAdCreationPreviewMediaRenderers.react",
+        "WAWebBizAdDetailsThumbnail.react",
+        "WAWebBizAdManagementThumbnail.react"
+      ],
+      "wasmHint": []
+    },
+    {
+      "bxId": "88083",
+      "consumers": [
+        "WAWebMetaAiRingAssetResolver"
+      ],
+      "wasmHint": []
+    },
+    {
+      "bxId": "88729",
+      "consumers": [
+        "WAWebMetaAiRingAssetResolver"
+      ],
+      "wasmHint": []
+    },
+    {
+      "bxId": "88730",
+      "consumers": [
+        "WAWebMetaAiRingAssetResolver"
+      ],
+      "wasmHint": []
+    },
+    {
+      "bxId": "89515",
+      "consumers": [
+        "WAWebChatThemeCanvas.react",
+        "WAWebChatThemePreviewChip.react",
+        "WAWebConversationBackground.react",
+        "WAWebSolidColorSwatch.react"
+      ],
+      "wasmHint": []
+    },
+    {
+      "bxId": "90429",
+      "consumers": [
+        "WAWebBusinessGoogleProfilePreviewRatingRow.react",
+        "WAWebGoogleMapsLogo.react"
+      ],
+      "wasmHint": []
+    },
+    {
+      "bxId": "9547",
+      "consumers": [
+        "WAWebThemeContext"
+      ],
+      "wasmHint": []
+    },
+    {
+      "bxId": "9548",
+      "consumers": [
+        "WAWebThemeContext"
+      ],
+      "wasmHint": []
+    },
+    {
+      "bxId": "9551",
+      "consumers": [
+        "WAWebEmojiPickerOption.react"
+      ],
+      "wasmHint": []
+    },
+    {
+      "bxId": "9552",
+      "consumers": [
+        "WAWebEmojiPickerOption.react"
+      ],
+      "wasmHint": []
+    },
+    {
+      "bxId": "9553",
+      "consumers": [
+        "WAWebEmojiPickerOption.react"
+      ],
+      "wasmHint": []
+    },
+    {
+      "bxId": "9554",
+      "consumers": [
+        "WAWebEmojiPickerOption.react"
+      ],
+      "wasmHint": []
+    },
+    {
+      "bxId": "9555",
+      "consumers": [
+        "WAWebCallAcceptedElsewhereNotification",
+        "WAWebCallLinkJoinedNotification",
+        "WAWebNotificationsCallNotification",
+        "WAWebWaitingRoomNotification"
+      ],
+      "wasmHint": []
+    },
+    {
+      "bxId": "9559",
+      "consumers": [
+        "WAWebStickerPanelContentEmpty.react"
+      ],
+      "wasmHint": []
+    },
+    {
+      "bxId": "9560",
+      "consumers": [
+        "WAWebStickersPackDetailsDrawerModal.react"
+      ],
+      "wasmHint": []
+    },
+    {
+      "bxId": "9561",
+      "consumers": [
+        "WAWebNotificationTone"
+      ],
+      "wasmHint": []
+    },
+    {
+      "bxId": "9562",
+      "consumers": [
+        "WAWebOutgoingMessageTone"
+      ],
+      "wasmHint": []
+    },
+    {
+      "bxId": "9583",
+      "consumers": [
+        "WAWebLinkPreviewGroupUtils"
+      ],
+      "wasmHint": []
+    }
+  ]
+}
