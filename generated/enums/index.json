@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1043873090",
+  "waVersion": "2.3000.1043899084",
   "enums": [
     {
       "name": "DGWAuth",
@@ -6273,7 +6273,7 @@
     },
     {
       "name": "ProductAvailability",
-      "module": "WAWebProductTypes.flow",
+      "module": "WAWebProductTypes",
       "valueKind": "string",
       "variants": [
         {
@@ -6296,7 +6296,7 @@
     },
     {
       "name": "ProductComplianceCategory",
-      "module": "WAWebProductTypes.flow",
+      "module": "WAWebProductTypes",
       "valueKind": "string",
       "variants": [
         {

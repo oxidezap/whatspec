@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "waVersion": "2.3000.1043873090",
+  "waVersion": "2.3000.1043899084",
   "events": [
     {
       "name": "GroupCreateC",
@@ -2266,6 +2266,11 @@
         {
           "name": "c50Linked",
           "id": 3001,
+          "kind": "boolean"
+        },
+        {
+          "name": "ca2dEverConnected",
+          "id": 3077,
           "kind": "boolean"
         },
         {
@@ -17645,6 +17650,11 @@
           "kind": "integer"
         },
         {
+          "name": "textMessageAnimationEnabled",
+          "id": 259,
+          "kind": "boolean"
+        },
+        {
           "name": "totalCountInNetworkUniquePhoneNumber",
           "id": 193,
           "kind": "integer"
@@ -27881,6 +27891,7 @@
       ],
       "consumers": [
         "WAWebGetGroupKeyDistributionMsg",
+        "WAWebGroupGetCompanionDsmPhashMsg",
         "WAWebICDCMetaApi",
         "WAWebWamProcessWorkerData"
       ]
@@ -84820,6 +84831,10 @@
         {
           "key": "COLOR_SCHEME_ID",
           "value": 32
+        },
+        {
+          "key": "IS_TEXT_MESSAGE_ANIMATION_ENABLED",
+          "value": 33
         }
       ]
     },
