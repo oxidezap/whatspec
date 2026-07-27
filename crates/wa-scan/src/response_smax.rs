@@ -90,8 +90,14 @@ pub(crate) struct Resolver<'a> {
     /// discriminators, and a module can be reached from several RPCs. A raw counter would
     /// therefore report one lost enum several times, which says nothing about how much
     /// data is actually missing. The unit is **distinct constraints**.
-    drops: RefCell<BTreeMap<String, std::collections::BTreeSet<String>>>,
+    drops: Drops,
 }
+
+/// The shared drop collector: reason → the distinct constraints lost under it. Shared
+/// (rather than owned) so a resolver built later — the request-anchored fallback in
+/// [`crate::response_index`] — reports into the same place instead of dropping its
+/// findings on the floor.
+pub(crate) type Drops = std::rc::Rc<RefCell<BTreeMap<String, std::collections::BTreeSet<String>>>>;
 
 impl<'a> Resolver<'a> {
     pub(crate) fn new(slices: &'a HashMap<&'a str, &'a str>) -> Self {
@@ -102,18 +108,33 @@ impl<'a> Resolver<'a> {
             assert_cache: RefCell::new(HashMap::new()),
             assert_in_progress: RefCell::new(HashSet::new()),
             enum_cache: RefCell::new(HashMap::new()),
-            drops: RefCell::new(BTreeMap::new()),
+            drops: Drops::default(),
         }
     }
 
-    /// The constraints this resolver saw but could not resolve, by reason (see
-    /// [`Resolver::drops`]). Snapshot; safe to call after a scan.
+    /// The drops this resolver alone recorded, as counts. Production code reads the
+    /// shared collector through [`crate::response_index::ResponseIndex`] instead, since
+    /// the fallback resolver reports into the same place; this is the unit-test view.
+    #[cfg(test)]
     pub(crate) fn drop_counts(&self) -> BTreeMap<String, usize> {
         self.drops
             .borrow()
             .iter()
             .map(|(reason, keys)| (reason.clone(), keys.len()))
             .collect()
+    }
+
+    /// A resolver that reports its drops into an existing collector.
+    pub(crate) fn with_drops(slices: &'a HashMap<&'a str, &'a str>, drops: Drops) -> Self {
+        Self {
+            drops,
+            ..Self::new(slices)
+        }
+    }
+
+    /// The shared collector, for a caller that needs to read it after further scanning.
+    pub(crate) fn drops(&self) -> Drops {
+        self.drops.clone()
     }
 
     /// Record one unresolvable constraint under `reason`, identified by `key` so the

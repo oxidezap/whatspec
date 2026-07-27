@@ -62,7 +62,25 @@ pub enum Scalar {
 /// `waVersion` changes on every WhatsApp rollout; `schemaVersion` changes only
 /// when the *structure* of the IR changes. Consumers pin this to stay stable
 /// across WhatsApp updates. Bump on any breaking change to the IR shape.
-pub const SCHEMA_VERSION: &str = "1.1.0";
+///
+/// # 2.0.0 — why the major bump
+///
+/// Almost everything the validation-constraint work added is additive and optional
+/// (`literalValue`, `referencePath`, `enumRef`, `errorArms`, `actions`, …), which a 1.x
+/// consumer ignores. **One** change is not: [`AssertionKind`] gained a `reference`
+/// variant, and that widens the value space of an *existing* field.
+///
+/// A consumer with a closed enum — one generated from the 1.0 JSON Schema, or the Rust
+/// enum itself — rejects the document rather than ignoring an unknown key. This is not
+/// hypothetical: validating the current `iq/index.json` against the committed 1.0 schema
+/// fails with 579 errors, all `'reference' is not valid under any of the given schemas`.
+/// Publishing that as a minor bump would tell consumers the opposite of the truth.
+///
+/// The migration is one variant wide: handle (or ignore) `kind: "reference"` on response
+/// assertions. Everything else in 2.0.0 is opt-in.
+///
+/// [`AssertionKind`]: crate::AssertionKind
+pub const SCHEMA_VERSION: &str = "2.0.0";
 
 /// Envelope that stamps a domain IR document with [`SCHEMA_VERSION`] at emit
 /// time, without altering the inner document's shape.

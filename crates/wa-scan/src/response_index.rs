@@ -17,7 +17,9 @@ use wa_ir::{
     ResponseVariantKind,
 };
 
-use crate::response_smax::{Resolved, Resolver, analyze_module_exports, scan_cascade_variants};
+use crate::response_smax::{
+    Drops, Resolved, Resolver, analyze_module_exports, scan_cascade_variants,
+};
 use wa_transform::ModuleDefinition;
 
 /// Index of smax response parsers, keyed for request→response linkage.
@@ -34,13 +36,21 @@ pub struct ResponseIndex {
     /// in a parser but not structurally resolvable, by reason. Surfaced under
     /// `manifest.diagnostics.iq.dropsByReason` so "no constraint here" and "a constraint
     /// we failed to extract" never look alike to a consumer.
-    drops: BTreeMap<String, usize>,
+    ///
+    /// Shared with the resolvers this index builds later, so the request-anchored
+    /// fallback reports into it too — and therefore only meaningful once the whole scan
+    /// has run. [`crate::scan_iq_with_diagnostics`] snapshots it at the end, not here.
+    drops: Drops,
 }
 
 impl ResponseIndex {
-    /// See [`ResponseIndex::drops`].
-    pub(crate) fn drop_counts(&self) -> &BTreeMap<String, usize> {
-        &self.drops
+    /// See [`ResponseIndex::drops`]. Call after the scan; the fallback path adds to it.
+    pub(crate) fn drop_counts(&self) -> BTreeMap<String, usize> {
+        self.drops
+            .borrow()
+            .iter()
+            .map(|(reason, keys)| (reason.clone(), keys.len()))
+            .collect()
     }
 
     /// Look up the response for operation `x` (derived from a request module name).
@@ -59,7 +69,7 @@ impl ResponseIndex {
             .iter()
             .map(|(n, s)| (n.as_str(), s.as_str()))
             .collect();
-        let resolver = Resolver::new(&slices);
+        let resolver = Resolver::with_drops(&slices, self.drops.clone());
         let prefix = format!("WASmaxIn{x}Response");
         for (name, slice) in &self.in_slices {
             let Some(variant) = name.strip_prefix(&prefix) else {
@@ -201,7 +211,7 @@ pub(crate) fn build_pass(defs: &[ModuleDefinition], source: &str) -> ResponseInd
     ResponseIndex {
         by_x,
         in_slices,
-        drops: resolver.drop_counts(),
+        drops: resolver.drops(),
     }
 }
 

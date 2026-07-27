@@ -200,6 +200,20 @@ pub struct NotifActionField {
     /// (`child("body").contentString()`).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub content: bool,
+    /// The wire enum the value is validated against, when the arm reads it with an enum
+    /// accessor (`child.maybeAttrEnum("type", o("WAWebGroupApiConst").GROUP_PARTICIPANT_TYPES)`).
+    /// Without it a `"type": "enum"` field says the value is constrained but not to what,
+    /// which leaves a parser and an emitter guessing — the same gap `enumRef` closes on
+    /// the response side.
+    ///
+    /// Absent when the accessor validates against an **anonymous** lookup table declared
+    /// inline in the handler (`attrEnumOrNullIfUnknown("reason", v)` where `v` is a local
+    /// object literal). Such a table has no stable name — the identifier is whatever the
+    /// minifier picked this build — so naming it would churn the IR on every WhatsApp
+    /// rollout and invent an identity the bundle does not have. Reported as unresolved
+    /// rather than faked; recovering those value sets is a separate modelling question.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enum_ref: Option<crate::AttrEnumRef>,
 }
 
 /// A `key → constant` pair an action arm stamps onto its result unconditionally.

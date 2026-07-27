@@ -70,6 +70,32 @@ impl<'a> ConstResolver<'a> {
             .and_then(|m| m.get(member).cloned())
     }
 
+    /// Resolve the enum argument of an enum accessor — `o("Mod").ENUM_NAME`, a member
+    /// *reference* rather than a `.MEMBER` lookup — to its full variant set, reusing the
+    /// same resolver the request and response sides use so all three type an enum
+    /// attribute identically.
+    fn enum_ref(&self, e: &Expression) -> Option<wa_ir::AttrEnumRef> {
+        let (obj, name) = as_member(e)?;
+        let module = as_string_lit(arg_expr(as_call(obj)?.arguments.first()?)?)?;
+        let def = wa_enums::resolve_named_enum(self.slices.get(module)?, module, name)?;
+        let variants: Vec<wa_ir::AttrEnumVariant> = def
+            .variants
+            .into_iter()
+            .map(|v| match v.value {
+                wa_ir::Scalar::Str(s) => Some(wa_ir::AttrEnumVariant {
+                    name: v.name,
+                    value: s,
+                }),
+                _ => None,
+            })
+            .collect::<Option<Vec<_>>>()?;
+        (!variants.is_empty()).then(|| wa_ir::AttrEnumRef {
+            name: name.to_string(),
+            module: module.to_string(),
+            variants,
+        })
+    }
+
     /// Resolve a `o("Mod").OBJECT.MEMBER` expression, or `None` for anything else.
     fn resolve(&self, e: &Expression) -> Option<String> {
         let (obj, member) = as_member(e)?;
@@ -321,12 +347,8 @@ fn extract_switch(switch: &SwitchStatement, ctx: &ArmCtx) -> Vec<NotifActionDef>
         // So branches are grouped by `actionType`: different ones stay separate arms of
         // the union, identical ones merge into one (a field only some branches read is
         // optional in the merge).
-        let scope = scope_bindings(match consequent {
-            [Statement::BlockStatement(b)] => &b.body[..],
-            other => other,
-        });
         let mut grouped: Vec<NotifActionDef> = Vec::new();
-        for shape in shapes {
+        for (shape, scope) in shapes {
             for action in expand_shape(&wire_tag, shape, &scope, ctx, 0) {
                 match grouped
                     .iter_mut()
@@ -384,13 +406,21 @@ fn merge_action(into: &mut NotifActionDef, from: NotifActionDef) {
 
 /// Every distinct result shape an arm can return: one per branch of a `cond ? A : B`
 /// (nested ternaries included), each with its `babelHelpers.extends(…)` merged away.
-fn arm_result_shapes<'b, 'a>(consequent: &'b [Statement<'a>]) -> Vec<&'b Expression<'a>> {
+fn arm_result_shapes<'b, 'a>(consequent: &'b [Statement<'a>]) -> Vec<Shape<'b, 'a>> {
+    arm_result_shapes_in(consequent, &Scope::new())
+}
+
+/// As [`arm_result_shapes`], with an enclosing scope the branches layer over.
+fn arm_result_shapes_in<'b, 'a>(
+    consequent: &'b [Statement<'a>],
+    outer: &Scope<'b, 'a>,
+) -> Vec<Shape<'b, 'a>> {
     let stmts = match consequent {
         [Statement::BlockStatement(b)] => &b.body[..],
         other => other,
     };
     let mut out = Vec::new();
-    collect_returns(stmts, &mut out);
+    collect_returns(stmts, outer, &mut out);
     out
 }
 
@@ -401,35 +431,55 @@ fn arm_result_shapes<'b, 'a>(consequent: &'b [Statement<'a>]) -> Vec<&'b Express
 /// The result shapes of a function expression, handling the implicit return of an
 /// expression-bodied arrow (`p => userJidToUserWid(p.attrUserJid("jid"))`), whose body
 /// oxc stores as a lone `ExpressionStatement` rather than a `return`.
-fn fn_result_shapes<'b, 'a>(e: &'b Expression<'a>) -> Vec<&'b Expression<'a>> {
+fn fn_result_shapes<'b, 'a>(e: &'b Expression<'a>, base: &Scope<'b, 'a>) -> Vec<Shape<'b, 'a>> {
     if let Expression::ArrowFunctionExpression(arrow) = e
         && let Some(expr) = arrow.get_expression()
     {
-        let mut out = Vec::new();
-        collect_branches(expr, &mut out);
-        return out;
+        let mut branches = Vec::new();
+        collect_branches(expr, &mut branches);
+        return branches.into_iter().map(|x| (x, base.clone())).collect();
     }
     function_body_of(e)
-        .map(arm_result_shapes)
+        .map(|stmts| arm_result_shapes_in(stmts, base))
         .unwrap_or_default()
 }
 
-fn collect_returns<'b, 'a>(stmts: &'b [Statement<'a>], out: &mut Vec<&'b Expression<'a>>) {
+fn collect_returns<'b, 'a>(
+    stmts: &'b [Statement<'a>],
+    outer: &Scope<'b, 'a>,
+    out: &mut Vec<Shape<'b, 'a>>,
+) {
+    // This level's declarations, layered over the enclosing ones. Built per branch on
+    // purpose: mutually exclusive branches routinely rebind the same minified name to
+    // DIFFERENT accessors, and a single flattened scope would make one branch's return
+    // read the other branch's attribute — a wrong `wireName`, not a missing field.
+    let mut scope = outer.clone();
+    for s in stmts {
+        if let Statement::VariableDeclaration(decl) = s {
+            for d in &decl.declarations {
+                if let (Some(name), Some(init)) = (d.id.get_identifier_name(), d.init.as_ref()) {
+                    scope.insert(name.as_str(), init);
+                }
+            }
+        }
+    }
     for s in stmts {
         match s {
             Statement::ReturnStatement(r) => {
                 if let Some(arg) = r.argument.as_ref() {
-                    collect_branches(arg, out);
+                    let mut branches = Vec::new();
+                    collect_branches(arg, &mut branches);
+                    out.extend(branches.into_iter().map(|e| (e, scope.clone())));
                 }
             }
-            Statement::BlockStatement(b) => collect_returns(&b.body, out),
+            Statement::BlockStatement(b) => collect_returns(&b.body, &scope, out),
             Statement::IfStatement(i) => {
-                collect_returns(std::slice::from_ref(&i.consequent), out);
+                collect_returns(std::slice::from_ref(&i.consequent), &scope, out);
                 if let Some(alt) = &i.alternate {
-                    collect_returns(std::slice::from_ref(alt), out);
+                    collect_returns(std::slice::from_ref(alt), &scope, out);
                 }
             }
-            Statement::TryStatement(t) => collect_returns(&t.block.body, out),
+            Statement::TryStatement(t) => collect_returns(&t.block.body, &scope, out),
             // Deliberately NOT descending into a nested `switch`: that is a different
             // dispatch level, and its arms are other actions' shapes, not branches of
             // this one.
@@ -455,9 +505,22 @@ fn collect_branches<'b, 'a>(e: &'b Expression<'a>, out: &mut Vec<&'b Expression<
 /// so without this most helper-built shapes would read as fieldless.
 type Scope<'b, 'a> = HashMap<&'b str, &'b Expression<'a>>;
 
+/// A result shape together with the bindings in force where it is returned.
+type Shape<'b, 'a> = (&'b Expression<'a>, Scope<'b, 'a>);
+
+/// A single flat scope for callers that have no return path to attribute a binding to
+/// (the object-property walker visits every property in a callback at once).
+///
+/// Without a path, a name rebound to a *different* initializer in a sibling branch
+/// cannot be resolved correctly — so it is refused rather than guessed, the same
+/// "missing, not wrong" rule the constant tables and helper names follow.
 fn scope_bindings<'b, 'a>(stmts: &'b [Statement<'a>]) -> Scope<'b, 'a> {
     let mut out = Scope::new();
-    collect_bindings(stmts, &mut out);
+    let mut ambiguous: Vec<&str> = Vec::new();
+    collect_bindings(stmts, &mut out, &mut ambiguous);
+    for name in ambiguous {
+        out.remove(name);
+    }
     out
 }
 
@@ -468,25 +531,38 @@ fn scope_bindings<'b, 'a>(stmts: &'b [Statement<'a>]) -> Scope<'b, 'a> {
 /// locals have to be too, or `if (c) { var id = child.attrString("id"); return {id} }`
 /// yields a return whose `id` resolves to nothing and is silently dropped. First binding
 /// wins, so the walk order (source order) decides, not the recursion order.
-fn collect_bindings<'b, 'a>(stmts: &'b [Statement<'a>], out: &mut Scope<'b, 'a>) {
+fn collect_bindings<'b, 'a>(
+    stmts: &'b [Statement<'a>],
+    out: &mut Scope<'b, 'a>,
+    ambiguous: &mut Vec<&'b str>,
+) {
     for s in stmts {
         match s {
             Statement::VariableDeclaration(decl) => {
                 for d in &decl.declarations {
                     if let (Some(name), Some(init)) = (d.id.get_identifier_name(), d.init.as_ref())
                     {
-                        out.entry(name.as_str()).or_insert(init);
+                        match out.entry(name.as_str()) {
+                            std::collections::hash_map::Entry::Vacant(e) => {
+                                e.insert(init);
+                            }
+                            std::collections::hash_map::Entry::Occupied(e) => {
+                                if !std::ptr::eq(*e.get(), init) {
+                                    ambiguous.push(name.as_str());
+                                }
+                            }
+                        }
                     }
                 }
             }
-            Statement::BlockStatement(b) => collect_bindings(&b.body, out),
+            Statement::BlockStatement(b) => collect_bindings(&b.body, out, ambiguous),
             Statement::IfStatement(i) => {
-                collect_bindings(std::slice::from_ref(&i.consequent), out);
+                collect_bindings(std::slice::from_ref(&i.consequent), out, ambiguous);
                 if let Some(alt) = &i.alternate {
-                    collect_bindings(std::slice::from_ref(alt), out);
+                    collect_bindings(std::slice::from_ref(alt), out, ambiguous);
                 }
             }
-            Statement::TryStatement(t) => collect_bindings(&t.block.body, out),
+            Statement::TryStatement(t) => collect_bindings(&t.block.body, out, ambiguous),
             _ => {}
         }
     }
@@ -554,11 +630,8 @@ fn expand_helper(wire_tag: &str, fn_src: &str, ctx: &ArmCtx, depth: u8) -> Vec<N
     }) else {
         return Vec::new();
     };
-    let scope = function_body_of(func)
-        .map(scope_bindings)
-        .unwrap_or_default();
     let mut out: Vec<NotifActionDef> = Vec::new();
-    for shape in fn_result_shapes(func) {
+    for (shape, scope) in fn_result_shapes(func, &Scope::new()) {
         for action in expand_shape(wire_tag, shape, &scope, ctx, depth) {
             match out.iter_mut().find(|g| g.action_type == action.action_type) {
                 Some(existing) => merge_action(existing, action),
@@ -615,7 +688,7 @@ fn fold_shape<'b, 'a>(
             // A helper whose whole result is a repeated element (`return
             // child.mapChildrenWithTag("participant", …)` — where every participant
             // list lives). The caller names it after the key it was bound to.
-            if let Some(child) = mapped_child("", e, scope) {
+            if let Some(child) = mapped_child("", e, scope, ctx.consts) {
                 def.children.push(child);
             } else if let Some(src) = local_call_source(e, ctx) {
                 inline_local(&src, def, ctx, depth);
@@ -653,10 +726,7 @@ fn inline_local(fn_src: &str, def: &mut NotifActionDef, ctx: &ArmCtx, depth: u8)
     }) else {
         return;
     };
-    let scope = function_body_of(func)
-        .map(scope_bindings)
-        .unwrap_or_default();
-    for shape in fn_result_shapes(func) {
+    for (shape, scope) in fn_result_shapes(func, &Scope::new()) {
         fold_shape(shape, &scope, def, ctx, depth + 1);
     }
 }
@@ -699,7 +769,7 @@ fn fold_object<'b, 'a>(
             push_constant(def, key, c);
             continue;
         }
-        if let Some(child) = mapped_child(key, value, scope) {
+        if let Some(child) = mapped_child(key, value, scope, ctx.consts) {
             if !def.children.iter().any(|x| x.name == child.name) {
                 def.children.push(child);
             }
@@ -727,7 +797,7 @@ fn fold_object<'b, 'a>(
             }
             continue;
         }
-        if let Some(field) = read_field(key, value, scope)
+        if let Some(field) = read_field(key, value, scope, ctx.consts)
             && !def.fields.iter().any(|x| x.name == field.name)
         {
             def.fields.push(field);
@@ -763,6 +833,7 @@ fn mapped_child<'b, 'a>(
     key: &str,
     e: &'b Expression<'a>,
     scope: &Scope<'b, 'a>,
+    consts: &ConstResolver,
 ) -> Option<NotifActionChild> {
     let call = as_call(strip_guard(e))?;
     if callee_method(call)? != wap::MAP_CHILDREN_WITH_TAG {
@@ -772,7 +843,7 @@ fn mapped_child<'b, 'a>(
     let mut fields = Vec::new();
     for arg in &call.arguments {
         if let Some(e) = arg_expr(arg) {
-            collect_accessor_fields(e, scope, &mut fields);
+            collect_accessor_fields(e, scope, consts, &mut fields);
         }
     }
     Some(NotifActionChild {
@@ -793,16 +864,18 @@ fn read_field<'b, 'a>(
     key: &str,
     e: &'b Expression<'a>,
     scope: &Scope<'b, 'a>,
+    consts: &ConstResolver,
 ) -> Option<NotifActionField> {
     let e = deref_ident(e, scope);
     let optional_by_guard = is_guarded(e);
-    let (method, wire_name, content) = find_accessor(strip_guard(e), scope)?;
+    let acc = find_accessor(strip_guard(e), scope)?;
     Some(NotifActionField {
         name: key.to_string(),
-        wire_name,
-        field_type: wap::method_field_type(&method),
-        required: !optional_by_guard && !wap::is_optional_method(&method),
-        content,
+        wire_name: acc.wire_name,
+        field_type: wap::method_field_type(&acc.method),
+        required: !optional_by_guard && !wap::is_optional_method(&acc.method),
+        content: acc.content,
+        enum_ref: acc.enum_arg.and_then(|a| consts.enum_ref(a)),
     })
 }
 
@@ -831,7 +904,14 @@ fn strip_guard<'b, 'a>(e: &'b Expression<'a>) -> &'b Expression<'a> {
             }
         }
         Expression::ParenthesizedExpression(p) => strip_guard(&p.expression),
-        Expression::LogicalExpression(l) => strip_guard(&l.left),
+        // `guard && value` puts the value on the RIGHT — taking the left yields the
+        // `hasAttr` test, which is deliberately not a wire accessor, so the field would
+        // vanish. `a || b` / `a ?? b` are the opposite: the left IS the value and the
+        // right only defaults it.
+        Expression::LogicalExpression(l) => match l.operator {
+            oxc_syntax::operator::LogicalOperator::And => strip_guard(&l.right),
+            _ => strip_guard(&l.left),
+        },
         Expression::AssignmentExpression(a) => strip_guard(&a.right),
         _ => e,
     }
@@ -866,11 +946,17 @@ fn assigned_in<'b, 'a>(e: &'b Expression<'a>, name: &str) -> Option<&'b Expressi
 /// (`userJidToUserWid(child.attrUserJid("jid"))`, `S(child.attrString("reason"))`), and
 /// through a `child("body").contentString()` chain — where the *tag* is the wire name,
 /// since a content read has no attribute of its own.
-fn find_accessor<'b, 'a>(
-    e: &'b Expression<'a>,
-    scope: &Scope<'b, 'a>,
-) -> Option<(String, String, bool)> {
+fn find_accessor<'b, 'a>(e: &'b Expression<'a>, scope: &Scope<'b, 'a>) -> Option<Accessor<'b, 'a>> {
     find_accessor_at(e, scope, 0)
+}
+
+/// A resolved wire read: the accessor method, the attribute (or child tag) it reads,
+/// whether it is a content read, and the enum argument it validates against, if any.
+struct Accessor<'b, 'a> {
+    method: String,
+    wire_name: String,
+    content: bool,
+    enum_arg: Option<&'b Expression<'a>>,
 }
 
 /// How deep the wrapper-call descent goes. Bounded like every other descent in this
@@ -884,7 +970,7 @@ fn find_accessor_at<'b, 'a>(
     e: &'b Expression<'a>,
     scope: &Scope<'b, 'a>,
     depth: u8,
-) -> Option<(String, String, bool)> {
+) -> Option<Accessor<'b, 'a>> {
     if depth > MAX_ACCESSOR_DEPTH {
         return None;
     }
@@ -895,7 +981,23 @@ fn find_accessor_at<'b, 'a>(
         if let Some(name) = name
             && is_wire_accessor(method)
         {
-            return Some((method.to_string(), name.to_string(), false));
+            // An enum accessor takes the enum as a further argument
+            // (`maybeAttrEnum("type", o("Mod").GROUP_PARTICIPANT_TYPES)`) — often hoisted
+            // into a local first (`attrEnumOrNullIfUnknown("reason", v)`), so the
+            // candidate is dereferenced through the scope before being recognised.
+            let enum_arg = call
+                .arguments
+                .iter()
+                .skip(1)
+                .filter_map(arg_expr)
+                .map(|a| deref_ident(a, scope))
+                .find(|a| as_member(a).is_some());
+            return Some(Accessor {
+                method: method.to_string(),
+                wire_name: name.to_string(),
+                content: false,
+                enum_arg,
+            });
         }
         // `X.contentString()` / `X.contentInt()` — no argument; the wire name is the tag
         // of whatever `X` descends to, and `""` when it reads the arm's own node.
@@ -913,7 +1015,12 @@ fn find_accessor_at<'b, 'a>(
                 .and_then(|inner| inner.arguments.first().and_then(arg_expr))
                 .and_then(as_string_lit)
                 .unwrap_or_default();
-            return Some((method.to_string(), tag.to_string(), true));
+            return Some(Accessor {
+                method: method.to_string(),
+                wire_name: tag.to_string(),
+                content: true,
+                enum_arg: None,
+            });
         }
     }
     // A wrapper call (`userJidToUserWid(…)`, a local normaliser): look inside.
@@ -936,6 +1043,7 @@ fn is_wire_accessor(method: &str) -> bool {
 fn collect_accessor_fields<'b, 'a>(
     e: &'b Expression<'a>,
     outer: &Scope<'b, 'a>,
+    consts: &ConstResolver,
     out: &mut Vec<NotifActionField>,
 ) {
     // The callback's own `var` bindings, layered over the enclosing scope: the minifier
@@ -946,12 +1054,13 @@ fn collect_accessor_fields<'b, 'a>(
     }
     struct Walker<'o, 'b, 'a> {
         scope: &'o Scope<'b, 'a>,
+        consts: &'o ConstResolver<'o>,
         out: &'o mut Vec<NotifActionField>,
     }
     impl<'b, 'a> Visit<'a> for Walker<'_, 'b, 'a> {
         fn visit_object_property(&mut self, p: &oxc_ast::ast::ObjectProperty<'a>) {
             if let Some(key) = wa_oxc::property_key_name(&p.key)
-                && let Some(field) = read_field(key, &p.value, self.scope)
+                && let Some(field) = read_field(key, &p.value, self.scope, self.consts)
                 && !self.out.iter().any(|f| f.name == field.name)
             {
                 self.out.push(field);
@@ -965,21 +1074,26 @@ fn collect_accessor_fields<'b, 'a>(
         e,
         Expression::FunctionExpression(_) | Expression::ArrowFunctionExpression(_)
     ) {
-        let mut w = Walker { scope: &scope, out };
+        let mut w = Walker {
+            scope: &scope,
+            consts,
+            out,
+        };
         w.visit_expression(e);
     }
     // A callback that returns a bare value rather than an object
     // (`p => userJidToUserWid(p.attrUserJid("jid"))`) has no property key to name the
     // field by, so the wire attribute names it — better than reporting no fields at all.
     if out.is_empty() {
-        for shape in fn_result_shapes(e) {
-            if let Some((method, wire_name, content)) = find_accessor(shape, &scope) {
+        for (shape, inner) in fn_result_shapes(e, &scope) {
+            if let Some(acc) = find_accessor(shape, &inner) {
                 out.push(NotifActionField {
-                    name: wire_name.clone(),
-                    wire_name,
-                    field_type: wap::method_field_type(&method),
-                    required: !wap::is_optional_method(&method),
-                    content,
+                    name: acc.wire_name.clone(),
+                    wire_name: acc.wire_name,
+                    field_type: wap::method_field_type(&acc.method),
+                    required: !wap::is_optional_method(&acc.method),
+                    content: acc.content,
+                    enum_ref: acc.enum_arg.and_then(|a| consts.enum_ref(a)),
                 });
             }
         }

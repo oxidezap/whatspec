@@ -1932,6 +1932,7 @@ dependencies = [
  "oxc_span",
  "oxc_syntax",
  "serde_json",
+ "wa-enums",
  "wa-ir",
  "wa-oxc",
  "wa-scan",

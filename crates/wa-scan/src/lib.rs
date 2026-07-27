@@ -158,7 +158,6 @@ pub fn scan_iq_with_diagnostics(
     // `WASmaxIn*ResponseSuccess` modules so a Request can attach its typed
     // response (the smax response lives in a separate module).
     let response_index = response_index::build_pass(module_defs, source);
-    let constraint_drops = response_index.drop_counts().clone();
 
     // Build the content-length cross-reference once. It reads the byte length WA
     // Web's parsers pin each wire field to (`child("signature").contentBytes(64)`),
@@ -292,7 +291,11 @@ pub fn scan_iq_with_diagnostics(
             unparseable,
         },
         IqScanStats {
-            constraint_drops,
+            // Snapshotted only now: the request-anchored fallback builds its own resolver
+            // during the scan loop above and reports into the same shared collector, so
+            // reading it right after `build_pass` would miss every drop from precisely the
+            // unusual response shapes that fallback exists to handle.
+            constraint_drops: response_index.drop_counts(),
             ..stats
         },
     )

@@ -30,6 +30,8 @@ Field shapes tell you how to *read* a stanza. They are not enough to *produce* o
 - **Response enums** (`enumRef` on a field) — the legal values behind an `attrStringEnum`, resolved the same way the request side already resolves them, instead of a bare `"type": "enum"`.
 - **Notification action unions** (`notifications[].actions`) — the payload inside the envelope. The `wireTag → actionType` mapping is **many-to-one** (`not_ephemeral` normalises into `ephemeral` with `duration: 0`, so branching on `not_ephemeral` is dead code) and field names are rebound (the disappearing-message timer arrives in `expiration`, but the action field is `duration`). Neither is derivable from the wire.
 
+Note the contract version: this raised `schemaVersion` to **2.0.0**. Nearly every addition is optional and a 1.x consumer ignores it, but `AssertionKind` gained a `reference` variant, which widens the value space of an existing field — a consumer with a closed enum (generated from the 1.0 schema, or the Rust enum) rejects the document rather than ignoring it. The migration is one variant wide: handle, or ignore, `kind: "reference"` on response assertions.
+
 Anything the extractor sees but cannot resolve structurally is counted under `manifest.diagnostics.iq.dropsByReason` rather than omitted, so "no constraint here" and "a constraint we failed to extract" never look alike. `manifest.diagnostics.iq.constraints` and `diagnostics.notif.actions` are floor-guarded: a WA refactor that hides one of these constructs fails the update instead of silently emptying a field.
 
 ## Quick start

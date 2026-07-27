@@ -599,13 +599,17 @@ __d("WAWebHandleGroupNotificationConst",[],(function(t,n,r,o,a,i,l){
   var e=Object.freeze({ADD:"add",SUBJECT:"subject",EPHEMERAL:"ephemeral",NOT_EPHEMERAL:"not_ephemeral",LOCKED:"locked",REVOKE_INVITE:"revoke",DESC:"description",UNLINK:"unlink"});
   l.GROUP_NOTIFICATION_TAG=e;
 }), 1);
+__d("WAWebGroupApiConst",[],(function(t,n,r,o,a,i,l){
+  var g={admin:"admin",superadmin:"superadmin",participant:"participant"};
+  l.GROUP_PARTICIPANT_TYPES=g;
+}), 1);
 __d("WAWebGroupType",[],(function(t,n,r,o,a,i,l){
   var d=Object.freeze({ADD:"add",SUBJECT:"subject",EPHEMERAL:"ephemeral",RESTRICT:"restrict",REVOKE_INVITE:"revoke_invite",DESC_ADD:"desc_add",DESC_REMOVE:"desc_remove"});
   l.GROUP_ACTIONS=d;
 }), 1);
 __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGroupType"],(function(t,n,r,o,a,i,l){
   function y(e,t){ return t.mapChildrenWithTag("participant", function(p){
-    return { id: p.attrUserJid("jid"), displayName: p.maybeAttrString("display_name") };
+    return { id: p.attrUserJid("jid"), displayName: p.maybeAttrString("display_name"), kind: p.maybeAttrEnum("type", o("WAWebGroupApiConst").GROUP_PARTICIPANT_TYPES) };
   }); }
   function I(e){
     var t=e.attrString("unlink_type");
@@ -619,8 +623,9 @@ __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGr
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.ADD:
           return {actionType:o("WAWebGroupType").GROUP_ACTIONS.ADD, participants:y(e,t), reason:t.hasAttr("reason")?t.attrString("reason"):null};
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.SUBJECT:
-          if (t.hasChild("delete")) { var sid = t.attrString("id"); return {actionType:o("WAWebGroupType").GROUP_ACTIONS.DESC_REMOVE, descId:sid}; }
-          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.SUBJECT, subject:t.attrString("subject")};
+          if (t.hasChild("delete")) { var n = t.attrString("id"); return {actionType:o("WAWebGroupType").GROUP_ACTIONS.DESC_REMOVE, descId:n}; }
+          var n = t.attrString("subject");
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.SUBJECT, subject:n, note:t.hasAttr("note")&&t.attrString("note")};
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.EPHEMERAL:
           return {actionType:o("WAWebGroupType").GROUP_ACTIONS.EPHEMERAL, duration:t.attrInt("expiration")};
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.NOT_EPHEMERAL:
@@ -725,7 +730,7 @@ fn group_action_arms_recover_fields_children_and_branches() {
         .iter()
         .map(|f| f.name.as_str())
         .collect();
-    assert_eq!(names, ["id", "displayName"]);
+    assert_eq!(names, ["id", "displayName", "kind"]);
     assert_eq!(
         participants.fields[0].field_type,
         wa_ir::ParsedFieldType::UserJid
@@ -855,4 +860,67 @@ fn an_expression_bodied_arrow_callback_yields_its_field() {
     assert_eq!(f.wire_name, "phone_number");
     assert_eq!(f.field_type, wa_ir::ParsedFieldType::UserJid);
     assert!(!f.required, "maybeAttr* is optional");
+}
+
+#[test]
+fn sibling_branches_rebinding_a_name_each_keep_their_own_accessor() {
+    // The minifier reuses short names across mutually exclusive branches. A single
+    // flattened scope would make one branch's return read the OTHER branch's attribute —
+    // a wrong `wireName`, not a missing field, which is the failure mode this module
+    // refuses everywhere else. Each return therefore resolves in its own scope.
+    let ir = extract_notif(GROUP_ACTIONS_BUNDLE, "2.3000.test");
+    let arms: Vec<_> = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .filter(|a| a.wire_tag == "subject")
+        .collect();
+    let wire = |action: &str, field: &str| {
+        arms.iter()
+            .find(|a| a.action_type.as_deref() == Some(action))
+            .and_then(|a| a.fields.iter().find(|f| f.name == field))
+            .map(|f| f.wire_name.as_str())
+    };
+    // Both branches bind `n`, to different attributes.
+    assert_eq!(wire("desc_remove", "descId"), Some("id"));
+    assert_eq!(wire("subject", "subject"), Some("subject"));
+}
+
+#[test]
+fn a_logical_and_guard_reads_its_value_operand() {
+    // `child.hasAttr("note") && child.attrString("note")` carries the value on the RIGHT.
+    // Taking the left yields `hasAttr`, which is deliberately not a wire accessor, so the
+    // field disappeared.
+    let ir = extract_notif(GROUP_ACTIONS_BUNDLE, "2.3000.test");
+    let note = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .filter(|a| a.wire_tag == "subject")
+        .find_map(|a| a.fields.iter().find(|f| f.name == "note"))
+        .expect("note field");
+    assert_eq!(note.wire_name, "note");
+}
+
+#[test]
+fn an_action_enum_field_carries_its_variants() {
+    // `maybeAttrEnum("type", o("Mod").GROUP_PARTICIPANT_TYPES)` — a bare `"type": "enum"`
+    // says the value is constrained but not to what, leaving an emitter to guess.
+    let ir = extract_notif(GROUP_ACTIONS_BUNDLE, "2.3000.test");
+    let kind = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .find(|a| a.wire_tag == "add")
+        .expect("add arm")
+        .children
+        .iter()
+        .find(|c| c.name == "participants")
+        .expect("participants")
+        .fields
+        .iter()
+        .find(|f| f.name == "kind")
+        .expect("kind field");
+    assert_eq!(kind.field_type, wa_ir::ParsedFieldType::String);
+    let er = kind.enum_ref.as_ref().expect("resolved enum");
+    assert_eq!(er.name, "GROUP_PARTICIPANT_TYPES");
+    let values: Vec<&str> = er.variants.iter().map(|v| v.value.as_str()).collect();
+    assert_eq!(values, ["admin", "superadmin", "participant"]);
 }
