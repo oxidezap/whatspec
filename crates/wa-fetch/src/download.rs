@@ -174,6 +174,11 @@ fn fetch_bytes(client: &impl HttpClient, url: &str, max_bytes: u64) -> Result<Ve
 #[cfg(feature = "native")]
 const MAX_BUNDLE_FILE_NAME: usize = 128;
 
+/// Longest extension carried through the bounded fallback name — comfortably past `wasm`
+/// and any real one, short enough that the result stays under [`MAX_BUNDLE_FILE_NAME`].
+#[cfg(feature = "native")]
+const MAX_EXTENSION: usize = 16;
+
 /// Write bundles to `dir/<file_name>`, creating `dir` if needed. Native-only
 /// (`std::fs`); a browser build persists by its own means.
 #[cfg(feature = "native")]
@@ -212,10 +217,13 @@ fn disk_file_name(
     }
     // `<sha256(url)>.<ext>`: ~70 bytes, unique per URL. The numeric suffix covers only
     // the degenerate same-URL-twice case.
+    // The extension is taken from the (untrusted) URL segment, so it has to be bounded
+    // too: `x.` + 300 characters is an "extension" that would push the fallback name right
+    // back over NAME_MAX, defeating the point of falling back at all.
     let ext = Path::new(file_name)
         .extension()
         .and_then(|e| e.to_str())
-        .filter(|e| e.chars().all(|c| c.is_ascii_alphanumeric()))
+        .filter(|e| e.len() <= MAX_EXTENSION && e.chars().all(|c| c.is_ascii_alphanumeric()))
         .unwrap_or("bin");
     let hash = wa_text::sha256_hex(url.as_bytes());
     let mut name = format!("{hash}.{ext}");
@@ -491,6 +499,16 @@ mod tests {
         assert!(
             n5.ends_with(".bin") && n5.len() <= MAX_BUNDLE_FILE_NAME,
             "{n5}"
+        );
+        // An overlong *extension* must not sneak past the bound either.
+        let n6 = disk_file_name(
+            &format!("x.{}", "e".repeat(300)),
+            "https://z/ext",
+            &mut used,
+        );
+        assert!(
+            n6.ends_with(".bin") && n6.len() <= MAX_BUNDLE_FILE_NAME,
+            "{n6}"
         );
     }
 }

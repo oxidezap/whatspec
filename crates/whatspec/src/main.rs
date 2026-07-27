@@ -1096,7 +1096,17 @@ fn load_wasm(
         .filter(|u| !cached.contains_key(*u))
         .cloned()
         .collect();
-    let outcome = wa_fetch::download_bundles(&to_download, &wa_fetch::DownloadOptions::default());
+    let outcome = wa_fetch::download_bundles(
+        &to_download,
+        &wa_fetch::DownloadOptions {
+            // Pinned for this path rather than inherited from the JS-tuned default. The
+            // biggest payload observed is ~11 MB; the cap is a bound on a hostile or broken
+            // response, and exceeding it is a hard download failure (never a truncated body
+            // that would still carry a `\0asm` header past the check below).
+            max_bytes: 64 * 1024 * 1024,
+            ..Default::default()
+        },
+    );
     for f in &outcome.failures {
         eprintln!("  wasm download failed: {} — {}", f.url, f.error);
     }
@@ -1130,7 +1140,7 @@ fn load_wasm(
     let mut merged: BTreeMap<String, wa_fetch::Bundle> =
         reused.into_iter().map(|b| (b.url.clone(), b)).collect();
     merged.extend(downloaded.into_iter().map(|b| (b.url.clone(), b)));
-    let payloads: Vec<wa_fetch::Bundle> = merged.into_values().collect();
+    let payloads = with_usable_file_names(merged.into_values().collect());
 
     eprintln!(
         "wasm set: {} payload(s), {:.1} MB ({new_count} newly downloaded, {reused_count} \
@@ -1171,6 +1181,52 @@ fn load_wasm(
     let entries = wasm_entries(&payloads, &handles);
     maybe_save_wasm(opts, &payloads)?;
     Ok(entries)
+}
+
+/// Keep only payloads whose file name can be written verbatim: unique across the set and
+/// short enough for the filesystem.
+///
+/// A payload's identity here **is** its file name — the lock records it, `--wasm-out`
+/// writes it, `publish-wasm.sh` matches on it and a runner selects by it. Two WA URLs that
+/// happened to share a last segment (or one long enough to overflow `NAME_MAX`) would force
+/// a rename on disk while the lock kept the original, and every one of those consumers
+/// would then disagree. Dropping the ambiguous payload keeps them identical by
+/// construction; it is announced, and no such collision has been observed in practice (WA
+/// serves content-hashed segments).
+#[cfg(feature = "fetch")]
+fn with_usable_file_names(payloads: Vec<wa_fetch::Bundle>) -> Vec<wa_fetch::Bundle> {
+    // The on-disk limit `save_bundles` guards against, mirrored here because this path
+    // writes the names itself.
+    const MAX_NAME: usize = 128;
+    let mut seen: BTreeSet<String> = BTreeSet::new();
+    let mut kept = Vec::with_capacity(payloads.len());
+    for b in payloads {
+        let name = &b.file_name;
+        let usable = !name.is_empty()
+            && name.len() <= MAX_NAME
+            && !name.contains('/')
+            && !name.contains('\\')
+            && Path::new(name)
+                .file_name()
+                .map(|n| n == name.as_str())
+                .unwrap_or(false);
+        if !usable {
+            eprintln!(
+                "  discarding {}: unusable payload file name {name:?}",
+                b.url
+            );
+            continue;
+        }
+        if !seen.insert(name.clone()) {
+            eprintln!(
+                "  discarding {}: its file name {name:?} collides with another payload",
+                b.url
+            );
+            continue;
+        }
+        kept.push(b);
+    }
+    kept
 }
 
 /// `bx` id → URI inverted into URI → `bx` id, lowest id winning on a shared URI (the
@@ -1215,8 +1271,15 @@ fn maybe_save_wasm(opts: &Options, payloads: &[wa_fetch::Bundle]) -> Result<()> 
         // pointed at it could load an obsolete binary, and publishing aborts on the extra
         // name. Only `.wasm` is removed; anything else in the directory is not ours.
         let swept = sweep_wasm_dir(dir)?;
-        wa_fetch::save_bundles(payloads, dir)
-            .with_context(|| format!("save wasm payloads to {}", dir.display()))?;
+        // Written under exactly `Bundle::file_name`, which is what the lock records — not
+        // through `save_bundles`, whose collision/length fallback renames on disk and would
+        // leave the directory, the lock and the archive disagreeing about a payload's name.
+        // `load_wasm` has already dropped anything whose name isn't unique and safe, so the
+        // two can't diverge.
+        for b in payloads {
+            let path = dir.join(&b.file_name);
+            fs::write(&path, &b.bytes).with_context(|| format!("write {}", path.display()))?;
+        }
         eprintln!(
             "saved {} wasm payload(s) to {}{}",
             payloads.len(),

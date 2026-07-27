@@ -57,10 +57,17 @@ jobs:
           ./scripts/publish-bundles.sh "$RUNNER_TEMP/bundles"
           # The wasm archive is content-addressed with no version in its name, so an
           # unchanged payload set is a no-op re-upload of identical bytes.
-          if [ -f generated/wasm.lock.json ] && [ -d "$RUNNER_TEMP/wasm" ]; then
+          # Gate on this run's *result*, not on the directory existing: a run that resolves
+          # nothing still creates and sweeps the directory (so a stale payload can't linger),
+          # and the previous version's lock is deliberately left in place. Publishing then
+          # would compare that old lock against an empty directory and fail the step,
+          # blocking an otherwise valid JS update.
+          if [ -f generated/wasm.lock.json ] \
+             && [ -n "$(find "$RUNNER_TEMP/wasm" -name '*.wasm' -print -quit 2>/dev/null)" ] \
+             && [ "$(jq -r .waVersion generated/wasm.lock.json)" = "$ver" ]; then
             ./scripts/publish-wasm.sh "$RUNNER_TEMP/wasm"
           else
-            echo "no wasm resolved this run — skipping the wasm archive"
+            echo "no wasm resolved for ${ver} this run — skipping the wasm archive"
           fi
           git add generated
           git commit -m "chore: update WhatsApp specs to ${ver}"

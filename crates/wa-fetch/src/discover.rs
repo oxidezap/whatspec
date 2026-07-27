@@ -45,7 +45,7 @@ pub struct Discovered {
     /// carries a wasm URL — it asks the bootloader for a numeric id — so this is the
     /// only thing that turns an id into something fetchable. The page inlines just
     /// the ids the initial route needs; the rest come from the bootloader endpoint
-    /// (see [`crate::bootloader`]).
+    /// (see the `bootloader` module).
     pub bx_data: BTreeMap<String, String>,
     /// Parameters for calling the bootloader endpoint, when the page shipped them all.
     pub bootloader: Option<BootloaderParams>,

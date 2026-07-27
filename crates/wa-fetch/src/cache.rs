@@ -19,7 +19,7 @@
 //! the JS set is concatenated into the source the extractors parse, so a wasm payload
 //! that leaked into that list would put megabytes of binary into it. [`BundleCache::check`]
 //! therefore only ever returns JS; wasm is read explicitly via
-//! [`BundleCache::check_wasm`].
+//! [`BundleCache::wasm_payloads`].
 //!
 //! The cache holds exactly one version at a time: storing a new version clears
 //! the old one first (no unbounded growth).
@@ -194,7 +194,7 @@ impl BundleCache {
     }
 
     /// The recorded wasm URL → `bx` handle pairing, empty when nothing is cached (or the
-    /// cache predates the field). Read separately from [`Self::check_wasm`] because the
+    /// cache predates the field). Read separately from [`Self::wasm_payloads`] because the
     /// pairing is provenance metadata, not part of the payload integrity contract.
     pub fn wasm_handles(&self) -> BTreeMap<String, String> {
         self.read_manifest()
@@ -302,19 +302,39 @@ impl BundleCache {
         // Replace rather than merge: the resolved wasm set for a version is whatever this
         // run found, and a stale entry from an earlier run would claim coverage it can no
         // longer prove.
+        //
+        // Write first, prune after the commit. Clearing the directory up front would mean a
+        // failure partway through (full disk, interrupt — and the caller treats a failed
+        // wasm store as non-fatal) leaves the manifest naming payloads whose bytes are
+        // gone; every one of them then reads as "missing cached file", and since the
+        // endpoint only ever reveals subsets they may never be re-resolvable. File names
+        // are content-addressed by URL, so the new set can be written alongside the old.
         let wasm_dir = self.wasm_dir();
-        if wasm_dir.exists() {
-            fs::remove_dir_all(&wasm_dir)
-                .with_context(|| format!("remove {}", wasm_dir.display()))?;
-        }
         manifest.wasm = self.write_set(wasm, &wasm_dir)?;
+        let keep: std::collections::HashSet<PathBuf> = wasm
+            .iter()
+            .map(|b| wasm_dir.join(cache_file_name(&b.url)))
+            .collect();
         // Only the handles for payloads actually stored — the caller's map may describe
         // the whole bootloader resource set, most of which is not wasm.
         manifest.wasm_handles = wasm
             .iter()
             .filter_map(|b| handles.get(&b.url).map(|id| (b.url.clone(), id.clone())))
             .collect();
-        self.write_manifest(&manifest)
+        self.write_manifest(&manifest)?;
+
+        // Committed: the manifest now names exactly `wasm`, so anything else in the
+        // directory is unreferenced and safe to drop. Best-effort — a leftover file is
+        // wasted disk, never a correctness problem, and must not fail a committed store.
+        if let Ok(entries) = fs::read_dir(&wasm_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() && !keep.contains(&path) {
+                    let _ = fs::remove_file(&path);
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Write every bundle into `dir` (created if needed), returning their integrity
@@ -556,7 +576,7 @@ mod tests {
     }
 
     #[test]
-    fn cache_without_wasm_is_a_wasm_miss_not_an_empty_hit() {
+    fn a_cache_without_wasm_reports_nothing_rather_than_a_failure() {
         let dir = tmp_dir("wasm-absent");
         let cache = BundleCache::new(&dir);
         cache
@@ -643,6 +663,44 @@ mod tests {
             .unwrap();
         assert!(!cache.wasm_path("https://h/old.wasm").exists());
         assert!(cache.read_manifest().unwrap().wasm.is_empty());
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_failed_wasm_store_does_not_destroy_the_accumulated_payloads() {
+        // Clearing the directory before writing would leave the manifest naming bytes that
+        // are already gone — and the endpoint's subsets may never surface them again.
+        let dir = tmp_dir("wasm-store-fail");
+        let cache = BundleCache::new(&dir);
+        cache
+            .store("v", &[bundle("https://h/a.js", "a.js", b"x")])
+            .unwrap();
+        cache
+            .store_wasm(
+                "v",
+                &[bundle("https://h/keep.wasm", "keep.wasm", b"accumulated")],
+                &BTreeMap::new(),
+            )
+            .unwrap();
+
+        // Make the manifest commit fail (a directory where the temp file must go).
+        let tmp_path = cache.manifest_path().with_extension("json.tmp");
+        fs::create_dir(&tmp_path).unwrap();
+        assert!(
+            cache
+                .store_wasm(
+                    "v",
+                    &[bundle("https://h/new.wasm", "new.wasm", b"newer")],
+                    &BTreeMap::new(),
+                )
+                .is_err()
+        );
+        fs::remove_dir(&tmp_path).unwrap();
+
+        // The previously accumulated payload is still there and still loadable.
+        let (payloads, skipped) = cache.wasm_payloads("v");
+        assert_eq!(payloads.len(), 1, "skipped: {skipped:?}");
+        assert_eq!(payloads[0].file_name, "keep.wasm");
         fs::remove_dir_all(&dir).ok();
     }
 

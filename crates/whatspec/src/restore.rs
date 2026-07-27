@@ -13,7 +13,8 @@
 //!
 //! The **wasm** set (`--wasm`) rides the same machinery against its own lock
 //! ([`WasmLock`](crate::lock::WasmLock)) and its own asset name
-//! (`wasm-<ver>-<wasmSetHash>.tar.xz`). Keeping the two assets separate is deliberate:
+//! (`wasm-<wasmSetHash>.tar.xz`, content-addressed with no version). Keeping the two
+//! assets separate is deliberate:
 //! the JS asset name is content-addressed on the *input* `setHash` the reproducibility
 //! gate depends on, so adding payloads to it would mutate an already-published archive.
 
@@ -150,7 +151,7 @@ pub fn restore(opts: &RestoreOptions) -> Result<()> {
 /// SHA-256 against the lock, then materialize — with two differences that follow from wasm
 /// being *auxiliary* rather than an input:
 ///
-/// - the asset is `wasm-<ver>-<wasmSetHash>.tar.xz` (never the `bundles-…` one);
+/// - the asset is `wasm-<wasmSetHash>.tar.xz` (never the `bundles-…` one);
 /// - restoring into a cache **attaches** to that version's existing JS cache instead of
 ///   replacing it, because the JS set is what `update --cache` actually needs.
 fn restore_wasm(opts: &RestoreOptions) -> Result<()> {
@@ -212,9 +213,6 @@ fn restore_wasm(opts: &RestoreOptions) -> Result<()> {
     Ok(())
 }
 
-/// Re-pair verified archive bytes with the lock's URLs (the cache keys on URL, not on
-/// archive file name) and assert the recorded sizes. Every check runs before the cache is
-/// touched, so an inconsistent lock leaves the existing cache alone.
 /// Re-label verified archive entries with the file name the lock records for their content
 /// hash, so what lands on disk is the locked *(name, bytes)* pairing rather than whatever
 /// the archive claimed. Duplicate hashes (one payload served from two URLs) are matched
@@ -250,6 +248,9 @@ fn name_from_lock(
     Ok(out)
 }
 
+/// Re-pair verified archive bytes with the lock's URLs (the cache keys on URL, not on
+/// archive file name) and assert the recorded sizes. Every check runs before the cache is
+/// touched, so an inconsistent lock leaves the existing cache alone.
 fn payloads_for_cache(
     files: Vec<(String, Vec<u8>)>,
     verified_hashes: Vec<String>,

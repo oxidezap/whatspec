@@ -56,7 +56,7 @@ const MODULE_PARAMS: [&str; 2] = ["nb_modules", "modules"];
 /// Knobs for [`resolve_wasm_with`].
 #[derive(Debug, Clone)]
 pub struct WasmResolveOptions {
-    /// Maximum passes over [`MODULE_PARAMS`]. Each pass is 2 requests; a pass that adds
+    /// Maximum passes over both request spellings. Each pass is 2 requests; a pass that adds
     /// no new `bxData` id ends the loop early.
     pub max_rounds: usize,
     /// Cap on components named in one request, keeping the query string sane. The
@@ -83,7 +83,7 @@ pub struct WasmResolution {
     pub urls: Vec<String>,
     /// Handles the page already carried, before any request.
     pub from_page: usize,
-    /// Rounds actually run (a round is one pass over [`MODULE_PARAMS`]).
+    /// Rounds actually run (a round is one pass over both request spellings).
     pub rounds: usize,
     /// Requests actually sent.
     pub requests: usize,
