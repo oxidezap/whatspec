@@ -192,11 +192,15 @@ pub fn save_bundles(bundles: &[Bundle], dir: &Path) -> Result<()> {
     Ok(())
 }
 
-/// A filesystem-safe, collision-free `.js` name for a saved bundle. Prefers the
-/// readable URL segment; falls back to `<sha256(url)>.js` when that name is already
-/// taken (CDN-shard collision) or too long for the filesystem. Deterministic given
-/// the (url-sorted) bundle order, so the dump — and the archive built from it — is
+/// A filesystem-safe, collision-free name for a saved bundle. Prefers the readable URL
+/// segment; falls back to `<sha256(url)>.<ext>` when that name is already taken
+/// (CDN-shard collision) or too long for the filesystem. Deterministic given the
+/// (url-sorted) bundle order, so the dump — and the archive built from it — is
 /// reproducible.
+///
+/// The **extension is preserved** through the fallback: the readers downstream select by
+/// it (`--bundles` reads `.js`, the wasm store reads `.wasm`), so renaming a payload into
+/// the wrong extension would silently drop it from its set.
 #[cfg(feature = "native")]
 fn disk_file_name(
     file_name: &str,
@@ -206,13 +210,18 @@ fn disk_file_name(
     if file_name.len() <= MAX_BUNDLE_FILE_NAME && used.insert(file_name.to_string()) {
         return file_name.to_string();
     }
-    // `<sha256(url)>.js`: 67 bytes, unique per URL, always read back by `--bundles`.
-    // The numeric suffix covers only the degenerate same-URL-twice case.
+    // `<sha256(url)>.<ext>`: ~70 bytes, unique per URL. The numeric suffix covers only
+    // the degenerate same-URL-twice case.
+    let ext = Path::new(file_name)
+        .extension()
+        .and_then(|e| e.to_str())
+        .filter(|e| e.chars().all(|c| c.is_ascii_alphanumeric()))
+        .unwrap_or("bin");
     let hash = wa_text::sha256_hex(url.as_bytes());
-    let mut name = format!("{hash}.js");
+    let mut name = format!("{hash}.{ext}");
     let mut n = 1;
     while !used.insert(name.clone()) {
-        name = format!("{hash}-{n}.js");
+        name = format!("{hash}-{n}.{ext}");
         n += 1;
     }
     name
@@ -459,8 +468,29 @@ mod tests {
         let n2 = disk_file_name("short.js", "https://y/short.js", &mut used);
         assert_ne!(n2, "short.js");
         assert!(n2.ends_with(".js") && n2.len() <= MAX_BUNDLE_FILE_NAME);
-        // Overlong readable name → bounded fallback.
-        let n3 = disk_file_name(&"z".repeat(300), "https://z/blob", &mut used);
+        // Overlong readable name → bounded fallback, extension preserved.
+        let n3 = disk_file_name(
+            &format!("{}.js", "z".repeat(300)),
+            "https://z/blob",
+            &mut used,
+        );
         assert!(n3.ends_with(".js") && n3.len() <= MAX_BUNDLE_FILE_NAME);
+        // A wasm payload keeps `.wasm` through the fallback — the wasm store selects on
+        // it, so renaming it to `.js` would drop the payload from its set.
+        let n4 = disk_file_name(
+            &format!("{}.wasm", "w".repeat(300)),
+            "https://z/big.wasm",
+            &mut used,
+        );
+        assert!(
+            n4.ends_with(".wasm") && n4.len() <= MAX_BUNDLE_FILE_NAME,
+            "{n4}"
+        );
+        // No extension at all → a neutral one, never a misleading `.js`.
+        let n5 = disk_file_name(&"z".repeat(300), "https://z/blob", &mut used);
+        assert!(
+            n5.ends_with(".bin") && n5.len() <= MAX_BUNDLE_FILE_NAME,
+            "{n5}"
+        );
     }
 }

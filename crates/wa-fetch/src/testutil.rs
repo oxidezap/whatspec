@@ -9,6 +9,9 @@ use std::sync::Arc;
 
 /// Spawn a server routing `path -> (status, body)`; returns its `http://addr` base.
 /// Unknown paths return 404. One connection per request (`Connection: close`).
+///
+/// Routing keys on the **path only** — a request target's query string is ignored — so a
+/// route can serve an endpoint called with varying parameters (the bootloader endpoint).
 pub(crate) fn spawn_server(routes: HashMap<String, (u16, Vec<u8>)>) -> String {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
     let addr = listener.local_addr().unwrap();
@@ -39,12 +42,12 @@ fn handle(mut stream: TcpStream, routes: &HashMap<String, (u16, Vec<u8>)>) {
         }
     }
     let req = String::from_utf8_lossy(&buf);
-    let path = req
+    let target = req
         .lines()
         .next()
         .and_then(|l| l.split_whitespace().nth(1))
-        .unwrap_or("/")
-        .to_string();
+        .unwrap_or("/");
+    let path = target.split('?').next().unwrap_or(target).to_string();
     let (status, body) = routes
         .get(&path)
         .cloned()

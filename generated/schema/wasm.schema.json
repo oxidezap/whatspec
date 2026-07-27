@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "IrEnvelope",
+  "description": "Envelope that stamps a domain IR document with [`SCHEMA_VERSION`] at emit\ntime, without altering the inner document's shape.\n\n`#[serde(flatten)]` keeps the document's own fields (`waVersion`, `stanzas`,\n…) at the top level and merely adds `schemaVersion` alongside them — additive,\nso existing consumers that ignore unknown fields are unaffected.",
+  "type": "object",
+  "properties": {
+    "binaries": {
+      "description": "Emscripten binaries the bundle ships glue for.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/WasmBinary"
+      }
+    },
+    "resources": {
+      "description": "Bootloader handles with wasm evidence — the ids `wa-fetch` resolves to URLs.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/WasmResourceRef"
+      }
+    },
+    "schemaVersion": {
+      "description": "The IR contract version — see [`SCHEMA_VERSION`].",
+      "type": "string"
+    },
+    "waVersion": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "waVersion",
+    "binaries",
+    "resources"
+  ],
+  "$defs": {
+    "WasmBinary": {
+      "description": "One emscripten-compiled binary the bundle carries glue for, named by its build-time\npayload file (`crypto_utils_v2.wasm`) rather than its content-hashed URL.",
+      "type": "object",
+      "properties": {
+        "modules": {
+          "description": "The WA Web modules whose glue declares this payload, sorted.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "name": {
+          "description": "The `wasmBinaryFile` name the glue declares, e.g. `liboqs_wasm_wrapper.wasm`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "modules"
+      ]
+    },
+    "WasmResourceRef": {
+      "description": "One bootloader resource handle the JS resolves at runtime.\n\nA `bx` id addresses any bootloader resource — most of them are images — so the id\nalone doesn't prove a wasm payload. [`Self::wasm_hint`] carries the static evidence\nthat made this handle look wasm-related; an empty hint means the consuming modules\nshowed none.",
+      "type": "object",
+      "properties": {
+        "bxId": {
+          "description": "The numeric `bx` id, as written in the JS (a string: it is a map key, not a\nnumber the client does arithmetic on).",
+          "type": "string"
+        },
+        "consumers": {
+          "description": "The WA Web modules that request this id, sorted.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "wasmHint": {
+          "description": "Why this handle is believed to address wasm, sorted: `emscriptenGlue` (a consuming\nmodule declares a `wasmBinaryFile`), `moduleName` (a consumer is named `…Wasm…`),\n`wasmModuleCacheDep` (a consumer depends on `WAWasmModuleCache`).",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "bxId",
+        "consumers",
+        "wasmHint"
+      ]
+    }
+  }
+}

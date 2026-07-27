@@ -121,6 +121,104 @@ impl BundleLock {
     }
 }
 
+/// One resolved wasm payload's identity, as collected during a fetch run.
+///
+/// Unlike a JS bundle, a wasm payload is addressed by a **bootloader handle** (`bx` id)
+/// rather than by a module name, so the id is carried alongside the URL: it is the join
+/// key back to the `wasm` IR domain, which records (statically) which JS modules consume
+/// that handle. A payload found only by text scan has no id.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WasmLockEntry {
+    /// The `bx` handle that resolved to this URL, when one did.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub bx_id: Option<String>,
+    /// The content-hashed last URL segment (`COs9e0Kj0ic.wasm`) — the file name the
+    /// archive and `--wasm-out` write, and the identity a consumer keys on.
+    pub file_name: String,
+    pub url: String,
+    /// Lowercase hex SHA-256 of the payload bytes.
+    pub sha256: String,
+    pub size: u64,
+}
+
+/// The wasm lockfile (`generated/wasm.lock.json`) — what a fetch run resolved and stored.
+///
+/// Deliberately **separate** from [`BundleLock`]:
+///
+/// - wasm bytes are not an input to `generated/`, so they must not perturb the JS
+///   `setHash` that the reproducibility gate and the published archive names are built on;
+/// - the resolved wasm set is **not** closed. The bootloader endpoint answers the same
+///   request with different subsets, so a run records a best-effort superset. Treating it
+///   as an exact input fingerprint would make CI flap on server variance alone.
+///
+/// It is still content-addressed (`wasmSetHash`) so the durable store can name an
+/// immutable asset per distinct set — and an unchanged wasm set across WhatsApp versions
+/// resolves to the same asset instead of re-uploading megabytes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WasmLock {
+    pub wa_version: String,
+    /// Order-invariant fingerprint of the payload multiset — see [`set_hash`].
+    pub wasm_set_hash: String,
+    pub wasm_count: usize,
+    /// Every payload, sorted by `(sha256, url)` for a deterministic, diffable file.
+    pub wasm: Vec<WasmLockEntry>,
+}
+
+impl WasmLock {
+    /// Build a lock from a fetch run's resolved payloads.
+    pub fn new(wa_version: &str, mut wasm: Vec<WasmLockEntry>) -> Self {
+        wasm.sort_by(|a, b| a.sha256.cmp(&b.sha256).then_with(|| a.url.cmp(&b.url)));
+        let ids: Vec<BundleId> = wasm.iter().map(WasmLockEntry::as_bundle_id).collect();
+        Self {
+            wa_version: wa_version.to_string(),
+            wasm_set_hash: set_hash(&ids),
+            wasm_count: wasm.len(),
+            wasm,
+        }
+    }
+
+    /// Serialize to the committed on-disk form: pretty JSON with a trailing newline.
+    pub fn to_pretty_json(&self) -> String {
+        // Infallible: plain owned data with no non-string map keys.
+        serde_json::to_string_pretty(self).expect("WasmLock serializes") + "\n"
+    }
+
+    /// Same self-consistency contract as [`BundleLock::verify_self_consistent`]: a
+    /// hand-edited or corrupted lock must be rejected before it is trusted to select and
+    /// verify an archive.
+    pub fn verify_self_consistent(&self) -> Result<(), String> {
+        if self.wasm_count != self.wasm.len() {
+            return Err(format!(
+                "wasmCount {} != {} entries",
+                self.wasm_count,
+                self.wasm.len()
+            ));
+        }
+        let ids: Vec<BundleId> = self.wasm.iter().map(WasmLockEntry::as_bundle_id).collect();
+        let recomputed = set_hash(&ids);
+        if self.wasm_set_hash != recomputed {
+            return Err(format!(
+                "wasmSetHash {} does not match the payload list (recomputed {recomputed})",
+                self.wasm_set_hash
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl WasmLockEntry {
+    /// The content identity [`set_hash`] fingerprints (URL is provenance, not identity).
+    fn as_bundle_id(&self) -> BundleId {
+        BundleId {
+            sha256: self.sha256.clone(),
+            size: self.size,
+            url: None,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -218,6 +316,81 @@ mod tests {
                 .verify_self_consistent()
                 .unwrap_err()
                 .contains("bundleCount")
+        );
+    }
+
+    fn wasm_entry(sha: &str, size: u64, url: &str, bx: Option<&str>) -> WasmLockEntry {
+        WasmLockEntry {
+            bx_id: bx.map(str::to_string),
+            file_name: url.rsplit('/').next().unwrap_or(url).to_string(),
+            url: url.to_string(),
+            sha256: sha.to_string(),
+            size,
+        }
+    }
+
+    #[test]
+    fn wasm_lock_sorts_fingerprints_and_round_trips() {
+        let lock = WasmLock::new(
+            "2.3000.1",
+            vec![
+                wasm_entry("ff", 9, "https://s/y/voip.wasm", Some("32180")),
+                wasm_entry("aa", 1, "https://s/x/liboqs.wasm", None),
+            ],
+        );
+        assert_eq!(lock.wasm[0].sha256, "aa", "sorted by content hash");
+        assert_eq!(lock.wasm[0].file_name, "liboqs.wasm");
+        assert_eq!(lock.wasm_count, 2);
+        // Same fingerprint function as the JS lock, over the payload multiset.
+        assert_eq!(
+            lock.wasm_set_hash,
+            set_hash(&[id("aa", 1, None), id("ff", 9, None)])
+        );
+        lock.verify_self_consistent().unwrap();
+
+        let json = lock.to_pretty_json();
+        assert!(json.ends_with('\n'));
+        // A payload with no handle omits the key rather than emitting null.
+        assert!(json.contains("\"bxId\": \"32180\""), "{json}");
+        let back: WasmLock = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, lock);
+    }
+
+    #[test]
+    fn wasm_lock_hash_is_independent_of_the_js_lock() {
+        // The two locks fingerprint different sets; a wasm change must not move setHash
+        // (the published JS archive name and the reproducibility gate depend on it).
+        let bundles = vec![id("aa", 1, Some("https://s/a.js"))];
+        let js = BundleLock::new("v", bundles.clone());
+        let wasm = WasmLock::new("v", vec![wasm_entry("bb", 2, "https://s/w.wasm", None)]);
+        assert_ne!(js.set_hash, wasm.wasm_set_hash);
+        assert_eq!(js.set_hash, BundleLock::new("v", bundles).set_hash);
+    }
+
+    #[test]
+    fn wasm_self_consistency_catches_tampering() {
+        let lock = WasmLock::new(
+            "v",
+            vec![
+                wasm_entry("aa", 1, "https://s/a.wasm", None),
+                wasm_entry("bb", 2, "https://s/b.wasm", None),
+            ],
+        );
+        let mut tampered = lock.clone();
+        tampered.wasm[0].sha256 = "cc".to_string();
+        assert!(
+            tampered
+                .verify_self_consistent()
+                .unwrap_err()
+                .contains("wasmSetHash")
+        );
+        let mut miscount = lock.clone();
+        miscount.wasm_count = 7;
+        assert!(
+            miscount
+                .verify_self_consistent()
+                .unwrap_err()
+                .contains("wasmCount")
         );
     }
 }

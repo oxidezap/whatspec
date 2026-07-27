@@ -21,6 +21,7 @@
 //! thread-based download loop and the argument-free [`discover_bundle_urls`] /
 //! [`download_bundles`] convenience wrappers live under the `native` feature.
 
+mod bootloader;
 mod discover;
 mod download;
 mod http;
@@ -34,13 +35,16 @@ mod native;
 #[cfg(all(test, feature = "native"))]
 mod testutil;
 
+pub use bootloader::{WasmResolution, WasmResolveOptions, resolve_wasm_with};
 pub use discover::{
-    Discovered, Sources, WA_WEB_URL, build_wa_version, discover_bundle_urls_with,
+    BootloaderParams, Discovered, Sources, WA_WEB_URL, build_wa_version, discover_bundle_urls_with,
     discover_from_html,
 };
 pub use download::{Bundle, DownloadFailure, DownloadOptions, DownloadOutcome, bundle_file_name};
 pub use http::{FetchError, HttpClient, HttpResponse};
 
+#[cfg(feature = "native")]
+pub use bootloader::resolve_wasm;
 #[cfg(feature = "native")]
 pub use cache::{BundleCache, BundleEntry, CacheManifest, CacheStatus};
 #[cfg(feature = "native")]

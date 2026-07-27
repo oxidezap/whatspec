@@ -85,6 +85,11 @@
       "file": "wam/index.json",
       "schema": "schema/wam.schema.json",
       "sha256": "c02bb7c70e5f24c499609fbcea2f6833664d29a26afe92f56c6356599593d112"
+    },
+    "wasm": {
+      "file": "wasm/index.json",
+      "schema": "schema/wasm.schema.json",
+      "sha256": "1c491083fbd184250ba2dda1ea62d1bdcef6ff91cf80616137136874f47f0ff7"
     }
   },
   "enumDefs": 326,
@@ -100,5 +105,7 @@
   "tokenDoubleByte": 1024,
   "tokenSingleByte": 236,
   "waVersion": "2.3000.1043873090",
-  "wamEvents": 433
+  "wamEvents": 433,
+  "wasmBinaries": 6,
+  "wasmResources": 43
 }

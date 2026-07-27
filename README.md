@@ -16,6 +16,7 @@ WhatsApp Web ships its whole protocol (IQ stanzas, protobuf schemas, GraphQL ope
 | **enums** | `enums/index.json` (+ Rust) | the wire-enum catalog (nack codes, chat/receipt types, …) |
 | **notif** | `notif/index.json` (+ Rust) | the incoming stanza-dispatch catalog: `<notification type="…">` kinds + handlers + typed content shapes |
 | **tokens** | `tokens/index.json` (+ `tokens.json`) | the binary-protocol token dictionaries (single-byte + 4 double-byte), wire-indexable |
+| **wasm** | `wasm/index.json` | the WebAssembly surface: emscripten payload names (`liboqs_wasm_wrapper.wasm`, …) + the bootloader (`bx`) handles the JS resolves their bytes through, with consuming modules |
 
 Every domain ships a JSON Schema under `generated/schema/`, and a top-level `generated/manifest.json` stamps the WhatsApp version, per-domain counts, content hashes, and extraction diagnostics.
 
@@ -33,6 +34,12 @@ cargo run --release -p whatspec -- update --cache .wa-cache
 
 # Seed that same cache from the lock-pinned GitHub Release (no live bundle fetch):
 cargo run --release -p whatspec -- restore --from-lock generated/bundles.lock.json --cache .wa-cache
+
+# Also resolve, download and store the client's wasm payloads (~41 MB), as <id>.wasm:
+cargo run --release -p whatspec -- update --cache .wa-cache --wasm-out ./wasm
+
+# Restore a locked wasm set (its own lock + its own content-addressed release asset):
+cargo run --release -p whatspec -- restore --wasm --from-lock generated/wasm.lock.json --out ./wasm
 
 # Compare two generated outputs (e.g. across a WhatsApp version bump):
 cargo run --release -p whatspec -- diff old-generated/ generated/
@@ -52,6 +59,24 @@ WhatsApp only serves the *current* bundle version — old bundle URLs 404 — so
 - **`whatspec restore --from-lock generated/bundles.lock.json --out <dir>`** pulls that archive, verifies every bundle's SHA-256 against the lock, and writes a directory ready for `update --bundles`. Use **`--cache <dir>`** instead to seed the exact version directly into the reusable `update --cache` layout; cache metadata and integrity files are written by the same `BundleCache` implementation as a live fetch. **`scripts/regen.sh`** wraps restore + `update --check` into a one-shot, offline determinism check — also run in CI, so every commit's committed IR (each `index.json` + `WAProto.proto`) is proven reproducible from its pinned inputs.
 
 > Bootstrap: the lock and the first archive are created by the first run of the update workflow (or a manual `update --save-bundles <dir>` followed by `scripts/publish-bundles.sh <dir>`). Until then the CI reproducibility gate stays dormant.
+
+## The wasm payloads
+
+The client's heavy lifting — the VoIP engine, media codecs (mozjpeg, WebP, MP4), the post-quantum `liboqs` wrapper, VOPRF — ships as WebAssembly, and **none of those URLs appear in the JS**. The glue asks the bootloader for a numeric handle (`r("bx").getURL(r("bx")("33861"))`) and the server maps handles to content-hashed URLs. So the two halves live in different places:
+
+- **`generated/wasm/index.json`** (committed, deterministic, offline-reproducible): the payload names the glue declares and every `bx` handle with the modules that consume it, plus the static evidence that a handle addresses wasm (`wasmBinaryLiteral` / `moduleName` / `wasmModuleCacheDep`).
+- **`generated/wasm.lock.json`** (written only by a `--wasm` fetch): what those handles actually resolved to — `bxId`, `fileName`, `url`, `sha256`, `size` — fingerprinted as `wasmSetHash`. The `bxId` is the join key back to the IR.
+
+`update --wasm` resolves them fully **headless**: the entry page inlines only ~3 handles, so `whatspec` additionally asks `/ajax/bootloader-endpoint/` for the components the page deferred — which is how it reaches the full set (9 payloads / ~41 MB at the time of writing) with no browser. The endpoint answers the same request with *different subsets*, so both request forms are merged over repeated rounds until a round adds nothing new; the resolved set is a best-effort superset and is reported as such.
+
+Wasm is deliberately **outside** the reproducibility chain above: no `generated/` artifact depends on the bytes, the resolved set isn't closed, and the JS `setHash` (which names the published bundles archive) must not move because a payload changed. It therefore gets its own lock and its own release asset, `wasm-<wasmSetHash>.tar.xz` — content-addressed with no version, because the payload set survives many rollouts and would otherwise be re-uploaded on every update run.
+
+`--wasm-out <dir>` writes them as `<id>.wasm`, which is the layout a wasm runner can be pointed straight at:
+
+```sh
+cargo run --release -p whatspec -- update --cache .wa-cache --wasm-out ./wasm
+WA_WASM_DIR=./wasm oracle list       # e.g. wa-wasm-oracle, which runs the modules
+```
 
 ## Consuming the IR
 

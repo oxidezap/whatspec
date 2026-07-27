@@ -44,3 +44,4 @@ wa-text = { workspace = true }
 wa-tokens = { workspace = true }
 wa-transform = { workspace = true }
 wa-wam = { workspace = true }
+wa-wasm = { workspace = true }

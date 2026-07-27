@@ -25,6 +25,7 @@ pub mod srvreq;
 pub mod tokens;
 pub mod wam;
 pub mod wap;
+pub mod wasm;
 
 pub use abprops::*;
 pub use appstate::*;
@@ -37,6 +38,7 @@ pub use proto::*;
 pub use srvreq::*;
 pub use tokens::*;
 pub use wam::*;
+pub use wasm::*;
 
 use serde::{Deserialize, Serialize};
 
@@ -113,6 +115,7 @@ pub fn schemas() -> Vec<(&'static str, String)> {
         ("schema/abprops.schema.json", dump::<abprops::AbPropsIr>()),
         ("schema/enums.schema.json", dump::<enums::EnumsIr>()),
         ("schema/wam.schema.json", dump::<wam::WamIr>()),
+        ("schema/wasm.schema.json", dump::<wasm::WasmIr>()),
         ("schema/notif.schema.json", dump::<notif::NotifIr>()),
         ("schema/tokens.schema.json", dump::<tokens::TokensIr>()),
         (
@@ -133,7 +136,7 @@ mod schema_tests {
     #[test]
     fn schemas_are_well_formed_and_versioned() {
         let out = schemas();
-        assert_eq!(out.len(), 11, "one schema per neutral domain");
+        assert_eq!(out.len(), 12, "one schema per neutral domain");
         for (path, json) in &out {
             // Each schema parses as JSON and is a JSON Schema object with a
             // `properties` map. (`$defs` only appears for domains with nested named
@@ -257,6 +260,7 @@ mod roundtrip_tests {
             round_trips::<abprops::AbPropsIr>("abprops/index.json"),
             round_trips::<enums::EnumsIr>("enums/index.json"),
             round_trips::<wam::WamIr>("wam/index.json"),
+            round_trips::<wasm::WasmIr>("wasm/index.json"),
             round_trips::<notif::NotifIr>("notif/index.json"),
             round_trips::<tokens::TokensIr>("tokens/index.json"),
             round_trips::<incoming::IncomingIr>("incoming/index.json"),
