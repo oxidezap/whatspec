@@ -1140,7 +1140,7 @@ fn load_wasm(
     let mut merged: BTreeMap<String, wa_fetch::Bundle> =
         reused.into_iter().map(|b| (b.url.clone(), b)).collect();
     merged.extend(downloaded.into_iter().map(|b| (b.url.clone(), b)));
-    let payloads = with_usable_file_names(merged.into_values().collect());
+    let payloads = with_lock_safe_file_names(merged.into_values().collect());
 
     eprintln!(
         "wasm set: {} payload(s), {:.1} MB ({new_count} newly downloaded, {reused_count} \
@@ -1183,50 +1183,59 @@ fn load_wasm(
     Ok(entries)
 }
 
-/// Keep only payloads whose file name can be written verbatim: unique across the set and
-/// short enough for the filesystem.
+/// Give every payload a file name that is unique across the set and safe on disk, deriving
+/// it from the URL rather than trusting the URL's last segment.
 ///
-/// A payload's identity here **is** its file name — the lock records it, `--wasm-out`
-/// writes it, `publish-wasm.sh` matches on it and a runner selects by it. Two WA URLs that
-/// happened to share a last segment (or one long enough to overflow `NAME_MAX`) would force
-/// a rename on disk while the lock kept the original, and every one of those consumers
-/// would then disagree. Dropping the ambiguous payload keeps them identical by
-/// construction; it is announced, and no such collision has been observed in practice (WA
-/// serves content-hashed segments).
+/// A payload's file name **is** its identity downstream: the lock records it, `--wasm-out`
+/// writes it, `publish-wasm.sh` matches on it, the archive carries it and a runner selects
+/// by it. WA serves content-hashed segments, so in practice the last segment is already
+/// unique and short and is kept verbatim — but two URLs *could* share one, or carry a
+/// segment past `NAME_MAX`, and then a writer would have to rename behind the lock's back.
+///
+/// Renaming here instead keeps all five in agreement **and** keeps the payload: the lock is
+/// what defines the name, so a disambiguated one is just as valid. Dropping the payload
+/// would publish an archive missing a module that could then never be restored.
+///
+/// Deterministic: names derive from the URL (not from a previous run's stored name), and
+/// the input is URL-ordered, so the same set always produces the same names.
 #[cfg(feature = "fetch")]
-fn with_usable_file_names(payloads: Vec<wa_fetch::Bundle>) -> Vec<wa_fetch::Bundle> {
-    // The on-disk limit `save_bundles` guards against, mirrored here because this path
-    // writes the names itself.
+fn with_lock_safe_file_names(payloads: Vec<wa_fetch::Bundle>) -> Vec<wa_fetch::Bundle> {
+    /// The bound `save_bundles` guards against, mirrored here because this path names the
+    /// files itself. Leaves ample room for the disambiguating suffix.
     const MAX_NAME: usize = 128;
-    let mut seen: BTreeSet<String> = BTreeSet::new();
-    let mut kept = Vec::with_capacity(payloads.len());
-    for b in payloads {
-        let name = &b.file_name;
-        let usable = !name.is_empty()
-            && name.len() <= MAX_NAME
-            && !name.contains('/')
-            && !name.contains('\\')
-            && Path::new(name)
+
+    let mut taken: BTreeSet<String> = BTreeSet::new();
+    let mut out = Vec::with_capacity(payloads.len());
+    for mut b in payloads {
+        let preferred = wa_fetch::bundle_file_name(&b.url);
+        let usable = !preferred.is_empty()
+            && preferred.len() <= MAX_NAME
+            && preferred.ends_with(".wasm")
+            && Path::new(&preferred)
                 .file_name()
-                .map(|n| n == name.as_str())
-                .unwrap_or(false);
-        if !usable {
+                .is_some_and(|n| n == preferred.as_str());
+        let digest = wa_text::sha256_hex(b.url.as_bytes());
+        let mut name = if usable {
+            preferred
+        } else {
+            // Unusable segment: a bounded, URL-derived name that is still a `.wasm` file.
+            format!("{}.wasm", &digest[..16])
+        };
+        if taken.contains(&name) {
+            // Two URLs, one segment: keep both by suffixing the URL digest.
+            let stem = name.trim_end_matches(".wasm").to_string();
+            let stem = &stem[..stem.len().min(MAX_NAME - 16)];
+            name = format!("{stem}-{}.wasm", &digest[..8]);
             eprintln!(
-                "  discarding {}: unusable payload file name {name:?}",
+                "  {} shares its file name with another payload — storing it as {name}",
                 b.url
             );
-            continue;
         }
-        if !seen.insert(name.clone()) {
-            eprintln!(
-                "  discarding {}: its file name {name:?} collides with another payload",
-                b.url
-            );
-            continue;
-        }
-        kept.push(b);
+        taken.insert(name.clone());
+        b.file_name = name;
+        out.push(b);
     }
-    kept
+    out
 }
 
 /// `bx` id → URI inverted into URI → `bx` id, lowest id winning on a shared URI (the
@@ -2571,5 +2580,62 @@ mod tests {
         assert_eq!(sweep_wasm_dir(&fresh).unwrap(), 0);
         assert!(fresh.is_dir());
         fs::remove_dir_all(&dir).ok();
+    }
+
+    #[cfg(feature = "fetch")]
+    #[test]
+    fn colliding_or_overlong_payload_names_are_disambiguated_not_dropped() {
+        let b = |url: &str| wa_fetch::Bundle {
+            file_name: wa_fetch::bundle_file_name(url),
+            url: url.to_string(),
+            bytes: b"\0asm".to_vec(),
+        };
+        // Two CDN shards serving the same last segment, plus one segment past NAME_MAX.
+        let long = format!("{}.wasm", "x".repeat(300));
+        let payloads = vec![
+            b("https://static.whatsapp.net/v4/ya/r/Same.wasm"),
+            b("https://static.whatsapp.net/v4/yb/r/Same.wasm"),
+            b(&format!("https://static.whatsapp.net/v4/yc/r/{long}")),
+        ];
+        let named = with_lock_safe_file_names(payloads.clone());
+
+        assert_eq!(named.len(), 3, "no payload is dropped");
+        let names: Vec<&str> = named.iter().map(|b| b.file_name.as_str()).collect();
+        assert_eq!(names[0], "Same.wasm", "the first keeps the readable name");
+        assert_ne!(names[1], names[0], "the second is disambiguated");
+        assert!(names.iter().all(|n| n.ends_with(".wasm")));
+        assert!(names.iter().all(|n| n.len() <= 128), "{names:?}");
+        assert_eq!(
+            names.iter().collect::<BTreeSet<_>>().len(),
+            3,
+            "all distinct: {names:?}"
+        );
+
+        // Deriving from the URL (never from a stored name) keeps it reproducible.
+        let again = with_lock_safe_file_names(payloads);
+        assert_eq!(
+            again
+                .iter()
+                .map(|b| b.file_name.clone())
+                .collect::<Vec<_>>(),
+            named
+                .iter()
+                .map(|b| b.file_name.clone())
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[cfg(feature = "fetch")]
+    #[test]
+    fn ordinary_payload_names_are_left_alone() {
+        // The real case: WA serves content-hashed segments, which must pass through
+        // untouched so the lock keeps naming what the CDN does.
+        let url = "https://static.whatsapp.net/rsrc.php/ye/r/COs9e0Kj0ic.wasm";
+        let named = with_lock_safe_file_names(vec![wa_fetch::Bundle {
+            url: url.to_string(),
+            file_name: "COs9e0Kj0ic.wasm".to_string(),
+            bytes: b"\0asm".to_vec(),
+        }]);
+        assert_eq!(named[0].file_name, "COs9e0Kj0ic.wasm");
     }
 }
