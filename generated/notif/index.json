@@ -1784,7 +1784,7 @@
             {
               "name": "reason",
               "wireName": "reason",
-              "type": "string",
+              "type": "enum",
               "required": false
             },
             {
@@ -1824,7 +1824,7 @@
                 {
                   "name": "phoneNumber",
                   "wireName": "phone_number",
-                  "type": "string",
+                  "type": "user_jid",
                   "required": false
                 },
                 {
@@ -1882,7 +1882,7 @@
                 {
                   "name": "phoneNumber",
                   "wireName": "phone_number",
-                  "type": "string",
+                  "type": "user_jid",
                   "required": false
                 },
                 {
@@ -1936,7 +1936,7 @@
                 {
                   "name": "phoneNumber",
                   "wireName": "phone_number",
-                  "type": "string",
+                  "type": "user_jid",
                   "required": false
                 },
                 {
@@ -1990,7 +1990,7 @@
                 {
                   "name": "phoneNumber",
                   "wireName": "phone_number",
-                  "type": "string",
+                  "type": "user_jid",
                   "required": false
                 },
                 {
@@ -2052,7 +2052,7 @@
                 {
                   "name": "phoneNumber",
                   "wireName": "phone_number",
-                  "type": "string",
+                  "type": "user_jid",
                   "required": false
                 },
                 {
@@ -2114,7 +2114,7 @@
                 {
                   "name": "phoneNumber",
                   "wireName": "phone_number",
-                  "type": "string",
+                  "type": "user_jid",
                   "required": false
                 },
                 {
@@ -2168,7 +2168,7 @@
                 {
                   "name": "phoneNumber",
                   "wireName": "phone_number",
-                  "type": "string",
+                  "type": "user_jid",
                   "required": false
                 },
                 {

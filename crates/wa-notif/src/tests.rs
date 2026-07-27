@@ -619,6 +619,7 @@ __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGr
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.ADD:
           return {actionType:o("WAWebGroupType").GROUP_ACTIONS.ADD, participants:y(e,t), reason:t.hasAttr("reason")?t.attrString("reason"):null};
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.SUBJECT:
+          if (t.hasChild("delete")) { var sid = t.attrString("id"); return {actionType:o("WAWebGroupType").GROUP_ACTIONS.DESC_REMOVE, descId:sid}; }
           return {actionType:o("WAWebGroupType").GROUP_ACTIONS.SUBJECT, subject:t.attrString("subject")};
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.EPHEMERAL:
           return {actionType:o("WAWebGroupType").GROUP_ACTIONS.EPHEMERAL, duration:t.attrInt("expiration")};
@@ -631,7 +632,7 @@ __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGr
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.UNLINK:
           return I(t);
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.REVOKE_INVITE:
-          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.REVOKE_INVITE, participants:t.mapChildrenWithTag("participant", function(p){ return {id:p.attrUserJid("jid"), expiration:p.attrInt("expiration")}; })};
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.REVOKE_INVITE, participants:t.mapChildrenWithTag("participant", function(p){ return {id:p.attrUserJid("jid"), expiration:p.attrInt("expiration")}; }), owners:t.mapChildrenWithTag("owner", p=>o("WAWebJidToWid").userJidToUserWid(p.maybeAttrPhoneUserJid("phone_number")))};
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.DESC:
           return t.hasChild("delete") ? {actionType:o("WAWebGroupType").GROUP_ACTIONS.DESC_REMOVE, descId:t.attrString("id")}
                                       : {actionType:o("WAWebGroupType").GROUP_ACTIONS.DESC_ADD, descId:t.attrString("id"), desc:t.child("body").contentString()};
@@ -811,4 +812,47 @@ fn a_helper_returning_several_actions_yields_several_arms() {
         .filter_map(|a| a.action_type.as_deref())
         .collect();
     assert_eq!(unlink, ["desc_remove", "desc_add"]);
+}
+
+#[test]
+fn a_branch_local_binding_is_in_scope_for_its_return() {
+    // `var` is function-scoped, so a declaration inside an `if` block is in scope for the
+    // return inside it. Now that returns are collected from nested branches, their locals
+    // have to be too — otherwise `if (c) { var sid = child.attrString("id"); return
+    // {descId: sid} }` yields a return whose `sid` resolves to nothing and is dropped.
+    let ir = extract_notif(GROUP_ACTIONS_BUNDLE, "2.3000.test");
+    let arm = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .find(|a| a.wire_tag == "subject" && a.action_type.as_deref() == Some("desc_remove"))
+        .expect("the branch arm");
+    let f = arm
+        .fields
+        .iter()
+        .find(|f| f.name == "descId")
+        .expect("descId");
+    assert_eq!(f.wire_name, "id");
+}
+
+#[test]
+fn an_expression_bodied_arrow_callback_yields_its_field() {
+    // `p => wid(p.maybeAttrPhoneUserJid("phone_number"))` has no `return`: oxc stores the
+    // body as a lone expression, so a return-only scan reported the repeated child with an
+    // empty field list. The accessor also has to be typed as the PN user JID it is, not as
+    // a bare string.
+    let ir = extract_notif(GROUP_ACTIONS_BUNDLE, "2.3000.test");
+    let owners = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .find(|a| a.wire_tag == "revoke")
+        .expect("revoke arm")
+        .children
+        .iter()
+        .find(|c| c.name == "owners")
+        .expect("owners child");
+    assert_eq!(owners.wire_tag, "owner");
+    let f = owners.fields.first().expect("a field from the arrow body");
+    assert_eq!(f.wire_name, "phone_number");
+    assert_eq!(f.field_type, wa_ir::ParsedFieldType::UserJid);
+    assert!(!f.required, "maybeAttr* is optional");
 }

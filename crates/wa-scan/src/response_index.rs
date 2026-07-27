@@ -306,17 +306,27 @@ fn collect_union_arms(fields: &[ParsedField], out: &mut Vec<ErrorArm>, found: &m
     for f in fields {
         for uv in f.union_variants.iter().flatten() {
             *found = true;
+            // What THIS alternative pins itself, before descending. An alternative can
+            // both pin `429`/`rate-overlimit` and carry a further payload union of
+            // reasons (`CreateOrAddGroupRateLimitError` does), and the nested reasons pin
+            // nothing — so replacing the outer arm with them would publish two arms with
+            // no usable pairing and drop the shape the server actually sends.
+            let own = arm_pins(&uv.fields);
             let before = out.len();
             let mut nested = false;
             collect_union_arms(&uv.fields, out, &mut nested);
             if nested {
-                // A union of unions: the inner alternative names are the specific ones,
-                // so only name the arms that have none yet.
                 for a in &mut out[before..] {
+                    // Inner names are the specific ones; the outer pins are inherited
+                    // wherever the inner arm has none of its own.
                     a.name.get_or_insert_with(|| uv.name.clone());
+                    a.code = a.code.or(own.code);
+                    a.text = a.text.clone().or_else(|| own.text.clone());
+                    a.code_min = a.code_min.or(own.code_min);
+                    a.code_max = a.code_max.or(own.code_max);
                 }
             } else {
-                let mut arm = arm_pins(&uv.fields);
+                let mut arm = own;
                 arm.name = Some(uv.name.clone());
                 out.push(arm);
             }
@@ -585,6 +595,79 @@ mod tests {
 
         // A success variant carries no arms at all.
         assert!(v("GetBarResponseSuccess").error_arms.is_empty());
+    }
+
+    #[test]
+    fn a_nested_payload_union_inherits_the_outer_error_pins() {
+        // An alternative can BOTH pin a code/text and carry a further payload union of
+        // reasons that pin nothing (`CreateOrAddGroupRateLimitError` does). Replacing the
+        // outer arm with the nested reasons publishes arms with no usable pairing and
+        // drops the shape the server actually sends, so the outer pins are inherited.
+        let bundle = ERROR_RPC.replace(
+            r#"__d("WASmaxInFooClientErrors",["WASmaxParseUtils"],(function(t,n,r,o,a,i,l){
+        function e(e){
+            var t = o("WASmaxInFooIQErrorBadRequestMixin").parseIQErrorBadRequestMixin(e);
+            if(t.success) return o("WAResultOrError").makeResult({name:"IQErrorBadRequest",value:t.value});
+            return o("WASmaxParseUtils").errorMixinDisjunction(e,["IQErrorBadRequest"],[t]);
+        }
+        l.parseClientErrors = e;
+    }), 98);"#,
+            r#"__d("WASmaxInFooTimeRateLimitMixin",["WASmaxParseUtils"],(function(t,n,r,o,a,i,l){
+        function e(e){
+            var t = o("WASmaxParseUtils").assertTag(e, "error"); if(!t.success) return t;
+            var n = o("WASmaxParseUtils").attrString(e, "reason");
+            return n.success ? o("WAResultOrError").makeResult({reason:n.value}) : n;
+        }
+        l.parseTimeRateLimitMixin = e;
+    }), 98);
+    __d("WASmaxInFooReasons",["WASmaxParseUtils"],(function(t,n,r,o,a,i,l){
+        function e(e){
+            var t = o("WASmaxInFooTimeRateLimitMixin").parseTimeRateLimitMixin(e);
+            if(t.success) return o("WAResultOrError").makeResult({name:"TimeRateLimit",value:t.value});
+            return o("WASmaxParseUtils").errorMixinDisjunction(e,["TimeRateLimit"],[t]);
+        }
+        l.parseReasons = e;
+    }), 98);
+    __d("WASmaxInFooRateLimitMixin",["WASmaxParseUtils"],(function(t,n,r,o,a,i,l){
+        function e(e){
+            var t = o("WASmaxParseUtils").assertTag(e, "error"); if(!t.success) return t;
+            var n = o("WASmaxParseUtils").literal(o("WASmaxParseUtils").attrString, e, "text", "rate-overlimit"); if(!n.success) return n;
+            var r = o("WASmaxParseUtils").literal(o("WASmaxParseUtils").attrInt, e, "code", 429); if(!r.success) return r;
+            var q = o("WASmaxInFooReasons").parseReasons(e);
+            return q.success ? o("WAResultOrError").makeResult({text:n.value,code:r.value,reason:q.value}) : q;
+        }
+        l.parseRateLimitMixin = e;
+    }), 98);
+    __d("WASmaxInFooClientErrors",["WASmaxParseUtils"],(function(t,n,r,o,a,i,l){
+        function e(e){
+            var t = o("WASmaxInFooRateLimitMixin").parseRateLimitMixin(e);
+            if(t.success) return o("WAResultOrError").makeResult({name:"RateLimitError",value:t.value});
+            return o("WASmaxParseUtils").errorMixinDisjunction(e,["RateLimitError"],[t]);
+        }
+        l.parseClientErrors = e;
+    }), 98);"#,
+        );
+        let defs = wa_transform::extract_module_definitions(&bundle);
+        let idx = build_pass(&defs, &bundle);
+        let pr = idx.get_by_x("FooGetBar").expect("indexed by X");
+        let ce = pr
+            .variants
+            .iter()
+            .find(|v| v.tag == "GetBarResponseClientError")
+            .expect("client error");
+        assert!(
+            !ce.error_arms.is_empty(),
+            "the nested union must not erase the arm"
+        );
+        for arm in &ce.error_arms {
+            assert_eq!(
+                (arm.code, arm.text.as_deref()),
+                (Some(429), Some("rate-overlimit")),
+                "every nested reason keeps the outer pins: {arm:?}"
+            );
+        }
+        // The specific inner name wins over the outer one.
+        assert_eq!(ce.error_arms[0].name.as_deref(), Some("TimeRateLimit"));
     }
 
     #[test]

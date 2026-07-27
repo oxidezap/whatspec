@@ -115,6 +115,11 @@ pub fn method_field_type(m: &str) -> ParsedFieldType {
         // flavor — rather than collapsing to a bare `Jid` — is protocol-safety-critical:
         // a LID user JID and a PN user JID are different identities for the same person.
         ATTR_USER_JID | MAYBE_ATTR_USER_JID => ParsedFieldType::UserJid,
+        // The `phone*` spellings are the explicit-PN aliases of the plain user/device
+        // accessors. Missing them typed a PN user JID as a bare `string`, which is
+        // exactly the conflation the note above calls protocol-safety-critical.
+        "attrPhoneUserJid" | "maybeAttrPhoneUserJid" => ParsedFieldType::UserJid,
+        "attrPhoneDeviceJid" => ParsedFieldType::DeviceJid,
         ATTR_LID_USER_JID | MAYBE_ATTR_LID_USER_JID => ParsedFieldType::LidUserJid,
         ATTR_DEVICE_JID => ParsedFieldType::DeviceJid,
         ATTR_LID_DEVICE_JID => ParsedFieldType::LidDeviceJid,
@@ -123,10 +128,19 @@ pub fn method_field_type(m: &str) -> ParsedFieldType {
         ATTR_CALL_JID => ParsedFieldType::CallJid,
         ATTR_BROADCAST_JID => ParsedFieldType::BroadcastJid,
         ATTR_STATUS_JID => ParsedFieldType::StatusJid,
-        ATTR_JID_WITH_TYPE => ParsedFieldType::JidTyped,
+        ATTR_JID_WITH_TYPE | "attrJidEnum" => ParsedFieldType::JidTyped,
         // `attrWapJid`/`attrChatJid`/`attrFromJid` accept more than one flavor
         // (a chat is a user or a group), so they stay a generic `Jid`.
         ATTR_WAP_JID | ATTR_CHAT_JID | ATTR_FROM_JID => ParsedFieldType::Jid,
+        // Multi-flavor accessors: a chat is a user OR a group, `attrDomainJid`/`attrLidJid`
+        // accept more than one server, so they stay a generic JID rather than a string.
+        "attrPhoneChatJid" | "attrDomainJid" | "attrLidJid" | "attrFromPhoneJid" => {
+            ParsedFieldType::Jid
+        }
+        // Range-checked integers and the enum accessors, whose raw spellings the legacy
+        // parsers use directly.
+        "attrIntRange" | "contentInt" => ParsedFieldType::Integer,
+        "attrStringEnum" | "contentStringEnum" | "attrEnumOrNullIfUnknown" => ParsedFieldType::Enum,
         CONTENT_BYTES => ParsedFieldType::Bytes,
         _ => ParsedFieldType::String,
     }

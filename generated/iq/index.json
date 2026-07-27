@@ -71103,10 +71103,14 @@
                 "text": "forbidden"
               },
               {
-                "name": "AddParticipantTimeRateLimit"
+                "name": "AddParticipantTimeRateLimit",
+                "code": 429,
+                "text": "rate-overlimit"
               },
               {
-                "name": "AddParticipantCountRateLimit"
+                "name": "AddParticipantCountRateLimit",
+                "code": 429,
+                "text": "rate-overlimit"
               },
               {
                 "name": "IQErrorRateOverlimit",
@@ -75428,10 +75432,14 @@
                 "text": "bad-request"
               },
               {
-                "name": "AddParticipantTimeRateLimit"
+                "name": "AddParticipantTimeRateLimit",
+                "code": 429,
+                "text": "rate-overlimit"
               },
               {
-                "name": "AddParticipantCountRateLimit"
+                "name": "AddParticipantCountRateLimit",
+                "code": 429,
+                "text": "rate-overlimit"
               },
               {
                 "name": "IQErrorRateOverlimit",

@@ -398,6 +398,22 @@ fn arm_result_shapes<'b, 'a>(consequent: &'b [Statement<'a>]) -> Vec<&'b Express
 /// blocks, `try`) but never into a nested function or a nested `switch` — an arm or helper that
 /// writes `if (cond) return {actionType: A, …}; return {actionType: B, …}` exposes both
 /// shapes, where a direct-children-only scan would silently keep just the last.
+/// The result shapes of a function expression, handling the implicit return of an
+/// expression-bodied arrow (`p => userJidToUserWid(p.attrUserJid("jid"))`), whose body
+/// oxc stores as a lone `ExpressionStatement` rather than a `return`.
+fn fn_result_shapes<'b, 'a>(e: &'b Expression<'a>) -> Vec<&'b Expression<'a>> {
+    if let Expression::ArrowFunctionExpression(arrow) = e
+        && let Some(expr) = arrow.get_expression()
+    {
+        let mut out = Vec::new();
+        collect_branches(expr, &mut out);
+        return out;
+    }
+    function_body_of(e)
+        .map(arm_result_shapes)
+        .unwrap_or_default()
+}
+
 fn collect_returns<'b, 'a>(stmts: &'b [Statement<'a>], out: &mut Vec<&'b Expression<'a>>) {
     for s in stmts {
         match s {
@@ -441,16 +457,39 @@ type Scope<'b, 'a> = HashMap<&'b str, &'b Expression<'a>>;
 
 fn scope_bindings<'b, 'a>(stmts: &'b [Statement<'a>]) -> Scope<'b, 'a> {
     let mut out = Scope::new();
+    collect_bindings(stmts, &mut out);
+    out
+}
+
+/// Collect `var` bindings through control flow, mirroring [`collect_returns`].
+///
+/// `var` is function-scoped in JS, so a declaration inside an `if` block is in scope for
+/// the whole function — and now that returns are collected from nested branches, their
+/// locals have to be too, or `if (c) { var id = child.attrString("id"); return {id} }`
+/// yields a return whose `id` resolves to nothing and is silently dropped. First binding
+/// wins, so the walk order (source order) decides, not the recursion order.
+fn collect_bindings<'b, 'a>(stmts: &'b [Statement<'a>], out: &mut Scope<'b, 'a>) {
     for s in stmts {
-        if let Statement::VariableDeclaration(decl) = s {
-            for d in &decl.declarations {
-                if let (Some(name), Some(init)) = (d.id.get_identifier_name(), d.init.as_ref()) {
-                    out.insert(name.as_str(), init);
+        match s {
+            Statement::VariableDeclaration(decl) => {
+                for d in &decl.declarations {
+                    if let (Some(name), Some(init)) = (d.id.get_identifier_name(), d.init.as_ref())
+                    {
+                        out.entry(name.as_str()).or_insert(init);
+                    }
                 }
             }
+            Statement::BlockStatement(b) => collect_bindings(&b.body, out),
+            Statement::IfStatement(i) => {
+                collect_bindings(std::slice::from_ref(&i.consequent), out);
+                if let Some(alt) = &i.alternate {
+                    collect_bindings(std::slice::from_ref(alt), out);
+                }
+            }
+            Statement::TryStatement(t) => collect_bindings(&t.block.body, out),
+            _ => {}
         }
     }
-    out
 }
 
 /// Follow a bare identifier through the scope to the expression bound to it. Bounded so
@@ -509,15 +548,17 @@ fn expand_helper(wire_tag: &str, fn_src: &str, ctx: &ArmCtx, depth: u8) -> Vec<N
     if ret.panicked {
         return Vec::new();
     }
-    let Some(stmts) = ret.program.body.iter().find_map(|s| match s {
-        Statement::ExpressionStatement(es) => function_body_of(&es.expression),
+    let Some(func) = ret.program.body.iter().find_map(|s| match s {
+        Statement::ExpressionStatement(es) => Some(&es.expression),
         _ => None,
     }) else {
         return Vec::new();
     };
-    let scope = scope_bindings(stmts);
+    let scope = function_body_of(func)
+        .map(scope_bindings)
+        .unwrap_or_default();
     let mut out: Vec<NotifActionDef> = Vec::new();
-    for shape in arm_result_shapes(stmts) {
+    for shape in fn_result_shapes(func) {
         for action in expand_shape(wire_tag, shape, &scope, ctx, depth) {
             match out.iter_mut().find(|g| g.action_type == action.action_type) {
                 Some(existing) => merge_action(existing, action),
@@ -606,14 +647,16 @@ fn inline_local(fn_src: &str, def: &mut NotifActionDef, ctx: &ArmCtx, depth: u8)
     if ret.panicked {
         return;
     }
-    let Some(stmts) = ret.program.body.iter().find_map(|s| match s {
-        Statement::ExpressionStatement(es) => function_body_of(&es.expression),
+    let Some(func) = ret.program.body.iter().find_map(|s| match s {
+        Statement::ExpressionStatement(es) => Some(&es.expression),
         _ => None,
     }) else {
         return;
     };
-    let scope = scope_bindings(stmts);
-    for shape in arm_result_shapes(stmts) {
+    let scope = function_body_of(func)
+        .map(scope_bindings)
+        .unwrap_or_default();
+    for shape in fn_result_shapes(func) {
         fold_shape(shape, &scope, def, ctx, depth + 1);
     }
 }
@@ -928,10 +971,8 @@ fn collect_accessor_fields<'b, 'a>(
     // A callback that returns a bare value rather than an object
     // (`p => userJidToUserWid(p.attrUserJid("jid"))`) has no property key to name the
     // field by, so the wire attribute names it — better than reporting no fields at all.
-    if out.is_empty()
-        && let Some(stmts) = function_body_of(e)
-    {
-        for shape in arm_result_shapes(stmts) {
+    if out.is_empty() {
+        for shape in fn_result_shapes(e) {
             if let Some((method, wire_name, content)) = find_accessor(shape, &scope) {
                 out.push(NotifActionField {
                     name: wire_name.clone(),
