@@ -160,7 +160,7 @@ fn emit(assertions: &[ResponseAssertion], fields: &[ParsedField]) -> Stanza {
     // A required pin must be emitted; an optional one may be omitted (and this emitter
     // omits it, which the checker must accept).
     walk_pinned(fields, &root, &mut |f, path| {
-        if !f.required {
+        if !pin_is_required(f) {
             return;
         }
         if let Some(Ok(value)) = pinned_value(f, &request) {
@@ -234,7 +234,7 @@ fn violations(s: &Stanza, assertions: &[ResponseAssertion], fields: &[ParsedFiel
         };
         match pinned_value(f, &request) {
             Some(Err(why)) => out.push(format!("pinned {at}: {why}")),
-            Some(Ok(value)) => match (s.attr(&path, &wire), f.required) {
+            Some(Ok(value)) => match (s.attr(&path, &wire), pin_is_required(f)) {
                 // A required pin must be present and exact.
                 (None, true) => out.push(format!("pinned {at}: required {value:?} not emitted")),
                 (Some(got), _) if *got != value => {
@@ -247,6 +247,18 @@ fn violations(s: &Stanza, assertions: &[ResponseAssertion], fields: &[ParsedFiel
         }
     });
     out
+}
+
+/// Whether the pinned attribute must be present.
+///
+/// **Not** simply `f.required`. On a [`wa_ir::ParsedFieldType::Bool`] field the pin is
+/// always conditional: such a field is a *presence flag* (`{hasListCDhash: m.value !=
+/// null}`), so `required: true` describes the flag the parser always produces, never the
+/// wire attribute it reports on — which may by construction be absent. Treating the flag
+/// as the attribute would have this emitter demand an optional `c_dhash` and then compare
+/// a request string against a boolean.
+fn pin_is_required(f: &ParsedField) -> bool {
+    f.required && f.field_type != wa_ir::ParsedFieldType::Bool
 }
 
 /// Whether a shape carries any of the constraint layer this guard exists to protect.
@@ -434,4 +446,46 @@ fn a_pin_on_a_nested_node_is_checked_where_it_lives() {
     let broken = violations(&s, &assertions, &fields);
     assert_eq!(broken.len(), 1, "{broken:?}");
     assert!(broken[0].contains("participant/@type"), "{broken:?}");
+}
+
+#[test]
+fn a_pin_on_a_presence_flag_is_never_required() {
+    // `{hasListCDhash: m.value != null}` reports whether an OPTIONAL `c_dhash` attribute
+    // was there; the flag itself is always produced. An emitter must be free to omit the
+    // attribute — and must never be asked to compare the request's string against the
+    // boolean.
+    let flag = ParsedField {
+        method: String::new(),
+        name: "hasListCDhash".into(),
+        wire_name: Some("c_dhash".into()),
+        field_type: wa_ir::ParsedFieldType::Bool,
+        required: true,
+        reference_path: Some(vec!["item".into(), "dhash".into()]),
+        ..Default::default()
+    };
+    let assertions = vec![ResponseAssertion {
+        kind: AssertionKind::Tag,
+        name: Some("iq".into()),
+        value: None,
+        reference_path: None,
+    }];
+    let fields = vec![flag];
+    let s = emit(&assertions, &fields);
+    assert!(
+        s.attr(&[], "c_dhash").is_none(),
+        "an optional attribute must not be forced onto the stanza"
+    );
+    assert!(
+        violations(&s, &assertions, &fields).is_empty(),
+        "omitting it is legal"
+    );
+    // Present but contradicting the request is still caught.
+    let mut wrong = emit(&assertions, &fields);
+    wrong
+        .nodes
+        .entry(Vec::new())
+        .or_default()
+        .insert("c_dhash".into(), "not-the-request-value".into());
+    let broken = violations(&wrong, &assertions, &fields);
+    assert_eq!(broken.len(), 1, "{broken:?}");
 }

@@ -99,6 +99,50 @@
         "nodes"
       ]
     },
+    "ErrorArm": {
+      "description": "One accepted `<error>` shape of a response variant: the `code` and `text` that must\noccur **together**.\n\nThe flattened [`ResponseVariant::error_codes`] / [`error_texts`] lists answer \"what\nvalues does this RPC accept?\", but they cannot say which value goes with which: an\narm taking `400 bad-request` and `501 feature-not-implemented` flattens to two codes\nand two texts, and nothing then rules out `400 feature-not-implemented` — a\ncombination the parser rejects. An emitter that picks one value from each list\ntherefore produces an unparseable stanza, which is the exact failure class this\ndomain exists to prevent. The pairing lives here.\n\n[`error_texts`]: ResponseVariant::error_texts",
+      "type": "object",
+      "properties": {
+        "code": {
+          "description": "The exact `code` this arm pins, when it pins one.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64"
+        },
+        "codeMax": {
+          "description": "Inclusive upper bound of a fallback arm's accepted code range.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64"
+        },
+        "codeMin": {
+          "description": "Inclusive lower bound of a fallback arm's accepted code range.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64"
+        },
+        "name": {
+          "description": "The disjunction alternative this arm comes from (`IQErrorBadRequest`), when the\nerror is parsed as a `…Errors` union. `None` for an RPC that parses a single\n`<error>` child directly, which has exactly one arm and no name for it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "text": {
+          "description": "The exact `text` this arm pins. Absent on a fallback arm, which accepts any text\nwithin [`code_min`]..=[`code_max`].\n\n[`code_min`]: ErrorArm::code_min\n[`code_max`]: ErrorArm::code_max",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
     "ErrorClass": {
       "description": "Which side an error variant blames, for a variant whose [`ResponseVariantKind`] is\n[`Error`]. WA models the two as separate parsers with disjoint code ranges: a client\nerror carries a 4xx code (`bad-request` 400, `rate-overlimit` 429, fallback 400–499)\nand a server error a 5xx one (`internal-server-error` 500, fallback 500–599).\n\nEmitted alongside — not instead of — [`ResponseVariant::kind`], so a consumer that\nonly understands `success`/`error` keeps working.\n\n[`Error`]: ResponseVariantKind::Error",
       "oneOf": [
@@ -200,7 +244,7 @@
           "format": "int64"
         },
         "literalValue": {
-          "description": "The fixed value the parser pins this field to — `literal(attrString, participant,\n\"type\", \"admin\")` → `\"admin\"`, `literal(attrInt, error, \"code\", 429)` → `\"429\"`.\nAlways the string form of the literal; [`field_type`] says how to read it (a\n`code` field with `literalValue: \"429\"` is the integer 429 on the wire).\n\n[`required`] tells the two pinning forms apart, and the difference matters to an\nemitter: a **required** literal (`literal`) is a hard discriminator — the\nattribute MUST be present and equal to this value or the variant does not match;\nan **optional** one (`optionalLiteral`) is pinned only when present — the emitter\nmay omit the attribute, but must never send a contradicting value.\n\n[`field_type`]: ParsedField::field_type\n[`required`]: ParsedField::required",
+          "description": "The fixed value the parser pins this field to — `literal(attrString, participant,\n\"type\", \"admin\")` → `\"admin\"`, `literal(attrInt, error, \"code\", 429)` → `\"429\"`.\nAlways the string form of the literal; [`field_type`] says how to read it (a\n`code` field with `literalValue: \"429\"` is the integer 429 on the wire).\n\n[`required`] tells the two pinning forms apart, and the difference matters to an\nemitter: a **required** literal (`literal`) is a hard discriminator — the\nattribute MUST be present and equal to this value or the variant does not match;\nan **optional** one (`optionalLiteral`) is pinned only when present — the emitter\nmay omit the attribute, but must never send a contradicting value.\n\n**On a [`ParsedFieldType::Bool`] field the pin is always conditional.** Such a\nfield is a *presence flag* — `{hasListCDhash: m.value != null}` — so its\n`required: true` describes the flag (the parser always produces it), never the\nwire attribute named by [`wire_name`], which by construction may be absent. The\npin constrains that attribute when present, and never the boolean itself.\n\n[`field_type`]: ParsedField::field_type\n[`required`]: ParsedField::required\n[`wire_name`]: ParsedField::wire_name",
           "type": [
             "string",
             "null"
@@ -214,7 +258,7 @@
           "type": "string"
         },
         "referencePath": {
-          "description": "The field is pinned not to a constant but to **a value taken from the request** —\nthe same echo rule [`AssertionKind::Reference`] carries, in the same\n`attrStringFromReference` path form, but for a pin that is *not* a variant guard.\n\nA required echo (`literal(…, \"from\", ref.to)`) is recorded as an assertion, since\nit must hold for the variant to match at all. An **optional** one\n(`optionalLiteral(…, \"c_dhash\", ref.item.dhash)`) is not a guard — the attribute\nmay be absent — so it lives here instead: an emitter may omit it, but if it sends\nit, the value must be the request's. Mutually exclusive with [`literal_value`].\n\n[`literal_value`]: ParsedField::literal_value",
+          "description": "The field is pinned not to a constant but to **a value taken from the request** —\nthe same echo rule [`AssertionKind::Reference`] carries, in the same\n`attrStringFromReference` path form, but for a pin that is *not* a variant guard.\n\nA required echo (`literal(…, \"from\", ref.to)`) is recorded as an assertion, since\nit must hold for the variant to match at all. An **optional** one\n(`optionalLiteral(…, \"c_dhash\", ref.item.dhash)`) is not a guard — the attribute\nmay be absent — so it lives here instead: an emitter may omit it, but if it sends\nit, the value must be the request's. Mutually exclusive with [`literal_value`],\nand — like it — always conditional when carried on a [`ParsedFieldType::Bool`]\npresence flag.\n\n[`literal_value`]: ParsedField::literal_value",
           "type": [
             "array",
             "null"
@@ -445,6 +489,13 @@
             "$ref": "#/$defs/ResponseAssertion"
           }
         },
+        "errorArms": {
+          "description": "The accepted `<error>` shapes, in parser order — **which code goes with which\ntext**. This is the authoritative form; see [`ErrorArm`] for why the flattened\nlists below cannot express it.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ErrorArm"
+          }
+        },
         "errorClass": {
           "description": "For an error variant, whether it is the client-error (4xx) or server-error (5xx)\narm. Absent for a success variant, and for an error variant whose parser carries\nno recoverable code evidence.",
           "anyOf": [
@@ -473,7 +524,7 @@
           "format": "int64"
         },
         "errorCodes": {
-          "description": "The **closed set** of `<error code>` values this variant accepts, ascending.\n\nThe vocabulary is per-RPC, not global: `BatchGetGroupInfo`'s client-error arm\ntakes only `400` and `429` and **rejects `404`**, even though an\n`IQErrorItemNotFoundMixin` exists and other RPCs use it. Answering with a code\noutside this set matches no branch, so the client reports a parse failure rather\nthan the error. Empty when the variant pins no exact code (see [`error_code_min`]).\n\n[`error_code_min`]: ResponseVariant::error_code_min",
+          "description": "The **closed set** of `<error code>` values this variant accepts, ascending — the\nunion over [`error_arms`], for the \"does this RPC accept code N?\" question.\n\nThe vocabulary is per-RPC, not global: `BatchGetGroupInfo`'s client-error arm\ntakes only `400` and `429` and **rejects `404`**, even though an\n`IQErrorItemNotFoundMixin` exists and other RPCs use it. Answering with a code\noutside this set matches no branch, so the client reports a parse failure rather\nthan the error. Empty when the variant pins no exact code (see [`error_code_min`]).\n\nAn emitter must pick a **pair** from [`error_arms`], never one value from this\nlist and another from [`error_texts`].\n\n[`error_arms`]: ResponseVariant::error_arms\n[`error_texts`]: ResponseVariant::error_texts\n[`error_code_min`]: ResponseVariant::error_code_min",
           "type": "array",
           "items": {
             "type": "integer",
@@ -481,7 +532,7 @@
           }
         },
         "errorTexts": {
-          "description": "The `<error text>` values this variant accepts, sorted — the closed vocabulary\npaired with [`error_codes`]. Empty when only a fallback (any-text) arm applies.\n\n[`error_codes`]: ResponseVariant::error_codes",
+          "description": "The `<error text>` values this variant accepts, sorted — the union over\n[`error_arms`]. Empty when only a fallback (any-text) arm applies. See the warning\non [`error_codes`] about combining the two lists.\n\n[`error_arms`]: ResponseVariant::error_arms\n[`error_codes`]: ResponseVariant::error_codes",
           "type": "array",
           "items": {
             "type": "string"

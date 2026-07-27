@@ -755,8 +755,15 @@ struct Counts {
     iq_field_enum_refs: usize,
     iq_typed_error_variants: usize,
     iq_error_texts: usize,
+    iq_error_arms: usize,
     /// Notification payload action-union arms recovered (`diagnostics.notif.actions`).
     notif_actions: usize,
+    /// Shape-level coverage of those arms: resolved `actionType`s plus every field,
+    /// constant and child field across them. The arm COUNT alone cannot regress while
+    /// the child-tag switch is still recognized — each case still yields one arm even if
+    /// its whole shape disappeared — so the layer could silently empty out inside a
+    /// steady count. This is the number that actually moves when extraction breaks.
+    notif_action_shapes: usize,
     /// Outgoing non-IQ stanzas (receipt/presence/chatstate/ack) the scanner recovers.
     stanza_defs: usize,
     /// Incoming content-stanza read-shapes (message/receipt/call/ack) recovered from
@@ -821,6 +828,9 @@ struct IqConstraintCounts {
     typed_error_variants: usize,
     /// Distinct `<error text>` values across every RPC's error vocabulary.
     error_texts: usize,
+    /// Accepted `(code, text)` error shapes across every RPC — the paired form, which
+    /// the flattened `errorTexts` count cannot regress on its own.
+    error_arms: usize,
 }
 
 /// Count the validation constraints in an emitted IQ IR (see [`IqConstraintCounts`]).
@@ -870,6 +880,7 @@ fn iq_constraint_counts(ir: &wa_ir::IqIr) -> IqConstraintCounts {
                 c.typed_error_variants += 1;
             }
             texts.extend(v.error_texts.iter().cloned());
+            c.error_arms += v.error_arms.len();
             walk_fields(&v.fields, &mut c);
         }
     }
@@ -1617,7 +1628,8 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
     let (abprops_arts, abprops_count) = abprops.expect(checked);
     let (enums_arts, enums_count) = enums.expect(checked);
     let (wam_arts, wam_count) = wam.expect(checked);
-    let (notif_arts, (notif_count, notif_typed, notif_tags, notif_actions)) = notif.expect(checked);
+    let (notif_arts, (notif_count, notif_typed, notif_tags, notif_actions, notif_action_shapes)) =
+        notif.expect(checked);
     let (stanza_arts, stanza_count) = stanza.expect(checked);
     let (tokens_arts, (token_single, token_double)) = tokens.expect(checked);
     let (incoming_arts, incoming_count) = incoming.expect(checked);
@@ -1691,7 +1703,9 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
         iq_field_enum_refs: iq_diag.constraints.field_enum_refs,
         iq_typed_error_variants: iq_diag.constraints.typed_error_variants,
         iq_error_texts: iq_diag.constraints.error_texts,
+        iq_error_arms: iq_diag.constraints.error_arms,
         notif_actions,
+        notif_action_shapes,
         stanza_defs: stanza_count,
         incoming_defs: incoming_count,
         server_request_defs: srvreq_count,
@@ -1798,6 +1812,7 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
                     "fieldEnumRefs": iq_diag.constraints.field_enum_refs,
                     "typedErrorVariants": iq_diag.constraints.typed_error_variants,
                     "errorTexts": iq_diag.constraints.error_texts,
+                    "errorArms": iq_diag.constraints.error_arms,
                 },
             },
             "notif": {
@@ -1806,6 +1821,7 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
                 "degraded": counts.notif_types - counts.notif_typed_content,
                 "stanzaTags": counts.notif_stanza_tags,
                 "actions": counts.notif_actions,
+                "actionShapes": counts.notif_action_shapes,
             },
         },
     });
@@ -1886,6 +1902,7 @@ fn check_floor(out: &Path, counts: &Counts) -> Result<Vec<String>> {
                 ("fieldEnumRefs", counts.iq_field_enum_refs),
                 ("typedErrorVariants", counts.iq_typed_error_variants),
                 ("errorTexts", counts.iq_error_texts),
+                ("errorArms", counts.iq_error_arms),
             ] {
                 if let Some(prev) = c.get(key).and_then(serde_json::Value::as_u64)
                     && (new as u64) < prev
@@ -1903,6 +1920,7 @@ fn check_floor(out: &Path, counts: &Counts) -> Result<Vec<String>> {
             ("typedContent", counts.notif_typed_content),
             ("stanzaTags", counts.notif_stanza_tags),
             ("actions", counts.notif_actions),
+            ("actionShapes", counts.notif_action_shapes),
         ] {
             if let Some(prev) = notif.get(key).and_then(serde_json::Value::as_u64)
                 && (new as u64) < prev
@@ -2248,7 +2266,7 @@ fn push_notif(
     wa_version: &str,
     source: &str,
     module_defs: &[wa_transform::ModuleDefinition],
-) -> Result<(usize, usize, usize, usize)> {
+) -> Result<(usize, usize, usize, usize, usize)> {
     let ir = wa_notif::extract_notif_from_modules(source, module_defs, wa_version);
     let count = ir.notifications.len();
     let stanza_tags = ir.stanza_tags.len();
@@ -2260,9 +2278,21 @@ fn push_notif(
     // Payload action-union arms (the `w:gp2` group actions and friends) — the layer
     // below the envelope, counted so it can't silently empty out.
     let actions: usize = ir.notifications.iter().map(|n| n.actions.len()).sum();
+    let action_shapes: usize = ir
+        .notifications
+        .iter()
+        .flat_map(|n| &n.actions)
+        .map(|a| {
+            usize::from(a.action_type.is_some())
+                + a.fields.len()
+                + a.constant_fields.len()
+                + a.children.iter().map(|c| 1 + c.fields.len()).sum::<usize>()
+        })
+        .sum();
     eprintln!(
         "notif: {count} notification types ({typed} with typed content, {} degraded), \
-         {actions} payload action(s), {} stanza tags (dispatchers: {})",
+         {actions} payload action(s) / {action_shapes} shape element(s), \
+         {} stanza tags (dispatchers: {})",
         count - typed,
         stanza_tags,
         if ir.dispatcher_modules.is_empty() {
@@ -2281,7 +2311,7 @@ fn push_notif(
         rel_path: PathBuf::from("notif/notif.rs"),
         content: wa_codegen::generate_notif(&ir),
     });
-    Ok((count, typed, stanza_tags, actions))
+    Ok((count, typed, stanza_tags, actions, action_shapes))
 }
 
 fn push_wam(

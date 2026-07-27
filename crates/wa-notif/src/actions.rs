@@ -198,12 +198,29 @@ pub(crate) fn extract_actions(
     // the helpers are indexed up front and inlined on demand.
     let mut locals = LocalFns::default();
     locals.visit_program(&ret.program);
+    // A minified helper name reused by a nested function would otherwise resolve to
+    // whichever declaration was visited last, letting an arm inline an unrelated
+    // function and emit wrong fields. Ambiguity resolves to nothing instead — the same
+    // rule the constant tables use — so the failure is a missing action, not a wrong one.
+    let mut by_name: HashMap<String, Option<String>> = HashMap::new();
+    for (name, (a, b)) in locals.spans {
+        let src = handler_slice[a..b].to_string();
+        match by_name.entry(name) {
+            std::collections::hash_map::Entry::Vacant(e) => {
+                e.insert(Some(src));
+            }
+            std::collections::hash_map::Entry::Occupied(mut e) => {
+                if e.get().as_deref() != Some(src.as_str()) {
+                    e.insert(None);
+                }
+            }
+        }
+    }
     let ctx = ArmCtx {
         consts,
-        locals: locals
-            .spans
+        locals: by_name
             .into_iter()
-            .map(|(n, (a, b))| (n, handler_slice[a..b].to_string()))
+            .filter_map(|(n, src)| src.map(|s| (n, s)))
             .collect(),
     };
     let mut finder = SwitchFinder {
@@ -276,11 +293,20 @@ impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
 /// Read every arm of a const-keyed child-tag switch into [`NotifActionDef`]s.
 fn extract_switch(switch: &SwitchStatement, ctx: &ArmCtx) -> Vec<NotifActionDef> {
     let mut out = Vec::new();
-    for case in &switch.cases {
+    for (i, case) in switch.cases.iter().enumerate() {
         let Some(wire_tag) = case.test.as_ref().and_then(|t| ctx.consts.resolve(t)) else {
             continue;
         };
-        let shapes = arm_result_shapes(&case.consequent);
+        // `case TAG_A: case TAG_B: return {…}` — a fall-through label has an empty body
+        // and runs the next non-empty one. Recording it as an empty action would lose the
+        // action type and every field of a legally dispatched tag.
+        let consequent = switch.cases[i..]
+            .iter()
+            .map(|c| &c.consequent)
+            .find(|c| !c.is_empty())
+            .map(|c| &c[..])
+            .unwrap_or(&case.consequent);
+        let shapes = arm_result_shapes(consequent);
         if shapes.is_empty() {
             // A recognised tag whose arm returns no shape (a bare flag set, an early
             // break). Still catalogued: knowing the tag is dispatched at all beats
@@ -295,19 +321,20 @@ fn extract_switch(switch: &SwitchStatement, ctx: &ArmCtx) -> Vec<NotifActionDef>
         // So branches are grouped by `actionType`: different ones stay separate arms of
         // the union, identical ones merge into one (a field only some branches read is
         // optional in the merge).
-        let scope = scope_bindings(match &case.consequent[..] {
+        let scope = scope_bindings(match consequent {
             [Statement::BlockStatement(b)] => &b.body[..],
             other => other,
         });
         let mut grouped: Vec<NotifActionDef> = Vec::new();
         for shape in shapes {
-            let action = read_action(wire_tag.clone(), shape, &scope, ctx, 0);
-            match grouped
-                .iter_mut()
-                .find(|g| g.action_type == action.action_type)
-            {
-                Some(existing) => merge_action(existing, action),
-                None => grouped.push(action),
+            for action in expand_shape(&wire_tag, shape, &scope, ctx, 0) {
+                match grouped
+                    .iter_mut()
+                    .find(|g| g.action_type == action.action_type)
+                {
+                    Some(existing) => merge_action(existing, action),
+                    None => grouped.push(action),
+                }
             }
         }
         out.extend(grouped);
@@ -440,6 +467,65 @@ fn deref_ident<'b, 'a>(e: &'b Expression<'a>, scope: &Scope<'b, 'a>) -> &'b Expr
         }
     }
     cur
+}
+
+/// Turn one arm result shape into the action(s) it can produce.
+///
+/// A shape that *delegates wholesale* to a module-local helper (`case UNLINK: return
+/// I(child)`) is not one action: the helper branches, and its branches can be different
+/// actions — `I` returns `delete_parent_group_unlink`, `integrity_parent_group_unlink`
+/// and the sub-group variants depending on `unlink_type` and `unlink_reason`. Folding
+/// them into one definition keeps whichever `actionType` resolved first and silently
+/// drops the rest, so the helper's branches are expanded into sibling shapes and run
+/// through the same merge-by-`actionType` grouping the switch arms use.
+///
+/// A helper called in *value position* (`participants: y(chat, child, tag)`) is a
+/// different thing — it contributes fields to the enclosing action — and keeps being
+/// folded in by [`fold_object`].
+fn expand_shape(
+    wire_tag: &str,
+    result: &Expression,
+    scope: &Scope,
+    ctx: &ArmCtx,
+    depth: u8,
+) -> Vec<NotifActionDef> {
+    if depth <= MAX_INLINE_DEPTH
+        && let Some(src) = local_call_source(deref_ident(result, scope), ctx)
+    {
+        let expanded = expand_helper(wire_tag, &src, ctx, depth + 1);
+        if !expanded.is_empty() {
+            return expanded;
+        }
+    }
+    vec![read_action(wire_tag.to_string(), result, scope, ctx, depth)]
+}
+
+/// Parse a helper and expand each of its result branches, inside this parse's own
+/// allocator (only the owned definitions escape).
+fn expand_helper(wire_tag: &str, fn_src: &str, ctx: &ArmCtx, depth: u8) -> Vec<NotifActionDef> {
+    let alloc = Allocator::default();
+    let wrapped = format!("({fn_src})");
+    let ret = wa_oxc::parse_cjs(&alloc, &wrapped);
+    if ret.panicked {
+        return Vec::new();
+    }
+    let Some(stmts) = ret.program.body.iter().find_map(|s| match s {
+        Statement::ExpressionStatement(es) => function_body_of(&es.expression),
+        _ => None,
+    }) else {
+        return Vec::new();
+    };
+    let scope = scope_bindings(stmts);
+    let mut out: Vec<NotifActionDef> = Vec::new();
+    for shape in arm_result_shapes(stmts) {
+        for action in expand_shape(wire_tag, shape, &scope, ctx, depth) {
+            match out.iter_mut().find(|g| g.action_type == action.action_type) {
+                Some(existing) => merge_action(existing, action),
+                None => out.push(action),
+            }
+        }
+    }
+    out
 }
 
 /// Read one arm result shape into a [`NotifActionDef`].
@@ -686,13 +772,48 @@ fn is_guarded(e: &Expression) -> bool {
 }
 
 /// The value branch of a `cond ? value : fallback` / `a || b` guard, else `e` itself.
+///
+/// The minifier's null-coalesce idiom hides the accessor in the *test*:
+/// `(x = child.maybeAttrString("threshold")) != null ? x : void 0`. The consequent is
+/// then a bare `x` that no declaration binds, so following it alone loses the field
+/// (`locked`'s `threshold` vanished exactly this way). When the consequent is an
+/// identifier assigned inside the test, the assignment's right-hand side is the value.
 fn strip_guard<'b, 'a>(e: &'b Expression<'a>) -> &'b Expression<'a> {
     match e {
-        Expression::ConditionalExpression(c) => strip_guard(&c.consequent),
+        Expression::ConditionalExpression(c) => {
+            let value = strip_guard(&c.consequent);
+            match as_identifier(value).and_then(|name| assigned_in(&c.test, name)) {
+                Some(assigned) => strip_guard(assigned),
+                None => value,
+            }
+        }
         Expression::ParenthesizedExpression(p) => strip_guard(&p.expression),
         Expression::LogicalExpression(l) => strip_guard(&l.left),
         Expression::AssignmentExpression(a) => strip_guard(&a.right),
         _ => e,
+    }
+}
+
+/// The right-hand side of an `name = <expr>` assignment somewhere inside `e`.
+fn assigned_in<'b, 'a>(e: &'b Expression<'a>, name: &str) -> Option<&'b Expression<'a>> {
+    match e {
+        Expression::AssignmentExpression(a) => {
+            let target = a.left.get_identifier_name().map(|n| n.to_string());
+            if target.as_deref() == Some(name) {
+                Some(&a.right)
+            } else {
+                assigned_in(&a.right, name)
+            }
+        }
+        Expression::ParenthesizedExpression(p) => assigned_in(&p.expression, name),
+        Expression::BinaryExpression(b) => {
+            assigned_in(&b.left, name).or_else(|| assigned_in(&b.right, name))
+        }
+        Expression::LogicalExpression(l) => {
+            assigned_in(&l.left, name).or_else(|| assigned_in(&l.right, name))
+        }
+        Expression::UnaryExpression(u) => assigned_in(&u.argument, name),
+        _ => None,
     }
 }
 

@@ -587,11 +587,16 @@ __d("WAWebHandleDeviceNotification",["WADeprecatedWapParser"],(function(t,n,r,o,
     e.assertTag("notification"); e.assertAttr("type","devices");
     return { id: e.attrString("id") };
   });
+  function I(e){
+    var t=e.attrString("unlink_type");
+    if(t==="parent_group") return {actionType:o("WAWebGroupType").GROUP_ACTIONS.DESC_REMOVE, descId:e.attrString("id")};
+    return {actionType:o("WAWebGroupType").GROUP_ACTIONS.DESC_ADD, descId:e.attrString("id")};
+  }
   function h(e){ return p.parse(e); }
   l.handleDevicesNotification = h;
 }), 1);
 __d("WAWebHandleGroupNotificationConst",[],(function(t,n,r,o,a,i,l){
-  var e=Object.freeze({ADD:"add",SUBJECT:"subject",EPHEMERAL:"ephemeral",NOT_EPHEMERAL:"not_ephemeral",LOCKED:"locked",REVOKE_INVITE:"revoke",DESC:"description"});
+  var e=Object.freeze({ADD:"add",SUBJECT:"subject",EPHEMERAL:"ephemeral",NOT_EPHEMERAL:"not_ephemeral",LOCKED:"locked",REVOKE_INVITE:"revoke",DESC:"description",UNLINK:"unlink"});
   l.GROUP_NOTIFICATION_TAG=e;
 }), 1);
 __d("WAWebGroupType",[],(function(t,n,r,o,a,i,l){
@@ -602,6 +607,11 @@ __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGr
   function y(e,t){ return t.mapChildrenWithTag("participant", function(p){
     return { id: p.attrUserJid("jid"), displayName: p.maybeAttrString("display_name") };
   }); }
+  function I(e){
+    var t=e.attrString("unlink_type");
+    if(t==="parent_group") return {actionType:o("WAWebGroupType").GROUP_ACTIONS.DESC_REMOVE, descId:e.attrString("id")};
+    return {actionType:o("WAWebGroupType").GROUP_ACTIONS.DESC_ADD, descId:e.attrString("id")};
+  }
   function h(e){
     var x = e.mapChildren(function(t){
       var a = t.tag();
@@ -614,8 +624,12 @@ __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGr
           return {actionType:o("WAWebGroupType").GROUP_ACTIONS.EPHEMERAL, duration:t.attrInt("expiration")};
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.NOT_EPHEMERAL:
           return {actionType:o("WAWebGroupType").GROUP_ACTIONS.EPHEMERAL, duration:0};
-        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.LOCKED:
-          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.RESTRICT, value:!0};
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.LOCKED: {
+          var n;
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.RESTRICT, value:!0, threshold:(n=t.maybeAttrString("threshold"))!=null?n:void 0};
+        }
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.UNLINK:
+          return I(t);
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.REVOKE_INVITE:
           return {actionType:o("WAWebGroupType").GROUP_ACTIONS.REVOKE_INVITE, participants:t.mapChildrenWithTag("participant", function(p){ return {id:p.attrUserJid("jid"), expiration:p.attrInt("expiration")}; })};
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.DESC:
@@ -760,4 +774,41 @@ fn handler_without_a_const_keyed_switch_has_no_actions() {
             assert!(n.actions.is_empty(), "{} grew actions", n.notif_type);
         }
     }
+}
+
+#[test]
+fn a_null_coalesced_field_keeps_its_wire_source() {
+    // The minifier hides the accessor in the ternary's TEST:
+    // `(n = child.maybeAttrString("threshold")) != null ? n : void 0`. Following the
+    // consequent alone finds a bare `n` that nothing binds, and the field vanishes —
+    // which is exactly how `locked`'s `threshold` was being lost.
+    let ir = extract_notif(GROUP_ACTIONS_BUNDLE, "2.3000.test");
+    let locked = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .find(|a| a.wire_tag == "locked")
+        .expect("locked arm");
+    let threshold = locked
+        .fields
+        .iter()
+        .find(|f| f.name == "threshold")
+        .expect("threshold field");
+    assert_eq!(threshold.wire_name, "threshold");
+    assert!(!threshold.required, "read behind a null-coalesce guard");
+}
+
+#[test]
+fn a_helper_returning_several_actions_yields_several_arms() {
+    // `case UNLINK: return I(child)` delegates wholesale to a helper that branches into
+    // DIFFERENT actions. Folding them into one definition keeps whichever `actionType`
+    // resolved first and silently drops the rest, so the branches must surface as
+    // sibling arms of the union — the same treatment an inline ternary gets.
+    let ir = extract_notif(GROUP_ACTIONS_BUNDLE, "2.3000.test");
+    let unlink: Vec<&str> = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .filter(|a| a.wire_tag == "unlink")
+        .filter_map(|a| a.action_type.as_deref())
+        .collect();
+    assert_eq!(unlink, ["desc_remove", "desc_add"]);
 }

@@ -2283,6 +2283,14 @@
         {
           "wireTag": "locked",
           "actionType": "restrict",
+          "fields": [
+            {
+              "name": "threshold",
+              "wireName": "threshold",
+              "type": "string",
+              "required": false
+            }
+          ],
           "constantFields": [
             {
               "name": "value",
@@ -2458,6 +2466,95 @@
         {
           "wireTag": "unlink",
           "actionType": "delete_parent_group_unlink",
+          "children": [
+            {
+              "name": "groupDatas",
+              "wireTag": "group",
+              "fields": [
+                {
+                  "name": "id",
+                  "wireName": "jid",
+                  "type": "group_jid",
+                  "required": true
+                },
+                {
+                  "name": "subject",
+                  "wireName": "subject",
+                  "type": "string",
+                  "required": true
+                },
+                {
+                  "name": "subjectTime",
+                  "wireName": "s_t",
+                  "type": "integer",
+                  "required": true
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "wireTag": "unlink",
+          "actionType": "integrity_parent_group_unlink",
+          "children": [
+            {
+              "name": "groupDatas",
+              "wireTag": "group",
+              "fields": [
+                {
+                  "name": "id",
+                  "wireName": "jid",
+                  "type": "group_jid",
+                  "required": true
+                },
+                {
+                  "name": "subject",
+                  "wireName": "subject",
+                  "type": "string",
+                  "required": true
+                },
+                {
+                  "name": "subjectTime",
+                  "wireName": "s_t",
+                  "type": "integer",
+                  "required": true
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "wireTag": "unlink",
+          "actionType": "integrity_sub_group_unlink",
+          "children": [
+            {
+              "name": "groupDatas",
+              "wireTag": "group",
+              "fields": [
+                {
+                  "name": "id",
+                  "wireName": "jid",
+                  "type": "group_jid",
+                  "required": true
+                },
+                {
+                  "name": "subject",
+                  "wireName": "subject",
+                  "type": "string",
+                  "required": true
+                },
+                {
+                  "name": "subjectTime",
+                  "wireName": "s_t",
+                  "type": "integer",
+                  "required": true
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "wireTag": "unlink",
           "children": [
             {
               "name": "groupDatas",

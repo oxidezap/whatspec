@@ -13,7 +13,8 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use wa_ir::{
-    ErrorClass, ParsedField, ParsedFieldType, ParsedResponse, ResponseVariant, ResponseVariantKind,
+    ErrorArm, ErrorClass, ParsedField, ParsedFieldType, ParsedResponse, ResponseVariant,
+    ResponseVariantKind,
 };
 
 use crate::response_smax::{Resolved, Resolver, analyze_module_exports, scan_cascade_variants};
@@ -152,6 +153,7 @@ pub(crate) fn build_pass(defs: &[ModuleDefinition], source: &str) -> ResponseInd
                 module_name: module,
                 kind,
                 error_class: vocab.class(),
+                error_arms: vocab.arms,
                 error_codes: vocab.codes,
                 error_texts: vocab.texts,
                 error_code_min: vocab.code_min,
@@ -207,6 +209,9 @@ pub(crate) fn build_pass(defs: &[ModuleDefinition], source: &str) -> ResponseInd
 /// disjunction.
 #[derive(Default)]
 struct ErrorVocabulary {
+    /// The accepted `(code, text)` shapes, in parser order — the authoritative form.
+    arms: Vec<ErrorArm>,
+    /// Flattened unions over `arms`, kept for the "does this RPC accept N?" question.
     codes: Vec<i64>,
     texts: Vec<String>,
     code_min: Option<i64>,
@@ -260,7 +265,16 @@ impl ErrorVocabulary {
 /// `int_min`+`int_max`), so this reads them back rather than re-parsing the bundle.
 fn error_vocabulary(fields: &[ParsedField]) -> ErrorVocabulary {
     let mut v = ErrorVocabulary::default();
-    collect_error_vocabulary(fields, &mut v);
+    collect_error_arms(fields, &mut v.arms);
+    // The flat lists are a VIEW over the arms, so the two can never disagree.
+    for a in &v.arms {
+        v.codes.extend(a.code);
+        v.texts.extend(a.text.clone());
+        if let (Some(min), Some(max)) = (a.code_min, a.code_max) {
+            v.code_min = Some(v.code_min.map_or(min, |cur: i64| cur.min(min)));
+            v.code_max = Some(v.code_max.map_or(max, |cur: i64| cur.max(max)));
+        }
+    }
     v.codes.sort_unstable();
     v.codes.dedup();
     v.texts.sort();
@@ -268,38 +282,77 @@ fn error_vocabulary(fields: &[ParsedField]) -> ErrorVocabulary {
     v
 }
 
-fn collect_error_vocabulary(fields: &[ParsedField], out: &mut ErrorVocabulary) {
-    for f in fields {
-        read_error_pin(f, out);
-        if let Some(children) = &f.children {
-            collect_error_vocabulary(children, out);
-        }
-        for uv in f.union_variants.iter().flatten() {
-            collect_error_vocabulary(&uv.fields, out);
+/// One arm per accepted `<error>` shape, so the `(code, text)` pairing survives.
+///
+/// A `…Errors` disjunction contributes one arm per alternative; an RPC that parses a
+/// single `<error>` child directly contributes exactly one unnamed arm. Flattening these
+/// into two independent lists would let an emitter combine one arm's code with another's
+/// text — `400 feature-not-implemented` matches no branch and is unparseable, which is
+/// the whole failure class this domain exists to prevent.
+fn collect_error_arms(fields: &[ParsedField], out: &mut Vec<ErrorArm>) {
+    let mut found_union = false;
+    collect_union_arms(fields, out, &mut found_union);
+    if !found_union {
+        // No disjunction: the variant parses one `<error>` shape, so its pins are one arm.
+        let arm = arm_pins(fields);
+        if arm != ErrorArm::default() {
+            out.push(arm);
         }
     }
 }
 
-/// Read one field's contribution to the vocabulary, if it is the `<error>` `code` or
-/// `text`.
-fn read_error_pin(f: &ParsedField, out: &mut ErrorVocabulary) {
-    match (f.wire_name.as_deref().unwrap_or(&f.name), &f.literal_value) {
-        ("code", Some(lit)) => {
-            if let Ok(code) = lit.parse::<i64>() {
-                out.codes.push(code);
+/// Walk the tree for disjunction alternatives, pushing one arm per leaf alternative.
+fn collect_union_arms(fields: &[ParsedField], out: &mut Vec<ErrorArm>, found: &mut bool) {
+    for f in fields {
+        for uv in f.union_variants.iter().flatten() {
+            *found = true;
+            let before = out.len();
+            let mut nested = false;
+            collect_union_arms(&uv.fields, out, &mut nested);
+            if nested {
+                // A union of unions: the inner alternative names are the specific ones,
+                // so only name the arms that have none yet.
+                for a in &mut out[before..] {
+                    a.name.get_or_insert_with(|| uv.name.clone());
+                }
+            } else {
+                let mut arm = arm_pins(&uv.fields);
+                arm.name = Some(uv.name.clone());
+                out.push(arm);
             }
         }
-        ("text", Some(lit)) => out.texts.push(lit.clone()),
-        // A fallback arm accepts any text within a code RANGE (400–499 / 500–599),
-        // which no enumeration of exact codes can express.
-        ("code", None) => {
-            if let (Some(min), Some(max)) = (f.int_min, f.int_max) {
-                out.code_min = Some(out.code_min.map_or(min, |cur: i64| cur.min(min)));
-                out.code_max = Some(out.code_max.map_or(max, |cur: i64| cur.max(max)));
-            }
+        if let Some(children) = &f.children {
+            collect_union_arms(children, out, found);
         }
-        _ => {}
     }
+}
+
+/// The `code`/`text` pins of one error shape, scanning its whole field subtree but not
+/// descending into disjunction alternatives (each of those is its own arm).
+fn arm_pins(fields: &[ParsedField]) -> ErrorArm {
+    let mut arm = ErrorArm::default();
+    fn walk(fields: &[ParsedField], arm: &mut ErrorArm) {
+        for f in fields {
+            match (f.wire_name.as_deref().unwrap_or(&f.name), &f.literal_value) {
+                ("code", Some(lit)) => arm.code = lit.parse::<i64>().ok().or(arm.code),
+                ("text", Some(lit)) => arm.text = Some(lit.clone()),
+                // A fallback arm accepts any text within a code RANGE (400–499 /
+                // 500–599), which no enumeration of exact codes can express.
+                ("code", None) => {
+                    if let (Some(min), Some(max)) = (f.int_min, f.int_max) {
+                        arm.code_min = Some(min);
+                        arm.code_max = Some(max);
+                    }
+                }
+                _ => {}
+            }
+            if let Some(children) = &f.children {
+                walk(children, arm);
+            }
+        }
+    }
+    walk(fields, &mut arm);
+    arm
 }
 
 /// A discriminated-union field carrying `variants`.
@@ -494,6 +547,44 @@ mod tests {
             (se.error_code_min, se.error_code_max),
             (Some(500), Some(599))
         );
+    }
+
+    #[test]
+    fn error_arms_keep_code_and_text_paired() {
+        // The flattened lists cannot say which code goes with which text: an arm taking
+        // 400/bad-request and 429/rate-overlimit flattens to two codes and two texts,
+        // and nothing then rules out `400 rate-overlimit` — a combination the parser
+        // rejects. An emitter picking one value from each list would produce exactly the
+        // unparseable stanza this domain exists to prevent, so the pairing is carried.
+        let defs = wa_transform::extract_module_definitions(ERROR_RPC);
+        let idx = build_pass(&defs, ERROR_RPC);
+        let pr = idx.get_by_x("FooGetBar").expect("indexed by X");
+        let v = |tag: &str| pr.variants.iter().find(|v| v.tag == tag).expect(tag);
+
+        let ce = v("GetBarResponseClientError");
+        assert_eq!(ce.error_arms.len(), 1);
+        let arm = &ce.error_arms[0];
+        assert_eq!(arm.name.as_deref(), Some("IQErrorBadRequest"));
+        assert_eq!(
+            (arm.code, arm.text.as_deref()),
+            (Some(400), Some("bad-request"))
+        );
+        // The flat lists stay a VIEW over the arms, so the two can never disagree.
+        assert_eq!(ce.error_codes, vec![400]);
+        assert_eq!(ce.error_texts, vec!["bad-request".to_string()]);
+
+        // A fallback arm pins a range and NO text: it accepts any text in 500..=599, so
+        // a `text` of `None` there is the fact, not a gap.
+        let se = v("GetBarResponseServerError");
+        assert_eq!(se.error_arms.len(), 1);
+        let fb = &se.error_arms[0];
+        assert_eq!(fb.name.as_deref(), Some("IQErrorFallbackServer"));
+        assert_eq!(fb.code, None);
+        assert_eq!(fb.text, None);
+        assert_eq!((fb.code_min, fb.code_max), (Some(500), Some(599)));
+
+        // A success variant carries no arms at all.
+        assert!(v("GetBarResponseSuccess").error_arms.is_empty());
     }
 
     #[test]

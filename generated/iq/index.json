@@ -446,6 +446,18 @@
             "tag": "GetExperimentConfigResponseErrorNoRetry",
             "moduleName": "WASmaxInAbPropsGetExperimentConfigResponseErrorNoRetry",
             "kind": "error",
+            "errorArms": [
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorFeatureNotImplemented",
+                "code": 501,
+                "text": "feature-not-implemented"
+              }
+            ],
             "errorCodes": [
               400,
               501
@@ -580,6 +592,12 @@
             "moduleName": "WASmaxInAbPropsGetExperimentConfigResponseErrorRetry",
             "kind": "error",
             "errorClass": "server",
+            "errorArms": [
+              {
+                "code": 500,
+                "text": "internal-server-error"
+              }
+            ],
             "errorCodes": [
               500
             ],
@@ -983,6 +1001,18 @@
             "tag": "GetGroupExperimentConfigResponseErrorNoRetry",
             "moduleName": "WASmaxInAbPropsGetGroupExperimentConfigResponseErrorNoRetry",
             "kind": "error",
+            "errorArms": [
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorFeatureNotImplemented",
+                "code": 501,
+                "text": "feature-not-implemented"
+              }
+            ],
             "errorCodes": [
               400,
               501
@@ -1117,6 +1147,12 @@
             "moduleName": "WASmaxInAbPropsGetGroupExperimentConfigResponseErrorRetry",
             "kind": "error",
             "errorClass": "server",
+            "errorArms": [
+              {
+                "code": 500,
+                "text": "internal-server-error"
+              }
+            ],
             "errorCodes": [
               500
             ],
@@ -2029,6 +2065,18 @@
             "moduleName": "WASmaxInBlocklistsGetBlockListResponseInvalidRequest",
             "kind": "error",
             "errorClass": "client",
+            "errorArms": [
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorRateOverlimit",
+                "code": 429,
+                "text": "rate-overlimit"
+              }
+            ],
             "errorCodes": [
               400,
               429
@@ -2163,6 +2211,18 @@
             "moduleName": "WASmaxInBlocklistsGetBlockListResponseInternalServerError",
             "kind": "error",
             "errorClass": "server",
+            "errorArms": [
+              {
+                "name": "IQErrorFeatureNotImplemented",
+                "code": 501,
+                "text": "feature-not-implemented"
+              },
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              }
+            ],
             "errorCodes": [
               500,
               501
@@ -3014,6 +3074,33 @@
             "moduleName": "WASmaxInBlocklistsUpdateBlockListResponseInvalidRequest",
             "kind": "error",
             "errorClass": "client",
+            "errorArms": [
+              {
+                "name": "IQErrorNotAcceptable",
+                "code": 406,
+                "text": "not-acceptable"
+              },
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorForbidden",
+                "code": 403,
+                "text": "forbidden"
+              },
+              {
+                "name": "IQErrorRateOverlimit",
+                "code": 429,
+                "text": "rate-overlimit"
+              },
+              {
+                "name": "IQErrorNotAllowed",
+                "code": 405,
+                "text": "not-allowed"
+              }
+            ],
             "errorCodes": [
               400,
               403,
@@ -3313,6 +3400,18 @@
             "moduleName": "WASmaxInBlocklistsUpdateBlockListResponseServerError",
             "kind": "error",
             "errorClass": "server",
+            "errorArms": [
+              {
+                "name": "IQErrorFeatureNotImplemented",
+                "code": 501,
+                "text": "feature-not-implemented"
+              },
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              }
+            ],
             "errorCodes": [
               500,
               501
@@ -4093,6 +4192,28 @@
             "tag": "BotListResponseError",
             "moduleName": "WASmaxInBotBotListResponseError",
             "kind": "error",
+            "errorArms": [
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorForbidden",
+                "code": 403,
+                "text": "forbidden"
+              },
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorNotAllowed",
+                "code": 405,
+                "text": "not-allowed"
+              }
+            ],
             "errorCodes": [
               400,
               403,
@@ -5599,6 +5720,23 @@
             "moduleName": "WASmaxInPreKeysFetchKeyBundlesResponseRequestError",
             "kind": "error",
             "errorClass": "client",
+            "errorArms": [
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorNoValidJID",
+                "code": 406,
+                "text": "not-acceptable"
+              },
+              {
+                "name": "IQErrorFallbackClient",
+                "codeMin": 400,
+                "codeMax": 499
+              }
+            ],
             "errorCodes": [
               400,
               406
@@ -5762,6 +5900,18 @@
             "moduleName": "WASmaxInPreKeysFetchKeyBundlesResponseServerError",
             "kind": "error",
             "errorClass": "server",
+            "errorArms": [
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              },
+              {
+                "name": "IQErrorFallbackServer",
+                "codeMin": 500,
+                "codeMax": 599
+              }
+            ],
             "errorCodes": [
               503
             ],
@@ -6772,6 +6922,23 @@
             "moduleName": "WASmaxInPreKeysFetchMissingPreKeysResponseRequestError",
             "kind": "error",
             "errorClass": "client",
+            "errorArms": [
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorNoValidJID",
+                "code": 406,
+                "text": "not-acceptable"
+              },
+              {
+                "name": "IQErrorFallbackClient",
+                "codeMin": 400,
+                "codeMax": 499
+              }
+            ],
             "errorCodes": [
               400,
               406
@@ -6935,6 +7102,18 @@
             "moduleName": "WASmaxInPreKeysFetchMissingPreKeysResponseServerError",
             "kind": "error",
             "errorClass": "server",
+            "errorArms": [
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              },
+              {
+                "name": "IQErrorFallbackServer",
+                "codeMin": 500,
+                "codeMax": 599
+              }
+            ],
             "errorCodes": [
               503
             ],
@@ -7362,6 +7541,18 @@
             "moduleName": "WASmaxInPreKeysAddResponseRequestError",
             "kind": "error",
             "errorClass": "client",
+            "errorArms": [
+              {
+                "name": "IQErrorNotAcceptable",
+                "code": 406,
+                "text": "not-acceptable"
+              },
+              {
+                "name": "IQErrorFallbackClient",
+                "codeMin": 400,
+                "codeMax": 499
+              }
+            ],
             "errorCodes": [
               406
             ],
@@ -7510,6 +7701,18 @@
             "moduleName": "WASmaxInPreKeysAddResponseServerError",
             "kind": "error",
             "errorClass": "server",
+            "errorArms": [
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              },
+              {
+                "name": "IQErrorFallbackServer",
+                "codeMin": 500,
+                "codeMax": 599
+              }
+            ],
             "errorCodes": [
               503
             ],
@@ -7735,6 +7938,18 @@
             "moduleName": "WASmaxInPreKeysDeleteResponseRequestError",
             "kind": "error",
             "errorClass": "client",
+            "errorArms": [
+              {
+                "name": "IQErrorNotAcceptable",
+                "code": 406,
+                "text": "not-acceptable"
+              },
+              {
+                "name": "IQErrorFallbackClient",
+                "codeMin": 400,
+                "codeMax": 499
+              }
+            ],
             "errorCodes": [
               406
             ],
@@ -7883,6 +8098,18 @@
             "moduleName": "WASmaxInPreKeysDeleteResponseServerError",
             "kind": "error",
             "errorClass": "server",
+            "errorArms": [
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              },
+              {
+                "name": "IQErrorFallbackServer",
+                "codeMin": 500,
+                "codeMax": 599
+              }
+            ],
             "errorCodes": [
               503
             ],
@@ -8366,6 +8593,18 @@
             "moduleName": "WASmaxInPreKeysSetResponseRequestError",
             "kind": "error",
             "errorClass": "client",
+            "errorArms": [
+              {
+                "name": "IQErrorNotAcceptable",
+                "code": 406,
+                "text": "not-acceptable"
+              },
+              {
+                "name": "IQErrorFallbackClient",
+                "codeMin": 400,
+                "codeMax": 499
+              }
+            ],
             "errorCodes": [
               406
             ],
@@ -8514,6 +8753,18 @@
             "moduleName": "WASmaxInPreKeysSetResponseServerError",
             "kind": "error",
             "errorClass": "server",
+            "errorArms": [
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              },
+              {
+                "name": "IQErrorFallbackServer",
+                "codeMin": 500,
+                "codeMax": 599
+              }
+            ],
             "errorCodes": [
               503
             ],
@@ -9096,6 +9347,12 @@
             "moduleName": "WASmaxInBizCtwaAdAccountGetAccessTokenAndSessionCookiesResponseTooManyAttempts",
             "kind": "error",
             "errorClass": "client",
+            "errorArms": [
+              {
+                "code": 431,
+                "text": "TOO_MANY_ATTEMPTS"
+              }
+            ],
             "errorCodes": [
               431
             ],
@@ -9172,6 +9429,12 @@
             "moduleName": "WASmaxInBizCtwaAdAccountGetAccessTokenAndSessionCookiesResponseIncorrectNonce",
             "kind": "error",
             "errorClass": "client",
+            "errorArms": [
+              {
+                "code": 432,
+                "text": "INCORRECT_NONCE"
+              }
+            ],
             "errorCodes": [
               432
             ],
@@ -9247,6 +9510,28 @@
             "tag": "GetAccessTokenAndSessionCookiesResponseError",
             "moduleName": "WASmaxInBizCtwaAdAccountGetAccessTokenAndSessionCookiesResponseError",
             "kind": "error",
+            "errorArms": [
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorForbidden",
+                "code": 403,
+                "text": "forbidden"
+              },
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              }
+            ],
             "errorCodes": [
               400,
               403,
@@ -9630,6 +9915,23 @@
             "tag": "GetAccountNonceResponseError",
             "moduleName": "WASmaxInBizLinkingGetAccountNonceResponseError",
             "kind": "error",
+            "errorArms": [
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorNoticeRequired",
+                "code": 475,
+                "text": "notice-required"
+              },
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              }
+            ],
             "errorCodes": [
               400,
               475,
@@ -10807,6 +11109,12 @@
             "moduleName": "WASmaxInBizLinkingGetLinkedAccountsResponseForbidden",
             "kind": "error",
             "errorClass": "client",
+            "errorArms": [
+              {
+                "code": 403,
+                "text": "forbidden"
+              }
+            ],
             "errorCodes": [
               403
             ],
@@ -10887,6 +11195,12 @@
             "moduleName": "WASmaxInBizLinkingGetLinkedAccountsResponseError",
             "kind": "error",
             "errorClass": "server",
+            "errorArms": [
+              {
+                "code": 500,
+                "text": "internal-server-error"
+              }
+            ],
             "errorCodes": [
               500
             ],
@@ -11143,6 +11457,28 @@
             "tag": "RequestSilentNonceResponseError",
             "moduleName": "WASmaxInBizAccessTokenRequestSilentNonceResponseError",
             "kind": "error",
+            "errorArms": [
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorForbidden",
+                "code": 403,
+                "text": "forbidden"
+              },
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              }
+            ],
             "errorCodes": [
               400,
               403,
@@ -11514,6 +11850,28 @@
             "tag": "SendAccountRecoveryNonceResponseError",
             "moduleName": "WASmaxInBizCtwaAdAccountSendAccountRecoveryNonceResponseError",
             "kind": "error",
+            "errorArms": [
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorForbidden",
+                "code": 403,
+                "text": "forbidden"
+              },
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              }
+            ],
             "errorCodes": [
               400,
               403,
@@ -12339,6 +12697,28 @@
             "tag": "UploadAdMediaResponseError",
             "moduleName": "WASmaxInBizCtwaNativeAdUploadAdMediaResponseError",
             "kind": "error",
+            "errorArms": [
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorForbidden",
+                "code": 403,
+                "text": "forbidden"
+              },
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              }
+            ],
             "errorCodes": [
               400,
               403,
@@ -12710,6 +13090,18 @@
             "tag": "GetCountryCodeResponseError",
             "moduleName": "WASmaxInMdGetCountryCodeResponseError",
             "kind": "error",
+            "errorArms": [
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              }
+            ],
             "errorCodes": [
               400,
               500
@@ -12960,6 +13352,12 @@
             "moduleName": "WASmaxInMdGetPasskeyRequestOptionsResponseError",
             "kind": "error",
             "errorClass": "server",
+            "errorArms": [
+              {
+                "code": 500,
+                "text": "internal-server-error"
+              }
+            ],
             "errorCodes": [
               500
             ],
@@ -13241,6 +13639,18 @@
             "tag": "CompanionFinishResponseError",
             "moduleName": "WASmaxInMdCompanionFinishResponseError",
             "kind": "error",
+            "errorArms": [
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              }
+            ],
             "errorCodes": [
               400,
               500
@@ -13551,6 +13961,33 @@
             "tag": "CompanionHelloResponseError",
             "moduleName": "WASmaxInMdCompanionHelloResponseError",
             "kind": "error",
+            "errorArms": [
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorFeatureNotAvailable",
+                "code": 452,
+                "text": "feature-not-available"
+              },
+              {
+                "name": "IQErrorRateOverlimit",
+                "code": 429,
+                "text": "rate-overlimit"
+              },
+              {
+                "name": "IQErrorForbidden",
+                "code": 403,
+                "text": "forbidden"
+              }
+            ],
             "errorCodes": [
               400,
               403,
@@ -19673,6 +20110,33 @@
             "moduleName": "WASmaxInNewslettersGetNewsletterMessageUpdatesResponseClientError",
             "kind": "error",
             "errorClass": "client",
+            "errorArms": [
+              {
+                "name": "BadRequestIQErrorResponse",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "UnavailableForLegalReasonsResponse",
+                "code": 451,
+                "text": "features-disabled"
+              },
+              {
+                "name": "ItemNotFoundIQErrorResponse",
+                "code": 404,
+                "text": "item-not-found"
+              },
+              {
+                "name": "SuspendedIQErrorResponse",
+                "code": 423,
+                "text": "locked"
+              },
+              {
+                "name": "RateLimitedIQErrorResponse",
+                "code": 429,
+                "text": "rate-overlimit"
+              }
+            ],
             "errorCodes": [
               400,
               404,
@@ -20029,6 +20493,12 @@
             "moduleName": "WASmaxInNewslettersGetNewsletterMessageUpdatesResponseServerError",
             "kind": "error",
             "errorClass": "server",
+            "errorArms": [
+              {
+                "code": 500,
+                "text": "internal-server-error"
+              }
+            ],
             "errorCodes": [
               500
             ],
@@ -25702,6 +26172,38 @@
             "moduleName": "WASmaxInNewslettersGetNewsletterMessagesResponseClientError",
             "kind": "error",
             "errorClass": "client",
+            "errorArms": [
+              {
+                "name": "BadRequestIQErrorResponse",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "UnavailableForLegalReasonsResponse",
+                "code": 451,
+                "text": "features-disabled"
+              },
+              {
+                "name": "ItemNotFoundIQErrorResponse",
+                "code": 404,
+                "text": "item-not-found"
+              },
+              {
+                "name": "SuspendedIQErrorResponse",
+                "code": 423,
+                "text": "locked"
+              },
+              {
+                "name": "RateLimitedIQErrorResponse",
+                "code": 429,
+                "text": "rate-overlimit"
+              },
+              {
+                "name": "NotAllowedIQErrorResponse",
+                "code": 405,
+                "text": "not-allowed"
+              }
+            ],
             "errorCodes": [
               400,
               404,
@@ -26124,6 +26626,12 @@
             "moduleName": "WASmaxInNewslettersGetNewsletterMessagesResponseServerError",
             "kind": "error",
             "errorClass": "server",
+            "errorArms": [
+              {
+                "code": 500,
+                "text": "internal-server-error"
+              }
+            ],
             "errorCodes": [
               500
             ],
@@ -26625,6 +27133,38 @@
             "moduleName": "WASmaxInNewslettersGetNewsletterResponsesResponseClientError",
             "kind": "error",
             "errorClass": "client",
+            "errorArms": [
+              {
+                "name": "BadRequestIQErrorResponse",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "UnauthorizedIQErrorResponse",
+                "code": 401,
+                "text": "not-authorized"
+              },
+              {
+                "name": "ItemNotFoundIQErrorResponse",
+                "code": 404,
+                "text": "item-not-found"
+              },
+              {
+                "name": "SuspendedIQErrorResponse",
+                "code": 423,
+                "text": "locked"
+              },
+              {
+                "name": "RateLimitedIQErrorResponse",
+                "code": 429,
+                "text": "rate-overlimit"
+              },
+              {
+                "name": "NotAllowedIQErrorResponse",
+                "code": 405,
+                "text": "not-allowed"
+              }
+            ],
             "errorCodes": [
               400,
               401,
@@ -27047,6 +27587,12 @@
             "moduleName": "WASmaxInNewslettersGetNewsletterResponsesResponseServerError",
             "kind": "error",
             "errorClass": "server",
+            "errorArms": [
+              {
+                "code": 500,
+                "text": "internal-server-error"
+              }
+            ],
             "errorCodes": [
               500
             ],
@@ -28263,6 +28809,33 @@
             "moduleName": "WASmaxInNewslettersGetNewsletterStatusUpdatesResponseClientError",
             "kind": "error",
             "errorClass": "client",
+            "errorArms": [
+              {
+                "name": "BadRequestIQErrorResponse",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "UnavailableForLegalReasonsResponse",
+                "code": 451,
+                "text": "features-disabled"
+              },
+              {
+                "name": "ItemNotFoundIQErrorResponse",
+                "code": 404,
+                "text": "item-not-found"
+              },
+              {
+                "name": "SuspendedIQErrorResponse",
+                "code": 423,
+                "text": "locked"
+              },
+              {
+                "name": "RateLimitedIQErrorResponse",
+                "code": 429,
+                "text": "rate-overlimit"
+              }
+            ],
             "errorCodes": [
               400,
               404,
@@ -28619,6 +29192,12 @@
             "moduleName": "WASmaxInNewslettersGetNewsletterStatusUpdatesResponseServerError",
             "kind": "error",
             "errorClass": "server",
+            "errorArms": [
+              {
+                "code": 500,
+                "text": "internal-server-error"
+              }
+            ],
             "errorCodes": [
               500
             ],
@@ -29900,6 +30479,38 @@
             "moduleName": "WASmaxInNewslettersGetNewsletterStatusesResponseClientError",
             "kind": "error",
             "errorClass": "client",
+            "errorArms": [
+              {
+                "name": "BadRequestIQErrorResponse",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "UnavailableForLegalReasonsResponse",
+                "code": 451,
+                "text": "features-disabled"
+              },
+              {
+                "name": "ItemNotFoundIQErrorResponse",
+                "code": 404,
+                "text": "item-not-found"
+              },
+              {
+                "name": "SuspendedIQErrorResponse",
+                "code": 423,
+                "text": "locked"
+              },
+              {
+                "name": "RateLimitedIQErrorResponse",
+                "code": 429,
+                "text": "rate-overlimit"
+              },
+              {
+                "name": "NotAllowedIQErrorResponse",
+                "code": 405,
+                "text": "not-allowed"
+              }
+            ],
             "errorCodes": [
               400,
               404,
@@ -30322,6 +30933,12 @@
             "moduleName": "WASmaxInNewslettersGetNewsletterStatusesResponseServerError",
             "kind": "error",
             "errorClass": "server",
+            "errorArms": [
+              {
+                "code": 500,
+                "text": "internal-server-error"
+              }
+            ],
             "errorCodes": [
               500
             ],
@@ -30700,6 +31317,28 @@
             "moduleName": "WASmaxInNewslettersMyAddOnsResponseClientError",
             "kind": "error",
             "errorClass": "client",
+            "errorArms": [
+              {
+                "name": "BadRequestIQErrorResponse",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "UnauthorizedIQErrorResponse",
+                "code": 401,
+                "text": "not-authorized"
+              },
+              {
+                "name": "ItemNotFoundIQErrorResponse",
+                "code": 404,
+                "text": "item-not-found"
+              },
+              {
+                "name": "RateLimitedIQErrorResponse",
+                "code": 429,
+                "text": "rate-overlimit"
+              }
+            ],
             "errorCodes": [
               400,
               401,
@@ -30990,6 +31629,12 @@
             "moduleName": "WASmaxInNewslettersMyAddOnsResponseServerError",
             "kind": "error",
             "errorClass": "server",
+            "errorArms": [
+              {
+                "code": 500,
+                "text": "internal-server-error"
+              }
+            ],
             "errorCodes": [
               500
             ],
@@ -31318,6 +31963,28 @@
             "moduleName": "WASmaxInNewslettersStatusMyAddOnsResponseClientError",
             "kind": "error",
             "errorClass": "client",
+            "errorArms": [
+              {
+                "name": "BadRequestIQErrorResponse",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "UnauthorizedIQErrorResponse",
+                "code": 401,
+                "text": "not-authorized"
+              },
+              {
+                "name": "ItemNotFoundIQErrorResponse",
+                "code": 404,
+                "text": "item-not-found"
+              },
+              {
+                "name": "RateLimitedIQErrorResponse",
+                "code": 429,
+                "text": "rate-overlimit"
+              }
+            ],
             "errorCodes": [
               400,
               401,
@@ -31608,6 +32275,12 @@
             "moduleName": "WASmaxInNewslettersStatusMyAddOnsResponseServerError",
             "kind": "error",
             "errorClass": "server",
+            "errorArms": [
+              {
+                "code": 500,
+                "text": "internal-server-error"
+              }
+            ],
             "errorCodes": [
               500
             ],
@@ -31785,6 +32458,33 @@
             "moduleName": "WASmaxInNewslettersSubscribeToLiveUpdatesResponseClientError",
             "kind": "error",
             "errorClass": "client",
+            "errorArms": [
+              {
+                "name": "BadRequestIQErrorResponse",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "UnavailableForLegalReasonsResponse",
+                "code": 451,
+                "text": "features-disabled"
+              },
+              {
+                "name": "ItemNotFoundIQErrorResponse",
+                "code": 404,
+                "text": "item-not-found"
+              },
+              {
+                "name": "SuspendedIQErrorResponse",
+                "code": 423,
+                "text": "locked"
+              },
+              {
+                "name": "RateLimitedIQErrorResponse",
+                "code": 429,
+                "text": "rate-overlimit"
+              }
+            ],
             "errorCodes": [
               400,
               404,
@@ -32141,6 +32841,12 @@
             "moduleName": "WASmaxInNewslettersSubscribeToLiveUpdatesResponseServerError",
             "kind": "error",
             "errorClass": "server",
+            "errorArms": [
+              {
+                "code": 500,
+                "text": "internal-server-error"
+              }
+            ],
             "errorCodes": [
               500
             ],
@@ -32517,6 +33223,18 @@
             "moduleName": "WASmaxInBlocklistsGetOptOutListResponseInvalidRequest",
             "kind": "error",
             "errorClass": "client",
+            "errorArms": [
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorRateOverlimit",
+                "code": 429,
+                "text": "rate-overlimit"
+              }
+            ],
             "errorCodes": [
               400,
               429
@@ -32651,6 +33369,18 @@
             "moduleName": "WASmaxInBlocklistsGetOptOutListResponseInternalServerError",
             "kind": "error",
             "errorClass": "server",
+            "errorArms": [
+              {
+                "name": "IQErrorFeatureNotImplemented",
+                "code": 501,
+                "text": "feature-not-implemented"
+              },
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              }
+            ],
             "errorCodes": [
               500,
               501
@@ -33239,6 +33969,28 @@
             "moduleName": "WASmaxInBlocklistsUpdateOptOutListResponseInvalidRequest",
             "kind": "error",
             "errorClass": "client",
+            "errorArms": [
+              {
+                "name": "IQErrorNotAcceptable",
+                "code": 406,
+                "text": "not-acceptable"
+              },
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorForbidden",
+                "code": 403,
+                "text": "forbidden"
+              },
+              {
+                "name": "IQErrorRateOverlimit",
+                "code": 429,
+                "text": "rate-overlimit"
+              }
+            ],
             "errorCodes": [
               400,
               403,
@@ -33475,6 +34227,18 @@
             "moduleName": "WASmaxInBlocklistsUpdateOptOutListResponseServerError",
             "kind": "error",
             "errorClass": "server",
+            "errorArms": [
+              {
+                "name": "IQErrorFeatureNotImplemented",
+                "code": 501,
+                "text": "feature-not-implemented"
+              },
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              }
+            ],
             "errorCodes": [
               500,
               501
@@ -34132,6 +34896,33 @@
             "tag": "GetContactBlacklistResponseError",
             "moduleName": "WASmaxInPrivacyGetContactBlacklistResponseError",
             "kind": "error",
+            "errorArms": [
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorFeatureNotImplemented",
+                "code": 501,
+                "text": "feature-not-implemented"
+              },
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              },
+              {
+                "name": "IQErrorRateOverlimit",
+                "code": 429,
+                "text": "rate-overlimit"
+              },
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              }
+            ],
             "errorCodes": [
               400,
               429,
@@ -35246,6 +36037,23 @@
             "tag": "SignCredentialResponseErrorNoRetry",
             "moduleName": "WASmaxInPrivatestatsSignCredentialResponseErrorNoRetry",
             "kind": "error",
+            "errorArms": [
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorFeatureNotImplemented",
+                "code": 501,
+                "text": "feature-not-implemented"
+              },
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              }
+            ],
             "errorCodes": [
               400,
               501,
@@ -35419,6 +36227,12 @@
             "moduleName": "WASmaxInPrivatestatsSignCredentialResponseErrorRetry",
             "kind": "error",
             "errorClass": "server",
+            "errorArms": [
+              {
+                "code": 500,
+                "text": "internal-server-error"
+              }
+            ],
             "errorCodes": [
               500
             ],
@@ -35748,6 +36562,37 @@
             "tag": "GroupReportResponseError",
             "moduleName": "WASmaxInSpamGroupReportResponseError",
             "kind": "error",
+            "errorArms": [
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorForbidden",
+                "code": 403,
+                "text": "forbidden"
+              },
+              {
+                "name": "IQErrorRateOverlimit",
+                "code": 429,
+                "text": "rate-overlimit"
+              },
+              {
+                "name": "IQErrorReportTokenValidationFail",
+                "code": 548
+              },
+              {
+                "name": "IQErrorFeatureNotImplemented",
+                "code": 501,
+                "text": "feature-not-implemented"
+              }
+            ],
             "errorCodes": [
               400,
               403,
@@ -36194,6 +37039,37 @@
             "tag": "IndividualReportResponseError",
             "moduleName": "WASmaxInSpamIndividualReportResponseError",
             "kind": "error",
+            "errorArms": [
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorForbidden",
+                "code": 403,
+                "text": "forbidden"
+              },
+              {
+                "name": "IQErrorRateOverlimit",
+                "code": 429,
+                "text": "rate-overlimit"
+              },
+              {
+                "name": "IQErrorReportTokenValidationFail",
+                "code": 548
+              },
+              {
+                "name": "IQErrorFeatureNotImplemented",
+                "code": 501,
+                "text": "feature-not-implemented"
+              }
+            ],
             "errorCodes": [
               400,
               403,
@@ -36631,6 +37507,37 @@
             "tag": "NewsletterReportResponseError",
             "moduleName": "WASmaxInSpamNewsletterReportResponseError",
             "kind": "error",
+            "errorArms": [
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorForbidden",
+                "code": 403,
+                "text": "forbidden"
+              },
+              {
+                "name": "IQErrorRateOverlimit",
+                "code": 429,
+                "text": "rate-overlimit"
+              },
+              {
+                "name": "IQErrorReportTokenValidationFail",
+                "code": 548
+              },
+              {
+                "name": "IQErrorFeatureNotImplemented",
+                "code": 501,
+                "text": "feature-not-implemented"
+              }
+            ],
             "errorCodes": [
               400,
               403,
@@ -37062,6 +37969,37 @@
             "tag": "StatusReportResponseError",
             "moduleName": "WASmaxInSpamStatusReportResponseError",
             "kind": "error",
+            "errorArms": [
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorForbidden",
+                "code": 403,
+                "text": "forbidden"
+              },
+              {
+                "name": "IQErrorRateOverlimit",
+                "code": 429,
+                "text": "rate-overlimit"
+              },
+              {
+                "name": "IQErrorReportTokenValidationFail",
+                "code": 548
+              },
+              {
+                "name": "IQErrorFeatureNotImplemented",
+                "code": 501,
+                "text": "feature-not-implemented"
+              }
+            ],
             "errorCodes": [
               400,
               403,
@@ -37487,6 +38425,28 @@
             "tag": "StatusReportV2ResponseError",
             "moduleName": "WASmaxInSpamStatusReportV2ResponseError",
             "kind": "error",
+            "errorArms": [
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorForbidden",
+                "code": 403,
+                "text": "forbidden"
+              },
+              {
+                "name": "IQErrorRateOverlimit",
+                "code": 429,
+                "text": "rate-overlimit"
+              }
+            ],
             "errorCodes": [
               400,
               403,
@@ -37927,6 +38887,12 @@
             "moduleName": "WASmaxInUserNoticeGetDisclosureStageByIdsResponseClientError",
             "kind": "error",
             "errorClass": "client",
+            "errorArms": [
+              {
+                "code": 400,
+                "text": "bad-request"
+              }
+            ],
             "errorCodes": [
               400
             ],
@@ -37999,6 +38965,18 @@
             "tag": "GetDisclosureStageByIdsResponseServerError",
             "moduleName": "WASmaxInUserNoticeGetDisclosureStageByIdsResponseServerError",
             "kind": "error",
+            "errorArms": [
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorRateOverlimit",
+                "code": 429,
+                "text": "rate-overlimit"
+              }
+            ],
             "errorCodes": [
               429,
               500
@@ -38313,6 +39291,12 @@
             "moduleName": "WASmaxInUserNoticeGetDisclosuresResponseClientError",
             "kind": "error",
             "errorClass": "client",
+            "errorArms": [
+              {
+                "code": 400,
+                "text": "bad-request"
+              }
+            ],
             "errorCodes": [
               400
             ],
@@ -38385,6 +39369,18 @@
             "tag": "GetDisclosuresResponseServerError",
             "moduleName": "WASmaxInUserNoticeGetDisclosuresResponseServerError",
             "kind": "error",
+            "errorArms": [
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorRateOverlimit",
+                "code": 429,
+                "text": "rate-overlimit"
+              }
+            ],
             "errorCodes": [
               429,
               500
@@ -39442,6 +40438,38 @@
             "tag": "SetPaymentsTOSv3ResponseError",
             "moduleName": "WASmaxInAccountSetPaymentsTOSv3ResponseError",
             "kind": "error",
+            "errorArms": [
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              },
+              {
+                "name": "IQErrorPayUpgradeRequired",
+                "code": 443,
+                "text": "upgrade-required"
+              },
+              {
+                "name": "IQErrorConfigMismatch",
+                "code": 453,
+                "text": "config-mismatch"
+              },
+              {
+                "name": "IQErrorForbidden",
+                "code": 403,
+                "text": "forbidden"
+              },
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              }
+            ],
             "errorCodes": [
               400,
               403,
@@ -40243,6 +41271,12 @@
             "moduleName": "WASmaxInPushConfigSetResponseInternalServerError",
             "kind": "error",
             "errorClass": "server",
+            "errorArms": [
+              {
+                "code": 500,
+                "text": "internal-server-error"
+              }
+            ],
             "errorCodes": [
               500
             ],
@@ -40316,6 +41350,12 @@
             "moduleName": "WASmaxInPushConfigSetResponseConflict",
             "kind": "error",
             "errorClass": "client",
+            "errorArms": [
+              {
+                "code": 409,
+                "text": "conflict"
+              }
+            ],
             "errorCodes": [
               409
             ],
@@ -41406,6 +42446,28 @@
             "tag": "GetBusinessEligibilityResponseError",
             "moduleName": "WASmaxInBizMarketingMessageGetBusinessEligibilityResponseError",
             "kind": "error",
+            "errorArms": [
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorForbidden",
+                "code": 403,
+                "text": "forbidden"
+              },
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              }
+            ],
             "errorCodes": [
               400,
               403,
@@ -41800,6 +42862,28 @@
             "tag": "GetPrivacySettingResponseError",
             "moduleName": "WASmaxInBizSettingsGetPrivacySettingResponseError",
             "kind": "error",
+            "errorArms": [
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorFeatureNotImplemented",
+                "code": 501,
+                "text": "feature-not-implemented"
+              },
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              },
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              }
+            ],
             "errorCodes": [
               400,
               500,
@@ -42760,6 +43844,43 @@
             "tag": "GetSMBMeteredMessagingCheckoutResponseError",
             "moduleName": "WASmaxInSmbMeteredMessagingAccountGetSMBMeteredMessagingCheckoutResponseError",
             "kind": "error",
+            "errorArms": [
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorNotAuthorized",
+                "code": 401,
+                "text": "not-authorized"
+              },
+              {
+                "name": "IQErrorNotAllowed",
+                "code": 405,
+                "text": "not-allowed"
+              },
+              {
+                "name": "IQErrorRateOverlimit",
+                "code": 429,
+                "text": "rate-overlimit"
+              },
+              {
+                "name": "IQErrorFeatureLimit",
+                "code": 482,
+                "text": "feature-limit"
+              },
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              }
+            ],
             "errorCodes": [
               400,
               401,
@@ -43271,6 +44392,28 @@
             "tag": "SetPrivacySettingResponseError",
             "moduleName": "WASmaxInBizSettingsSetPrivacySettingResponseError",
             "kind": "error",
+            "errorArms": [
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorFeatureNotImplemented",
+                "code": 501,
+                "text": "feature-not-implemented"
+              },
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              },
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              }
+            ],
             "errorCodes": [
               400,
               500,
@@ -44212,6 +45355,28 @@
             "moduleName": "WASmaxInBizMsgUserFeedbackUpdatePreferenceResponseInvalidRequest",
             "kind": "error",
             "errorClass": "client",
+            "errorArms": [
+              {
+                "name": "IQErrorNotAcceptable",
+                "code": 406,
+                "text": "not-acceptable"
+              },
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorForbidden",
+                "code": 403,
+                "text": "forbidden"
+              },
+              {
+                "name": "IQErrorRateOverlimit",
+                "code": 429,
+                "text": "rate-overlimit"
+              }
+            ],
             "errorCodes": [
               400,
               403,
@@ -44448,6 +45613,18 @@
             "moduleName": "WASmaxInBizMsgUserFeedbackUpdatePreferenceResponseServerError",
             "kind": "error",
             "errorClass": "server",
+            "errorArms": [
+              {
+                "name": "IQErrorFeatureNotImplemented",
+                "code": 501,
+                "text": "feature-not-implemented"
+              },
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              }
+            ],
             "errorCodes": [
               500,
               501
@@ -44682,6 +45859,23 @@
             "tag": "EventResponseError",
             "moduleName": "WASmaxInInAppCommsEventResponseError",
             "kind": "error",
+            "errorArms": [
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorRequestTimeout",
+                "code": 408,
+                "text": "request-timeout"
+              },
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              }
+            ],
             "errorCodes": [
               408,
               500,
@@ -44989,6 +46183,28 @@
             "tag": "ChatBlockGetResponseServerError",
             "moduleName": "WASmaxInPsaChatBlockGetResponseServerError",
             "kind": "error",
+            "errorArms": [
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorRequestTimeout",
+                "code": 408,
+                "text": "request-timeout"
+              },
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              },
+              {
+                "name": "IQErrorRateOverlimit",
+                "code": 429,
+                "text": "rate-overlimit"
+              }
+            ],
             "errorCodes": [
               408,
               429,
@@ -45334,6 +46550,28 @@
             "tag": "ChatBlockSetResponseServerError",
             "moduleName": "WASmaxInPsaChatBlockSetResponseServerError",
             "kind": "error",
+            "errorArms": [
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorRequestTimeout",
+                "code": 408,
+                "text": "request-timeout"
+              },
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              },
+              {
+                "name": "IQErrorRateOverlimit",
+                "code": 429,
+                "text": "rate-overlimit"
+              }
+            ],
             "errorCodes": [
               408,
               429,
@@ -49038,6 +50276,18 @@
             "moduleName": "WASmaxInGroupsBatchGetGroupInfoResponseClientError",
             "kind": "error",
             "errorClass": "client",
+            "errorArms": [
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorRateOverlimit",
+                "code": 429,
+                "text": "rate-overlimit"
+              }
+            ],
             "errorCodes": [
               400,
               429
@@ -49172,6 +50422,28 @@
             "moduleName": "WASmaxInGroupsBatchGetGroupInfoResponseServerError",
             "kind": "error",
             "errorClass": "server",
+            "errorArms": [
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              },
+              {
+                "name": "IQErrorPartialServerError",
+                "code": 530,
+                "text": "partial-server-error"
+              },
+              {
+                "name": "IQErrorFallbackServer",
+                "codeMin": 500,
+                "codeMax": 599
+              }
+            ],
             "errorCodes": [
               500,
               503,
@@ -52618,6 +53890,38 @@
             "moduleName": "WASmaxInGroupsGetGroupInfoResponseClientError",
             "kind": "error",
             "errorClass": "client",
+            "errorArms": [
+              {
+                "name": "IQErrorGone",
+                "code": 410,
+                "text": "gone"
+              },
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorForbidden",
+                "code": 403,
+                "text": "forbidden"
+              },
+              {
+                "name": "IQErrorItemNotFound",
+                "code": 404,
+                "text": "item-not-found"
+              },
+              {
+                "name": "IQErrorRateOverlimit",
+                "code": 429,
+                "text": "rate-overlimit"
+              },
+              {
+                "name": "IQErrorFallbackClient",
+                "codeMin": 400,
+                "codeMax": 499
+              }
+            ],
             "errorCodes": [
               400,
               403,
@@ -52898,6 +54202,28 @@
             "moduleName": "WASmaxInGroupsGetGroupInfoResponseServerError",
             "kind": "error",
             "errorClass": "server",
+            "errorArms": [
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              },
+              {
+                "name": "IQErrorPartialServerError",
+                "code": 530,
+                "text": "partial-server-error"
+              },
+              {
+                "name": "IQErrorFallbackServer",
+                "codeMin": 500,
+                "codeMax": 599
+              }
+            ],
             "errorCodes": [
               500,
               503,
@@ -53687,6 +55013,38 @@
             "moduleName": "WASmaxInGroupsGetGroupProfilePicturesResponseClientError",
             "kind": "error",
             "errorClass": "client",
+            "errorArms": [
+              {
+                "name": "IQErrorItemNotFound",
+                "code": 404,
+                "text": "item-not-found"
+              },
+              {
+                "name": "IQErrorForbidden",
+                "code": 403,
+                "text": "forbidden"
+              },
+              {
+                "name": "IQErrorNotAllowed",
+                "code": 405,
+                "text": "not-allowed"
+              },
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorRateOverlimit",
+                "code": 429,
+                "text": "rate-overlimit"
+              },
+              {
+                "name": "IQErrorFallbackClient",
+                "codeMin": 400,
+                "codeMax": 499
+              }
+            ],
             "errorCodes": [
               400,
               403,
@@ -53967,6 +55325,28 @@
             "moduleName": "WASmaxInGroupsGetGroupProfilePicturesResponseServerError",
             "kind": "error",
             "errorClass": "server",
+            "errorArms": [
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              },
+              {
+                "name": "IQErrorPartialServerError",
+                "code": 530,
+                "text": "partial-server-error"
+              },
+              {
+                "name": "IQErrorFallbackServer",
+                "codeMin": 500,
+                "codeMax": 599
+              }
+            ],
             "errorCodes": [
               500,
               503,
@@ -56505,6 +57885,53 @@
             "moduleName": "WASmaxInGroupsGetInviteGroupInfoResponseClientError",
             "kind": "error",
             "errorClass": "client",
+            "errorArms": [
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorItemNotFound",
+                "code": 404,
+                "text": "item-not-found"
+              },
+              {
+                "name": "IQErrorGone",
+                "code": 410,
+                "text": "gone"
+              },
+              {
+                "name": "IQErrorNotAuthorized",
+                "code": 401,
+                "text": "not-authorized"
+              },
+              {
+                "name": "IQErrorNotAcceptable",
+                "code": 406,
+                "text": "not-acceptable"
+              },
+              {
+                "name": "IQErrorLocked",
+                "code": 423,
+                "text": "locked"
+              },
+              {
+                "name": "IQErrorGrowthLocked",
+                "code": 436,
+                "text": "growth-locked"
+              },
+              {
+                "name": "IQErrorParentGroupSuspended",
+                "code": 416,
+                "text": "parent-group-suspended"
+              },
+              {
+                "name": "IQErrorFallbackClient",
+                "codeMin": 400,
+                "codeMax": 499
+              }
+            ],
             "errorCodes": [
               400,
               401,
@@ -56951,6 +58378,28 @@
             "moduleName": "WASmaxInGroupsGetInviteGroupInfoResponseServerError",
             "kind": "error",
             "errorClass": "server",
+            "errorArms": [
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              },
+              {
+                "name": "IQErrorPartialServerError",
+                "code": 530,
+                "text": "partial-server-error"
+              },
+              {
+                "name": "IQErrorFallbackServer",
+                "codeMin": 500,
+                "codeMax": 599
+              }
+            ],
             "errorCodes": [
               500,
               503,
@@ -59712,6 +61161,33 @@
             "moduleName": "WASmaxInGroupsGetLinkedGroupResponseClientError",
             "kind": "error",
             "errorClass": "client",
+            "errorArms": [
+              {
+                "name": "IQErrorItemNotFound",
+                "code": 404,
+                "text": "item-not-found"
+              },
+              {
+                "name": "IQErrorForbidden",
+                "code": 403,
+                "text": "forbidden"
+              },
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorNotAllowed",
+                "code": 405,
+                "text": "not-allowed"
+              },
+              {
+                "name": "IQErrorFallbackClient",
+                "codeMin": 400,
+                "codeMax": 499
+              }
+            ],
             "errorCodes": [
               400,
               403,
@@ -59953,6 +61429,28 @@
             "moduleName": "WASmaxInGroupsGetLinkedGroupResponseServerError",
             "kind": "error",
             "errorClass": "server",
+            "errorArms": [
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              },
+              {
+                "name": "IQErrorPartialServerError",
+                "code": 530,
+                "text": "partial-server-error"
+              },
+              {
+                "name": "IQErrorFallbackServer",
+                "codeMin": 500,
+                "codeMax": 599
+              }
+            ],
             "errorCodes": [
               500,
               503,
@@ -60367,6 +61865,28 @@
             "moduleName": "WASmaxInGroupsGetLinkedGroupsParticipantsResponseClientError",
             "kind": "error",
             "errorClass": "client",
+            "errorArms": [
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorItemNotFound",
+                "code": 404,
+                "text": "item-not-found"
+              },
+              {
+                "name": "IQErrorNotAuthorized",
+                "code": 401,
+                "text": "not-authorized"
+              },
+              {
+                "name": "IQErrorRateOverlimit",
+                "code": 429,
+                "text": "rate-overlimit"
+              }
+            ],
             "errorCodes": [
               400,
               401,
@@ -60579,6 +62099,28 @@
             "moduleName": "WASmaxInGroupsGetLinkedGroupsParticipantsResponseServerError",
             "kind": "error",
             "errorClass": "server",
+            "errorArms": [
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              },
+              {
+                "name": "IQErrorPartialServerError",
+                "code": 530,
+                "text": "partial-server-error"
+              },
+              {
+                "name": "IQErrorFallbackServer",
+                "codeMin": 500,
+                "codeMax": 599
+              }
+            ],
             "errorCodes": [
               500,
               503,
@@ -61237,6 +62779,43 @@
             "moduleName": "WASmaxInGroupsGetMembershipApprovalRequestsResponseClientError",
             "kind": "error",
             "errorClass": "client",
+            "errorArms": [
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorItemNotFound",
+                "code": 404,
+                "text": "item-not-found"
+              },
+              {
+                "name": "IQErrorNotAuthorized",
+                "code": 401,
+                "text": "not-authorized"
+              },
+              {
+                "name": "IQErrorForbidden",
+                "code": 403,
+                "text": "forbidden"
+              },
+              {
+                "name": "IQErrorRateOverlimit",
+                "code": 429,
+                "text": "rate-overlimit"
+              },
+              {
+                "name": "IQErrorLocked",
+                "code": 423,
+                "text": "locked"
+              },
+              {
+                "name": "IQErrorFallbackClient",
+                "codeMin": 400,
+                "codeMax": 499
+              }
+            ],
             "errorCodes": [
               400,
               401,
@@ -61556,6 +63135,28 @@
             "moduleName": "WASmaxInGroupsGetMembershipApprovalRequestsResponseServerError",
             "kind": "error",
             "errorClass": "server",
+            "errorArms": [
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              },
+              {
+                "name": "IQErrorPartialServerError",
+                "code": 530,
+                "text": "partial-server-error"
+              },
+              {
+                "name": "IQErrorFallbackServer",
+                "codeMin": 500,
+                "codeMax": 599
+              }
+            ],
             "errorCodes": [
               500,
               503,
@@ -65121,6 +66722,23 @@
             "moduleName": "WASmaxInGroupsGetParticipatingGroupsResponseClientError",
             "kind": "error",
             "errorClass": "client",
+            "errorArms": [
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorRateOverlimit",
+                "code": 429,
+                "text": "rate-overlimit"
+              },
+              {
+                "name": "IQErrorFallbackClient",
+                "codeMin": 400,
+                "codeMax": 499
+              }
+            ],
             "errorCodes": [
               400,
               429
@@ -65284,6 +66902,28 @@
             "moduleName": "WASmaxInGroupsGetParticipatingGroupsResponseServerError",
             "kind": "error",
             "errorClass": "server",
+            "errorArms": [
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              },
+              {
+                "name": "IQErrorPartialServerError",
+                "code": 530,
+                "text": "partial-server-error"
+              },
+              {
+                "name": "IQErrorFallbackServer",
+                "codeMin": 500,
+                "codeMax": 599
+              }
+            ],
             "errorCodes": [
               500,
               503,
@@ -65834,6 +67474,33 @@
             "moduleName": "WASmaxInGroupsGetReportedMessagesResponseClientError",
             "kind": "error",
             "errorClass": "client",
+            "errorArms": [
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorNotAuthorized",
+                "code": 401,
+                "text": "not-authorized"
+              },
+              {
+                "name": "IQErrorItemNotFound",
+                "code": 404,
+                "text": "item-not-found"
+              },
+              {
+                "name": "IQErrorRateOverlimit",
+                "code": 429,
+                "text": "rate-overlimit"
+              },
+              {
+                "name": "IQErrorLocked",
+                "code": 423,
+                "text": "locked"
+              }
+            ],
             "errorCodes": [
               400,
               401,
@@ -66085,6 +67752,28 @@
             "moduleName": "WASmaxInGroupsGetReportedMessagesResponseServerError",
             "kind": "error",
             "errorClass": "server",
+            "errorArms": [
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              },
+              {
+                "name": "IQErrorPartialServerError",
+                "code": 530,
+                "text": "partial-server-error"
+              },
+              {
+                "name": "IQErrorFallbackServer",
+                "codeMin": 500,
+                "codeMax": 599
+              }
+            ],
             "errorCodes": [
               500,
               503,
@@ -66600,6 +68289,73 @@
             "tag": "AcceptGroupAddResponseClientError",
             "moduleName": "WASmaxInGroupsAcceptGroupAddResponseClientError",
             "kind": "error",
+            "errorArms": [
+              {
+                "name": "IQErrorAlreadyExists",
+                "code": 304,
+                "text": "already-exists"
+              },
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorNotAuthorized",
+                "code": 401,
+                "text": "not-authorized"
+              },
+              {
+                "name": "IQErrorForbidden",
+                "code": 403,
+                "text": "forbidden"
+              },
+              {
+                "name": "IQErrorItemNotFound",
+                "code": 404,
+                "text": "item-not-found"
+              },
+              {
+                "name": "IQErrorConflict",
+                "code": 409,
+                "text": "conflict"
+              },
+              {
+                "name": "IQErrorGone",
+                "code": 410,
+                "text": "gone"
+              },
+              {
+                "name": "IQErrorResourceLimit",
+                "code": 419,
+                "text": "resource-limit"
+              },
+              {
+                "name": "IQErrorLocked",
+                "code": 423,
+                "text": "locked"
+              },
+              {
+                "name": "IQErrorResourceConstraint",
+                "code": 500,
+                "text": "resource-constraint"
+              },
+              {
+                "name": "IQErrorNotAllowed",
+                "code": 405,
+                "text": "not-allowed"
+              },
+              {
+                "name": "IQErrorParentLinkedGroupsParticipantsResourceLimit",
+                "code": 412,
+                "text": "linked-groups-participants-resource-limit"
+              },
+              {
+                "name": "IQErrorFallbackClient",
+                "codeMin": 400,
+                "codeMax": 499
+              }
+            ],
             "errorCodes": [
               304,
               400,
@@ -67153,6 +68909,28 @@
             "moduleName": "WASmaxInGroupsAcceptGroupAddResponseServerError",
             "kind": "error",
             "errorClass": "server",
+            "errorArms": [
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              },
+              {
+                "name": "IQErrorPartialServerError",
+                "code": 530,
+                "text": "partial-server-error"
+              },
+              {
+                "name": "IQErrorFallbackServer",
+                "codeMin": 500,
+                "codeMax": 599
+              }
+            ],
             "errorCodes": [
               500,
               503,
@@ -67435,6 +69213,28 @@
             "moduleName": "WASmaxInGroupsAcknowledgeGroupResponseClientError",
             "kind": "error",
             "errorClass": "client",
+            "errorArms": [
+              {
+                "name": "IQErrorItemNotFound",
+                "code": 404,
+                "text": "item-not-found"
+              },
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorRateOverlimit",
+                "code": 429,
+                "text": "rate-overlimit"
+              },
+              {
+                "name": "IQErrorFallbackClient",
+                "codeMin": 400,
+                "codeMax": 499
+              }
+            ],
             "errorCodes": [
               400,
               404,
@@ -67637,6 +69437,28 @@
             "moduleName": "WASmaxInGroupsAcknowledgeGroupResponseServerError",
             "kind": "error",
             "errorClass": "server",
+            "errorArms": [
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              },
+              {
+                "name": "IQErrorPartialServerError",
+                "code": 530,
+                "text": "partial-server-error"
+              },
+              {
+                "name": "IQErrorFallbackServer",
+                "codeMin": 500,
+                "codeMax": 599
+              }
+            ],
             "errorCodes": [
               500,
               503,
@@ -69259,6 +71081,59 @@
             "moduleName": "WASmaxInGroupsAddParticipantsResponseClientError",
             "kind": "error",
             "errorClass": "client",
+            "errorArms": [
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorItemNotFound",
+                "code": 404,
+                "text": "item-not-found"
+              },
+              {
+                "name": "IQErrorNotAuthorized",
+                "code": 401,
+                "text": "not-authorized"
+              },
+              {
+                "name": "IQErrorForbidden",
+                "code": 403,
+                "text": "forbidden"
+              },
+              {
+                "name": "AddParticipantTimeRateLimit"
+              },
+              {
+                "name": "AddParticipantCountRateLimit"
+              },
+              {
+                "name": "IQErrorRateOverlimit",
+                "code": 429,
+                "text": "rate-overlimit"
+              },
+              {
+                "name": "IQErrorNotAllowed",
+                "code": 405,
+                "text": "not-allowed"
+              },
+              {
+                "name": "IQErrorLocked",
+                "code": 423,
+                "text": "locked"
+              },
+              {
+                "name": "IQErrorParentGroupSuspended",
+                "code": 416,
+                "text": "parent-group-suspended"
+              },
+              {
+                "name": "IQErrorFallbackClient",
+                "codeMin": 400,
+                "codeMax": 499
+              }
+            ],
             "errorCodes": [
               400,
               401,
@@ -69763,6 +71638,28 @@
             "moduleName": "WASmaxInGroupsAddParticipantsResponseServerError",
             "kind": "error",
             "errorClass": "server",
+            "errorArms": [
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              },
+              {
+                "name": "IQErrorPartialServerError",
+                "code": 530,
+                "text": "partial-server-error"
+              },
+              {
+                "name": "IQErrorFallbackServer",
+                "codeMin": 500,
+                "codeMax": 599
+              }
+            ],
             "errorCodes": [
               500,
               503,
@@ -70303,6 +72200,33 @@
             "moduleName": "WASmaxInGroupsCancelGroupMembershipRequestsResponseClientError",
             "kind": "error",
             "errorClass": "client",
+            "errorArms": [
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorItemNotFound",
+                "code": 404,
+                "text": "item-not-found"
+              },
+              {
+                "name": "IQErrorLocked",
+                "code": 423,
+                "text": "locked"
+              },
+              {
+                "name": "IQErrorRateOverlimit",
+                "code": 429,
+                "text": "rate-overlimit"
+              },
+              {
+                "name": "IQErrorFallbackClient",
+                "codeMin": 400,
+                "codeMax": 499
+              }
+            ],
             "errorCodes": [
               400,
               404,
@@ -70544,6 +72468,28 @@
             "moduleName": "WASmaxInGroupsCancelGroupMembershipRequestsResponseServerError",
             "kind": "error",
             "errorClass": "server",
+            "errorArms": [
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              },
+              {
+                "name": "IQErrorPartialServerError",
+                "code": 530,
+                "text": "partial-server-error"
+              },
+              {
+                "name": "IQErrorFallbackServer",
+                "codeMin": 500,
+                "codeMax": 599
+              }
+            ],
             "errorCodes": [
               500,
               503,
@@ -73450,6 +75396,69 @@
             "tag": "CreateResponseClientError",
             "moduleName": "WASmaxInGroupsCreateResponseClientError",
             "kind": "error",
+            "errorArms": [
+              {
+                "name": "IQErrorForbidden",
+                "code": 403,
+                "text": "forbidden"
+              },
+              {
+                "name": "IQErrorResourceConstraint",
+                "code": 500,
+                "text": "resource-constraint"
+              },
+              {
+                "name": "IQErrorItemNotFound",
+                "code": 404,
+                "text": "item-not-found"
+              },
+              {
+                "name": "IQErrorResourceLimit",
+                "code": 419,
+                "text": "resource-limit"
+              },
+              {
+                "name": "IQErrorNotAcceptable",
+                "code": 406,
+                "text": "not-acceptable"
+              },
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "AddParticipantTimeRateLimit"
+              },
+              {
+                "name": "AddParticipantCountRateLimit"
+              },
+              {
+                "name": "IQErrorRateOverlimit",
+                "code": 429,
+                "text": "rate-overlimit"
+              },
+              {
+                "name": "IQErrorNotAllowed",
+                "code": 405,
+                "text": "not-allowed"
+              },
+              {
+                "name": "IQErrorParentLinkedGroupsParticipantsResourceLimit",
+                "code": 412,
+                "text": "linked-groups-participants-resource-limit"
+              },
+              {
+                "name": "IQErrorParentGroupSuspended",
+                "code": 416,
+                "text": "parent-group-suspended"
+              },
+              {
+                "name": "IQErrorFallbackClient",
+                "codeMin": 400,
+                "codeMax": 499
+              }
+            ],
             "errorCodes": [
               400,
               403,
@@ -74056,6 +76065,28 @@
             "moduleName": "WASmaxInGroupsCreateResponseServerError",
             "kind": "error",
             "errorClass": "server",
+            "errorArms": [
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              },
+              {
+                "name": "IQErrorPartialServerError",
+                "code": 530,
+                "text": "partial-server-error"
+              },
+              {
+                "name": "IQErrorFallbackServer",
+                "codeMin": 500,
+                "codeMax": 599
+              }
+            ],
             "errorCodes": [
               500,
               503,
@@ -74824,6 +76855,48 @@
             "moduleName": "WASmaxInGroupsCreateSubGroupSuggestionResponseClientError",
             "kind": "error",
             "errorClass": "client",
+            "errorArms": [
+              {
+                "name": "IQErrorForbidden",
+                "code": 403,
+                "text": "forbidden"
+              },
+              {
+                "name": "IQErrorItemNotFound",
+                "code": 404,
+                "text": "item-not-found"
+              },
+              {
+                "name": "IQErrorResourceLimit",
+                "code": 419,
+                "text": "resource-limit"
+              },
+              {
+                "name": "IQErrorNotAcceptable",
+                "code": 406,
+                "text": "not-acceptable"
+              },
+              {
+                "name": "IQErrorRateOverlimit",
+                "code": 429,
+                "text": "rate-overlimit"
+              },
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorNotAllowed",
+                "code": 405,
+                "text": "not-allowed"
+              },
+              {
+                "name": "IQErrorFallbackClient",
+                "codeMin": 400,
+                "codeMax": 499
+              }
+            ],
             "errorCodes": [
               400,
               403,
@@ -75206,6 +77279,28 @@
             "moduleName": "WASmaxInGroupsCreateSubGroupSuggestionResponseServerError",
             "kind": "error",
             "errorClass": "server",
+            "errorArms": [
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              },
+              {
+                "name": "IQErrorPartialServerError",
+                "code": 530,
+                "text": "partial-server-error"
+              },
+              {
+                "name": "IQErrorFallbackServer",
+                "codeMin": 500,
+                "codeMax": 599
+              }
+            ],
             "errorCodes": [
               500,
               503,
@@ -75488,6 +77583,23 @@
             "moduleName": "WASmaxInGroupsDeleteParentGroupResponseClientError",
             "kind": "error",
             "errorClass": "client",
+            "errorArms": [
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorNotAuthorized",
+                "code": 401,
+                "text": "not-authorized"
+              },
+              {
+                "name": "IQErrorItemNotFound",
+                "code": 404,
+                "text": "item-not-found"
+              }
+            ],
             "errorCodes": [
               400,
               401,
@@ -75661,6 +77773,28 @@
             "moduleName": "WASmaxInGroupsDeleteParentGroupResponseServerError",
             "kind": "error",
             "errorClass": "server",
+            "errorArms": [
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              },
+              {
+                "name": "IQErrorPartialServerError",
+                "code": 530,
+                "text": "partial-server-error"
+              },
+              {
+                "name": "IQErrorFallbackServer",
+                "codeMin": 500,
+                "codeMax": 599
+              }
+            ],
             "errorCodes": [
               500,
               503,
@@ -75993,6 +78127,63 @@
             "tag": "JoinLinkedGroupResponseClientError",
             "moduleName": "WASmaxInGroupsJoinLinkedGroupResponseClientError",
             "kind": "error",
+            "errorArms": [
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorForbidden",
+                "code": 403,
+                "text": "forbidden"
+              },
+              {
+                "name": "IQErrorItemNotFound",
+                "code": 404,
+                "text": "item-not-found"
+              },
+              {
+                "name": "IQErrorNotAllowed",
+                "code": 405,
+                "text": "not-allowed"
+              },
+              {
+                "name": "IQErrorNotAcceptable",
+                "code": 406,
+                "text": "not-acceptable"
+              },
+              {
+                "name": "IQErrorConflict",
+                "code": 409,
+                "text": "conflict"
+              },
+              {
+                "name": "IQErrorResourceLimit",
+                "code": 419,
+                "text": "resource-limit"
+              },
+              {
+                "name": "IQErrorNotAuthorized",
+                "code": 401,
+                "text": "not-authorized"
+              },
+              {
+                "name": "IQErrorUpgradeRequired",
+                "code": 426,
+                "text": "upgrade-required"
+              },
+              {
+                "name": "IQErrorAlreadyExists",
+                "code": 304,
+                "text": "already-exists"
+              },
+              {
+                "name": "IQErrorFallbackClient",
+                "codeMin": 400,
+                "codeMax": 499
+              }
+            ],
             "errorCodes": [
               304,
               400,
@@ -76492,6 +78683,28 @@
             "moduleName": "WASmaxInGroupsJoinLinkedGroupResponseServerError",
             "kind": "error",
             "errorClass": "server",
+            "errorArms": [
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              },
+              {
+                "name": "IQErrorPartialServerError",
+                "code": 530,
+                "text": "partial-server-error"
+              },
+              {
+                "name": "IQErrorFallbackServer",
+                "codeMin": 500,
+                "codeMax": 599
+              }
+            ],
             "errorCodes": [
               500,
               503,
@@ -77398,6 +79611,58 @@
             "moduleName": "WASmaxInGroupsLinkSubGroupsResponseClientError",
             "kind": "error",
             "errorClass": "client",
+            "errorArms": [
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorNotAuthorized",
+                "code": 401,
+                "text": "not-authorized"
+              },
+              {
+                "name": "IQErrorForbidden",
+                "code": 403,
+                "text": "forbidden"
+              },
+              {
+                "name": "IQErrorItemNotFound",
+                "code": 404,
+                "text": "item-not-found"
+              },
+              {
+                "name": "IQErrorNotAllowed",
+                "code": 405,
+                "text": "not-allowed"
+              },
+              {
+                "name": "IQErrorPayloadTooLarge",
+                "code": 413,
+                "text": "payload-too-large"
+              },
+              {
+                "name": "IQErrorResourceLimit",
+                "code": 419,
+                "text": "resource-limit"
+              },
+              {
+                "name": "IQErrorParentGroupSuspended",
+                "code": 416,
+                "text": "parent-group-suspended"
+              },
+              {
+                "name": "IQErrorGroupHasPendingAddRequests",
+                "code": 433,
+                "text": "pending-add-requests"
+              },
+              {
+                "name": "IQErrorRateOverlimit",
+                "code": 429,
+                "text": "rate-overlimit"
+              }
+            ],
             "errorCodes": [
               400,
               401,
@@ -77844,6 +80109,28 @@
             "moduleName": "WASmaxInGroupsLinkSubGroupsResponseServerError",
             "kind": "error",
             "errorClass": "server",
+            "errorArms": [
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              },
+              {
+                "name": "IQErrorPartialServerError",
+                "code": 530,
+                "text": "partial-server-error"
+              },
+              {
+                "name": "IQErrorFallbackServer",
+                "codeMin": 500,
+                "codeMax": 599
+              }
+            ],
             "errorCodes": [
               500,
               503,
@@ -79121,6 +81408,38 @@
             "moduleName": "WASmaxInGroupsMembershipRequestsActionResponseClientError",
             "kind": "error",
             "errorClass": "client",
+            "errorArms": [
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorItemNotFound",
+                "code": 404,
+                "text": "item-not-found"
+              },
+              {
+                "name": "IQErrorNotAuthorized",
+                "code": 401,
+                "text": "not-authorized"
+              },
+              {
+                "name": "IQErrorRateOverlimit",
+                "code": 429,
+                "text": "rate-overlimit"
+              },
+              {
+                "name": "IQErrorLocked",
+                "code": 423,
+                "text": "locked"
+              },
+              {
+                "name": "IQErrorFallbackClient",
+                "codeMin": 400,
+                "codeMax": 499
+              }
+            ],
             "errorCodes": [
               400,
               401,
@@ -79401,6 +81720,28 @@
             "moduleName": "WASmaxInGroupsMembershipRequestsActionResponseServerError",
             "kind": "error",
             "errorClass": "server",
+            "errorArms": [
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              },
+              {
+                "name": "IQErrorPartialServerError",
+                "code": 530,
+                "text": "partial-server-error"
+              },
+              {
+                "name": "IQErrorFallbackServer",
+                "codeMin": 500,
+                "codeMax": 599
+              }
+            ],
             "errorCodes": [
               500,
               503,
@@ -79920,6 +82261,48 @@
             "moduleName": "WASmaxInGroupsPromoteDemoteAdminResponseClientError",
             "kind": "error",
             "errorClass": "client",
+            "errorArms": [
+              {
+                "name": "IQErrorRateOverlimit",
+                "code": 429,
+                "text": "rate-overlimit"
+              },
+              {
+                "name": "IQErrorBlockedIntegrityEnforcement",
+                "code": 486,
+                "text": "blocked-integrity-enforcement"
+              },
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorItemNotFound",
+                "code": 404,
+                "text": "item-not-found"
+              },
+              {
+                "name": "IQErrorNotAuthorized",
+                "code": 401,
+                "text": "not-authorized"
+              },
+              {
+                "name": "IQErrorForbidden",
+                "code": 403,
+                "text": "forbidden"
+              },
+              {
+                "name": "IQErrorLocked",
+                "code": 423,
+                "text": "locked"
+              },
+              {
+                "name": "IQErrorFallbackClient",
+                "codeMin": 400,
+                "codeMax": 499
+              }
+            ],
             "errorCodes": [
               400,
               401,
@@ -80278,6 +82661,28 @@
             "moduleName": "WASmaxInGroupsPromoteDemoteAdminResponseServerError",
             "kind": "error",
             "errorClass": "server",
+            "errorArms": [
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              },
+              {
+                "name": "IQErrorPartialServerError",
+                "code": 530,
+                "text": "partial-server-error"
+              },
+              {
+                "name": "IQErrorFallbackServer",
+                "codeMin": 500,
+                "codeMax": 599
+              }
+            ],
             "errorCodes": [
               500,
               503,
@@ -80919,6 +83324,48 @@
             "moduleName": "WASmaxInGroupsPromoteDemoteResponseClientError",
             "kind": "error",
             "errorClass": "client",
+            "errorArms": [
+              {
+                "name": "IQErrorRateOverlimit",
+                "code": 429,
+                "text": "rate-overlimit"
+              },
+              {
+                "name": "IQErrorBlockedIntegrityEnforcement",
+                "code": 486,
+                "text": "blocked-integrity-enforcement"
+              },
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorItemNotFound",
+                "code": 404,
+                "text": "item-not-found"
+              },
+              {
+                "name": "IQErrorNotAuthorized",
+                "code": 401,
+                "text": "not-authorized"
+              },
+              {
+                "name": "IQErrorForbidden",
+                "code": 403,
+                "text": "forbidden"
+              },
+              {
+                "name": "IQErrorLocked",
+                "code": 423,
+                "text": "locked"
+              },
+              {
+                "name": "IQErrorFallbackClient",
+                "codeMin": 400,
+                "codeMax": 499
+              }
+            ],
             "errorCodes": [
               400,
               401,
@@ -81277,6 +83724,28 @@
             "moduleName": "WASmaxInGroupsPromoteDemoteResponseServerError",
             "kind": "error",
             "errorClass": "server",
+            "errorArms": [
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              },
+              {
+                "name": "IQErrorPartialServerError",
+                "code": 530,
+                "text": "partial-server-error"
+              },
+              {
+                "name": "IQErrorFallbackServer",
+                "codeMin": 500,
+                "codeMax": 599
+              }
+            ],
             "errorCodes": [
               500,
               503,
@@ -81973,6 +84442,48 @@
             "moduleName": "WASmaxInGroupsRemoveParticipantsResponseClientError",
             "kind": "error",
             "errorClass": "client",
+            "errorArms": [
+              {
+                "name": "IQErrorRateOverlimit",
+                "code": 429,
+                "text": "rate-overlimit"
+              },
+              {
+                "name": "IQErrorPayloadTooLarge",
+                "code": 413,
+                "text": "payload-too-large"
+              },
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorItemNotFound",
+                "code": 404,
+                "text": "item-not-found"
+              },
+              {
+                "name": "IQErrorNotAuthorized",
+                "code": 401,
+                "text": "not-authorized"
+              },
+              {
+                "name": "IQErrorForbidden",
+                "code": 403,
+                "text": "forbidden"
+              },
+              {
+                "name": "IQErrorLocked",
+                "code": 423,
+                "text": "locked"
+              },
+              {
+                "name": "IQErrorFallbackClient",
+                "codeMin": 400,
+                "codeMax": 499
+              }
+            ],
             "errorCodes": [
               400,
               401,
@@ -82331,6 +84842,28 @@
             "moduleName": "WASmaxInGroupsRemoveParticipantsResponseServerError",
             "kind": "error",
             "errorClass": "server",
+            "errorArms": [
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              },
+              {
+                "name": "IQErrorPartialServerError",
+                "code": 530,
+                "text": "partial-server-error"
+              },
+              {
+                "name": "IQErrorFallbackServer",
+                "codeMin": 500,
+                "codeMax": 599
+              }
+            ],
             "errorCodes": [
               500,
               503,
@@ -82626,6 +85159,33 @@
             "moduleName": "WASmaxInGroupsReportMessagesResponseClientError",
             "kind": "error",
             "errorClass": "client",
+            "errorArms": [
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorForbidden",
+                "code": 403,
+                "text": "forbidden"
+              },
+              {
+                "name": "IQErrorItemNotFound",
+                "code": 404,
+                "text": "item-not-found"
+              },
+              {
+                "name": "IQErrorRateOverlimit",
+                "code": 429,
+                "text": "rate-overlimit"
+              },
+              {
+                "name": "IQErrorLocked",
+                "code": 423,
+                "text": "locked"
+              }
+            ],
             "errorCodes": [
               400,
               403,
@@ -82877,6 +85437,28 @@
             "moduleName": "WASmaxInGroupsReportMessagesResponseServerError",
             "kind": "error",
             "errorClass": "server",
+            "errorArms": [
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              },
+              {
+                "name": "IQErrorPartialServerError",
+                "code": 530,
+                "text": "partial-server-error"
+              },
+              {
+                "name": "IQErrorFallbackServer",
+                "codeMin": 500,
+                "codeMax": 599
+              }
+            ],
             "errorCodes": [
               500,
               503,
@@ -83353,6 +85935,38 @@
             "moduleName": "WASmaxInGroupsRevokeRequestCodeResponseClientError",
             "kind": "error",
             "errorClass": "client",
+            "errorArms": [
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorItemNotFound",
+                "code": 404,
+                "text": "item-not-found"
+              },
+              {
+                "name": "IQErrorNotAuthorized",
+                "code": 401,
+                "text": "not-authorized"
+              },
+              {
+                "name": "IQErrorForbidden",
+                "code": 403,
+                "text": "forbidden"
+              },
+              {
+                "name": "IQErrorLocked",
+                "code": 423,
+                "text": "locked"
+              },
+              {
+                "name": "IQErrorFallbackClient",
+                "codeMin": 400,
+                "codeMax": 499
+              }
+            ],
             "errorCodes": [
               400,
               401,
@@ -83633,6 +86247,28 @@
             "moduleName": "WASmaxInGroupsRevokeRequestCodeResponseServerError",
             "kind": "error",
             "errorClass": "server",
+            "errorArms": [
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              },
+              {
+                "name": "IQErrorPartialServerError",
+                "code": 530,
+                "text": "partial-server-error"
+              },
+              {
+                "name": "IQErrorFallbackServer",
+                "codeMin": 500,
+                "codeMax": 599
+              }
+            ],
             "errorCodes": [
               500,
               503,
@@ -83953,6 +86589,48 @@
             "moduleName": "WASmaxInGroupsSetDescriptionResponseClientError",
             "kind": "error",
             "errorClass": "client",
+            "errorArms": [
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorConflict",
+                "code": 409,
+                "text": "conflict"
+              },
+              {
+                "name": "IQErrorItemNotFound",
+                "code": 404,
+                "text": "item-not-found"
+              },
+              {
+                "name": "IQErrorNotAuthorized",
+                "code": 401,
+                "text": "not-authorized"
+              },
+              {
+                "name": "IQErrorForbidden",
+                "code": 403,
+                "text": "forbidden"
+              },
+              {
+                "name": "IQErrorNotAcceptable",
+                "code": 406,
+                "text": "not-acceptable"
+              },
+              {
+                "name": "IQErrorLocked",
+                "code": 423,
+                "text": "locked"
+              },
+              {
+                "name": "IQErrorFallbackClient",
+                "codeMin": 400,
+                "codeMax": 499
+              }
+            ],
             "errorCodes": [
               400,
               401,
@@ -84335,6 +87013,28 @@
             "moduleName": "WASmaxInGroupsSetDescriptionResponseServerError",
             "kind": "error",
             "errorClass": "server",
+            "errorArms": [
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              },
+              {
+                "name": "IQErrorPartialServerError",
+                "code": 530,
+                "text": "partial-server-error"
+              },
+              {
+                "name": "IQErrorFallbackServer",
+                "codeMin": 500,
+                "codeMax": 599
+              }
+            ],
             "errorCodes": [
               500,
               503,
@@ -85101,6 +87801,58 @@
             "moduleName": "WASmaxInGroupsSetPropertyResponseClientError",
             "kind": "error",
             "errorClass": "client",
+            "errorArms": [
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorNotAuthorized",
+                "code": 401,
+                "text": "not-authorized"
+              },
+              {
+                "name": "IQErrorForbidden",
+                "code": 403,
+                "text": "forbidden"
+              },
+              {
+                "name": "IQErrorItemNotFound",
+                "code": 404,
+                "text": "item-not-found"
+              },
+              {
+                "name": "IQErrorNotAllowed",
+                "code": 405,
+                "text": "not-allowed"
+              },
+              {
+                "name": "IQErrorResourceLimit",
+                "code": 419,
+                "text": "resource-limit"
+              },
+              {
+                "name": "IQErrorLocked",
+                "code": 423,
+                "text": "locked"
+              },
+              {
+                "name": "IQErrorRateOverlimit",
+                "code": 429,
+                "text": "rate-overlimit"
+              },
+              {
+                "name": "IQErrorUpgradeRequired",
+                "code": 426,
+                "text": "upgrade-required"
+              },
+              {
+                "name": "IQErrorFallbackClient",
+                "codeMin": 400,
+                "codeMax": 499
+              }
+            ],
             "errorCodes": [
               400,
               401,
@@ -85537,6 +88289,28 @@
             "moduleName": "WASmaxInGroupsSetPropertyResponseServerError",
             "kind": "error",
             "errorClass": "server",
+            "errorArms": [
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              },
+              {
+                "name": "IQErrorPartialServerError",
+                "code": 530,
+                "text": "partial-server-error"
+              },
+              {
+                "name": "IQErrorFallbackServer",
+                "codeMin": 500,
+                "codeMax": 599
+              }
+            ],
             "errorCodes": [
               500,
               503,
@@ -85819,6 +88593,48 @@
             "moduleName": "WASmaxInGroupsSetSubjectResponseClientError",
             "kind": "error",
             "errorClass": "client",
+            "errorArms": [
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorItemNotFound",
+                "code": 404,
+                "text": "item-not-found"
+              },
+              {
+                "name": "IQErrorNotAuthorized",
+                "code": 401,
+                "text": "not-authorized"
+              },
+              {
+                "name": "IQErrorForbidden",
+                "code": 403,
+                "text": "forbidden"
+              },
+              {
+                "name": "IQErrorNotAcceptable",
+                "code": 406,
+                "text": "not-acceptable"
+              },
+              {
+                "name": "IQErrorLocked",
+                "code": 423,
+                "text": "locked"
+              },
+              {
+                "name": "IQErrorRateOverlimit",
+                "code": 429,
+                "text": "rate-overlimit"
+              },
+              {
+                "name": "IQErrorFallbackClient",
+                "codeMin": 400,
+                "codeMax": 499
+              }
+            ],
             "errorCodes": [
               400,
               401,
@@ -86201,6 +89017,28 @@
             "moduleName": "WASmaxInGroupsSetSubjectResponseServerError",
             "kind": "error",
             "errorClass": "server",
+            "errorArms": [
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              },
+              {
+                "name": "IQErrorPartialServerError",
+                "code": 530,
+                "text": "partial-server-error"
+              },
+              {
+                "name": "IQErrorFallbackServer",
+                "codeMin": 500,
+                "codeMax": 599
+              }
+            ],
             "errorCodes": [
               500,
               503,
@@ -87425,6 +90263,33 @@
             "moduleName": "WASmaxInGroupsSubGroupSuggestionsActionResponseClientError",
             "kind": "error",
             "errorClass": "client",
+            "errorArms": [
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorItemNotFound",
+                "code": 404,
+                "text": "item-not-found"
+              },
+              {
+                "name": "IQErrorNotAuthorized",
+                "code": 401,
+                "text": "not-authorized"
+              },
+              {
+                "name": "IQErrorRateOverlimit",
+                "code": 429,
+                "text": "rate-overlimit"
+              },
+              {
+                "name": "IQErrorFallbackClient",
+                "codeMin": 400,
+                "codeMax": 499
+              }
+            ],
             "errorCodes": [
               400,
               401,
@@ -87666,6 +90531,28 @@
             "moduleName": "WASmaxInGroupsSubGroupSuggestionsActionResponseServerError",
             "kind": "error",
             "errorClass": "server",
+            "errorArms": [
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              },
+              {
+                "name": "IQErrorPartialServerError",
+                "code": 530,
+                "text": "partial-server-error"
+              },
+              {
+                "name": "IQErrorFallbackServer",
+                "codeMin": 500,
+                "codeMax": 599
+              }
+            ],
             "errorCodes": [
               500,
               503,
@@ -88356,6 +91243,28 @@
             "moduleName": "WASmaxInGroupsUnlinkGroupsResponseClientError",
             "kind": "error",
             "errorClass": "client",
+            "errorArms": [
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorNotAuthorized",
+                "code": 401,
+                "text": "not-authorized"
+              },
+              {
+                "name": "IQErrorItemNotFound",
+                "code": 404,
+                "text": "item-not-found"
+              },
+              {
+                "name": "IQErrorNotAcceptable",
+                "code": 406,
+                "text": "not-acceptable"
+              }
+            ],
             "errorCodes": [
               400,
               401,
@@ -88592,6 +91501,28 @@
             "moduleName": "WASmaxInGroupsUnlinkGroupsResponseServerError",
             "kind": "error",
             "errorClass": "server",
+            "errorArms": [
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              },
+              {
+                "name": "IQErrorPartialServerError",
+                "code": 530,
+                "text": "partial-server-error"
+              },
+              {
+                "name": "IQErrorFallbackServer",
+                "codeMin": 500,
+                "codeMax": 599
+              }
+            ],
             "errorCodes": [
               500,
               503,
@@ -94122,6 +97053,43 @@
             "tag": "GetResponseError",
             "moduleName": "WASmaxInProfilePictureGetResponseError",
             "kind": "error",
+            "errorArms": [
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorNotAuthorized",
+                "code": 401,
+                "text": "not-authorized"
+              },
+              {
+                "name": "IQErrorItemNotFound",
+                "code": 404,
+                "text": "item-not-found"
+              },
+              {
+                "name": "IQErrorRateOverlimit",
+                "code": 429,
+                "text": "rate-overlimit"
+              },
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorFeatureNotImplemented",
+                "code": 501,
+                "text": "feature-not-implemented"
+              },
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              }
+            ],
             "errorCodes": [
               400,
               401,
@@ -94697,6 +97665,23 @@
             "tag": "SendBufferResponseErrorNoRetry",
             "moduleName": "WASmaxInStatsSendBufferResponseErrorNoRetry",
             "kind": "error",
+            "errorArms": [
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorNotAcceptable",
+                "code": 406,
+                "text": "not-acceptable"
+              },
+              {
+                "name": "IQErrorFeatureNotImplemented",
+                "code": 501,
+                "text": "feature-not-implemented"
+              }
+            ],
             "errorCodes": [
               400,
               406,
@@ -94894,6 +97879,12 @@
             "moduleName": "WASmaxInStatsSendBufferResponseErrorRetry",
             "kind": "error",
             "errorClass": "server",
+            "errorArms": [
+              {
+                "code": 503,
+                "text": "service-unavailable"
+              }
+            ],
             "errorCodes": [
               503
             ],
@@ -95347,6 +98338,68 @@
             "tag": "EncryptedPayloadRequestResponseError",
             "moduleName": "WASmaxInWaffleEncryptedPayloadRequestResponseError",
             "kind": "error",
+            "errorArms": [
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorRequestTimeout",
+                "code": 408,
+                "text": "request-timeout"
+              },
+              {
+                "name": "IQErrorPayloadEncDec",
+                "code": 480,
+                "text": "payload-enc-dec-failed"
+              },
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              },
+              {
+                "name": "IQErrorNotAuthorized",
+                "code": 401,
+                "text": "not-authorized"
+              },
+              {
+                "name": "IQErrorRateOverlimit",
+                "code": 429,
+                "text": "rate-overlimit"
+              },
+              {
+                "name": "IQErrorNotAllowed",
+                "code": 405,
+                "text": "not-allowed"
+              },
+              {
+                "name": "IQErrorConflict",
+                "code": 409,
+                "text": "conflict"
+              },
+              {
+                "name": "IQErrorWFNotFound",
+                "code": 483,
+                "text": "wf-not-found"
+              },
+              {
+                "name": "IQErrorWFSuspended",
+                "code": 484,
+                "text": "wf-suspended"
+              },
+              {
+                "name": "IQErrorWFStateMismatch",
+                "code": 485,
+                "text": "wf-state-mismatch"
+              }
+            ],
             "errorCodes": [
               400,
               401,
@@ -95999,6 +99052,38 @@
             "tag": "ForceDeleteStateResponseError",
             "moduleName": "WASmaxInWaffleForceDeleteStateResponseError",
             "kind": "error",
+            "errorArms": [
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorRequestTimeout",
+                "code": 408,
+                "text": "request-timeout"
+              },
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              },
+              {
+                "name": "IQErrorRateOverlimit",
+                "code": 429,
+                "text": "rate-overlimit"
+              },
+              {
+                "name": "IQErrorNotAllowed",
+                "code": 405,
+                "text": "not-allowed"
+              }
+            ],
             "errorCodes": [
               400,
               405,
@@ -96414,6 +99499,53 @@
             "tag": "ForceSuspendStateResponseError",
             "moduleName": "WASmaxInWaffleForceSuspendStateResponseError",
             "kind": "error",
+            "errorArms": [
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorRequestTimeout",
+                "code": 408,
+                "text": "request-timeout"
+              },
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              },
+              {
+                "name": "IQErrorRateOverlimit",
+                "code": 429,
+                "text": "rate-overlimit"
+              },
+              {
+                "name": "IQErrorNotAllowed",
+                "code": 405,
+                "text": "not-allowed"
+              },
+              {
+                "name": "IQErrorConflict",
+                "code": 409,
+                "text": "conflict"
+              },
+              {
+                "name": "IQErrorWFNotFound",
+                "code": 483,
+                "text": "wf-not-found"
+              },
+              {
+                "name": "IQErrorWFStateMismatch",
+                "code": 485,
+                "text": "wf-state-mismatch"
+              }
+            ],
             "errorCodes": [
               400,
               405,
@@ -97076,6 +100208,73 @@
             "tag": "GenerateAccessTokensResponseError",
             "moduleName": "WASmaxInWaffleGenerateAccessTokensResponseError",
             "kind": "error",
+            "errorArms": [
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorRequestTimeout",
+                "code": 408,
+                "text": "request-timeout"
+              },
+              {
+                "name": "IQErrorPayloadEncDec",
+                "code": 480,
+                "text": "payload-enc-dec-failed"
+              },
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              },
+              {
+                "name": "IQErrorNotAuthorized",
+                "code": 401,
+                "text": "not-authorized"
+              },
+              {
+                "name": "IQErrorRateOverlimit",
+                "code": 429,
+                "text": "rate-overlimit"
+              },
+              {
+                "name": "IQErrorNotAllowed",
+                "code": 405,
+                "text": "not-allowed"
+              },
+              {
+                "name": "IQErrorConflict",
+                "code": 409,
+                "text": "conflict"
+              },
+              {
+                "name": "IQErrorAlreadyExists",
+                "code": 304,
+                "text": "already-exists"
+              },
+              {
+                "name": "IQErrorWFNotFound",
+                "code": 483,
+                "text": "wf-not-found"
+              },
+              {
+                "name": "IQErrorWFStateMismatch",
+                "code": 485,
+                "text": "wf-state-mismatch"
+              },
+              {
+                "name": "IQErrorWFNotAuthorizedInvalidPassword",
+                "code": 416,
+                "text": "wf-not-authorized-invalid-password"
+              }
+            ],
             "errorCodes": [
               304,
               400,
@@ -97891,6 +101090,63 @@
             "tag": "GenerateWAEntACUserResponseError",
             "moduleName": "WASmaxInWaffleGenerateWAEntACUserResponseError",
             "kind": "error",
+            "errorArms": [
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorRequestTimeout",
+                "code": 408,
+                "text": "request-timeout"
+              },
+              {
+                "name": "IQErrorPayloadEncDec",
+                "code": 480,
+                "text": "payload-enc-dec-failed"
+              },
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              },
+              {
+                "name": "IQErrorNotAuthorized",
+                "code": 401,
+                "text": "not-authorized"
+              },
+              {
+                "name": "IQErrorRateOverlimit",
+                "code": 429,
+                "text": "rate-overlimit"
+              },
+              {
+                "name": "IQErrorNotAllowed",
+                "code": 405,
+                "text": "not-allowed"
+              },
+              {
+                "name": "IQErrorConflict",
+                "code": 409,
+                "text": "conflict"
+              },
+              {
+                "name": "IQErrorAlreadyExists",
+                "code": 304,
+                "text": "already-exists"
+              },
+              {
+                "name": "IQErrorWFJurisdictionGating",
+                "code": 418,
+                "text": "wf-jurisdiction-gating"
+              }
+            ],
             "errorCodes": [
               304,
               400,
@@ -98667,6 +101923,43 @@
             "tag": "GetCertificateResponseError",
             "moduleName": "WASmaxInWaffleGetCertificateResponseError",
             "kind": "error",
+            "errorArms": [
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorRequestTimeout",
+                "code": 408,
+                "text": "request-timeout"
+              },
+              {
+                "name": "IQErrorNotAllowed",
+                "code": 405,
+                "text": "not-allowed"
+              },
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorRateOverlimit",
+                "code": 429,
+                "text": "rate-overlimit"
+              },
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              },
+              {
+                "name": "IQErrorFeatureNotImplemented",
+                "code": 501,
+                "text": "feature-not-implemented"
+              }
+            ],
             "errorCodes": [
               400,
               405,
@@ -99227,6 +102520,73 @@
             "tag": "RefreshAccessTokensResponseError",
             "moduleName": "WASmaxInWaffleRefreshAccessTokensResponseError",
             "kind": "error",
+            "errorArms": [
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorRequestTimeout",
+                "code": 408,
+                "text": "request-timeout"
+              },
+              {
+                "name": "IQErrorPayloadEncDec",
+                "code": 480,
+                "text": "payload-enc-dec-failed"
+              },
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              },
+              {
+                "name": "IQErrorNotAuthorized",
+                "code": 401,
+                "text": "not-authorized"
+              },
+              {
+                "name": "IQErrorRateOverlimit",
+                "code": 429,
+                "text": "rate-overlimit"
+              },
+              {
+                "name": "IQErrorNotAllowed",
+                "code": 405,
+                "text": "not-allowed"
+              },
+              {
+                "name": "IQErrorConflict",
+                "code": 409,
+                "text": "conflict"
+              },
+              {
+                "name": "IQErrorWFNotFound",
+                "code": 483,
+                "text": "wf-not-found"
+              },
+              {
+                "name": "IQErrorWFSuspended",
+                "code": 484,
+                "text": "wf-suspended"
+              },
+              {
+                "name": "IQErrorWFStateMismatch",
+                "code": 485,
+                "text": "wf-state-mismatch"
+              },
+              {
+                "name": "IQErrorWFNotAuthorizedInvalidPassword",
+                "code": 416,
+                "text": "wf-not-authorized-invalid-password"
+              }
+            ],
             "errorCodes": [
               400,
               401,
@@ -99991,6 +103351,38 @@
             "tag": "StateExistsResponseError",
             "moduleName": "WASmaxInWaffleStateExistsResponseError",
             "kind": "error",
+            "errorArms": [
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorRequestTimeout",
+                "code": 408,
+                "text": "request-timeout"
+              },
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              },
+              {
+                "name": "IQErrorRateOverlimit",
+                "code": 429,
+                "text": "rate-overlimit"
+              },
+              {
+                "name": "IQErrorNotAllowed",
+                "code": 405,
+                "text": "not-allowed"
+              }
+            ],
             "errorCodes": [
               400,
               405,
@@ -100390,6 +103782,68 @@
             "tag": "WFPingResponseError",
             "moduleName": "WASmaxInWaffleWFPingResponseError",
             "kind": "error",
+            "errorArms": [
+              {
+                "name": "IQErrorBadRequest",
+                "code": 400,
+                "text": "bad-request"
+              },
+              {
+                "name": "IQErrorRequestTimeout",
+                "code": 408,
+                "text": "request-timeout"
+              },
+              {
+                "name": "IQErrorPayloadEncDec",
+                "code": 480,
+                "text": "payload-enc-dec-failed"
+              },
+              {
+                "name": "IQErrorInternalServerError",
+                "code": 500,
+                "text": "internal-server-error"
+              },
+              {
+                "name": "IQErrorServiceUnavailable",
+                "code": 503,
+                "text": "service-unavailable"
+              },
+              {
+                "name": "IQErrorNotAuthorized",
+                "code": 401,
+                "text": "not-authorized"
+              },
+              {
+                "name": "IQErrorRateOverlimit",
+                "code": 429,
+                "text": "rate-overlimit"
+              },
+              {
+                "name": "IQErrorNotAllowed",
+                "code": 405,
+                "text": "not-allowed"
+              },
+              {
+                "name": "IQErrorConflict",
+                "code": 409,
+                "text": "conflict"
+              },
+              {
+                "name": "IQErrorWFNotFound",
+                "code": 483,
+                "text": "wf-not-found"
+              },
+              {
+                "name": "IQErrorWFSuspended",
+                "code": 484,
+                "text": "wf-suspended"
+              },
+              {
+                "name": "IQErrorWFStateMismatch",
+                "code": 485,
+                "text": "wf-state-mismatch"
+              }
+            ],
             "errorCodes": [
               400,
               401,

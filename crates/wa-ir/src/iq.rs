@@ -467,8 +467,15 @@ pub struct ParsedField {
     /// an **optional** one (`optionalLiteral`) is pinned only when present — the emitter
     /// may omit the attribute, but must never send a contradicting value.
     ///
+    /// **On a [`ParsedFieldType::Bool`] field the pin is always conditional.** Such a
+    /// field is a *presence flag* — `{hasListCDhash: m.value != null}` — so its
+    /// `required: true` describes the flag (the parser always produces it), never the
+    /// wire attribute named by [`wire_name`], which by construction may be absent. The
+    /// pin constrains that attribute when present, and never the boolean itself.
+    ///
     /// [`field_type`]: ParsedField::field_type
     /// [`required`]: ParsedField::required
+    /// [`wire_name`]: ParsedField::wire_name
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub literal_value: Option<String>,
     /// The field is pinned not to a constant but to **a value taken from the request** —
@@ -479,7 +486,9 @@ pub struct ParsedField {
     /// it must hold for the variant to match at all. An **optional** one
     /// (`optionalLiteral(…, "c_dhash", ref.item.dhash)`) is not a guard — the attribute
     /// may be absent — so it lives here instead: an emitter may omit it, but if it sends
-    /// it, the value must be the request's. Mutually exclusive with [`literal_value`].
+    /// it, the value must be the request's. Mutually exclusive with [`literal_value`],
+    /// and — like it — always conditional when carried on a [`ParsedFieldType::Bool`]
+    /// presence flag.
     ///
     /// [`literal_value`]: ParsedField::literal_value
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -536,6 +545,45 @@ pub enum ErrorClass {
     Server,
 }
 
+/// One accepted `<error>` shape of a response variant: the `code` and `text` that must
+/// occur **together**.
+///
+/// The flattened [`ResponseVariant::error_codes`] / [`error_texts`] lists answer "what
+/// values does this RPC accept?", but they cannot say which value goes with which: an
+/// arm taking `400 bad-request` and `501 feature-not-implemented` flattens to two codes
+/// and two texts, and nothing then rules out `400 feature-not-implemented` — a
+/// combination the parser rejects. An emitter that picks one value from each list
+/// therefore produces an unparseable stanza, which is the exact failure class this
+/// domain exists to prevent. The pairing lives here.
+///
+/// [`error_texts`]: ResponseVariant::error_texts
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct ErrorArm {
+    /// The disjunction alternative this arm comes from (`IQErrorBadRequest`), when the
+    /// error is parsed as a `…Errors` union. `None` for an RPC that parses a single
+    /// `<error>` child directly, which has exactly one arm and no name for it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// The exact `code` this arm pins, when it pins one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<i64>,
+    /// The exact `text` this arm pins. Absent on a fallback arm, which accepts any text
+    /// within [`code_min`]..=[`code_max`].
+    ///
+    /// [`code_min`]: ErrorArm::code_min
+    /// [`code_max`]: ErrorArm::code_max
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    /// Inclusive lower bound of a fallback arm's accepted code range.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code_min: Option<i64>,
+    /// Inclusive upper bound of a fallback arm's accepted code range.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code_max: Option<i64>,
+}
+
 /// One alternative of a response-root discriminated union (an `WASmaxIn<X>Response<V>`
 /// variant aggregated by the `WASmax<X>RPC` orchestrator).
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -552,7 +600,13 @@ pub struct ResponseVariant {
     /// no recoverable code evidence.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error_class: Option<ErrorClass>,
-    /// The **closed set** of `<error code>` values this variant accepts, ascending.
+    /// The accepted `<error>` shapes, in parser order — **which code goes with which
+    /// text**. This is the authoritative form; see [`ErrorArm`] for why the flattened
+    /// lists below cannot express it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub error_arms: Vec<ErrorArm>,
+    /// The **closed set** of `<error code>` values this variant accepts, ascending — the
+    /// union over [`error_arms`], for the "does this RPC accept code N?" question.
     ///
     /// The vocabulary is per-RPC, not global: `BatchGetGroupInfo`'s client-error arm
     /// takes only `400` and `429` and **rejects `404`**, even though an
@@ -560,12 +614,19 @@ pub struct ResponseVariant {
     /// outside this set matches no branch, so the client reports a parse failure rather
     /// than the error. Empty when the variant pins no exact code (see [`error_code_min`]).
     ///
+    /// An emitter must pick a **pair** from [`error_arms`], never one value from this
+    /// list and another from [`error_texts`].
+    ///
+    /// [`error_arms`]: ResponseVariant::error_arms
+    /// [`error_texts`]: ResponseVariant::error_texts
     /// [`error_code_min`]: ResponseVariant::error_code_min
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub error_codes: Vec<i64>,
-    /// The `<error text>` values this variant accepts, sorted — the closed vocabulary
-    /// paired with [`error_codes`]. Empty when only a fallback (any-text) arm applies.
+    /// The `<error text>` values this variant accepts, sorted — the union over
+    /// [`error_arms`]. Empty when only a fallback (any-text) arm applies. See the warning
+    /// on [`error_codes`] about combining the two lists.
     ///
+    /// [`error_arms`]: ResponseVariant::error_arms
     /// [`error_codes`]: ResponseVariant::error_codes
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub error_texts: Vec<String>,

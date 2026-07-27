@@ -46,6 +46,9 @@ use wa_ir::{
 
 use wa_oxc::{arg_expr, as_call, as_identifier, as_int, as_string_lit, callee_method};
 
+/// Drop reason for an enum accessor whose enum could not be resolved to its variants.
+const ENUM_DROP: &str = "response enum argument not structurally resolvable";
+
 /// A module's local parser functions, keyed by name → re-parsable source. Child
 /// accessors reference these by identifier (`optionalChildWithTag(n, "x", parseX)`).
 type LocalFns = HashMap<String, String>;
@@ -77,10 +80,17 @@ pub(crate) struct Resolver<'a> {
     /// Memoized `(module, enum)` → resolved wire enum, for the enum argument of an
     /// `attrStringEnum`/`contentStringEnum` accessor; see [`Resolver::resolve_enum`].
     enum_cache: RefCell<HashMap<(String, String), Option<AttrEnumRef>>>,
-    /// Constraints seen but **not** structurally resolvable, by reason. Surfaced under
+    /// Constraints seen but **not** structurally resolvable: reason → the set of
+    /// distinct constraints lost under it. Surfaced (as set sizes) under
     /// `manifest.diagnostics.iq.dropsByReason` so a consumer can tell "this field carries
     /// no constraint" from "a constraint was there and we failed to extract it".
-    drops: RefCell<BTreeMap<String, usize>>,
+    ///
+    /// Keyed rather than counted because the same parser source is analyzed more than
+    /// once — `resolve` walks it for fields and `assertions` walks it again for
+    /// discriminators, and a module can be reached from several RPCs. A raw counter would
+    /// therefore report one lost enum several times, which says nothing about how much
+    /// data is actually missing. The unit is **distinct constraints**.
+    drops: RefCell<BTreeMap<String, std::collections::BTreeSet<String>>>,
 }
 
 impl<'a> Resolver<'a> {
@@ -99,16 +109,21 @@ impl<'a> Resolver<'a> {
     /// The constraints this resolver saw but could not resolve, by reason (see
     /// [`Resolver::drops`]). Snapshot; safe to call after a scan.
     pub(crate) fn drop_counts(&self) -> BTreeMap<String, usize> {
-        self.drops.borrow().clone()
+        self.drops
+            .borrow()
+            .iter()
+            .map(|(reason, keys)| (reason.clone(), keys.len()))
+            .collect()
     }
 
-    /// Record one unresolvable constraint under `reason`.
-    fn drop_note(&self, reason: &str) {
-        *self
-            .drops
+    /// Record one unresolvable constraint under `reason`, identified by `key` so the
+    /// same loss seen again on a second analysis pass is not counted twice.
+    fn drop_note_keyed(&self, reason: &str, key: String) {
+        self.drops
             .borrow_mut()
             .entry(reason.to_string())
-            .or_insert(0) += 1;
+            .or_default()
+            .insert(key);
     }
 
     /// Resolve the enum argument of an enum accessor (`o("WASmaxInFooEnums").ENUM_OFF_ON`)
@@ -125,7 +140,7 @@ impl<'a> Resolver<'a> {
         // the same unresolvable enum report N losses rather than one.
         if let Some(hit) = self.enum_cache.borrow().get(&key) {
             if hit.is_none() {
-                self.drop_note("response enum argument not structurally resolvable");
+                self.drop_note_keyed(ENUM_DROP, format!("{module}.{name}"));
             }
             return hit.clone();
         }
@@ -152,7 +167,7 @@ impl<'a> Resolver<'a> {
                 })
             });
         if resolved.is_none() {
-            self.drop_note("response enum argument not structurally resolvable");
+            self.drop_note_keyed(ENUM_DROP, format!("{module}.{name}"));
         }
         self.enum_cache.borrow_mut().insert(key, resolved.clone());
         resolved
@@ -598,9 +613,10 @@ fn classify_call(
                         value: None,
                         reference_path: Some(path.clone()),
                     }),
-                    (None, None) => {
-                        resolver.drop_note("literal attr value not statically resolvable")
-                    }
+                    (None, None) => resolver.drop_note_keyed(
+                        "literal attr value not statically resolvable",
+                        attr.to_string(),
+                    ),
                 }
             }
             let inner = args
@@ -619,7 +635,11 @@ fn classify_call(
                     source_path,
                     literal_value,
                     enum_ref: None,
-                    reference_path: None,
+                    // A `literal` on a DESCENDED node records no root assertion (the
+                    // assertion vocabulary is root-relative), so without carrying the
+                    // echo here a nested attribute that must mirror the request would
+                    // land in the IR with no constraint at all.
+                    reference_path,
                 },
                 None => Binding::None,
             }
@@ -669,7 +689,10 @@ fn classify_call(
                 .and_then(arg_expr)
                 .and_then(|e| reference_path_of(e, bindings));
             if literal_value.is_none() && reference_path.is_none() {
-                resolver.drop_note("optionalLiteral attr value not statically resolvable");
+                resolver.drop_note_keyed(
+                    "optionalLiteral attr value not statically resolvable",
+                    wire_name.clone().unwrap_or_default(),
+                );
             }
             // The wrapped accessor decides the type, exactly as in the `literal` arm.
             // `field_type` is what tells a consumer how to read `literalValue` back, so
@@ -823,7 +846,10 @@ fn classify_reference(
         .iter()
         .position(|a| arg_expr(a).is_some_and(|e| string_array(e).is_some()))
     else {
-        resolver.drop_note("reference path argument not statically resolvable");
+        resolver.drop_note_keyed(
+            "reference path argument not statically resolvable",
+            method.to_string(),
+        );
         return Binding::None;
     };
     let path = arg_expr(&args[path_idx])
@@ -840,7 +866,10 @@ fn classify_reference(
         .rev()
         .find_map(|a| arg_expr(a).and_then(as_identifier));
     if node.is_none() || node != reference_param {
-        resolver.drop_note("reference read from a node other than the request");
+        resolver.drop_note_keyed(
+            "reference read from a node other than the request",
+            format!("{method}:{}", path.join("/")),
+        );
         return Binding::None;
     }
     // An explicit accessor (the `attrFromReference` family) decides the type; the
@@ -907,7 +936,14 @@ fn enum_arg_ref(
         // An inline enum object, a local alias, or a `WASmaxParse*`-owned reference: the
         // accessor validates against SOMETHING we could not name. That is the exact
         // "a constraint existed and we lost it" case the counter exists for.
-        resolver.drop_note("response enum argument not structurally resolvable");
+        resolver.drop_note_keyed(
+            ENUM_DROP,
+            args.iter()
+                .filter_map(arg_expr)
+                .find_map(as_string_lit)
+                .unwrap_or("<unnamed>")
+                .to_string(),
+        );
         return None;
     };
     resolver.resolve_enum(&module, &name)
@@ -2100,6 +2136,28 @@ mod tests {
                 .get("reference read from a node other than the request"),
             Some(&1)
         );
+    }
+
+    #[test]
+    fn a_required_echo_on_a_descended_node_survives() {
+        // A `literal` on a node reached through `flattenedChildWithTag` records no root
+        // assertion — the assertion vocabulary is root-relative — so the echo has to ride
+        // on the field, or the nested attribute reaches the IR with no constraint at all
+        // and an emitter can put anything there.
+        let body = r#"function e(node, ref){
+            var t = o("WASmaxParseUtils").flattenedChildWithTag(node, "list"); if(!t.success) return t;
+            var r = o("WASmaxParseReference").attrStringFromReference(ref, ["id"]); if(!r.success) return r;
+            var a = o("WASmaxParseUtils").literal(o("WASmaxParseUtils").attrString, t.value, "id", r.value);
+            return o("WAResultOrError").makeResult({ listId: a.value });
+        }"#;
+        let (asserts, fields) = analyze_one(body).expect("analyzed");
+        assert!(
+            !asserts.iter().any(|a| a.kind == AssertionKind::Reference),
+            "the guard is on <list>, not the root, so it must not become a root assertion"
+        );
+        let f = fields.iter().find(|f| f.name == "listId").expect("listId");
+        assert_eq!(f.source_path.as_deref(), Some(&["list".to_string()][..]));
+        assert_eq!(f.reference_path.as_deref(), Some(&["id".to_string()][..]));
     }
 
     #[test]
