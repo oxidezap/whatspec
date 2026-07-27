@@ -120,6 +120,122 @@ pub struct NotificationDef {
     /// (it delegates to a job/sub-module) — the catalog entry still stands.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content: Option<ParsedResponse>,
+    /// The payload **action union** carried inside the notification, when its handler
+    /// dispatches on the child tag (`w:gp2` and friends — see [`NotifActionDef`]).
+    /// [`content`] describes the envelope; this describes what is inside it. Empty for
+    /// a notification whose handler carries no such per-child-tag switch.
+    ///
+    /// [`content`]: NotificationDef::content
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub actions: Vec<NotifActionDef>,
+}
+
+/// One arm of a notification's payload action union: a child tag of the
+/// `<notification>` and the fields the handler reads off it.
+///
+/// WA Web parses these in a `switch (child.tag())` inside the handler (e.g.
+/// `WAWebHandleGroupNotification`), where each arm returns an object stamped with an
+/// `actionType`. Two facts there are invisible from the wire alone and cannot be
+/// derived by a consumer:
+///
+/// 1. **The mapping is many-to-one.** Several wire tags normalize onto one
+///    `actionType` — `ephemeral` and `not_ephemeral` both become `ephemeral`, so a
+///    consumer that branches on `not_ephemeral` is writing dead code.
+/// 2. **Field names are rebound.** The disappearing-message timer arrives in the
+///    `expiration` attribute but the action field is called `duration` (the *create*
+///    payload's spelling, `ephemeralDuration`, belongs to a different shape) — reading
+///    it under the wrong name silently yields 0.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct NotifActionDef {
+    /// The child element's tag on the wire (`"ephemeral"`, `"not_ephemeral"`,
+    /// `"subject"`, …) — the value the handler switches on.
+    pub wire_tag: String,
+    /// The normalized action identity the handler stamps as `actionType`. **Not** always
+    /// equal to [`wire_tag`]: `not_ephemeral` maps to `ephemeral`, `locked`/`unlocked`
+    /// both map to `restrict`, and so on. `None` when the arm computes it dynamically
+    /// (e.g. `link` picks between three actions by its `link_type` attribute), which is
+    /// recorded rather than guessed.
+    ///
+    /// [`wire_tag`]: NotifActionDef::wire_tag
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action_type: Option<String>,
+    /// The fields the arm reads off the child node, in source order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fields: Vec<NotifActionField>,
+    /// Output fields the arm sets to a **constant** rather than reading from the wire —
+    /// `not_ephemeral` sets `duration: 0`, `locked` sets `value: true`, `unlocked`
+    /// `value: false`. This is exactly the normalization that is invisible from the
+    /// stanza, and it is what makes the many-to-one tag mapping lossless: `ephemeral`
+    /// vs `not_ephemeral` differ only by this. Sorted by key for determinism.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub constant_fields: Vec<NotifActionConstant>,
+    /// Repeated sub-elements the arm maps over (`revoke` → one entry per
+    /// `<participant>`), each with its own field list.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub children: Vec<NotifActionChild>,
+}
+
+/// One field an action arm reads off the wire.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct NotifActionField {
+    /// The output field name in the parsed action (`"duration"`).
+    pub name: String,
+    /// The wire attribute it is read from (`"expiration"`), or the child tag for a
+    /// content read. Differs from [`name`] often enough that assuming they match is the
+    /// bug this field exists to prevent.
+    ///
+    /// [`name`]: NotifActionField::name
+    pub wire_name: String,
+    /// How the value decodes, reusing the response-field type vocabulary.
+    #[serde(rename = "type")]
+    pub field_type: crate::ParsedFieldType,
+    /// Whether the arm reads the attribute unconditionally (`attrInt("expiration")`) or
+    /// guards on its presence (`hasAttr("reason") ? … : null`, `maybeAttrString`).
+    pub required: bool,
+    /// The element's text content is read instead of an attribute
+    /// (`child("body").contentString()`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub content: bool,
+}
+
+/// A `key → constant` pair an action arm stamps onto its result unconditionally.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct NotifActionConstant {
+    pub name: String,
+    pub value: NotifConstValue,
+}
+
+/// The value of a [`NotifActionConstant`] — the literal kinds a handler arm actually
+/// stamps (`!0`/`!1`, `0`, a wire string). Deliberately narrower than [`crate::Scalar`]
+/// (no float) so the notif IR stays `Eq`-comparable for the determinism checks.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(untagged)]
+pub enum NotifConstValue {
+    Bool(bool),
+    Int(i64),
+    Str(String),
+}
+
+/// A repeated sub-element an action arm maps over
+/// (`mapChildrenWithTag("participant", …)`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct NotifActionChild {
+    /// The output field the mapped list lands in (`"participants"`).
+    pub name: String,
+    /// The repeated element's wire tag (`"participant"`).
+    pub wire_tag: String,
+    /// The fields read off each element.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fields: Vec<NotifActionField>,
 }
 
 /// The incoming-dispatch IR document: version stamp + the dispatcher module name +
@@ -150,6 +266,7 @@ mod tests {
             handler_function: Some("handleDevicesNotification".into()),
             sub_discriminants: vec![],
             content: None,
+            actions: vec![],
         };
         let json = serde_json::to_value(&def).unwrap();
         // `notif_type` serializes under the wire name `type`.

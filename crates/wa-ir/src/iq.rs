@@ -255,6 +255,17 @@ pub enum AssertionKind {
     /// node, "admin_add")`) — a discriminator for marker union variants. The value is
     /// in [`ResponseAssertion::value`]; `name` is unused.
     Content,
+    /// The attribute named by [`ResponseAssertion::name`] must **echo a value taken
+    /// from the request** — `literal(attrString, node, "from",
+    /// attrStringFromReference(request, ["to"]))`. The expected value is not a
+    /// constant, so [`ResponseAssertion::value`] is absent; where it comes from is in
+    /// [`ResponseAssertion::reference_path`].
+    ///
+    /// This is the rule 17 of the 26 namespace `IQError…Mixin`s (and every success
+    /// parser) enforce: an answer's `id` must equal the request's `id` and its `from`
+    /// the request's `to`. An emitter that hardcodes `from="s.whatsapp.net"` produces
+    /// stanzas a real client cannot parse whenever the request went to `g.us`.
+    Reference,
 }
 
 /// A single guard a response parser applies.
@@ -267,6 +278,17 @@ pub struct ResponseAssertion {
     pub name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub value: Option<String>,
+    /// Where the expected value is read from **in the request**, for
+    /// [`AssertionKind::Reference`]. It is the argument list of WA's
+    /// `attrStringFromReference(request, path)` helper: every element but the last is a
+    /// child tag to descend into, and the last is the attribute name. So `["to"]` means
+    /// "the request's `to` attribute" and `["account", "action"]` means "the `action`
+    /// attribute of the request's `<account>` child".
+    ///
+    /// Carried structurally (rather than left to be inferred from `name`) so a consumer
+    /// never has to pattern-match attribute names to know an echo rule applies.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reference_path: Option<Vec<String>>,
 }
 
 /// Scalar type a parsed response field decodes to.
@@ -423,6 +445,45 @@ pub struct ParsedField {
     pub int_max: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub enum_keys: Option<Vec<String>>,
+    /// The wire enum this field's value is drawn from, when the parser reads it with an
+    /// enum accessor (`attrStringEnum(node, "state", o("Mod").ENUM_OFF_ON)`). Resolved
+    /// the same way the request side resolves [`WapAttrDef::enum_ref`], so a consumer
+    /// can type the field as that enum instead of a bare string — and an emitter knows
+    /// which values are legal instead of guessing from the generated `ENUM_OFF_ON` name.
+    /// Absent when the enum argument is not a structurally resolvable module export, or
+    /// resolves to a non-string enum (never guessed).
+    ///
+    /// [`WapAttrDef::enum_ref`]: WapAttrDef::enum_ref
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enum_ref: Option<AttrEnumRef>,
+    /// The fixed value the parser pins this field to — `literal(attrString, participant,
+    /// "type", "admin")` → `"admin"`, `literal(attrInt, error, "code", 429)` → `"429"`.
+    /// Always the string form of the literal; [`field_type`] says how to read it (a
+    /// `code` field with `literalValue: "429"` is the integer 429 on the wire).
+    ///
+    /// [`required`] tells the two pinning forms apart, and the difference matters to an
+    /// emitter: a **required** literal (`literal`) is a hard discriminator — the
+    /// attribute MUST be present and equal to this value or the variant does not match;
+    /// an **optional** one (`optionalLiteral`) is pinned only when present — the emitter
+    /// may omit the attribute, but must never send a contradicting value.
+    ///
+    /// [`field_type`]: ParsedField::field_type
+    /// [`required`]: ParsedField::required
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub literal_value: Option<String>,
+    /// The field is pinned not to a constant but to **a value taken from the request** —
+    /// the same echo rule [`AssertionKind::Reference`] carries, in the same
+    /// `attrStringFromReference` path form, but for a pin that is *not* a variant guard.
+    ///
+    /// A required echo (`literal(…, "from", ref.to)`) is recorded as an assertion, since
+    /// it must hold for the variant to match at all. An **optional** one
+    /// (`optionalLiteral(…, "c_dhash", ref.item.dhash)`) is not a guard — the attribute
+    /// may be absent — so it lives here instead: an emitter may omit it, but if it sends
+    /// it, the value must be the request's. Mutually exclusive with [`literal_value`].
+    ///
+    /// [`literal_value`]: ParsedField::literal_value
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reference_path: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tag: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -456,6 +517,25 @@ pub enum ResponseVariantKind {
     Alternative,
 }
 
+/// Which side an error variant blames, for a variant whose [`ResponseVariantKind`] is
+/// [`Error`]. WA models the two as separate parsers with disjoint code ranges: a client
+/// error carries a 4xx code (`bad-request` 400, `rate-overlimit` 429, fallback 400–499)
+/// and a server error a 5xx one (`internal-server-error` 500, fallback 500–599).
+///
+/// Emitted alongside — not instead of — [`ResponseVariant::kind`], so a consumer that
+/// only understands `success`/`error` keeps working.
+///
+/// [`Error`]: ResponseVariantKind::Error
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum ErrorClass {
+    /// The request was wrong (4xx) — retrying it unchanged will fail again.
+    Client,
+    /// The server failed (5xx) — the same request may succeed later.
+    Server,
+}
+
 /// One alternative of a response-root discriminated union (an `WASmaxIn<X>Response<V>`
 /// variant aggregated by the `WASmax<X>RPC` orchestrator).
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -467,6 +547,42 @@ pub struct ResponseVariant {
     pub tag: String,
     pub module_name: String,
     pub kind: ResponseVariantKind,
+    /// For an error variant, whether it is the client-error (4xx) or server-error (5xx)
+    /// arm. Absent for a success variant, and for an error variant whose parser carries
+    /// no recoverable code evidence.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_class: Option<ErrorClass>,
+    /// The **closed set** of `<error code>` values this variant accepts, ascending.
+    ///
+    /// The vocabulary is per-RPC, not global: `BatchGetGroupInfo`'s client-error arm
+    /// takes only `400` and `429` and **rejects `404`**, even though an
+    /// `IQErrorItemNotFoundMixin` exists and other RPCs use it. Answering with a code
+    /// outside this set matches no branch, so the client reports a parse failure rather
+    /// than the error. Empty when the variant pins no exact code (see [`error_code_min`]).
+    ///
+    /// [`error_code_min`]: ResponseVariant::error_code_min
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub error_codes: Vec<i64>,
+    /// The `<error text>` values this variant accepts, sorted — the closed vocabulary
+    /// paired with [`error_codes`]. Empty when only a fallback (any-text) arm applies.
+    ///
+    /// [`error_codes`]: ResponseVariant::error_codes
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub error_texts: Vec<String>,
+    /// Lower bound of the open-ended fallback arm's code range, when the variant has one
+    /// (`IQErrorFallbackServer` accepts any `code` in 500–599 with any `text`; its
+    /// client twin accepts 400–499). Together with [`error_code_max`] this says "any
+    /// code in this range is also accepted", which [`error_codes`] alone cannot express.
+    ///
+    /// [`error_code_max`]: ResponseVariant::error_code_max
+    /// [`error_codes`]: ResponseVariant::error_codes
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_code_min: Option<i64>,
+    /// Upper bound of the fallback arm's code range (see [`error_code_min`]).
+    ///
+    /// [`error_code_min`]: ResponseVariant::error_code_min
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_code_max: Option<i64>,
     pub assertions: Vec<ResponseAssertion>,
     pub fields: Vec<ParsedField>,
 }

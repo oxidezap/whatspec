@@ -372,6 +372,7 @@ impl ParserAnalyzer<'_, '_> {
                             kind: AssertionKind::Tag,
                             name: Some(v.to_string()),
                             value: None,
+                            reference_path: None,
                         });
                     }
                 }
@@ -381,6 +382,7 @@ impl ParserAnalyzer<'_, '_> {
                             kind: AssertionKind::Attr,
                             name: Some(name.to_string()),
                             value: arg_str(call, 1).map(str::to_string),
+                            reference_path: None,
                         });
                     }
                 }
@@ -388,6 +390,7 @@ impl ParserAnalyzer<'_, '_> {
                     kind: AssertionKind::FromServer,
                     name: None,
                     value: None,
+                    reference_path: None,
                 }),
                 _ => {}
             }

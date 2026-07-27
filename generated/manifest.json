@@ -4,6 +4,13 @@
   "diagnostics": {
     "iq": {
       "candidateModules": 207,
+      "constraints": {
+        "errorTexts": 35,
+        "fieldEnumRefs": 277,
+        "fieldLiterals": 2174,
+        "referenceConstraints": 579,
+        "typedErrorVariants": 75
+      },
       "crossModule": {
         "fieldsRecovered": 88,
         "requestsEnriched": 11,
@@ -12,7 +19,8 @@
       "degradedResponses": 4,
       "dropsByReason": {
         "iq builder substring present but no AST iq call": 5,
-        "mixin fragment (folded into requests, not a standalone stanza)": 66
+        "mixin fragment (folded into requests, not a standalone stanza)": 66,
+        "response enum argument not structurally resolvable": 10
       },
       "excludedFragments": 66,
       "stanzas": 143,
@@ -20,6 +28,7 @@
       "unparseable": 5
     },
     "notif": {
+      "actions": 55,
       "degraded": 5,
       "stanzaTags": 13,
       "typedContent": 22,
@@ -30,37 +39,37 @@
     "abprops": {
       "file": "abprops/index.json",
       "schema": "schema/abprops.schema.json",
-      "sha256": "efa3cb733c8533fc1910f7f93fa52288e3368b1b55599fe96b647fa75eedc885"
+      "sha256": "63cda1b8581c73c73b74c624a273d7d8079727142023f213dc9d59dcc027c6fa"
     },
     "appstate": {
       "file": "appstate/index.json",
       "schema": "schema/appstate.schema.json",
-      "sha256": "ed9e161621be8eaaa75787a1365a06dfe435ceea5218fdcafc18ce26082f8593"
+      "sha256": "861c98b83183e8a430adaafd015c043010922afabb497a4b6d3f81bba270b9a5"
     },
     "enums": {
       "file": "enums/index.json",
       "schema": "schema/enums.schema.json",
-      "sha256": "af2c1bc1f6afa9d33c0b8ccbfb14142b00c0c0f35ec4a7ba93a9a577b9b9277d"
+      "sha256": "3c3f6eec50a86cabb3afb2ed6da234a3e289bd6849d0c2046e5f1e6f5260c3f8"
     },
     "incoming": {
       "file": "incoming/index.json",
       "schema": "schema/incoming.schema.json",
-      "sha256": "3c1aa63a212cb3e7d08842b62bf10b88aa9bfa7fb3ca7ee3a9fa62b94a1d4957"
+      "sha256": "3c8baa4affd8f9f7a9ad7f96a43fad2312708a6004bee9f2383c665990096c42"
     },
     "iq": {
       "file": "iq/index.json",
       "schema": "schema/iq.schema.json",
-      "sha256": "4792a9a6e438a47948f536bd43364ceb0ffc64b553d7ff76b399691053ba4013"
+      "sha256": "27cdff784d39eb49190bb7b2fea7160c8190892c9c978a50621b7c06ef832800"
     },
     "mex": {
       "file": "mex/index.json",
       "schema": "schema/mex.schema.json",
-      "sha256": "00b50b4edd26b1f3b64b47a83da460cd571cabae2bd7f9e8dd225db1fc42ba66"
+      "sha256": "5865b9e19925e6fc78ba93fc63b2f919d717dc028d216a3964993fc861d53d31"
     },
     "notif": {
       "file": "notif/index.json",
       "schema": "schema/notif.schema.json",
-      "sha256": "08eab8e81dcc2c8ac0739ef0f050c5b6ca6860dca786f1af1a4dfdd8526b64d2"
+      "sha256": "a828c2f7ba52343e2702386b47bc07b7a93a5fa70eb213e6ea86006e4ea9a31a"
     },
     "proto": {
       "file": "proto/WAProto.proto",
@@ -69,27 +78,27 @@
     "srvreq": {
       "file": "srvreq/index.json",
       "schema": "schema/srvreq.schema.json",
-      "sha256": "4529564d4e68070c2a6dd9d872550b1233d3ab7a80d1a346b3a0374d8413be63"
+      "sha256": "bd2c606ce005b84eabbc413c9211ce381b32cd6e066112dedd82058a4ef847a5"
     },
     "stanza": {
       "file": "stanza/index.json",
       "schema": "schema/stanza.schema.json",
-      "sha256": "ab2e7bc4584b524aafdd70fd9c0aa18701347b722b77ae3262c74c5debdd0298"
+      "sha256": "13a78fcf9b5e09b7cc9af26657aa95a9ba1c7035be6513238b913166ea7fcd08"
     },
     "tokens": {
       "file": "tokens/index.json",
       "schema": "schema/tokens.schema.json",
-      "sha256": "d0ab67e3f17f152f65785c617e9e854dc1488ba019423b4b44854681d1ac76fd"
+      "sha256": "7c1b8c84940449264b3a4966b7a61d0602ad405c85bfb6a5be38bda6b531080c"
     },
     "wam": {
       "file": "wam/index.json",
       "schema": "schema/wam.schema.json",
-      "sha256": "aa673facefa5a0c6e61a946f3e83e4daaa3c5a0c405bda25acc15daf0792a531"
+      "sha256": "a89414f0259598f7544302dbb6bad805c32fd62e63f67f7657ae581a99a9ebf3"
     },
     "wasm": {
       "file": "wasm/index.json",
       "schema": "schema/wasm.schema.json",
-      "sha256": "da85bc11e4d5a7f47d1c65250780c02565f256888dac047fd817f5f9e4174f7a"
+      "sha256": "fd6bab59135b2bd147074bf2bb802d7db4ea289541629758e141a91954a31d4e"
     }
   },
   "enumDefs": 326,
@@ -99,7 +108,7 @@
   "mexOperations": 134,
   "notifTypes": 27,
   "protoEntities": 264,
-  "schemaVersion": "1.0.0",
+  "schemaVersion": "1.1.0",
   "serverRequestDefs": 22,
   "stanzaDefs": 176,
   "tokenDoubleByte": 1024,

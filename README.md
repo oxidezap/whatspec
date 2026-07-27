@@ -14,11 +14,23 @@ WhatsApp Web ships its whole protocol (IQ stanzas, protobuf schemas, GraphQL ope
 | **appstate** | `appstate/index.json` (+ Rust) | app-state (syncd) action schemas + indexing |
 | **abprops** | `abprops/index.json` (+ Rust) | the A/B-props feature-flag registry (~1.7k flags: code, type, default) |
 | **enums** | `enums/index.json` (+ Rust) | the wire-enum catalog (nack codes, chat/receipt types, …) |
-| **notif** | `notif/index.json` (+ Rust) | the incoming stanza-dispatch catalog: `<notification type="…">` kinds + handlers + typed content shapes |
+| **notif** | `notif/index.json` (+ Rust) | the incoming stanza-dispatch catalog: `<notification type="…">` kinds + handlers + typed content shapes + the payload **action unions** (`w:gp2`'s 40+ group actions) |
 | **tokens** | `tokens/index.json` (+ `tokens.json`) | the binary-protocol token dictionaries (single-byte + 4 double-byte), wire-indexable |
 | **wasm** | `wasm/index.json` | the WebAssembly surface: emscripten payload names (`liboqs_wasm_wrapper.wasm`, …) + the bootloader (`bx`) handles the JS resolves their bytes through, with consuming modules |
 
 Every domain ships a JSON Schema under `generated/schema/`, and a top-level `generated/manifest.json` stamps the WhatsApp version, per-domain counts, content hashes, and extraction diagnostics.
+
+### Validation constraints, not just field shapes
+
+Field shapes tell you how to *read* a stanza. They are not enough to *produce* one, nor to explain why a real client rejected the one you produced. So the IR also carries the rules WA Web's own parsers enforce — symmetric by construction, so they serve a parser and an emitter equally:
+
+- **Echo rules** (`assertions[].kind == "reference"`, and `referencePath` on a field) — an answer's `from` must equal the **request's** `to`, its `id` the request's `id`. `referencePath` is the argument list of WA's `attrStringFromReference`, so `["to"]` means "the request's `to`" and `["account","action"]` means "the `action` attribute of the request's `<account>` child" — no name-matching required. An emitter that hardcodes `from="s.whatsapp.net"` makes every answer to a `g.us` request unparseable.
+- **Pinned values** (`literalValue` on a field) — `type="admin"` on a successful promote, `matched="true"`/`"false"` on a blocklist update, `code=429` on a rate-limit error. `required` separates the two forms: a required pin is a hard discriminator (must be present and exact); an optional one is pinned only when present (may be omitted, must never be contradicted).
+- **The per-RPC error vocabulary** (`errorClass`, `errorCodes`, `errorTexts`, `errorCodeMin`/`Max` on a response variant) — a **closed** set, and it differs per RPC: `BatchGetGroupInfo` accepts `400 bad-request` and `429 rate-overlimit` and **rejects `404 item-not-found`**, even though that mixin exists and other RPCs use it. `errorCodeMin`/`Max` cover the open-ended fallback arms (any text, code in 400–499 / 500–599).
+- **Response enums** (`enumRef` on a field) — the legal values behind an `attrStringEnum`, resolved the same way the request side already resolves them, instead of a bare `"type": "enum"`.
+- **Notification action unions** (`notifications[].actions`) — the payload inside the envelope. The `wireTag → actionType` mapping is **many-to-one** (`not_ephemeral` normalises into `ephemeral` with `duration: 0`, so branching on `not_ephemeral` is dead code) and field names are rebound (the disappearing-message timer arrives in `expiration`, but the action field is `duration`). Neither is derivable from the wire.
+
+Anything the extractor sees but cannot resolve structurally is counted under `manifest.diagnostics.iq.dropsByReason` rather than omitted, so "no constraint here" and "a constraint we failed to extract" never look alike. `manifest.diagnostics.iq.constraints` and `diagnostics.notif.actions` are floor-guarded: a WA refactor that hides one of these constructs fails the update instead of silently emptying a field.
 
 ## Quick start
 

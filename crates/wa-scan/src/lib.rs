@@ -67,6 +67,21 @@ fn single_namespace_content_tags(stanzas: &[IqStanzaDef]) -> HashSet<String> {
         .collect()
 }
 
+/// Extraction-quality counters the IQ scan hands back alongside the IR.
+///
+/// Split from [`IqIr`] on purpose: these are *about* the extraction, not part of the
+/// contract, and they exist so a silent regression (a WA refactor that hides a
+/// construct we key on) shows up as a number rather than as a quietly emptier field.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct IqScanStats {
+    /// Phase-2 fragment-merge recovery — see [`CrossModuleStats`].
+    pub cross_module: CrossModuleStats,
+    /// Constraints seen in a response parser but not structurally resolvable, by reason
+    /// (an un-pinnable literal value, a computed reference path, an unresolvable enum
+    /// argument). Folded into `manifest.diagnostics.iq.dropsByReason`.
+    pub constraint_drops: std::collections::BTreeMap<String, usize>,
+}
+
 /// Cross-module (`mergeStanzas`, Phase 2) recovery counters for the IQ domain,
 /// surfaced in `manifest.diagnostics.iq.crossModule`. They make the Phase-2 fix
 /// visible and regressable: if a future bundle/codegen change silently broke
@@ -120,12 +135,12 @@ pub fn scan_iq_stanzas_from_modules(
     scan_iq_with_diagnostics(source, module_defs).0
 }
 
-/// Like [`scan_iq_stanzas_from_modules`], but also returns the cross-module
-/// (Phase 2) recovery counters for `manifest.diagnostics.iq.crossModule`.
+/// Like [`scan_iq_stanzas_from_modules`], but also returns the extraction-quality
+/// counters for `manifest.diagnostics.iq`.
 pub fn scan_iq_with_diagnostics(
     source: &str,
     module_defs: &[ModuleDefinition],
-) -> (IqScanResult, CrossModuleStats) {
+) -> (IqScanResult, IqScanStats) {
     // Build the cross-module helper index first. It resolves wap-returning helpers
     // (`xmppSignedPreKey`, `xmppPreKey`, …) so a child built via `o("Module").fn(...)`
     // / `.map(o("Module").fn)` recovers its subtree instead of leaving a bare node
@@ -143,6 +158,7 @@ pub fn scan_iq_with_diagnostics(
     // `WASmaxIn*ResponseSuccess` modules so a Request can attach its typed
     // response (the smax response lives in a separate module).
     let response_index = response_index::build_pass(module_defs, source);
+    let constraint_drops = response_index.drop_counts().clone();
 
     // Build the content-length cross-reference once. It reads the byte length WA
     // Web's parsers pin each wire field to (`child("signature").contentBytes(64)`),
@@ -164,7 +180,8 @@ pub fn scan_iq_with_diagnostics(
 
     let mut stanzas = Vec::new();
     let mut unparseable = Vec::new();
-    let mut cross = CrossModuleStats::default();
+    let mut stats = IqScanStats::default();
+    let cross = &mut stats.cross_module;
     // The same module is often defined in several bundle shards (FB_PKG_DELIM);
     // scan each module name once so identical stanzas aren't emitted per shard
     // (and we don't redo the work).
@@ -274,7 +291,10 @@ pub fn scan_iq_with_diagnostics(
             stanzas,
             unparseable,
         },
-        cross,
+        IqScanStats {
+            constraint_drops,
+            ..stats
+        },
     )
 }
 
@@ -298,22 +318,21 @@ pub fn extract_iq_from_modules(
     extract_iq_from_modules_with_diagnostics(source, module_defs, wa_version).0
 }
 
-/// Like [`extract_iq_from_modules`], but also returns the cross-module (Phase 2)
-/// recovery counters so the pipeline can record them under
-/// `manifest.diagnostics.iq.crossModule`.
+/// Like [`extract_iq_from_modules`], but also returns the extraction-quality counters
+/// so the pipeline can record them under `manifest.diagnostics.iq`.
 pub fn extract_iq_from_modules_with_diagnostics(
     source: &str,
     module_defs: &[ModuleDefinition],
     wa_version: &str,
-) -> (IqIr, CrossModuleStats) {
-    let (scan, cross) = scan_iq_with_diagnostics(source, module_defs);
+) -> (IqIr, IqScanStats) {
+    let (scan, stats) = scan_iq_with_diagnostics(source, module_defs);
     (
         IqIr {
             wa_version: wa_version.to_string(),
             stanzas: scan.stanzas,
             unparseable: scan.unparseable,
         },
-        cross,
+        stats,
     )
 }
 
@@ -410,9 +429,9 @@ mod tests {
 
         // Diagnostics: exactly the Request folds in a mixin and is enriched by it;
         // only `spam_flow` is new (`jid` was already local), so one field recovered.
-        assert_eq!(cross.requests_with_mixins, 1);
-        assert_eq!(cross.requests_enriched, 1);
-        assert_eq!(cross.fields_recovered, 1);
+        assert_eq!(cross.cross_module.requests_with_mixins, 1);
+        assert_eq!(cross.cross_module.requests_enriched, 1);
+        assert_eq!(cross.cross_module.fields_recovered, 1);
     }
 
     #[test]

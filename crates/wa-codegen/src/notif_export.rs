@@ -295,6 +295,7 @@ mod tests {
                             kind: AssertionKind::Tag,
                             name: Some("notification".into()),
                             value: None,
+                            reference_path: None,
                         }],
                         fields: vec![ParsedField {
                             method: "attrString".into(),
@@ -305,6 +306,7 @@ mod tests {
                         }],
                         ..Default::default()
                     }),
+                    actions: Vec::new(),
                 },
                 NotificationDef {
                     notif_type: "encrypt".into(),
@@ -319,6 +321,7 @@ mod tests {
                         }],
                     }],
                     content: None,
+                    actions: Vec::new(),
                 },
             ],
         }

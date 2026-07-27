@@ -748,6 +748,15 @@ struct Counts {
     /// `manifest.diagnostics.iq.{stanzas,typedResponses}`.
     iq_stanzas: usize,
     iq_typed_responses: usize,
+    /// Validation-constraint coverage, mirroring
+    /// `manifest.diagnostics.iq.constraints` — see [`IqConstraintCounts`].
+    iq_reference_constraints: usize,
+    iq_field_literals: usize,
+    iq_field_enum_refs: usize,
+    iq_typed_error_variants: usize,
+    iq_error_texts: usize,
+    /// Notification payload action-union arms recovered (`diagnostics.notif.actions`).
+    notif_actions: usize,
     /// Outgoing non-IQ stanzas (receipt/presence/chatstate/ack) the scanner recovers.
     stanza_defs: usize,
     /// Incoming content-stanza read-shapes (message/receipt/call/ack) recovered from
@@ -790,6 +799,75 @@ struct IqDiagnostics {
     /// fields recovered. `requests_enriched`/`fields_recovered` going to 0 flags a
     /// regression in Phase-2 fragment merging.
     cross_module: wa_scan::CrossModuleStats,
+    /// Validation-constraint coverage — see [`IqConstraintCounts`].
+    constraints: IqConstraintCounts,
+}
+
+/// How many *validation constraints* the IQ IR carries, counted over the emitted
+/// document. These are the numbers the floor guard watches for the constraint layer:
+/// each one keys on a distinct JS construct, so a WA refactor that hides one fails
+/// loudly instead of silently emptying a field that consumers depend on.
+#[derive(Debug, Default, Clone, Copy)]
+struct IqConstraintCounts {
+    /// Echo rules — "this attribute must carry a value taken from the request" — in
+    /// both forms: `reference` assertions (the required `from` == the request's `to`)
+    /// and field-level `referencePath` pins (the optional ones).
+    reference_constraints: usize,
+    /// `ParsedField`s carrying a pinned `literalValue`.
+    field_literals: usize,
+    /// Response fields whose enum argument resolved to a real variant set.
+    field_enum_refs: usize,
+    /// Response variants classified as a client or server error.
+    typed_error_variants: usize,
+    /// Distinct `<error text>` values across every RPC's error vocabulary.
+    error_texts: usize,
+}
+
+/// Count the validation constraints in an emitted IQ IR (see [`IqConstraintCounts`]).
+fn iq_constraint_counts(ir: &wa_ir::IqIr) -> IqConstraintCounts {
+    fn walk_fields(fields: &[wa_ir::ParsedField], c: &mut IqConstraintCounts) {
+        for f in fields {
+            if f.literal_value.is_some() {
+                c.field_literals += 1;
+            }
+            if f.reference_path.is_some() {
+                c.reference_constraints += 1;
+            }
+            if f.enum_ref.is_some() {
+                c.field_enum_refs += 1;
+            }
+            if let Some(children) = &f.children {
+                walk_fields(children, c);
+            }
+            for uv in f.union_variants.iter().flatten() {
+                c.reference_constraints += count_references(&uv.assertions);
+                walk_fields(&uv.fields, c);
+            }
+        }
+    }
+    fn count_references(assertions: &[wa_ir::ResponseAssertion]) -> usize {
+        assertions
+            .iter()
+            .filter(|a| a.kind == wa_ir::AssertionKind::Reference)
+            .count()
+    }
+
+    let mut c = IqConstraintCounts::default();
+    let mut texts = std::collections::BTreeSet::new();
+    for s in &ir.stanzas {
+        c.reference_constraints += count_references(&s.response.assertions);
+        walk_fields(&s.response.fields, &mut c);
+        for v in &s.response.variants {
+            c.reference_constraints += count_references(&v.assertions);
+            if v.error_class.is_some() {
+                c.typed_error_variants += 1;
+            }
+            texts.extend(v.error_texts.iter().cloned());
+            walk_fields(&v.fields, &mut c);
+        }
+    }
+    c.error_texts = texts.len();
+    c
 }
 
 /// A loaded bundle set: the stamped version, the concatenated source the extractors
@@ -1532,7 +1610,7 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
     let (abprops_arts, abprops_count) = abprops.expect(checked);
     let (enums_arts, enums_count) = enums.expect(checked);
     let (wam_arts, wam_count) = wam.expect(checked);
-    let (notif_arts, (notif_count, notif_typed, notif_tags)) = notif.expect(checked);
+    let (notif_arts, (notif_count, notif_typed, notif_tags, notif_actions)) = notif.expect(checked);
     let (stanza_arts, stanza_count) = stanza.expect(checked);
     let (tokens_arts, (token_single, token_double)) = tokens.expect(checked);
     let (incoming_arts, incoming_count) = incoming.expect(checked);
@@ -1601,6 +1679,12 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
         notif_stanza_tags: notif_tags,
         iq_stanzas: iq_diag.stanzas,
         iq_typed_responses: iq_diag.typed_responses,
+        iq_reference_constraints: iq_diag.constraints.reference_constraints,
+        iq_field_literals: iq_diag.constraints.field_literals,
+        iq_field_enum_refs: iq_diag.constraints.field_enum_refs,
+        iq_typed_error_variants: iq_diag.constraints.typed_error_variants,
+        iq_error_texts: iq_diag.constraints.error_texts,
+        notif_actions,
         stanza_defs: stanza_count,
         incoming_defs: incoming_count,
         server_request_defs: srvreq_count,
@@ -1701,12 +1785,20 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
                     "requestsEnriched": iq_diag.cross_module.requests_enriched,
                     "fieldsRecovered": iq_diag.cross_module.fields_recovered,
                 },
+                "constraints": {
+                    "referenceConstraints": iq_diag.constraints.reference_constraints,
+                    "fieldLiterals": iq_diag.constraints.field_literals,
+                    "fieldEnumRefs": iq_diag.constraints.field_enum_refs,
+                    "typedErrorVariants": iq_diag.constraints.typed_error_variants,
+                    "errorTexts": iq_diag.constraints.error_texts,
+                },
             },
             "notif": {
                 "types": counts.notif_types,
                 "typedContent": counts.notif_typed_content,
                 "degraded": counts.notif_types - counts.notif_typed_content,
                 "stanzaTags": counts.notif_stanza_tags,
+                "actions": counts.notif_actions,
             },
         },
     });
@@ -1776,6 +1868,25 @@ fn check_floor(out: &Path, counts: &Counts) -> Result<Vec<String>> {
                 regressions.push(format!("iq.{key}: {prev} → {new}"));
             }
         }
+        // The validation-constraint layer. Each counter keys on a distinct JS construct
+        // (`attrStringFromReference`, `literal`/`optionalLiteral`, the enum accessors,
+        // the error mixins), so a WA refactor that hides one shows up here rather than
+        // as a silently emptier field in every consumer's copy of the IR.
+        if let Some(c) = iq.get("constraints") {
+            for (key, new) in [
+                ("referenceConstraints", counts.iq_reference_constraints),
+                ("fieldLiterals", counts.iq_field_literals),
+                ("fieldEnumRefs", counts.iq_field_enum_refs),
+                ("typedErrorVariants", counts.iq_typed_error_variants),
+                ("errorTexts", counts.iq_error_texts),
+            ] {
+                if let Some(prev) = c.get(key).and_then(serde_json::Value::as_u64)
+                    && (new as u64) < prev
+                {
+                    regressions.push(format!("iq.constraints.{key}: {prev} → {new}"));
+                }
+            }
+        }
     }
     // Notification coverage below the catalog count: a drop in typed-content means a
     // handler's parser stopped resolving; a drop in stanzaTags means the tag-switch
@@ -1784,6 +1895,7 @@ fn check_floor(out: &Path, counts: &Counts) -> Result<Vec<String>> {
         for (key, new) in [
             ("typedContent", counts.notif_typed_content),
             ("stanzaTags", counts.notif_stanza_tags),
+            ("actions", counts.notif_actions),
         ] {
             if let Some(prev) = notif.get(key).and_then(serde_json::Value::as_u64)
                 && (new as u64) < prev
@@ -1927,8 +2039,9 @@ fn push_iq(
     source: &str,
     module_defs: &[wa_transform::ModuleDefinition],
 ) -> Result<(usize, IqDiagnostics)> {
-    let (ir, cross_module) =
+    let (ir, scan_stats) =
         wa_scan::extract_iq_from_modules_with_diagnostics(source, module_defs, wa_version);
+    let cross_module = scan_stats.cross_module;
 
     // M8/M9 diagnostics. Every IQ candidate module yields ≥1 stanza or exactly one
     // `unparseable` entry, so the candidate count is the number of distinct
@@ -1976,6 +2089,12 @@ fn push_iq(
     for u in &ir.unparseable {
         *drops_by_reason.entry(u.reason.clone()).or_default() += 1;
     }
+    // Constraints the response analysis saw but could not resolve structurally. Recorded
+    // here rather than dropped silently: a consumer must be able to tell "this field has
+    // no pinned value" from "this field has one and we failed to extract it".
+    for (reason, n) in &scan_stats.constraint_drops {
+        *drops_by_reason.entry(reason.clone()).or_default() += n;
+    }
     eprintln!(
         "iq: cross-module fragments -> {} request(s) reference mixins, {} enriched, \
          {} field(s) recovered",
@@ -1992,6 +2111,7 @@ fn push_iq(
         excluded_fragments: fragments,
         drops_by_reason,
         cross_module,
+        constraints: iq_constraint_counts(&ir),
     };
 
     // Neutral, language-agnostic IR (the cross-language contract): the same
@@ -2121,7 +2241,7 @@ fn push_notif(
     wa_version: &str,
     source: &str,
     module_defs: &[wa_transform::ModuleDefinition],
-) -> Result<(usize, usize, usize)> {
+) -> Result<(usize, usize, usize, usize)> {
     let ir = wa_notif::extract_notif_from_modules(source, module_defs, wa_version);
     let count = ir.notifications.len();
     let stanza_tags = ir.stanza_tags.len();
@@ -2130,9 +2250,12 @@ fn push_notif(
         .iter()
         .filter(|n| n.content.is_some())
         .count();
+    // Payload action-union arms (the `w:gp2` group actions and friends) — the layer
+    // below the envelope, counted so it can't silently empty out.
+    let actions: usize = ir.notifications.iter().map(|n| n.actions.len()).sum();
     eprintln!(
         "notif: {count} notification types ({typed} with typed content, {} degraded), \
-         {} stanza tags (dispatchers: {})",
+         {actions} payload action(s), {} stanza tags (dispatchers: {})",
         count - typed,
         stanza_tags,
         if ir.dispatcher_modules.is_empty() {
@@ -2151,7 +2274,7 @@ fn push_notif(
         rel_path: PathBuf::from("notif/notif.rs"),
         content: wa_codegen::generate_notif(&ir),
     });
-    Ok((count, typed, stanza_tags))
+    Ok((count, typed, stanza_tags, actions))
 }
 
 fn push_wam(
@@ -2473,6 +2596,7 @@ mod tests {
             wasm_binaries: 0,
             wasm_resources: 0,
             wasm_wasm_handles: 0,
+            ..Default::default()
         };
         let regressions = check_floor(&dir, &counts).unwrap();
         assert_eq!(regressions.len(), 2);

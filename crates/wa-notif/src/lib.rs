@@ -31,6 +31,8 @@
 //! the AST.
 #![cfg(not(target_arch = "wasm32"))]
 
+mod actions;
+
 use std::collections::HashMap;
 
 use oxc_allocator::Allocator;
@@ -121,6 +123,25 @@ pub fn extract_notif_from_modules(
         };
         let notif_type = n.notif_type.clone();
         n.content = notification_content(slice, &notif_type);
+    }
+
+    // Phase 3: the payload action union. `content` describes the envelope; a handler
+    // that maps over the notification's children and switches on each child's tag
+    // carries a whole second union inside it (`w:gp2`'s 40+ group actions). Resolved
+    // against the full module index, since both the case labels and the `actionType`
+    // values are `Module.CONST.MEMBER` references defined elsewhere.
+    let consts = actions::ConstResolver::new(&slice_by_name);
+    for n in &mut dispatch.notifications {
+        let Some(slice) = n
+            .handler_module
+            .as_deref()
+            .and_then(|m| slice_by_name.get(m))
+        else {
+            continue;
+        };
+        if let Some(found) = actions::extract_actions(slice, &consts) {
+            n.actions = found;
+        }
     }
 
     // Phase 2b: a type still degraded here has a handler that delegates parsing to
@@ -435,6 +456,7 @@ fn extract_notifications(consequent: &[Statement]) -> Vec<NotificationDef> {
                 handler_function: handler.and_then(|(_, f)| f),
                 sub_discriminants: Vec::new(),
                 content: None,
+                actions: Vec::new(),
             });
         }
     }
@@ -450,6 +472,7 @@ fn extract_notification_case(notif_type: &str, consequent: &[Statement]) -> Noti
         handler_function: handler.and_then(|(_, f)| f),
         sub_discriminants: extract_sub_discriminants(consequent),
         content: None,
+        actions: Vec::new(),
     }
 }
 

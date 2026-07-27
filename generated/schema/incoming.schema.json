@@ -40,7 +40,54 @@
           "description": "The node's text content is pinned to a fixed value (`literalContent(content,\nnode, \"admin_add\")`) — a discriminator for marker union variants. The value is\nin [`ResponseAssertion::value`]; `name` is unused.",
           "type": "string",
           "const": "content"
+        },
+        {
+          "description": "The attribute named by [`ResponseAssertion::name`] must **echo a value taken\nfrom the request** — `literal(attrString, node, \"from\",\nattrStringFromReference(request, [\"to\"]))`. The expected value is not a\nconstant, so [`ResponseAssertion::value`] is absent; where it comes from is in\n[`ResponseAssertion::reference_path`].\n\nThis is the rule 17 of the 26 namespace `IQError…Mixin`s (and every success\nparser) enforce: an answer's `id` must equal the request's `id` and its `from`\nthe request's `to`. An emitter that hardcodes `from=\"s.whatsapp.net\"` produces\nstanzas a real client cannot parse whenever the request went to `g.us`.",
+          "type": "string",
+          "const": "reference"
         }
+      ]
+    },
+    "AttrEnumRef": {
+      "description": "A wire enum a request attribute's value is drawn from, recovered by resolving a\nstructural `o(\"Mod\").EnumName.VARIANT` reference in the builder. String-valued (all\nstanza-attr enums are wire tokens), so a consumer can generate a real enum type.",
+      "type": "object",
+      "properties": {
+        "module": {
+          "description": "The module that defines it (`WAWebBackendJobs.flow`, `WAWebUsync`, …).",
+          "type": "string"
+        },
+        "name": {
+          "description": "The enum's name (`CiphertextType`, `USYNC_ADDRESSING_MODE`, …).",
+          "type": "string"
+        },
+        "variants": {
+          "description": "The enum's variants in source order.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AttrEnumVariant"
+          }
+        }
+      },
+      "required": [
+        "name",
+        "module",
+        "variants"
+      ]
+    },
+    "AttrEnumVariant": {
+      "description": "One `NAME: \"wire_value\"` member of an [`AttrEnumRef`].",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "value"
       ]
     },
     "ContentType": {
@@ -50,6 +97,21 @@
         "string",
         "bytes",
         "nodes"
+      ]
+    },
+    "ErrorClass": {
+      "description": "Which side an error variant blames, for a variant whose [`ResponseVariantKind`] is\n[`Error`]. WA models the two as separate parsers with disjoint code ranges: a client\nerror carries a 4xx code (`bad-request` 400, `rate-overlimit` 429, fallback 400–499)\nand a server error a 5xx one (`internal-server-error` 500, fallback 500–599).\n\nEmitted alongside — not instead of — [`ResponseVariant::kind`], so a consumer that\nonly understands `success`/`error` keeps working.\n\n[`Error`]: ResponseVariantKind::Error",
+      "oneOf": [
+        {
+          "description": "The request was wrong (4xx) — retrying it unchanged will fail again.",
+          "type": "string",
+          "const": "client"
+        },
+        {
+          "description": "The server failed (5xx) — the same request may succeed later.",
+          "type": "string",
+          "const": "server"
+        }
       ]
     },
     "IncomingDef": {
@@ -143,6 +205,17 @@
             "type": "string"
           }
         },
+        "enumRef": {
+          "description": "The wire enum this field's value is drawn from, when the parser reads it with an\nenum accessor (`attrStringEnum(node, \"state\", o(\"Mod\").ENUM_OFF_ON)`). Resolved\nthe same way the request side resolves [`WapAttrDef::enum_ref`], so a consumer\ncan type the field as that enum instead of a bare string — and an emitter knows\nwhich values are legal instead of guessing from the generated `ENUM_OFF_ON` name.\nAbsent when the enum argument is not a structurally resolvable module export, or\nresolves to a non-string enum (never guessed).\n\n[`WapAttrDef::enum_ref`]: WapAttrDef::enum_ref",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AttrEnumRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "intMax": {
           "description": "Inclusive upper bound from the same `attrIntRange` check (see [`int_min`]).\n\n[`int_min`]: ParsedField::int_min",
           "type": [
@@ -159,12 +232,29 @@
           ],
           "format": "int64"
         },
+        "literalValue": {
+          "description": "The fixed value the parser pins this field to — `literal(attrString, participant,\n\"type\", \"admin\")` → `\"admin\"`, `literal(attrInt, error, \"code\", 429)` → `\"429\"`.\nAlways the string form of the literal; [`field_type`] says how to read it (a\n`code` field with `literalValue: \"429\"` is the integer 429 on the wire).\n\n[`required`] tells the two pinning forms apart, and the difference matters to an\nemitter: a **required** literal (`literal`) is a hard discriminator — the\nattribute MUST be present and equal to this value or the variant does not match;\nan **optional** one (`optionalLiteral`) is pinned only when present — the emitter\nmay omit the attribute, but must never send a contradicting value.\n\n[`field_type`]: ParsedField::field_type\n[`required`]: ParsedField::required",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "method": {
           "type": "string"
         },
         "name": {
           "description": "The output (struct field) name — the camelCase `makeResult` key in smax.",
           "type": "string"
+        },
+        "referencePath": {
+          "description": "The field is pinned not to a constant but to **a value taken from the request** —\nthe same echo rule [`AssertionKind::Reference`] carries, in the same\n`attrStringFromReference` path form, but for a pin that is *not* a variant guard.\n\nA required echo (`literal(…, \"from\", ref.to)`) is recorded as an assertion, since\nit must hold for the variant to match at all. An **optional** one\n(`optionalLiteral(…, \"c_dhash\", ref.item.dhash)`) is not a guard — the attribute\nmay be absent — so it lives here instead: an emitter may omit it, but if it sends\nit, the value must be the request's. Mutually exclusive with [`literal_value`].\n\n[`literal_value`]: ParsedField::literal_value",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
         },
         "repeats": {
           "type": [
@@ -357,6 +447,16 @@
             "null"
           ]
         },
+        "referencePath": {
+          "description": "Where the expected value is read from **in the request**, for\n[`AssertionKind::Reference`]. It is the argument list of WA's\n`attrStringFromReference(request, path)` helper: every element but the last is a\nchild tag to descend into, and the last is the attribute name. So `[\"to\"]` means\n\"the request's `to` attribute\" and `[\"account\", \"action\"]` means \"the `action`\nattribute of the request's `<account>` child\".\n\nCarried structurally (rather than left to be inferred from `name`) so a consumer\nnever has to pattern-match attribute names to know an echo rule applies.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
         "value": {
           "type": [
             "string",
@@ -376,6 +476,48 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/ResponseAssertion"
+          }
+        },
+        "errorClass": {
+          "description": "For an error variant, whether it is the client-error (4xx) or server-error (5xx)\narm. Absent for a success variant, and for an error variant whose parser carries\nno recoverable code evidence.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorClass"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "errorCodeMax": {
+          "description": "Upper bound of the fallback arm's code range (see [`error_code_min`]).\n\n[`error_code_min`]: ResponseVariant::error_code_min",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64"
+        },
+        "errorCodeMin": {
+          "description": "Lower bound of the open-ended fallback arm's code range, when the variant has one\n(`IQErrorFallbackServer` accepts any `code` in 500–599 with any `text`; its\nclient twin accepts 400–499). Together with [`error_code_max`] this says \"any\ncode in this range is also accepted\", which [`error_codes`] alone cannot express.\n\n[`error_code_max`]: ResponseVariant::error_code_max\n[`error_codes`]: ResponseVariant::error_codes",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64"
+        },
+        "errorCodes": {
+          "description": "The **closed set** of `<error code>` values this variant accepts, ascending.\n\nThe vocabulary is per-RPC, not global: `BatchGetGroupInfo`'s client-error arm\ntakes only `400` and `429` and **rejects `404`**, even though an\n`IQErrorItemNotFoundMixin` exists and other RPCs use it. Answering with a code\noutside this set matches no branch, so the client reports a parse failure rather\nthan the error. Empty when the variant pins no exact code (see [`error_code_min`]).\n\n[`error_code_min`]: ResponseVariant::error_code_min",
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "errorTexts": {
+          "description": "The `<error text>` values this variant accepts, sorted — the closed vocabulary\npaired with [`error_codes`]. Empty when only a fallback (any-text) arm applies.\n\n[`error_codes`]: ResponseVariant::error_codes",
+          "type": "array",
+          "items": {
+            "type": "string"
           }
         },
         "fields": {

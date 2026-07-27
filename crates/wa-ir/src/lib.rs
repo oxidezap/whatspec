@@ -62,7 +62,7 @@ pub enum Scalar {
 /// `waVersion` changes on every WhatsApp rollout; `schemaVersion` changes only
 /// when the *structure* of the IR changes. Consumers pin this to stay stable
 /// across WhatsApp updates. Bump on any breaking change to the IR shape.
-pub const SCHEMA_VERSION: &str = "1.0.0";
+pub const SCHEMA_VERSION: &str = "1.1.0";
 
 /// Envelope that stamps a domain IR document with [`SCHEMA_VERSION`] at emit
 /// time, without altering the inner document's shape.

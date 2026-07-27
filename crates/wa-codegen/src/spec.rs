@@ -339,7 +339,10 @@ fn emit_success_guards(op: &IqStanzaDef, indent: &str) -> Vec<String> {
                 }
             }
             // Tag (the `<iq>` root) / FromServer are not success-vs-error discriminators.
-            AssertionKind::Tag | AssertionKind::FromServer => {}
+            // Neither is a Reference echo (`from` == the request's `to`): every outcome
+            // of the same request satisfies it identically, so it separates nothing —
+            // it is a request-correlation rule, enforced by whoever holds the request.
+            AssertionKind::Tag | AssertionKind::FromServer | AssertionKind::Reference => {}
         }
     }
     lines
@@ -836,8 +839,10 @@ mod tests {
                 kind: AssertionKind::Attr,
                 name: Some("type".into()),
                 value: Some("result".into()),
+                reference_path: None,
             }],
             fields: vec![],
+            ..Default::default()
         }];
         let guards = emit_success_guards(&s, "    ");
         assert_eq!(guards.len(), 1);
@@ -874,6 +879,7 @@ mod tests {
                     kind: ResponseVariantKind::Success,
                     assertions: vec![],
                     fields: vec![attr("token")],
+                    ..Default::default()
                 },
                 ResponseVariant {
                     tag: "GetThingResponseError".into(),
@@ -881,6 +887,7 @@ mod tests {
                     kind: ResponseVariantKind::Error,
                     assertions: vec![],
                     fields: vec![attr("code")],
+                    ..Default::default()
                 },
             ],
             ..Default::default()
@@ -930,6 +937,7 @@ mod tests {
                 kind: AssertionKind::Attr,
                 name: Some("type".into()),
                 value: Some(value.into()),
+                reference_path: None,
             }
         }
         // Success and error read the same field (`type`) — a bare subset that WOULD be
@@ -945,6 +953,7 @@ mod tests {
                     kind: ResponseVariantKind::Success,
                     assertions: vec![type_assert("result")],
                     fields: vec![attr("type")],
+                    ..Default::default()
                 },
                 ResponseVariant {
                     tag: "GetThingResponseError".into(),
@@ -952,6 +961,7 @@ mod tests {
                     kind: ResponseVariantKind::Error,
                     assertions: vec![type_assert("error")],
                     fields: vec![attr("type")],
+                    ..Default::default()
                 },
             ],
             ..Default::default()
@@ -1000,6 +1010,7 @@ mod tests {
                     kind: ResponseVariantKind::Success,
                     assertions: vec![],
                     fields: vec![attr("type")],
+                    ..Default::default()
                 },
                 ResponseVariant {
                     tag: "GetThingResponseError".into(),
@@ -1007,6 +1018,7 @@ mod tests {
                     kind: ResponseVariantKind::Error,
                     assertions: vec![],
                     fields: vec![attr("type")],
+                    ..Default::default()
                 },
             ],
             ..Default::default()

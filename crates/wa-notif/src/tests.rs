@@ -564,3 +564,178 @@ __d("WASmaxInCoexistenceOffboardingNotificationRequest",["WAResultOrError","WASm
         "an ambiguous type (two read-shapes) must stay degraded"
     );
 }
+
+/// A miniature `w:gp2` handler: the const tag/action tables in their own modules, and a
+/// handler that maps over the notification's children and switches on each child's tag.
+/// Reproduces every shape the real one uses — a many-to-one normalisation, a rebound
+/// field name, a constant-only arm, a repeated sub-element, and a two-outcome ternary.
+const GROUP_ACTIONS_BUNDLE: &str = r#"
+__d("WAWebCommsHandleLoggedInStanza",["WAWebHandleGroupNotification"],function(g,r,d,o,e,i,l){
+  l.handle = function(){ return (function*(e,t){
+    var n = e.attrs;
+    switch (e.tag) {
+      case "notification":
+        switch (n.type) {
+          case "w:gp2": return yield r("WAWebHandleGroupNotification")(e);
+        }
+    }
+  }); };
+}, 1);
+__d("WAWebHandleGroupNotificationConst",[],(function(t,n,r,o,a,i,l){
+  var e=Object.freeze({ADD:"add",SUBJECT:"subject",EPHEMERAL:"ephemeral",NOT_EPHEMERAL:"not_ephemeral",LOCKED:"locked",REVOKE_INVITE:"revoke",DESC:"description"});
+  l.GROUP_NOTIFICATION_TAG=e;
+}), 1);
+__d("WAWebGroupType",[],(function(t,n,r,o,a,i,l){
+  var d=Object.freeze({ADD:"add",SUBJECT:"subject",EPHEMERAL:"ephemeral",RESTRICT:"restrict",REVOKE_INVITE:"revoke_invite",DESC_ADD:"desc_add",DESC_REMOVE:"desc_remove"});
+  l.GROUP_ACTIONS=d;
+}), 1);
+__d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGroupType"],(function(t,n,r,o,a,i,l){
+  function y(e,t){ return t.mapChildrenWithTag("participant", function(p){
+    return { id: p.attrUserJid("jid"), displayName: p.maybeAttrString("display_name") };
+  }); }
+  function h(e){
+    var x = e.mapChildren(function(t){
+      var a = t.tag();
+      switch(a){
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.ADD:
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.ADD, participants:y(e,t), reason:t.hasAttr("reason")?t.attrString("reason"):null};
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.SUBJECT:
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.SUBJECT, subject:t.attrString("subject")};
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.EPHEMERAL:
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.EPHEMERAL, duration:t.attrInt("expiration")};
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.NOT_EPHEMERAL:
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.EPHEMERAL, duration:0};
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.LOCKED:
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.RESTRICT, value:!0};
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.REVOKE_INVITE:
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.REVOKE_INVITE, participants:t.mapChildrenWithTag("participant", function(p){ return {id:p.attrUserJid("jid"), expiration:p.attrInt("expiration")}; })};
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.DESC:
+          return t.hasChild("delete") ? {actionType:o("WAWebGroupType").GROUP_ACTIONS.DESC_REMOVE, descId:t.attrString("id")}
+                                      : {actionType:o("WAWebGroupType").GROUP_ACTIONS.DESC_ADD, descId:t.attrString("id"), desc:t.child("body").contentString()};
+      }
+    });
+    return {actions:x};
+  }
+  l.handleGroupNotification=h;
+}), 1);
+"#;
+
+/// The `w:gp2` action union, keyed by the wire tag of each arm.
+fn group_actions(ir: &wa_ir::NotifIr) -> Vec<&wa_ir::NotifActionDef> {
+    notif(ir, "w:gp2").actions.iter().collect()
+}
+
+#[test]
+fn group_action_union_records_the_many_to_one_tag_mapping() {
+    let ir = extract_notif(GROUP_ACTIONS_BUNDLE, "2.3000.test");
+    let actions = group_actions(&ir);
+    let of = |tag: &str| {
+        actions
+            .iter()
+            .filter(|a| a.wire_tag == tag)
+            .collect::<Vec<_>>()
+    };
+    // Acceptance criterion: which wire tags map to `ephemeral`, and what each sets.
+    let eph = of("ephemeral");
+    assert_eq!(eph.len(), 1);
+    assert_eq!(eph[0].action_type.as_deref(), Some("ephemeral"));
+    let duration = eph[0]
+        .fields
+        .iter()
+        .find(|f| f.name == "duration")
+        .expect("duration field");
+    // The timer arrives in `expiration`, NOT under the output name — the whole point.
+    assert_eq!(duration.wire_name, "expiration");
+    assert_eq!(duration.field_type, wa_ir::ParsedFieldType::Integer);
+    assert!(duration.required);
+    // `not_ephemeral` normalises INTO `ephemeral` with a constant 0 — a consumer that
+    // branches on a `not_ephemeral` action type is writing dead code.
+    let not_eph = of("not_ephemeral");
+    assert_eq!(not_eph.len(), 1);
+    assert_eq!(not_eph[0].action_type.as_deref(), Some("ephemeral"));
+    assert!(not_eph[0].fields.is_empty());
+    assert_eq!(
+        not_eph[0].constant_fields,
+        vec![wa_ir::NotifActionConstant {
+            name: "duration".into(),
+            value: wa_ir::NotifConstValue::Int(0),
+        }]
+    );
+    // `locked` renames too, and stamps a boolean constant.
+    let locked = of("locked");
+    assert_eq!(locked[0].action_type.as_deref(), Some("restrict"));
+    assert_eq!(
+        locked[0].constant_fields[0].value,
+        wa_ir::NotifConstValue::Bool(true)
+    );
+}
+
+#[test]
+fn group_action_arms_recover_fields_children_and_branches() {
+    let ir = extract_notif(GROUP_ACTIONS_BUNDLE, "2.3000.test");
+    let actions = group_actions(&ir);
+    let one = |tag: &str| {
+        actions
+            .iter()
+            .find(|a| a.wire_tag == tag)
+            .unwrap_or_else(|| panic!("no arm for {tag}"))
+    };
+    // A presence-guarded attr is optional; an unguarded one is required.
+    let add = one("add");
+    let reason = add
+        .fields
+        .iter()
+        .find(|f| f.name == "reason")
+        .expect("reason");
+    assert!(!reason.required, "hasAttr(…) ? … : null → optional");
+    // The participant list lives behind a module-local helper; it must still be
+    // recovered, with the per-participant fields.
+    let participants = add
+        .children
+        .iter()
+        .find(|c| c.name == "participants")
+        .expect("participants child");
+    assert_eq!(participants.wire_tag, "participant");
+    let names: Vec<&str> = participants
+        .fields
+        .iter()
+        .map(|f| f.name.as_str())
+        .collect();
+    assert_eq!(names, ["id", "displayName"]);
+    assert_eq!(
+        participants.fields[0].field_type,
+        wa_ir::ParsedFieldType::UserJid
+    );
+    // An inline (non-helper) mapped child works the same way.
+    assert_eq!(one("revoke").children[0].wire_tag, "participant");
+    // An arm that branches into two DIFFERENT actions yields two arms of the union,
+    // sharing the wire tag — not one arm with the first branch's shape.
+    let desc: Vec<_> = actions
+        .iter()
+        .filter(|a| a.wire_tag == "description")
+        .collect();
+    let types: Vec<&str> = desc
+        .iter()
+        .filter_map(|a| a.action_type.as_deref())
+        .collect();
+    assert_eq!(types, ["desc_remove", "desc_add"]);
+    // The `<body>` content read is flagged as content, with the tag as its wire name.
+    let body = desc[1]
+        .fields
+        .iter()
+        .find(|f| f.name == "desc")
+        .expect("desc");
+    assert!(body.content);
+    assert_eq!(body.wire_name, "body");
+}
+
+#[test]
+fn handler_without_a_const_keyed_switch_has_no_actions() {
+    // Most handlers forward straight to a parser; they must not sprout a phantom union.
+    let ir = extract_notif(GROUP_ACTIONS_BUNDLE, "2.3000.test");
+    for n in &ir.notifications {
+        if n.notif_type != "w:gp2" {
+            assert!(n.actions.is_empty(), "{} grew actions", n.notif_type);
+        }
+    }
+}
