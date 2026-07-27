@@ -1215,17 +1215,26 @@ fn with_lock_safe_file_names(payloads: Vec<wa_fetch::Bundle>) -> Vec<wa_fetch::B
                 .file_name()
                 .is_some_and(|n| n == preferred.as_str());
         let digest = wa_text::sha256_hex(b.url.as_bytes());
-        let mut name = if usable {
+        let base = if usable {
             preferred
         } else {
             // Unusable segment: a bounded, URL-derived name that is still a `.wasm` file.
             format!("{}.wasm", &digest[..16])
         };
-        if taken.contains(&name) {
-            // Two URLs, one segment: keep both by suffixing the URL digest.
-            let stem = name.trim_end_matches(".wasm").to_string();
-            let stem = &stem[..stem.len().min(MAX_NAME - 16)];
-            name = format!("{stem}-{}.wasm", &digest[..8]);
+
+        // Keep suffixing until the name is actually free. One pass is not enough: the
+        // digest-suffixed fallback could itself equal a name already assigned, and two lock
+        // entries sharing a file name is precisely what this function exists to prevent.
+        // Terminates — each attempt adds a distinct counter — and is deterministic, since
+        // the input is URL-ordered and every part derives from the URL.
+        let mut name = base.clone();
+        let mut attempt = 0u32;
+        while taken.contains(&name) {
+            attempt += 1;
+            let stem = truncate_on_char_boundary(base.trim_end_matches(".wasm"), MAX_NAME - 32);
+            name = format!("{stem}-{}-{attempt}.wasm", &digest[..8]);
+        }
+        if name != base {
             eprintln!(
                 "  {} shares its file name with another payload — storing it as {name}",
                 b.url
@@ -1236,6 +1245,24 @@ fn with_lock_safe_file_names(payloads: Vec<wa_fetch::Bundle>) -> Vec<wa_fetch::B
         out.push(b);
     }
     out
+}
+
+/// Longest prefix of `s` that fits in `max_bytes` without splitting a character.
+///
+/// The input is a URL path segment, so it is *usually* ASCII — but slicing one that isn't
+/// at a byte index would panic, and a payload name must never be able to crash a run.
+#[cfg(feature = "fetch")]
+fn truncate_on_char_boundary(s: &str, max_bytes: usize) -> &str {
+    if s.len() <= max_bytes {
+        return s;
+    }
+    let end = s
+        .char_indices()
+        .map(|(i, _)| i)
+        .take_while(|i| *i <= max_bytes)
+        .last()
+        .unwrap_or(0);
+    &s[..end]
 }
 
 /// `bx` id → URI inverted into URI → `bx` id, lowest id winning on a shared URI (the
@@ -2637,5 +2664,45 @@ mod tests {
             bytes: b"\0asm".to_vec(),
         }]);
         assert_eq!(named[0].file_name, "COs9e0Kj0ic.wasm");
+    }
+
+    #[cfg(feature = "fetch")]
+    #[test]
+    fn a_fallback_name_that_is_itself_taken_keeps_disambiguating() {
+        // The corner the single-pass version missed: the digest-suffixed fallback for one
+        // payload happens to be another payload's preferred name. Two lock entries sharing
+        // a file name is exactly what this function exists to prevent.
+        let url_a = "https://static.whatsapp.net/v4/ya/r/Same.wasm";
+        let url_b = "https://static.whatsapp.net/v4/yb/r/Same.wasm";
+        let digest_b = &wa_text::sha256_hex(url_b.as_bytes())[..8];
+        // A third payload whose *preferred* name is the fallback b would be given.
+        let squatter = format!("https://static.whatsapp.net/v4/yc/r/Same-{digest_b}-1.wasm");
+
+        let b = |url: &str| wa_fetch::Bundle {
+            file_name: wa_fetch::bundle_file_name(url),
+            url: url.to_string(),
+            bytes: b"\0asm".to_vec(),
+        };
+        let named = with_lock_safe_file_names(vec![b(url_a), b(&squatter), b(url_b)]);
+
+        let names: Vec<&str> = named.iter().map(|b| b.file_name.as_str()).collect();
+        assert_eq!(names.len(), 3);
+        assert_eq!(
+            names.iter().collect::<BTreeSet<_>>().len(),
+            3,
+            "all distinct even when the fallback was taken: {names:?}"
+        );
+        assert!(names.iter().all(|n| n.ends_with(".wasm") && n.len() <= 128));
+    }
+
+    #[test]
+    fn truncation_never_splits_a_character() {
+        // A non-ASCII segment must not panic the run.
+        assert_eq!(truncate_on_char_boundary("abcdef", 3), "abc");
+        assert_eq!(truncate_on_char_boundary("abc", 10), "abc");
+        let multi = "áéíóú";
+        let cut = truncate_on_char_boundary(multi, 3);
+        assert!(multi.starts_with(cut));
+        assert!(cut.len() <= 3, "{cut:?}");
     }
 }
