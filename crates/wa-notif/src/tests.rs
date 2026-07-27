@@ -637,8 +637,12 @@ __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGr
           return babelHelpers.extends({actionType:o("WAWebGroupType").GROUP_ACTIONS.EPHEMERAL, duration:t.attrInt("expiration"), code:t.attrString("code")||"none"}, w(t));
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.NOT_EPHEMERAL:
           return {actionType:o("WAWebGroupType").GROUP_ACTIONS.EPHEMERAL, duration:0};
-        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.MODIFY:
-          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.MODIFY, entries:q(t)};
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.MODIFY: {
+          var z = t.attrString("first");
+          if (t.hasChild("early")) return {actionType:o("WAWebGroupType").GROUP_ACTIONS.MODIFY, entries:q(t), pick:z};
+          var z = t.attrString("second");
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.RESTRICT, pick:z};
+        }
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.LOCKED: {
           var n;
           return {actionType:o("WAWebGroupType").GROUP_ACTIONS.RESTRICT, value:!0, threshold:(n=t.maybeAttrString("threshold"))!=null?n:void 0};
@@ -1014,4 +1018,28 @@ fn a_branching_mapped_child_callback_weakens_its_branch_only_fields() {
     let f = |name: &str| entries.fields.iter().find(|f| f.name == name);
     assert!(f("id").expect("id").required, "read by every branch");
     assert!(!f("extra").expect("extra").required, "read by one branch");
+}
+
+#[test]
+fn a_return_sees_only_the_bindings_that_ran_before_it() {
+    // `var z = attr("first"); if (c) return {pick:z}; var z = attr("second"); return
+    // {pick:z}` — hoisting moves the declaration, not the assignment, so the early return
+    // reads `first`. A scope built as a pre-pass over the whole statement list installs
+    // the later initializer first and reports both returns as reading `second`.
+    let ir = extract_notif(GROUP_ACTIONS_BUNDLE, "2.3000.test");
+    let pick = |action: &str| {
+        notif(&ir, "w:gp2")
+            .actions
+            .iter()
+            .filter(|a| a.wire_tag == "modify")
+            .find(|a| a.action_type.as_deref() == Some(action))
+            .and_then(|a| a.fields.iter().find(|f| f.name == "pick"))
+            .map(|f| f.wire_name.as_str())
+    };
+    assert_eq!(
+        pick("modify"),
+        Some("first"),
+        "the early return ran before the rebind"
+    );
+    assert_eq!(pick("restrict"), Some("second"));
 }

@@ -5,7 +5,7 @@
     "iq": {
       "candidateModules": 207,
       "constraints": {
-        "errorArms": 644,
+        "errorArms": 646,
         "errorTexts": 38,
         "fieldEnumRefs": 146,
         "fieldLiterals": 1782,
@@ -21,7 +21,7 @@
       "dropsByReason": {
         "iq builder substring present but no AST iq call": 5,
         "mixin fragment (folded into requests, not a standalone stanza)": 66,
-        "response enum argument not structurally resolvable": 10
+        "response enum argument not structurally resolvable": 33
       },
       "excludedFragments": 66,
       "stanzas": 143,
@@ -61,7 +61,7 @@
     "iq": {
       "file": "iq/index.json",
       "schema": "schema/iq.schema.json",
-      "sha256": "53b08756d574cee154f8a62517227ed2e556cd4cd34d5965acd52f37289e393b"
+      "sha256": "722709bdb6994e533b9eb8db37a35d8ee4dbe5d993b22bb64de945beaab08847"
     },
     "mex": {
       "file": "mex/index.json",

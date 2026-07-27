@@ -153,7 +153,7 @@ impl<'a> Resolver<'a> {
     /// attribute identically. `None` — never a guess — when the module isn't in the bundle,
     /// the export isn't a resolvable enum, or any variant value isn't a string (every
     /// stanza-attr enum is a wire-token enum).
-    fn resolve_enum(&self, module: &str, name: &str) -> Option<AttrEnumRef> {
+    fn resolve_enum(&self, module: &str, name: &str, occurrence: &str) -> Option<AttrEnumRef> {
         let key = (module.to_string(), name.to_string());
         // Count per OCCURRENCE, not per distinct enum: `dropsByReason` measures how much
         // constraint data was lost, and every other reason here is per-occurrence. A
@@ -161,7 +161,7 @@ impl<'a> Resolver<'a> {
         // the same unresolvable enum report N losses rather than one.
         if let Some(hit) = self.enum_cache.borrow().get(&key) {
             if hit.is_none() {
-                self.drop_note_keyed(ENUM_DROP, format!("{module}.{name}"));
+                self.drop_note_keyed(ENUM_DROP, format!("{module}.{name}@{occurrence}"));
             }
             return hit.clone();
         }
@@ -188,7 +188,7 @@ impl<'a> Resolver<'a> {
                 })
             });
         if resolved.is_none() {
-            self.drop_note_keyed(ENUM_DROP, format!("{module}.{name}"));
+            self.drop_note_keyed(ENUM_DROP, format!("{module}.{name}@{occurrence}"));
         }
         self.enum_cache.borrow_mut().insert(key, resolved.clone());
         resolved
@@ -963,21 +963,21 @@ fn enum_arg_ref(
     // is an identifier / `X.value`, the attr a string, and — in the `optional(ACC, …)`
     // form — the leading accessor ref is itself `o("WASmaxParseUtils").attrStringEnum`,
     // excluded by requiring a non-`WASmaxParse*` owner module).
+    // The wire attribute the accessor reads, as the occurrence discriminator: two fields
+    // validating against the same unresolvable enum are two lost constraints.
+    let occurrence = args
+        .iter()
+        .filter_map(arg_expr)
+        .find_map(as_string_lit)
+        .unwrap_or("<content>");
     let Some((module, name)) = args.iter().filter_map(arg_expr).find_map(module_member_ref) else {
         // An inline enum object, a local alias, or a `WASmaxParse*`-owned reference: the
         // accessor validates against SOMETHING we could not name. That is the exact
         // "a constraint existed and we lost it" case the counter exists for.
-        resolver.drop_note_keyed(
-            ENUM_DROP,
-            args.iter()
-                .filter_map(arg_expr)
-                .find_map(as_string_lit)
-                .unwrap_or("<unnamed>")
-                .to_string(),
-        );
+        resolver.drop_note_keyed(ENUM_DROP, format!("<unnamed>@{occurrence}"));
         return None;
     };
-    resolver.resolve_enum(&module, &name)
+    resolver.resolve_enum(&module, &name, occurrence)
 }
 
 /// `o("Mod").NAME` (a member reference, not a call) → `(Mod, NAME)`, excluding the
@@ -1478,6 +1478,10 @@ fn collect_object_fields(
                 required: true,
                 literal_value: underlying.and_then(binding_literal_value),
                 reference_path: underlying.and_then(binding_reference_path),
+                // The flag reports on an attribute of whatever node the underlying
+                // accessor read — `<list c_dhash>`, not the `<iq>` root. Dropping the
+                // path sends a consumer to apply the echo one level too high.
+                source_path: underlying.and_then(binding_source_path),
                 ..Default::default()
             });
             continue;
@@ -1803,6 +1807,14 @@ fn binding_wire_name(b: &Binding) -> Option<String> {
     match b {
         Binding::Field { wire_name, .. } => wire_name.clone(),
         Binding::Reference { path, .. } => path.last().cloned(),
+        _ => None,
+    }
+}
+
+/// The wrapper tags a binding descends before reading, when it reads off a child node.
+fn binding_source_path(b: &Binding) -> Option<Vec<String>> {
+    match b {
+        Binding::Field { source_path, .. } => source_path.clone(),
         _ => None,
     }
 }

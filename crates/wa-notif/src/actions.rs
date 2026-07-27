@@ -149,7 +149,7 @@ fn const_string_map(slice: &str, export: &str) -> Option<ConstMap> {
         exports: HashMap::new(),
     };
     collector.visit_program(&ret.program);
-    if let Some(direct) = collector.exports.get(export) {
+    if let Some(Some(direct)) = collector.exports.get(export) {
         return match direct {
             Export::Inline(map) => Some(map.clone()),
             Export::Local(name) => collector.locals.get(name).cloned().flatten(),
@@ -158,6 +158,7 @@ fn const_string_map(slice: &str, export: &str) -> Option<ConstMap> {
     None
 }
 
+#[derive(PartialEq)]
 enum Export {
     Inline(ConstMap),
     Local(String),
@@ -204,7 +205,9 @@ struct ConstCollector {
     /// or `actionType` values. Ambiguity therefore resolves to nothing, which shows up
     /// as a missing action rather than a silently wrong one.
     locals: HashMap<String, Option<ConstMap>>,
-    exports: HashMap<String, Export>,
+    /// `None` marks a property assigned differently through two factory parameters —
+    /// unresolvable rather than guessed.
+    exports: HashMap<String, Option<Export>>,
 }
 
 impl<'a> Visit<'a> for ConstCollector {
@@ -234,14 +237,26 @@ impl<'a> Visit<'a> for ConstCollector {
                 self.receivers.is_empty() || self.receivers.iter().any(|r| r == id.name.as_str())
             })
         {
-            if let Some(map) = string_const_object(&a.right) {
-                self.exports
-                    .entry(prop.to_string())
-                    .or_insert(Export::Inline(map));
-            } else if let Some(id) = as_identifier(&a.right) {
-                self.exports
-                    .entry(prop.to_string())
-                    .or_insert(Export::Local(id.to_string()));
+            // `factory_params` cannot tell the exports binding from the loader or the
+            // dependency map — WA spells the factory `(t,n,r,o,a,i,l)` and uses `l` in
+            // some modules and `i` in others. So rather than guess which parameter is
+            // the real one, a property assigned DIFFERENTLY through two of them is
+            // refused: the export resolves to nothing, and the failure is a missing
+            // action rather than a wire tag read out of an unrelated table.
+            let found = string_const_object(&a.right)
+                .map(Export::Inline)
+                .or_else(|| as_identifier(&a.right).map(|id| Export::Local(id.to_string())));
+            if let Some(export) = found {
+                match self.exports.entry(prop.to_string()) {
+                    std::collections::hash_map::Entry::Vacant(e) => {
+                        e.insert(Some(export));
+                    }
+                    std::collections::hash_map::Entry::Occupied(mut e) => {
+                        if e.get().as_ref() != Some(&export) {
+                            e.insert(None);
+                        }
+                    }
+                }
             }
         }
         walk::walk_assignment_expression(self, a);
@@ -526,22 +541,27 @@ fn collect_returns<'b, 'a>(
     outer: &Scope<'b, 'a>,
     out: &mut Vec<Shape<'b, 'a>>,
 ) {
-    // This level's declarations, layered over the enclosing ones. Built per branch on
-    // purpose: mutually exclusive branches routinely rebind the same minified name to
-    // DIFFERENT accessors, and a single flattened scope would make one branch's return
-    // read the other branch's attribute — a wrong `wireName`, not a missing field.
+    // Bindings accumulate in STATEMENT ORDER and each return snapshots what is in scope
+    // where it sits. A pre-pass over the whole list would install a later initializer
+    // before an earlier return: `var x = attr("a"); if (c) return {a:x}; var x =
+    // attr("b")` would report the first branch as reading `b`, an assignment that has
+    // not run. Hoisting moves the declaration, not the assignment.
+    //
+    // Scopes are also per branch, because mutually exclusive branches routinely rebind
+    // the same minified name to different accessors, and one flattened scope would make
+    // one branch's return read the other branch's attribute — a wrong `wireName` rather
+    // than a missing field.
     let mut scope = outer.clone();
     for s in stmts {
-        if let Statement::VariableDeclaration(decl) = s {
-            for d in &decl.declarations {
-                if let (Some(name), Some(init)) = (d.id.get_identifier_name(), d.init.as_ref()) {
-                    scope.insert(name.as_str(), init);
+        match s {
+            Statement::VariableDeclaration(decl) => {
+                for d in &decl.declarations {
+                    if let (Some(name), Some(init)) = (d.id.get_identifier_name(), d.init.as_ref())
+                    {
+                        scope.insert(name.as_str(), init);
+                    }
                 }
             }
-        }
-    }
-    for s in stmts {
-        match s {
             Statement::ReturnStatement(r) => {
                 if let Some(arg) = r.argument.as_ref() {
                     let mut branches = Vec::new();

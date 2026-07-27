@@ -356,8 +356,13 @@ fn collect_error_arms(fields: &[ParsedField], out: &mut Vec<ErrorArm>) -> bool {
     collect_union_arms(fields, out, &mut found_union);
     if !found_union {
         // No disjunction: the variant parses one `<error>` shape, so its pins are one arm.
+        // An arm with NO pins is still information when the parser reads `code`/`text` at
+        // all — it says "one accepted shape, unconstrained", which is a different claim
+        // from "no vocabulary extracted". `CreateCustomPaymentMethodResponseIQErrorWithCodeAndReason`
+        // and `RemoveCustomPaymentMethodResponseError` are that shape, and dropping their
+        // arm made an unrestricted error indistinguishable from a failed extraction.
         let arm = arm_pins(fields);
-        if arm != ErrorArm::default() {
+        if arm != ErrorArm::default() || reads_error_fields(fields) {
             out.push(arm);
         }
     }
@@ -398,6 +403,14 @@ fn collect_union_arms(fields: &[ParsedField], out: &mut Vec<ErrorArm>, found: &m
             collect_union_arms(children, out, found);
         }
     }
+}
+
+/// Whether the parser reads an `<error>` `code`/`text` at all, pinned or not.
+fn reads_error_fields(fields: &[ParsedField]) -> bool {
+    fields.iter().any(|f| {
+        matches!(f.wire_name.as_deref().unwrap_or(&f.name), "code" | "text")
+            || f.children.as_deref().is_some_and(reads_error_fields)
+    })
 }
 
 /// The `code`/`text` pins of one error shape, scanning its whole field subtree but not

@@ -2534,6 +2534,9 @@
                 "referencePath": [
                   "item",
                   "dhash"
+                ],
+                "sourcePath": [
+                  "list"
                 ]
               },
               {
@@ -2653,6 +2656,9 @@
                 "referencePath": [
                   "item",
                   "dhash"
+                ],
+                "sourcePath": [
+                  "list"
                 ]
               },
               {
@@ -2866,6 +2872,9 @@
                 "referencePath": [
                   "item",
                   "dhash"
+                ],
+                "sourcePath": [
+                  "list"
                 ]
               },
               {
@@ -33408,6 +33417,9 @@
                 "referencePath": [
                   "item",
                   "dhash"
+                ],
+                "sourcePath": [
+                  "list"
                 ]
               },
               {
@@ -90705,6 +90717,9 @@
             "tag": "CreateCustomPaymentMethodResponseIQErrorWithCodeAndReason",
             "moduleName": "WASmaxInBrPaymentCreateCustomPaymentMethodResponseIQErrorWithCodeAndReason",
             "kind": "error",
+            "errorArms": [
+              {}
+            ],
             "assertions": [
               {
                 "kind": "tag",
@@ -94819,6 +94834,9 @@
             "tag": "RemoveCustomPaymentMethodResponseError",
             "moduleName": "WASmaxInBrPaymentRemoveCustomPaymentMethodResponseError",
             "kind": "error",
+            "errorArms": [
+              {}
+            ],
             "assertions": [
               {
                 "kind": "tag",
