@@ -856,7 +856,14 @@ fn iq_constraint_counts(ir: &wa_ir::IqIr) -> IqConstraintCounts {
     let mut texts = std::collections::BTreeSet::new();
     for s in &ir.stanzas {
         c.reference_constraints += count_references(&s.response.assertions);
-        walk_fields(&s.response.fields, &mut c);
+        // `response.fields` is a CLONE of the primary success variant's fields whenever
+        // `variants` is non-empty (see `response_index::build_pass`), so walking both
+        // would count that shape's constraints twice — and only for the 97 stanzas that
+        // have variants, making the inflation non-uniform and the totals simply wrong.
+        // Walk it directly only for the Pass-2 fallback shape, which has no variants.
+        if s.response.variants.is_empty() {
+            walk_fields(&s.response.fields, &mut c);
+        }
         for v in &s.response.variants {
             c.reference_constraints += count_references(&v.assertions);
             if v.error_class.is_some() {

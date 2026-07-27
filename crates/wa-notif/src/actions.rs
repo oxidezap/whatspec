@@ -102,7 +102,7 @@ fn const_string_map(slice: &str, export: &str) -> Option<ConstMap> {
     if let Some(direct) = collector.exports.get(export) {
         return match direct {
             Export::Inline(map) => Some(map.clone()),
-            Export::Local(name) => collector.locals.get(name).cloned(),
+            Export::Local(name) => collector.locals.get(name).cloned().flatten(),
         };
     }
     None
@@ -114,7 +114,13 @@ enum Export {
 }
 
 struct ConstCollector {
-    locals: HashMap<String, ConstMap>,
+    /// Local name → its all-string object, or `None` when the same minified name is
+    /// bound to **different** objects in the module. The minifier reuses short
+    /// identifiers aggressively across nested scopes, so a module-wide "last one wins"
+    /// map could resolve an export to an unrelated nested table and mint wrong wire tags
+    /// or `actionType` values. Ambiguity therefore resolves to nothing, which shows up
+    /// as a missing action rather than a silently wrong one.
+    locals: HashMap<String, Option<ConstMap>>,
     exports: HashMap<String, Export>,
 }
 
@@ -123,7 +129,17 @@ impl<'a> Visit<'a> for ConstCollector {
         if let Some(name) = d.id.get_identifier_name()
             && let Some(map) = d.init.as_ref().and_then(string_const_object)
         {
-            self.locals.insert(name.to_string(), map);
+            match self.locals.entry(name.to_string()) {
+                std::collections::hash_map::Entry::Vacant(e) => {
+                    e.insert(Some(map));
+                }
+                std::collections::hash_map::Entry::Occupied(mut e) => {
+                    // A second, different binding of the same name makes it ambiguous.
+                    if e.get().as_ref() != Some(&map) {
+                        e.insert(None);
+                    }
+                }
+            }
         }
         walk::walk_variable_declarator(self, d);
     }
@@ -313,6 +329,14 @@ fn empty_action(wire_tag: String) -> NotifActionDef {
 /// is present, and required only if BOTH read it unconditionally. A constant only one
 /// branch stamps is dropped — it is not a property of the action, only of that branch.
 fn merge_action(into: &mut NotifActionDef, from: NotifActionDef) {
+    // A field the incoming branch does not read at all is, by definition, absent from
+    // one legal shape of this action — so it cannot stay required just because the
+    // first branch read it unconditionally. Weaken those before folding the rest in.
+    for existing in into.fields.iter_mut() {
+        if !from.fields.iter().any(|f| f.name == existing.name) {
+            existing.required = false;
+        }
+    }
     for f in from.fields {
         match into.fields.iter_mut().find(|x| x.name == f.name) {
             Some(existing) => existing.required &= f.required,
@@ -339,14 +363,36 @@ fn arm_result_shapes<'b, 'a>(consequent: &'b [Statement<'a>]) -> Vec<&'b Express
         other => other,
     };
     let mut out = Vec::new();
+    collect_returns(stmts, &mut out);
+    out
+}
+
+/// Every `return` reachable in `stmts`, descending through control flow (`if`/`else`,
+/// blocks, `try`) but never into a nested function or a nested `switch` — an arm or helper that
+/// writes `if (cond) return {actionType: A, …}; return {actionType: B, …}` exposes both
+/// shapes, where a direct-children-only scan would silently keep just the last.
+fn collect_returns<'b, 'a>(stmts: &'b [Statement<'a>], out: &mut Vec<&'b Expression<'a>>) {
     for s in stmts {
-        if let Statement::ReturnStatement(r) = s
-            && let Some(arg) = r.argument.as_ref()
-        {
-            collect_branches(arg, &mut out);
+        match s {
+            Statement::ReturnStatement(r) => {
+                if let Some(arg) = r.argument.as_ref() {
+                    collect_branches(arg, out);
+                }
+            }
+            Statement::BlockStatement(b) => collect_returns(&b.body, out),
+            Statement::IfStatement(i) => {
+                collect_returns(std::slice::from_ref(&i.consequent), out);
+                if let Some(alt) = &i.alternate {
+                    collect_returns(std::slice::from_ref(alt), out);
+                }
+            }
+            Statement::TryStatement(t) => collect_returns(&t.block.body, out),
+            // Deliberately NOT descending into a nested `switch`: that is a different
+            // dispatch level, and its arms are other actions' shapes, not branches of
+            // this one.
+            _ => {}
         }
     }
-    out
 }
 
 fn collect_branches<'b, 'a>(e: &'b Expression<'a>, out: &mut Vec<&'b Expression<'a>>) {
@@ -660,6 +706,24 @@ fn find_accessor<'b, 'a>(
     e: &'b Expression<'a>,
     scope: &Scope<'b, 'a>,
 ) -> Option<(String, String, bool)> {
+    find_accessor_at(e, scope, 0)
+}
+
+/// How deep the wrapper-call descent goes. Bounded like every other descent in this
+/// module: mutually referential minified bindings (`var a = g(b), b = g(a)` — legal JS,
+/// and the minifier reuses short names aggressively) would otherwise cycle through
+/// `deref_ident` and blow the stack, turning a bundle shape into a hard crash of the
+/// generator instead of a field that simply isn't recovered.
+const MAX_ACCESSOR_DEPTH: u8 = 8;
+
+fn find_accessor_at<'b, 'a>(
+    e: &'b Expression<'a>,
+    scope: &Scope<'b, 'a>,
+    depth: u8,
+) -> Option<(String, String, bool)> {
+    if depth > MAX_ACCESSOR_DEPTH {
+        return None;
+    }
     let call = as_call(deref_ident(e, scope))?;
     if let Some(method) = callee_method(call) {
         let arg0 = call.arguments.first().and_then(arg_expr);
@@ -675,7 +739,12 @@ fn find_accessor<'b, 'a>(
             method,
             wap::CONTENT_STRING | wap::CONTENT_INT | wap::CONTENT_BYTES
         ) {
+            // The receiver is often hoisted (`var body = child.child("body"); … body
+            // .contentString()`), so it must be dereferenced through the scope first —
+            // otherwise the wire name comes out empty and a consumer cannot tell content
+            // read from a nested child apart from content read on the action node.
             let tag = wa_oxc::callee_object(call)
+                .map(|obj| deref_ident(obj, scope))
                 .and_then(as_call)
                 .and_then(|inner| inner.arguments.first().and_then(arg_expr))
                 .and_then(as_string_lit)
@@ -687,7 +756,7 @@ fn find_accessor<'b, 'a>(
     call.arguments
         .iter()
         .filter_map(arg_expr)
-        .find_map(|a| find_accessor(a, scope))
+        .find_map(|a| find_accessor_at(a, scope, depth + 1))
 }
 
 /// Whether `method` is a wap accessor that reads a named wire attribute. Keyed on the

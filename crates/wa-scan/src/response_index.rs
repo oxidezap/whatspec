@@ -14,7 +14,6 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use wa_ir::{
     ErrorClass, ParsedField, ParsedFieldType, ParsedResponse, ResponseVariant, ResponseVariantKind,
-    UnionVariant,
 };
 
 use crate::response_smax::{Resolved, Resolver, analyze_module_exports, scan_cascade_variants};
@@ -136,15 +135,23 @@ pub(crate) fn build_pass(defs: &[ModuleDefinition], source: &str) -> ResponseInd
             let assertions = resolver.assertions(&module, &func);
             // The per-RPC error vocabulary: which `<error code/text>` pairs THIS RPC's
             // error arm accepts. It is a closed set and it differs per RPC, so it can
-            // only be read off the arm's own error disjunction.
-            let vocab = error_vocabulary(&fields);
+            // only be read off the arm's own error arm.
+            //
+            // Gated on the variant kind, and not merely used to gate `error_class`: a
+            // SUCCESS payload can legitimately nest a union whose variant pins a `code`
+            // or `text` field for unrelated reasons (three PreKeys success variants do),
+            // and reporting that as an accepted error vocabulary contradicts the
+            // per-error-arm meaning documented on `ResponseVariant`.
+            let vocab = if kind == ResponseVariantKind::Error {
+                error_vocabulary(&fields)
+            } else {
+                ErrorVocabulary::default()
+            };
             variants.push(ResponseVariant {
                 tag,
                 module_name: module,
                 kind,
-                error_class: (kind == ResponseVariantKind::Error)
-                    .then(|| vocab.class())
-                    .flatten(),
+                error_class: vocab.class(),
                 error_codes: vocab.codes,
                 error_texts: vocab.texts,
                 error_code_min: vocab.code_min,
@@ -236,15 +243,21 @@ impl ErrorVocabulary {
     }
 }
 
-/// Collect the `<error>` vocabulary from a variant's resolved fields.
+/// Collect the `<error>` vocabulary from an error variant's resolved fields.
 ///
-/// An error variant's payload is an `errorXxxErrors` union field whose alternatives are
-/// the per-namespace error mixins; each mixin pins its own `text`/`code`
+/// The usual shape is an `errorXxxErrors` union field whose alternatives are the
+/// per-namespace error mixins, each pinning its own `text`/`code`
 /// (`literal(attrString, e, "text", "rate-overlimit")` + `literal(attrInt, e, "code",
 /// 429)`), except the fallback arms, which range-check the code instead
-/// (`attrIntRange(e, "code", 500, 599)`). Both forms are already carried on the fields
-/// (as `literal_value` / `int_min`+`int_max`), so this reads them back rather than
-/// re-parsing the bundle.
+/// (`attrIntRange(e, "code", 500, 599)`).
+///
+/// But a good number of RPCs skip the disjunction and parse a single `<error>` child
+/// directly — `SetResponseConflict` pins `409`/`conflict` as plain nested fields, and
+/// `GetAccessTokenAndSessionCookiesResponseTooManyAttempts` pins `431` the same way. So
+/// the `code`/`text` reading is applied to EVERY traversed field, not only to fields
+/// inside a `UnionVariant`; restricting it to unions silently emptied the vocabulary of
+/// 29 error variants. Both forms are already carried on the fields (as `literal_value` /
+/// `int_min`+`int_max`), so this reads them back rather than re-parsing the bundle.
 fn error_vocabulary(fields: &[ParsedField]) -> ErrorVocabulary {
     let mut v = ErrorVocabulary::default();
     collect_error_vocabulary(fields, &mut v);
@@ -257,42 +270,35 @@ fn error_vocabulary(fields: &[ParsedField]) -> ErrorVocabulary {
 
 fn collect_error_vocabulary(fields: &[ParsedField], out: &mut ErrorVocabulary) {
     for f in fields {
-        if let Some(variants) = &f.union_variants {
-            for uv in variants {
-                collect_variant_vocabulary(uv, out);
-            }
-        }
+        read_error_pin(f, out);
         if let Some(children) = &f.children {
             collect_error_vocabulary(children, out);
+        }
+        for uv in f.union_variants.iter().flatten() {
+            collect_error_vocabulary(&uv.fields, out);
         }
     }
 }
 
-fn collect_variant_vocabulary(uv: &UnionVariant, out: &mut ErrorVocabulary) {
-    for f in &uv.fields {
-        match (f.wire_name.as_deref().unwrap_or(&f.name), &f.literal_value) {
-            ("code", Some(lit)) => {
-                if let Ok(code) = lit.parse::<i64>() {
-                    out.codes.push(code);
-                }
-            }
-            ("text", Some(lit)) => out.texts.push(lit.clone()),
-            // A fallback arm accepts any text within a code RANGE (400–499 / 500–599),
-            // which no enumeration of exact codes can express.
-            ("code", None) => {
-                if let (Some(min), Some(max)) = (f.int_min, f.int_max) {
-                    out.code_min = Some(out.code_min.map_or(min, |cur: i64| cur.min(min)));
-                    out.code_max = Some(out.code_max.map_or(max, |cur: i64| cur.max(max)));
-                }
-            }
-            _ => {}
-        }
-        // A variant that nests a further disjunction (union-of-unions).
-        if let Some(nested) = &f.union_variants {
-            for inner in nested {
-                collect_variant_vocabulary(inner, out);
+/// Read one field's contribution to the vocabulary, if it is the `<error>` `code` or
+/// `text`.
+fn read_error_pin(f: &ParsedField, out: &mut ErrorVocabulary) {
+    match (f.wire_name.as_deref().unwrap_or(&f.name), &f.literal_value) {
+        ("code", Some(lit)) => {
+            if let Ok(code) = lit.parse::<i64>() {
+                out.codes.push(code);
             }
         }
+        ("text", Some(lit)) => out.texts.push(lit.clone()),
+        // A fallback arm accepts any text within a code RANGE (400–499 / 500–599),
+        // which no enumeration of exact codes can express.
+        ("code", None) => {
+            if let (Some(min), Some(max)) = (f.int_min, f.int_max) {
+                out.code_min = Some(out.code_min.map_or(min, |cur: i64| cur.min(min)));
+                out.code_max = Some(out.code_max.map_or(max, |cur: i64| cur.max(max)));
+            }
+        }
+        _ => {}
     }
 }
 

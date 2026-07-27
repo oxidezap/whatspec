@@ -2457,6 +2457,7 @@
         },
         {
           "wireTag": "unlink",
+          "actionType": "delete_parent_group_unlink",
           "children": [
             {
               "name": "groupDatas",
@@ -2656,7 +2657,7 @@
             },
             {
               "name": "subject",
-              "wireName": "",
+              "wireName": "subject",
               "type": "string",
               "required": true,
               "content": true

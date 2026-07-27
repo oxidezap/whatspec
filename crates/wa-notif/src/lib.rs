@@ -130,13 +130,32 @@ pub fn extract_notif_from_modules(
     // carries a whole second union inside it (`w:gp2`'s 40+ group actions). Resolved
     // against the full module index, since both the case labels and the `actionType`
     // values are `Module.CONST.MEMBER` references defined elsewhere.
+    // The union is located per MODULE, not per handler function: the switch does not
+    // live in the exported handler at all — `handleGroupNotification` builds a
+    // `WADeprecatedWapParser` around a sibling local, and the child-tag switch is inside
+    // that local. Scoping discovery to the handler's own body would therefore find
+    // nothing and lose the whole `w:gp2` union.
+    //
+    // The cost of module scope is that a module hosting two handlers with two different
+    // child-tag switches would hand the larger union to both of its notification types.
+    // No module serves more than one type today, so rather than guess at which switch
+    // belongs to which handler, a shared module is left without actions — an omission a
+    // consumer can see, instead of an action union silently attributed to the wrong type.
+    let mut types_per_module: HashMap<String, usize> = HashMap::new();
+    for n in &dispatch.notifications {
+        if let Some(m) = n.handler_module.clone() {
+            *types_per_module.entry(m).or_default() += 1;
+        }
+    }
     let consts = actions::ConstResolver::new(&slice_by_name);
     for n in &mut dispatch.notifications {
-        let Some(slice) = n
-            .handler_module
-            .as_deref()
-            .and_then(|m| slice_by_name.get(m))
-        else {
+        let Some(module) = n.handler_module.as_deref() else {
+            continue;
+        };
+        if types_per_module.get(module).copied().unwrap_or(0) > 1 {
+            continue;
+        }
+        let Some(slice) = slice_by_name.get(module) else {
             continue;
         };
         if let Some(found) = actions::extract_actions(slice, &consts) {

@@ -570,17 +570,26 @@ __d("WASmaxInCoexistenceOffboardingNotificationRequest",["WAResultOrError","WASm
 /// Reproduces every shape the real one uses — a many-to-one normalisation, a rebound
 /// field name, a constant-only arm, a repeated sub-element, and a two-outcome ternary.
 const GROUP_ACTIONS_BUNDLE: &str = r#"
-__d("WAWebCommsHandleLoggedInStanza",["WAWebHandleGroupNotification"],function(g,r,d,o,e,i,l){
+__d("WAWebCommsHandleLoggedInStanza",["WAWebHandleGroupNotification","WAWebHandleDeviceNotification"],function(g,r,d,o,e,i,l){
   l.handle = function(){ return (function*(e,t){
     var n = e.attrs;
     switch (e.tag) {
       case "notification":
         switch (n.type) {
           case "w:gp2": return yield r("WAWebHandleGroupNotification")(e);
+          case "devices": return yield o("WAWebHandleDeviceNotification").handleDevicesNotification(e);
         }
     }
   }); };
 }, 1);
+__d("WAWebHandleDeviceNotification",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+  var p = new (n("WADeprecatedWapParser"))("incomingDevicesNotification", function(e){
+    e.assertTag("notification"); e.assertAttr("type","devices");
+    return { id: e.attrString("id") };
+  });
+  function h(e){ return p.parse(e); }
+  l.handleDevicesNotification = h;
+}), 1);
 __d("WAWebHandleGroupNotificationConst",[],(function(t,n,r,o,a,i,l){
   var e=Object.freeze({ADD:"add",SUBJECT:"subject",EPHEMERAL:"ephemeral",NOT_EPHEMERAL:"not_ephemeral",LOCKED:"locked",REVOKE_INVITE:"revoke",DESC:"description"});
   l.GROUP_NOTIFICATION_TAG=e;
@@ -731,8 +740,21 @@ fn group_action_arms_recover_fields_children_and_branches() {
 
 #[test]
 fn handler_without_a_const_keyed_switch_has_no_actions() {
-    // Most handlers forward straight to a parser; they must not sprout a phantom union.
+    // Most handlers forward straight to a `WADeprecatedWapParser` and carry no action
+    // union; they must not sprout a phantom one. The fixture dispatches `devices`
+    // alongside `w:gp2` precisely so this assertion actually runs — with only `w:gp2` in
+    // the bundle the loop body would never execute and the property would go untested.
     let ir = extract_notif(GROUP_ACTIONS_BUNDLE, "2.3000.test");
+    let others: Vec<&str> = ir
+        .notifications
+        .iter()
+        .filter(|n| n.notif_type != "w:gp2")
+        .map(|n| n.notif_type.as_str())
+        .collect();
+    assert!(
+        others.contains(&"devices"),
+        "fixture must dispatch a second, action-less type or this test is vacuous"
+    );
     for n in &ir.notifications {
         if n.notif_type != "w:gp2" {
             assert!(n.actions.is_empty(), "{} grew actions", n.notif_type);

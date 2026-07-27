@@ -579,6 +579,13 @@
             "tag": "GetExperimentConfigResponseErrorRetry",
             "moduleName": "WASmaxInAbPropsGetExperimentConfigResponseErrorRetry",
             "kind": "error",
+            "errorClass": "server",
+            "errorCodes": [
+              500
+            ],
+            "errorTexts": [
+              "internal-server-error"
+            ],
             "assertions": [
               {
                 "kind": "tag",
@@ -1109,6 +1116,13 @@
             "tag": "GetGroupExperimentConfigResponseErrorRetry",
             "moduleName": "WASmaxInAbPropsGetGroupExperimentConfigResponseErrorRetry",
             "kind": "error",
+            "errorClass": "server",
+            "errorCodes": [
+              500
+            ],
+            "errorTexts": [
+              "internal-server-error"
+            ],
             "assertions": [
               {
                 "kind": "tag",
@@ -2504,7 +2518,11 @@
                 "name": "hasListCDhash",
                 "wireName": "c_dhash",
                 "type": "bool",
-                "required": true
+                "required": true,
+                "referencePath": [
+                  "item",
+                  "dhash"
+                ]
               },
               {
                 "method": "attrString",
@@ -2619,7 +2637,11 @@
                 "name": "hasListCDhash",
                 "wireName": "c_dhash",
                 "type": "bool",
-                "required": true
+                "required": true,
+                "referencePath": [
+                  "item",
+                  "dhash"
+                ]
               },
               {
                 "method": "attrString",
@@ -2828,7 +2850,11 @@
                 "name": "hasListCDhash",
                 "wireName": "c_dhash",
                 "type": "bool",
-                "required": true
+                "required": true,
+                "referencePath": [
+                  "item",
+                  "dhash"
+                ]
               },
               {
                 "method": "attrString",
@@ -5125,11 +5151,6 @@
             "tag": "FetchKeyBundlesResponseSuccess",
             "moduleName": "WASmaxInPreKeysFetchKeyBundlesResponseSuccess",
             "kind": "success",
-            "errorCodes": [
-              500
-            ],
-            "errorCodeMin": 500,
-            "errorCodeMax": 599,
             "assertions": [
               {
                 "kind": "tag",
@@ -6329,11 +6350,6 @@
             "tag": "FetchMissingPreKeysResponseSuccess",
             "moduleName": "WASmaxInPreKeysFetchMissingPreKeysResponseSuccess",
             "kind": "success",
-            "errorCodes": [
-              500
-            ],
-            "errorCodeMin": 500,
-            "errorCodeMax": 599,
             "assertions": [
               {
                 "kind": "tag",
@@ -8143,11 +8159,6 @@
             "tag": "SetResponsePreKeySuccessVnameFailure",
             "moduleName": "WASmaxInPreKeysSetResponsePreKeySuccessVnameFailure",
             "kind": "success",
-            "errorTexts": [
-              "bad-request",
-              "internal-server-error",
-              "not-acceptable"
-            ],
             "assertions": [
               {
                 "kind": "tag",
@@ -9084,6 +9095,13 @@
             "tag": "GetAccessTokenAndSessionCookiesResponseTooManyAttempts",
             "moduleName": "WASmaxInBizCtwaAdAccountGetAccessTokenAndSessionCookiesResponseTooManyAttempts",
             "kind": "error",
+            "errorClass": "client",
+            "errorCodes": [
+              431
+            ],
+            "errorTexts": [
+              "TOO_MANY_ATTEMPTS"
+            ],
             "assertions": [
               {
                 "kind": "tag",
@@ -9153,6 +9171,13 @@
             "tag": "GetAccessTokenAndSessionCookiesResponseIncorrectNonce",
             "moduleName": "WASmaxInBizCtwaAdAccountGetAccessTokenAndSessionCookiesResponseIncorrectNonce",
             "kind": "error",
+            "errorClass": "client",
+            "errorCodes": [
+              432
+            ],
+            "errorTexts": [
+              "INCORRECT_NONCE"
+            ],
             "assertions": [
               {
                 "kind": "tag",
@@ -10781,6 +10806,13 @@
             "tag": "GetLinkedAccountsResponseForbidden",
             "moduleName": "WASmaxInBizLinkingGetLinkedAccountsResponseForbidden",
             "kind": "error",
+            "errorClass": "client",
+            "errorCodes": [
+              403
+            ],
+            "errorTexts": [
+              "forbidden"
+            ],
             "assertions": [
               {
                 "kind": "tag",
@@ -10854,6 +10886,13 @@
             "tag": "GetLinkedAccountsResponseError",
             "moduleName": "WASmaxInBizLinkingGetLinkedAccountsResponseError",
             "kind": "error",
+            "errorClass": "server",
+            "errorCodes": [
+              500
+            ],
+            "errorTexts": [
+              "internal-server-error"
+            ],
             "assertions": [
               {
                 "kind": "tag",
@@ -12920,6 +12959,13 @@
             "tag": "GetPasskeyRequestOptionsResponseError",
             "moduleName": "WASmaxInMdGetPasskeyRequestOptionsResponseError",
             "kind": "error",
+            "errorClass": "server",
+            "errorCodes": [
+              500
+            ],
+            "errorTexts": [
+              "internal-server-error"
+            ],
             "assertions": [
               {
                 "kind": "tag",
@@ -19626,6 +19672,21 @@
             "tag": "GetNewsletterMessageUpdatesResponseClientError",
             "moduleName": "WASmaxInNewslettersGetNewsletterMessageUpdatesResponseClientError",
             "kind": "error",
+            "errorClass": "client",
+            "errorCodes": [
+              400,
+              404,
+              423,
+              429,
+              451
+            ],
+            "errorTexts": [
+              "bad-request",
+              "features-disabled",
+              "item-not-found",
+              "locked",
+              "rate-overlimit"
+            ],
             "assertions": [
               {
                 "kind": "tag",
@@ -19967,6 +20028,13 @@
             "tag": "GetNewsletterMessageUpdatesResponseServerError",
             "moduleName": "WASmaxInNewslettersGetNewsletterMessageUpdatesResponseServerError",
             "kind": "error",
+            "errorClass": "server",
+            "errorCodes": [
+              500
+            ],
+            "errorTexts": [
+              "internal-server-error"
+            ],
             "assertions": [
               {
                 "kind": "tag",
@@ -25633,6 +25701,23 @@
             "tag": "GetNewsletterMessagesResponseClientError",
             "moduleName": "WASmaxInNewslettersGetNewsletterMessagesResponseClientError",
             "kind": "error",
+            "errorClass": "client",
+            "errorCodes": [
+              400,
+              404,
+              405,
+              423,
+              429,
+              451
+            ],
+            "errorTexts": [
+              "bad-request",
+              "features-disabled",
+              "item-not-found",
+              "locked",
+              "not-allowed",
+              "rate-overlimit"
+            ],
             "assertions": [
               {
                 "kind": "tag",
@@ -26038,6 +26123,13 @@
             "tag": "GetNewsletterMessagesResponseServerError",
             "moduleName": "WASmaxInNewslettersGetNewsletterMessagesResponseServerError",
             "kind": "error",
+            "errorClass": "server",
+            "errorCodes": [
+              500
+            ],
+            "errorTexts": [
+              "internal-server-error"
+            ],
             "assertions": [
               {
                 "kind": "tag",
@@ -26532,6 +26624,23 @@
             "tag": "GetNewsletterResponsesResponseClientError",
             "moduleName": "WASmaxInNewslettersGetNewsletterResponsesResponseClientError",
             "kind": "error",
+            "errorClass": "client",
+            "errorCodes": [
+              400,
+              401,
+              404,
+              405,
+              423,
+              429
+            ],
+            "errorTexts": [
+              "bad-request",
+              "item-not-found",
+              "locked",
+              "not-allowed",
+              "not-authorized",
+              "rate-overlimit"
+            ],
             "assertions": [
               {
                 "kind": "tag",
@@ -26937,6 +27046,13 @@
             "tag": "GetNewsletterResponsesResponseServerError",
             "moduleName": "WASmaxInNewslettersGetNewsletterResponsesResponseServerError",
             "kind": "error",
+            "errorClass": "server",
+            "errorCodes": [
+              500
+            ],
+            "errorTexts": [
+              "internal-server-error"
+            ],
             "assertions": [
               {
                 "kind": "tag",
@@ -28146,6 +28262,21 @@
             "tag": "GetNewsletterStatusUpdatesResponseClientError",
             "moduleName": "WASmaxInNewslettersGetNewsletterStatusUpdatesResponseClientError",
             "kind": "error",
+            "errorClass": "client",
+            "errorCodes": [
+              400,
+              404,
+              423,
+              429,
+              451
+            ],
+            "errorTexts": [
+              "bad-request",
+              "features-disabled",
+              "item-not-found",
+              "locked",
+              "rate-overlimit"
+            ],
             "assertions": [
               {
                 "kind": "tag",
@@ -28487,6 +28618,13 @@
             "tag": "GetNewsletterStatusUpdatesResponseServerError",
             "moduleName": "WASmaxInNewslettersGetNewsletterStatusUpdatesResponseServerError",
             "kind": "error",
+            "errorClass": "server",
+            "errorCodes": [
+              500
+            ],
+            "errorTexts": [
+              "internal-server-error"
+            ],
             "assertions": [
               {
                 "kind": "tag",
@@ -29761,6 +29899,23 @@
             "tag": "GetNewsletterStatusesResponseClientError",
             "moduleName": "WASmaxInNewslettersGetNewsletterStatusesResponseClientError",
             "kind": "error",
+            "errorClass": "client",
+            "errorCodes": [
+              400,
+              404,
+              405,
+              423,
+              429,
+              451
+            ],
+            "errorTexts": [
+              "bad-request",
+              "features-disabled",
+              "item-not-found",
+              "locked",
+              "not-allowed",
+              "rate-overlimit"
+            ],
             "assertions": [
               {
                 "kind": "tag",
@@ -30166,6 +30321,13 @@
             "tag": "GetNewsletterStatusesResponseServerError",
             "moduleName": "WASmaxInNewslettersGetNewsletterStatusesResponseServerError",
             "kind": "error",
+            "errorClass": "server",
+            "errorCodes": [
+              500
+            ],
+            "errorTexts": [
+              "internal-server-error"
+            ],
             "assertions": [
               {
                 "kind": "tag",
@@ -30537,6 +30699,19 @@
             "tag": "MyAddOnsResponseClientError",
             "moduleName": "WASmaxInNewslettersMyAddOnsResponseClientError",
             "kind": "error",
+            "errorClass": "client",
+            "errorCodes": [
+              400,
+              401,
+              404,
+              429
+            ],
+            "errorTexts": [
+              "bad-request",
+              "item-not-found",
+              "not-authorized",
+              "rate-overlimit"
+            ],
             "assertions": [
               {
                 "kind": "tag",
@@ -30814,6 +30989,13 @@
             "tag": "MyAddOnsResponseServerError",
             "moduleName": "WASmaxInNewslettersMyAddOnsResponseServerError",
             "kind": "error",
+            "errorClass": "server",
+            "errorCodes": [
+              500
+            ],
+            "errorTexts": [
+              "internal-server-error"
+            ],
             "assertions": [
               {
                 "kind": "tag",
@@ -31135,6 +31317,19 @@
             "tag": "StatusMyAddOnsResponseClientError",
             "moduleName": "WASmaxInNewslettersStatusMyAddOnsResponseClientError",
             "kind": "error",
+            "errorClass": "client",
+            "errorCodes": [
+              400,
+              401,
+              404,
+              429
+            ],
+            "errorTexts": [
+              "bad-request",
+              "item-not-found",
+              "not-authorized",
+              "rate-overlimit"
+            ],
             "assertions": [
               {
                 "kind": "tag",
@@ -31412,6 +31607,13 @@
             "tag": "StatusMyAddOnsResponseServerError",
             "moduleName": "WASmaxInNewslettersStatusMyAddOnsResponseServerError",
             "kind": "error",
+            "errorClass": "server",
+            "errorCodes": [
+              500
+            ],
+            "errorTexts": [
+              "internal-server-error"
+            ],
             "assertions": [
               {
                 "kind": "tag",
@@ -31582,6 +31784,21 @@
             "tag": "SubscribeToLiveUpdatesResponseClientError",
             "moduleName": "WASmaxInNewslettersSubscribeToLiveUpdatesResponseClientError",
             "kind": "error",
+            "errorClass": "client",
+            "errorCodes": [
+              400,
+              404,
+              423,
+              429,
+              451
+            ],
+            "errorTexts": [
+              "bad-request",
+              "features-disabled",
+              "item-not-found",
+              "locked",
+              "rate-overlimit"
+            ],
             "assertions": [
               {
                 "kind": "tag",
@@ -31923,6 +32140,13 @@
             "tag": "SubscribeToLiveUpdatesResponseServerError",
             "moduleName": "WASmaxInNewslettersSubscribeToLiveUpdatesResponseServerError",
             "kind": "error",
+            "errorClass": "server",
+            "errorCodes": [
+              500
+            ],
+            "errorTexts": [
+              "internal-server-error"
+            ],
             "assertions": [
               {
                 "kind": "tag",
@@ -32281,7 +32505,10 @@
                 "name": "hasCategory",
                 "wireName": "category",
                 "type": "bool",
-                "required": true
+                "required": true,
+                "referencePath": [
+                  "category"
+                ]
               }
             ]
           },
@@ -32916,7 +33143,11 @@
                 "name": "hasListCDhash",
                 "wireName": "c_dhash",
                 "type": "bool",
-                "required": true
+                "required": true,
+                "referencePath": [
+                  "item",
+                  "dhash"
+                ]
               },
               {
                 "method": "attrString",
@@ -35187,6 +35418,13 @@
             "tag": "SignCredentialResponseErrorRetry",
             "moduleName": "WASmaxInPrivatestatsSignCredentialResponseErrorRetry",
             "kind": "error",
+            "errorClass": "server",
+            "errorCodes": [
+              500
+            ],
+            "errorTexts": [
+              "internal-server-error"
+            ],
             "assertions": [
               {
                 "kind": "tag",
@@ -37688,6 +37926,13 @@
             "tag": "GetDisclosureStageByIdsResponseClientError",
             "moduleName": "WASmaxInUserNoticeGetDisclosureStageByIdsResponseClientError",
             "kind": "error",
+            "errorClass": "client",
+            "errorCodes": [
+              400
+            ],
+            "errorTexts": [
+              "bad-request"
+            ],
             "assertions": [
               {
                 "kind": "tag",
@@ -38067,6 +38312,13 @@
             "tag": "GetDisclosuresResponseClientError",
             "moduleName": "WASmaxInUserNoticeGetDisclosuresResponseClientError",
             "kind": "error",
+            "errorClass": "client",
+            "errorCodes": [
+              400
+            ],
+            "errorTexts": [
+              "bad-request"
+            ],
             "assertions": [
               {
                 "kind": "tag",
@@ -39990,6 +40242,13 @@
             "tag": "SetResponseInternalServerError",
             "moduleName": "WASmaxInPushConfigSetResponseInternalServerError",
             "kind": "error",
+            "errorClass": "server",
+            "errorCodes": [
+              500
+            ],
+            "errorTexts": [
+              "internal-server-error"
+            ],
             "assertions": [
               {
                 "kind": "tag",
@@ -40056,6 +40315,13 @@
             "tag": "SetResponseConflict",
             "moduleName": "WASmaxInPushConfigSetResponseConflict",
             "kind": "error",
+            "errorClass": "client",
+            "errorCodes": [
+              409
+            ],
+            "errorTexts": [
+              "conflict"
+            ],
             "assertions": [
               {
                 "kind": "tag",
@@ -94627,6 +94893,13 @@
             "tag": "SendBufferResponseErrorRetry",
             "moduleName": "WASmaxInStatsSendBufferResponseErrorRetry",
             "kind": "error",
+            "errorClass": "server",
+            "errorCodes": [
+              503
+            ],
+            "errorTexts": [
+              "service-unavailable"
+            ],
             "assertions": [
               {
                 "kind": "tag",

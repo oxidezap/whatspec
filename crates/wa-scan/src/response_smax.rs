@@ -119,7 +119,14 @@ impl<'a> Resolver<'a> {
     /// stanza-attr enum is a wire-token enum).
     fn resolve_enum(&self, module: &str, name: &str) -> Option<AttrEnumRef> {
         let key = (module.to_string(), name.to_string());
+        // Count per OCCURRENCE, not per distinct enum: `dropsByReason` measures how much
+        // constraint data was lost, and every other reason here is per-occurrence. A
+        // memoized miss must therefore still be counted, so N fields validating against
+        // the same unresolvable enum report N losses rather than one.
         if let Some(hit) = self.enum_cache.borrow().get(&key) {
+            if hit.is_none() {
+                self.drop_note("response enum argument not structurally resolvable");
+            }
             return hit.clone();
         }
         let resolved = self
@@ -664,11 +671,27 @@ fn classify_call(
             if literal_value.is_none() && reference_path.is_none() {
                 resolver.drop_note("optionalLiteral attr value not statically resolvable");
             }
+            // The wrapped accessor decides the type, exactly as in the `literal` arm.
+            // `field_type` is what tells a consumer how to read `literalValue` back, so
+            // hardcoding `String` would actively mis-type an
+            // `optionalLiteral(attrInt, node, "code", 429)` pin. Falls back to a string
+            // when the accessor isn't resolvable (the overwhelmingly common `attrString`).
+            let (method, field_type, byte_length) = args
+                .first()
+                .and_then(arg_expr)
+                .and_then(inner_accessor_name)
+                .and_then(normalize_accessor)
+                .map(|(m, ft, bl)| (optional_variant(&m), ft, bl))
+                .unwrap_or((
+                    wap::MAYBE_ATTR_STRING.to_string(),
+                    ParsedFieldType::String,
+                    None,
+                ));
             Binding::Field {
-                method: wap::MAYBE_ATTR_STRING.to_string(),
-                field_type: ParsedFieldType::String,
+                method,
+                field_type,
                 required: false,
-                byte_length: None,
+                byte_length,
                 byte_range: None,
                 int_range: None,
                 wire_name,
@@ -880,10 +903,14 @@ fn enum_arg_ref(
     // is an identifier / `X.value`, the attr a string, and — in the `optional(ACC, …)`
     // form — the leading accessor ref is itself `o("WASmaxParseUtils").attrStringEnum`,
     // excluded by requiring a non-`WASmaxParse*` owner module).
-    args.iter()
-        .filter_map(arg_expr)
-        .find_map(module_member_ref)
-        .and_then(|(module, name)| resolver.resolve_enum(&module, &name))
+    let Some((module, name)) = args.iter().filter_map(arg_expr).find_map(module_member_ref) else {
+        // An inline enum object, a local alias, or a `WASmaxParse*`-owned reference: the
+        // accessor validates against SOMETHING we could not name. That is the exact
+        // "a constraint existed and we lost it" case the counter exists for.
+        resolver.drop_note("response enum argument not structurally resolvable");
+        return None;
+    };
+    resolver.resolve_enum(&module, &name)
 }
 
 /// `o("Mod").NAME` (a member reference, not a call) → `(Mod, NAME)`, excluding the
@@ -1368,12 +1395,22 @@ fn collect_object_fields(
         // A boolean presence flag: `{hasX: V.success}` or `{hasX: V.value != null}`
         // — the key records whether a sub-node/attr was present, not its value. The
         // wire name (when known) is the underlying accessor's attr.
+        //
+        // The *pin* underneath survives too. The blocklist shapes bind
+        // `optionalLiteral(attrString, list, "c_dhash", ref.item.dhash)` and then expose
+        // only `{hasListCDhash: m.value != null}`: the attribute is optional, but if it
+        // is present the parser requires it to equal the request's `<item dhash>`.
+        // Dropping the pin here would lose that rule entirely — the flag would say
+        // "c_dhash may appear" and nothing would say what it must contain.
         if let Some(flag_var) = bool_flag_var(&p.value) {
+            let underlying = bindings.get(flag_var);
             out.push(ParsedField {
                 name: key.to_string(),
                 field_type: ParsedFieldType::Bool,
-                wire_name: bindings.get(flag_var).and_then(binding_wire_name),
+                wire_name: underlying.and_then(binding_wire_name),
                 required: true,
+                literal_value: underlying.and_then(binding_literal_value),
+                reference_path: underlying.and_then(binding_reference_path),
                 ..Default::default()
             });
             continue;
@@ -1444,6 +1481,10 @@ fn collect_object_fields(
                     wire_name: path.last().cloned(),
                     field_type: *field_type,
                     required: *required && !optional,
+                    // The value IS the request's. Keeping the path makes that machine-
+                    // visible; without it the field is indistinguishable from one read
+                    // off the response node.
+                    reference_path: Some(path.clone()),
                     ..Default::default()
                 });
             }
@@ -1694,6 +1735,25 @@ fn is_nullish(e: &Expression) -> bool {
 fn binding_wire_name(b: &Binding) -> Option<String> {
     match b {
         Binding::Field { wire_name, .. } => wire_name.clone(),
+        Binding::Reference { path, .. } => path.last().cloned(),
+        _ => None,
+    }
+}
+
+/// The constant a binding pins its value to, when it is a `literal`/`optionalLiteral`.
+fn binding_literal_value(b: &Binding) -> Option<String> {
+    match b {
+        Binding::Field { literal_value, .. } => literal_value.clone(),
+        _ => None,
+    }
+}
+
+/// The request path a binding echoes, whether it is the echo itself
+/// (`attrStringFromReference`) or an `optionalLiteral` pinned to one.
+fn binding_reference_path(b: &Binding) -> Option<Vec<String>> {
+    match b {
+        Binding::Field { reference_path, .. } => reference_path.clone(),
+        Binding::Reference { path, .. } => Some(path.clone()),
         _ => None,
     }
 }
