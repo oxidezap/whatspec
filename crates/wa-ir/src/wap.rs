@@ -107,9 +107,13 @@ pub fn is_optional_method(m: &str) -> bool {
 /// The scalar [`ParsedFieldType`] a response accessor decodes to.
 pub fn method_field_type(m: &str) -> ParsedFieldType {
     match m {
-        ATTR_STRING | MAYBE_ATTR_STRING | ATTR_ENUM | MAYBE_ATTR_ENUM | ATTR_ENUM_VALUES => {
-            ParsedFieldType::String
-        }
+        ATTR_STRING | MAYBE_ATTR_STRING => ParsedFieldType::String,
+        // An enum accessor decodes to an enum, not a bare string. The smax side already
+        // types these `Enum` through its own normalizer, so mapping them to `String` here
+        // made one concept two types across domains — 486 fields said `enum` and 28 said
+        // `string` for the same accessors — and left an `enumRef` hanging off a field a
+        // consumer filtering on `type == "enum"` would never look at.
+        ATTR_ENUM | MAYBE_ATTR_ENUM | ATTR_ENUM_VALUES => ParsedFieldType::Enum,
         ATTR_INT | MAYBE_ATTR_INT | ATTR_TIME | MAYBE_ATTR_TIME => ParsedFieldType::Integer,
         // Each JID accessor pins the flavor (server/format) it validates. Keeping the
         // flavor — rather than collapsing to a bare `Jid` — is protocol-safety-critical:
@@ -214,7 +218,10 @@ mod tests {
     fn optional_and_field_types() {
         assert!(is_optional_method(MAYBE_ATTR_ENUM));
         assert!(!is_optional_method(ATTR_ENUM));
-        assert_eq!(method_field_type(MAYBE_ATTR_ENUM), ParsedFieldType::String);
+        // An enum accessor decodes to an enum, matching how the smax normalizer already
+        // types the same concept — the two used to disagree across domains.
+        assert_eq!(method_field_type(MAYBE_ATTR_ENUM), ParsedFieldType::Enum);
+        assert_eq!(method_field_type(ATTR_ENUM), ParsedFieldType::Enum);
         assert_eq!(method_field_type(ATTR_INT), ParsedFieldType::Integer);
         assert_eq!(method_field_type(CONTENT_BYTES), ParsedFieldType::Bytes);
         assert_eq!(
@@ -304,7 +311,7 @@ mod tests {
         ] {
             assert!(method_field_type(m).is_jid(), "{m}");
         }
-        assert_eq!(method_field_type(ATTR_ENUM_VALUES), ParsedFieldType::String);
+        assert_eq!(method_field_type(ATTR_ENUM_VALUES), ParsedFieldType::Enum);
         // `maybe*` variants stay optional.
         assert!(is_optional_method(MAYBE_ATTR_TIME));
         assert!(is_optional_method(MAYBE_ATTR_USER_JID));

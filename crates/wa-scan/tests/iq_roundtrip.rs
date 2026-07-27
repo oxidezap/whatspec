@@ -19,7 +19,19 @@
 //!
 //! Both halves are deliberately naive: the emitter only knows how to satisfy
 //! constraints, and the checker only knows how to verify them. Neither shares code with
-//! the extractor, so a mis-extraction cannot cancel itself out.
+//! the extractor, so a mis-extracted constraint cannot cancel itself out.
+//!
+//! # What this does NOT catch
+//!
+//! An **omitted** constraint. Emitter and checker read the same recorded field list, so a
+//! pin the extractor never wrote is invisible to both: they agree on the unconstrained
+//! shape and the round trip passes. This guard proves the recorded constraints are
+//! mutually satisfiable and correctly placed — not that none is missing.
+//!
+//! Omissions are caught elsewhere, by two mechanisms that do have an outside reference:
+//! `manifest.diagnostics.iq.constraints`, floored against the previously committed run,
+//! and the named canaries at the bottom of this file, which assert that the specific
+//! rules this domain exists for are still present by name.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -488,4 +500,77 @@ fn a_pin_on_a_presence_flag_is_never_required() {
         .insert("c_dhash".into(), "not-the-request-value".into());
     let broken = violations(&wrong, &assertions, &fields);
     assert_eq!(broken.len(), 1, "{broken:?}");
+}
+
+/// The response shape and the constraint each of the motivating bugs needs.
+///
+/// The aggregate floor catches a broad collapse; it cannot catch one variant quietly
+/// losing one pin, because the remaining thousands keep the totals healthy. These name
+/// the exact constraints whose absence caused a real failure, so losing any one of them
+/// fails loudly instead of arithmetically.
+const CANARIES: &[(&str, &str, &str)] = &[
+    // (variant tag, wire attribute, expected pin) — the successful promote that was
+    // answered `<participant type="200">`.
+    ("PromoteDemoteResponseSuccessPromote", "type", "admin"),
+    // The blocklist update answered with a bare `<iq type="result"/>`.
+    ("UpdateBlockListResponseSuccessWithMatch", "matched", "true"),
+    (
+        "UpdateBlockListResponseSuccessWithMismatch",
+        "matched",
+        "false",
+    ),
+];
+
+#[test]
+fn the_motivating_constraints_are_still_recorded_by_name() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../generated/iq/index.json");
+    if !path.exists() {
+        assert!(
+            std::env::var_os("CI").is_none(),
+            "{} absent under CI",
+            path.display()
+        );
+        return;
+    }
+    let ir: IqIr = serde_json::from_str(&std::fs::read_to_string(&path).expect("read"))
+        .expect("parse the committed IQ IR");
+
+    let variants: Vec<_> = ir
+        .stanzas
+        .iter()
+        .flat_map(|s| &s.response.variants)
+        .collect();
+    for (tag, wire, expected) in CANARIES {
+        let v = variants
+            .iter()
+            .find(|v| &v.tag == tag)
+            .unwrap_or_else(|| panic!("variant {tag} vanished from the IR"));
+        let mut found = None;
+        walk_pinned(&v.fields, &[], &mut |f, _| {
+            if f.wire_name.as_deref() == Some(*wire) {
+                found = f.literal_value.clone();
+            }
+        });
+        assert_eq!(
+            found.as_deref(),
+            Some(*expected),
+            "{tag}: the pin on `{wire}` is gone — an emitter would be free to send anything there"
+        );
+    }
+
+    // The echo rule, on the variant that made it visible: an error answering a request
+    // addressed to `g.us` must put that JID in `from`.
+    let echoes: usize = variants
+        .iter()
+        .flat_map(|v| &v.assertions)
+        .filter(|a| {
+            a.kind == AssertionKind::Reference
+                && a.name.as_deref() == Some("from")
+                && a.reference_path.as_deref() == Some(&["to".to_string()][..])
+        })
+        .count();
+    assert!(
+        echoes > 100,
+        "only {echoes} `from` -> request `to` echoes recorded; the rule is collapsing"
+    );
 }

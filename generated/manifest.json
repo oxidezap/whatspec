@@ -30,7 +30,7 @@
     },
     "notif": {
       "actionShapes": 181,
-      "actions": 58,
+      "actions": 47,
       "degraded": 5,
       "stanzaTags": 13,
       "typedContent": 22,
@@ -56,12 +56,12 @@
     "incoming": {
       "file": "incoming/index.json",
       "schema": "schema/incoming.schema.json",
-      "sha256": "450282f9bc3405a8fa8307a44faabe5b3936185d762b1f7618c8f928ed183db4"
+      "sha256": "ddb565f1ec990b3b9ac5643acc43fc462524f2eb832459d3c3280969f7c014e0"
     },
     "iq": {
       "file": "iq/index.json",
       "schema": "schema/iq.schema.json",
-      "sha256": "5783eece985d5d233bd6cf86aca221e8a9a6d785953c4b7a1892031cb0b48256"
+      "sha256": "f39fd6773d22bdcfe871093b62a5dd3759cff4f2b04729105deab21d2f4ac4de"
     },
     "mex": {
       "file": "mex/index.json",
@@ -71,7 +71,7 @@
     "notif": {
       "file": "notif/index.json",
       "schema": "schema/notif.schema.json",
-      "sha256": "a2e5c6c0dd6b524e1b235d6d52e48794e0f83fd53f3cd7075475cf296fc7c7b5"
+      "sha256": "e8c5eba1dff86c5b5ae1647a1469861c3cb6fde6e68a8bbe07ba5837e45c019f"
     },
     "proto": {
       "file": "proto/WAProto.proto",

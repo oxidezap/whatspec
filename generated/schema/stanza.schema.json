@@ -497,7 +497,7 @@
           }
         },
         "errorArms": {
-          "description": "The accepted `<error>` shapes, in parser order — **which code goes with which\ntext**. This is the authoritative form; see [`ErrorArm`] for why the flattened\nlists below cannot express it.",
+          "description": "The accepted `<error>` shapes, in parser order — **which code goes with which\ntext**. See [`ErrorArm`] for why the flattened lists below cannot express it.\n\nAn arm describes the *discriminating* `<error>` node. When the variant also pins\nthe node above it, those pins are in [`error_envelope`], and the full shape is\n**arm + envelope** — an arm alone is not enough to build a response for such a\nvariant.\n\n[`error_envelope`]: ResponseVariant::error_envelope",
           "type": "array",
           "items": {
             "$ref": "#/$defs/ErrorArm"
@@ -531,12 +531,23 @@
           "format": "int64"
         },
         "errorCodes": {
-          "description": "The **closed set** of `<error code>` values this variant accepts, ascending — the\nunion over [`error_arms`], for the \"does this RPC accept code N?\" question.\n\nThe vocabulary is per-RPC, not global: `BatchGetGroupInfo`'s client-error arm\ntakes only `400` and `429` and **rejects `404`**, even though an\n`IQErrorItemNotFoundMixin` exists and other RPCs use it. Answering with a code\noutside this set matches no branch, so the client reports a parse failure rather\nthan the error. Empty when the variant pins no exact code (see [`error_code_min`]).\n\nAn emitter must pick a **pair** from [`error_arms`], never one value from this\nlist and another from [`error_texts`].\n\n[`error_arms`]: ResponseVariant::error_arms\n[`error_texts`]: ResponseVariant::error_texts\n[`error_code_min`]: ResponseVariant::error_code_min",
+          "description": "The **closed set** of `<error code>` values this variant accepts, ascending — the\nunion over [`error_arms`], for the \"does this RPC accept code N?\" question.\n\nThe vocabulary is per-RPC, not global: `BatchGetGroupInfo`'s client-error arm\ntakes only `400` and `429` and **rejects `404`**, even though an\n`IQErrorItemNotFoundMixin` exists and other RPCs use it. Answering with a code\noutside this set matches no branch, so the client reports a parse failure rather\nthan the error. Empty when the variant pins no exact code (see [`error_code_min`]).\n\nAn emitter must pick a **pair** from [`error_arms`] (plus [`error_envelope`] when\npresent), never one value from this list and another from [`error_texts`].\n\n[`error_envelope`]: ResponseVariant::error_envelope\n\n[`error_arms`]: ResponseVariant::error_arms\n[`error_texts`]: ResponseVariant::error_texts\n[`error_code_min`]: ResponseVariant::error_code_min",
           "type": "array",
           "items": {
             "type": "integer",
             "format": "int64"
           }
+        },
+        "errorEnvelope": {
+          "description": "Pins on the `<error>` node **enclosing** the one the arms discriminate, for a\ntwo-level error.\n\n`SetResponsePreKeySuccessVnameFailure` is the shape: the response carries\n`<error code=\"207\">` — the partial-failure envelope, shared by every arm — around\nan inner `<error>` whose text the disjunction pins. The envelope belongs to no\nsingle arm, so duplicating it into all of them would misreport where the code\nsits; it is recorded once here instead. Absent for the ordinary one-level error,\nwhich is nearly all of them.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorArm"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "errorTexts": {
           "description": "The `<error text>` values this variant accepts, sorted — the union over\n[`error_arms`]. Empty when only a fallback (any-text) arm applies. See the warning\non [`error_codes`] about combining the two lists.\n\n[`error_arms`]: ResponseVariant::error_arms\n[`error_codes`]: ResponseVariant::error_codes",

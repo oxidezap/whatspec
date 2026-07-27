@@ -359,42 +359,7 @@
             "required": true
           }
         ]
-      },
-      "actions": [
-        {
-          "wireTag": "status"
-        },
-        {
-          "wireTag": "text_status"
-        },
-        {
-          "wireTag": "devices"
-        },
-        {
-          "wireTag": "picture"
-        },
-        {
-          "wireTag": "privacy"
-        },
-        {
-          "wireTag": "blocklist"
-        },
-        {
-          "wireTag": "biz_opt_out_list"
-        },
-        {
-          "wireTag": "tos"
-        },
-        {
-          "wireTag": "disappearing_mode"
-        },
-        {
-          "wireTag": "notice"
-        },
-        {
-          "wireTag": "user"
-        }
-      ]
+      }
     },
     {
       "type": "business",
@@ -1375,7 +1340,7 @@
                       {
                         "method": "attrEnumValues",
                         "name": "mediatype",
-                        "type": "string",
+                        "type": "enum",
                         "required": true
                       },
                       {
@@ -1408,7 +1373,7 @@
               {
                 "method": "attrEnumValues",
                 "name": "mediatype",
-                "type": "string",
+                "type": "enum",
                 "required": true
               },
               {
@@ -2882,7 +2847,7 @@
           {
             "method": "attrEnum",
             "name": "type",
-            "type": "string",
+            "type": "enum",
             "required": true
           },
           {

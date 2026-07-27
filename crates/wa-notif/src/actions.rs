@@ -45,6 +45,11 @@ type ConstMap = HashMap<String, String>;
 pub(crate) struct ConstResolver<'a> {
     slices: &'a HashMap<&'a str, &'a str>,
     cache: std::cell::RefCell<HashMap<(String, String), Option<ConstMap>>>,
+    /// `(module, enum)` → its resolved variants. Memoized for the same reason `cache` is:
+    /// `resolve_named_enum` re-parses the whole module slice, and the resolver is hit once
+    /// per enum-accessor field — including a second time by the bare-value fallback, which
+    /// re-walks the same shapes.
+    enums: std::cell::RefCell<HashMap<(String, String), Option<wa_ir::AttrEnumRef>>>,
 }
 
 impl<'a> ConstResolver<'a> {
@@ -52,6 +57,7 @@ impl<'a> ConstResolver<'a> {
         Self {
             slices,
             cache: std::cell::RefCell::new(HashMap::new()),
+            enums: std::cell::RefCell::new(HashMap::new()),
         }
     }
 
@@ -77,6 +83,16 @@ impl<'a> ConstResolver<'a> {
     fn enum_ref(&self, e: &Expression) -> Option<wa_ir::AttrEnumRef> {
         let (obj, name) = as_member(e)?;
         let module = as_string_lit(arg_expr(as_call(obj)?.arguments.first()?)?)?;
+        let key = (module.to_string(), name.to_string());
+        if let Some(hit) = self.enums.borrow().get(&key) {
+            return hit.clone();
+        }
+        let resolved = self.resolve_enum_uncached(module, name);
+        self.enums.borrow_mut().insert(key, resolved.clone());
+        resolved
+    }
+
+    fn resolve_enum_uncached(&self, module: &str, name: &str) -> Option<wa_ir::AttrEnumRef> {
         let def = wa_enums::resolve_named_enum(self.slices.get(module)?, module, name)?;
         let variants: Vec<wa_ir::AttrEnumVariant> = def
             .variants
@@ -353,11 +369,28 @@ struct SwitchFinder<'c, 'a> {
 impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
     fn visit_switch_statement(&mut self, switch: &SwitchStatement<'a>) {
         let actions = extract_switch(switch, self.ctx);
-        if actions.len() > self.best.as_ref().map_or(0, Vec::len) {
+        // A const-keyed switch whose arms only cause side effects is not a payload action
+        // union — it is an ordinary child dispatch, already described by the
+        // notification's `content` and sub-discriminants. `account_sync` has one, and
+        // cataloguing it minted 11 phantom actions with no action type, field, constant
+        // or child, inflating the count with entries a consumer can do nothing with. An
+        // individual empty arm is still kept (knowing a tag is dispatched beats omitting
+        // it); a switch where EVERY arm is empty is rejected whole.
+        if actions.iter().any(is_meaningful)
+            && actions.len() > self.best.as_ref().map_or(0, Vec::len)
+        {
             self.best = Some(actions);
         }
         walk::walk_switch_statement(self, switch);
     }
+}
+
+/// Whether an arm says anything beyond "this tag is dispatched".
+fn is_meaningful(a: &NotifActionDef) -> bool {
+    a.action_type.is_some()
+        || !a.fields.is_empty()
+        || !a.constant_fields.is_empty()
+        || !a.children.is_empty()
 }
 
 /// Read every arm of a const-keyed child-tag switch into [`NotifActionDef`]s.

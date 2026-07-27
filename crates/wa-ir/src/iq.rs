@@ -607,10 +607,27 @@ pub struct ResponseVariant {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error_class: Option<ErrorClass>,
     /// The accepted `<error>` shapes, in parser order — **which code goes with which
-    /// text**. This is the authoritative form; see [`ErrorArm`] for why the flattened
-    /// lists below cannot express it.
+    /// text**. See [`ErrorArm`] for why the flattened lists below cannot express it.
+    ///
+    /// An arm describes the *discriminating* `<error>` node. When the variant also pins
+    /// the node above it, those pins are in [`error_envelope`], and the full shape is
+    /// **arm + envelope** — an arm alone is not enough to build a response for such a
+    /// variant.
+    ///
+    /// [`error_envelope`]: ResponseVariant::error_envelope
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub error_arms: Vec<ErrorArm>,
+    /// Pins on the `<error>` node **enclosing** the one the arms discriminate, for a
+    /// two-level error.
+    ///
+    /// `SetResponsePreKeySuccessVnameFailure` is the shape: the response carries
+    /// `<error code="207">` — the partial-failure envelope, shared by every arm — around
+    /// an inner `<error>` whose text the disjunction pins. The envelope belongs to no
+    /// single arm, so duplicating it into all of them would misreport where the code
+    /// sits; it is recorded once here instead. Absent for the ordinary one-level error,
+    /// which is nearly all of them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_envelope: Option<ErrorArm>,
     /// The **closed set** of `<error code>` values this variant accepts, ascending — the
     /// union over [`error_arms`], for the "does this RPC accept code N?" question.
     ///
@@ -620,8 +637,10 @@ pub struct ResponseVariant {
     /// outside this set matches no branch, so the client reports a parse failure rather
     /// than the error. Empty when the variant pins no exact code (see [`error_code_min`]).
     ///
-    /// An emitter must pick a **pair** from [`error_arms`], never one value from this
-    /// list and another from [`error_texts`].
+    /// An emitter must pick a **pair** from [`error_arms`] (plus [`error_envelope`] when
+    /// present), never one value from this list and another from [`error_texts`].
+    ///
+    /// [`error_envelope`]: ResponseVariant::error_envelope
     ///
     /// [`error_arms`]: ResponseVariant::error_arms
     /// [`error_texts`]: ResponseVariant::error_texts

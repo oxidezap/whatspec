@@ -927,7 +927,9 @@ fn an_action_enum_field_carries_its_variants() {
         .iter()
         .find(|f| f.name == "kind")
         .expect("kind field");
-    assert_eq!(kind.field_type, wa_ir::ParsedFieldType::String);
+    // The accessor is an enum accessor, so the field is typed as one — the `enumRef`
+    // hangs off a field a consumer filtering on `type == "enum"` will actually reach.
+    assert_eq!(kind.field_type, wa_ir::ParsedFieldType::Enum);
     let er = kind.enum_ref.as_ref().expect("resolved enum");
     assert_eq!(er.name, "GROUP_PARTICIPANT_TYPES");
     let values: Vec<&str> = er.variants.iter().map(|v| v.value.as_str()).collect();

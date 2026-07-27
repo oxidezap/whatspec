@@ -25,7 +25,7 @@
           {
             "method": "attrEnumValues",
             "name": "type",
-            "type": "string",
+            "type": "enum",
             "required": true
           },
           {
@@ -106,7 +106,7 @@
           {
             "method": "attrEnum",
             "name": "type",
-            "type": "string",
+            "type": "enum",
             "required": true
           },
           {
@@ -296,7 +296,7 @@
                   {
                     "method": "maybeAttrEnum",
                     "name": "type",
-                    "type": "string",
+                    "type": "enum",
                     "required": false
                   },
                   {
@@ -2560,7 +2560,7 @@
           {
             "method": "attrEnum",
             "name": "readreceipts",
-            "type": "string",
+            "type": "enum",
             "required": true
           }
         ]

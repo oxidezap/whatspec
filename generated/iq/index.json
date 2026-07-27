@@ -8403,6 +8403,11 @@
                 "name": "SetVnameFailureFallback"
               }
             ],
+            "errorEnvelope": {
+              "code": 207,
+              "codeMin": 400,
+              "codeMax": 599
+            },
             "errorCodes": [
               207
             ],
@@ -9128,7 +9133,7 @@
           {
             "method": "attrEnum",
             "name": "type",
-            "type": "string",
+            "type": "enum",
             "required": true
           },
           {
@@ -35357,61 +35362,61 @@
                   {
                     "method": "attrEnum",
                     "name": "value",
-                    "type": "string",
+                    "type": "enum",
                     "required": true
                   },
                   {
                     "method": "attrEnum",
                     "name": "value",
-                    "type": "string",
+                    "type": "enum",
                     "required": true
                   },
                   {
                     "method": "attrEnum",
                     "name": "value",
-                    "type": "string",
+                    "type": "enum",
                     "required": true
                   },
                   {
                     "method": "attrEnum",
                     "name": "value",
-                    "type": "string",
+                    "type": "enum",
                     "required": true
                   },
                   {
                     "method": "attrEnum",
                     "name": "value",
-                    "type": "string",
+                    "type": "enum",
                     "required": true
                   },
                   {
                     "method": "attrEnum",
                     "name": "value",
-                    "type": "string",
+                    "type": "enum",
                     "required": true
                   },
                   {
                     "method": "attrEnum",
                     "name": "value",
-                    "type": "string",
+                    "type": "enum",
                     "required": true
                   },
                   {
                     "method": "attrEnum",
                     "name": "value",
-                    "type": "string",
+                    "type": "enum",
                     "required": true
                   },
                   {
                     "method": "attrEnum",
                     "name": "value",
-                    "type": "string",
+                    "type": "enum",
                     "required": true
                   },
                   {
                     "method": "attrEnum",
                     "name": "value",
-                    "type": "string",
+                    "type": "enum",
                     "required": true
                   }
                 ],
@@ -35428,61 +35433,61 @@
           {
             "method": "attrEnum",
             "name": "value",
-            "type": "string",
+            "type": "enum",
             "required": true
           },
           {
             "method": "attrEnum",
             "name": "value",
-            "type": "string",
+            "type": "enum",
             "required": true
           },
           {
             "method": "attrEnum",
             "name": "value",
-            "type": "string",
+            "type": "enum",
             "required": true
           },
           {
             "method": "attrEnum",
             "name": "value",
-            "type": "string",
+            "type": "enum",
             "required": true
           },
           {
             "method": "attrEnum",
             "name": "value",
-            "type": "string",
+            "type": "enum",
             "required": true
           },
           {
             "method": "attrEnum",
             "name": "value",
-            "type": "string",
+            "type": "enum",
             "required": true
           },
           {
             "method": "attrEnum",
             "name": "value",
-            "type": "string",
+            "type": "enum",
             "required": true
           },
           {
             "method": "attrEnum",
             "name": "value",
-            "type": "string",
+            "type": "enum",
             "required": true
           },
           {
             "method": "attrEnum",
             "name": "value",
-            "type": "string",
+            "type": "enum",
             "required": true
           },
           {
             "method": "attrEnum",
             "name": "value",
-            "type": "string",
+            "type": "enum",
             "required": true
           }
         ]

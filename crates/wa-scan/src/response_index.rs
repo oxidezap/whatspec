@@ -164,6 +164,7 @@ pub(crate) fn build_pass(defs: &[ModuleDefinition], source: &str) -> ResponseInd
                 kind,
                 error_class: vocab.class(),
                 error_arms: vocab.arms,
+                error_envelope: vocab.envelope,
                 error_codes: vocab.codes,
                 error_texts: vocab.texts,
                 error_code_min: vocab.code_min,
@@ -221,6 +222,9 @@ pub(crate) fn build_pass(defs: &[ModuleDefinition], source: &str) -> ResponseInd
 struct ErrorVocabulary {
     /// The accepted `(code, text)` shapes, in parser order — the authoritative form.
     arms: Vec<ErrorArm>,
+    /// Pins on the `<error>` node enclosing the ones the arms discriminate, for a
+    /// two-level error. Recorded once rather than duplicated into every arm.
+    envelope: Option<ErrorArm>,
     /// Flattened unions over `arms`, kept for the "does this RPC accept N?" question.
     codes: Vec<i64>,
     texts: Vec<String>,
@@ -275,14 +279,19 @@ impl ErrorVocabulary {
 /// `int_min`+`int_max`), so this reads them back rather than re-parsing the bundle.
 fn error_vocabulary(fields: &[ParsedField]) -> ErrorVocabulary {
     let mut v = ErrorVocabulary::default();
-    collect_error_arms(fields, &mut v.arms);
+    let from_union = collect_error_arms(fields, &mut v.arms);
     // A two-level error — an outer `<error code="207">` wrapping an inner `<error>` whose
     // text the disjunction pins — has pins the ARMS cannot carry: an arm describes one
-    // innermost alternative, so the envelope's own code belongs to none of them.
-    // `SetResponsePreKeySuccessVnameFailure` is that shape. Fold the variant's own pins
-    // into the flat vocabulary so the envelope's code is not simply lost, while the arms
-    // stay the per-alternative view.
+    // discriminating node, and the envelope belongs to none of them. Recorded once, so an
+    // "arm + envelope" reading is complete; duplicating it into every arm would misreport
+    // where the code sits.
+    // Only when the arms came from a DISJUNCTION are the variant's own pins a separate,
+    // enclosing node. Without a disjunction those same pins ARE the single arm, and
+    // recording them twice would invent an envelope the response does not have.
     let envelope = arm_pins(fields);
+    if from_union && envelope != ErrorArm::default() {
+        v.envelope = Some(envelope.clone());
+    }
     for a in v.arms.iter().chain(std::iter::once(&envelope)) {
         v.codes.extend(a.code);
         v.texts.extend(a.text.clone());
@@ -305,7 +314,7 @@ fn error_vocabulary(fields: &[ParsedField]) -> ErrorVocabulary {
 /// into two independent lists would let an emitter combine one arm's code with another's
 /// text — `400 feature-not-implemented` matches no branch and is unparseable, which is
 /// the whole failure class this domain exists to prevent.
-fn collect_error_arms(fields: &[ParsedField], out: &mut Vec<ErrorArm>) {
+fn collect_error_arms(fields: &[ParsedField], out: &mut Vec<ErrorArm>) -> bool {
     let mut found_union = false;
     collect_union_arms(fields, out, &mut found_union);
     if !found_union {
@@ -315,6 +324,7 @@ fn collect_error_arms(fields: &[ParsedField], out: &mut Vec<ErrorArm>) {
             out.push(arm);
         }
     }
+    found_union
 }
 
 /// Walk the tree for disjunction alternatives, pushing one arm per leaf alternative.
