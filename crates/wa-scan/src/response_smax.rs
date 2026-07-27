@@ -416,7 +416,22 @@ fn analyze_fn_source(
         Statement::FunctionDeclaration(f) => Some(&**f),
         _ => None,
     })?;
-    analyze_function(func, locals, resolver, visited)
+    analyze_function(func, locals, resolver, visited, &parser_site(fn_source))
+}
+
+/// A stable identity for one parser body, for keying diagnostics per SITE.
+///
+/// The source itself, hashed: two parsers validating the same attribute against the same
+/// unresolvable enum are two lost constraints, and keying on `(enum, attribute)` alone
+/// collapsed them — so removing one moved no counter. Hashing the body rather than
+/// threading a module/function name keeps the key stable across the two analysis passes
+/// (`resolve` for fields, `assertions` for discriminators re-walk the identical source)
+/// without carrying context through every frame.
+fn parser_site(fn_source: &str) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    fn_source.hash(&mut h);
+    format!("{:016x}", h.finish())
 }
 
 fn analyze_function(
@@ -424,6 +439,7 @@ fn analyze_function(
     locals: &LocalFns,
     resolver: &Resolver,
     visited: &mut HashSet<String>,
+    site: &str,
 ) -> Option<(Vec<ResponseAssertion>, Vec<ParsedField>)> {
     let body = func.body.as_ref()?;
     // A response parser's signature is `parse…(node, reference)`: the second parameter
@@ -439,6 +455,7 @@ fn analyze_function(
         locals,
         resolver,
         reference_param: reference_param.as_deref(),
+        site,
     };
     // Same-node cross-module mixins bubble their discriminators up by default (so an
     // error variant inherits the `type:"error"` its mixin asserts). But a mixin whose
@@ -500,6 +517,9 @@ struct FnCtx<'c> {
     resolver: &'c Resolver<'c>,
     /// The parser's `reference` parameter — the request an echo rule is relative to.
     reference_param: Option<&'c str>,
+    /// This parser body's identity, so a dropped constraint is counted per site rather
+    /// than per constraint name — see [`parser_site`].
+    site: &'c str,
 }
 
 /// Classify the RHS of a railway binding into a [`Binding`], recording any
@@ -517,6 +537,7 @@ fn classify_call(
     let FnCtx {
         resolver,
         reference_param,
+        site,
         ..
     } = *ctx;
     let Some(call) = as_call(init) else {
@@ -643,7 +664,7 @@ fn classify_call(
                     }
                     (None, None) => resolver.drop_note_keyed(
                         "literal attr value not statically resolvable",
-                        attr.to_string(),
+                        format!("{site}:{attr}"),
                     ),
                     // A resolved pin on a descended node: carried on the field below,
                     // where it belongs, rather than as a root assertion.
@@ -722,7 +743,7 @@ fn classify_call(
             if literal_value.is_none() && reference_path.is_none() {
                 resolver.drop_note_keyed(
                     "optionalLiteral attr value not statically resolvable",
-                    wire_name.clone().unwrap_or_default(),
+                    format!("{site}:{}", wire_name.clone().unwrap_or_default()),
                 );
             }
             // The wrapped accessor decides the type, exactly as in the `literal` arm.
@@ -762,7 +783,7 @@ fn classify_call(
         | "attrFromReference"
         | "optionalAttrFromReference"
         | "contentStringFromReference" => {
-            classify_reference(method, args, resolver, reference_param)
+            classify_reference(method, args, resolver, reference_param, site)
         }
         // `optional(ACCESSOR, node, …)` → the wrapped accessor decides the type;
         // required = false.
@@ -785,7 +806,7 @@ fn classify_call(
                         wire_name,
                         source_path,
                         literal_value: None,
-                        enum_ref: enum_arg_ref(inner, args, resolver),
+                        enum_ref: enum_arg_ref(inner, args, resolver, site),
                         reference_path: None,
                     }
                 }
@@ -816,7 +837,7 @@ fn classify_call(
                     wire_name,
                     source_path,
                     literal_value: None,
-                    enum_ref: enum_arg_ref(Some(other), args, resolver),
+                    enum_ref: enum_arg_ref(Some(other), args, resolver, site),
                     reference_path: None,
                 }
             }
@@ -872,6 +893,7 @@ fn classify_reference(
     args: &[Argument],
     resolver: &Resolver,
     reference_param: Option<&str>,
+    site: &str,
 ) -> Binding {
     let Some(path_idx) = args
         .iter()
@@ -879,7 +901,7 @@ fn classify_reference(
     else {
         resolver.drop_note_keyed(
             "reference path argument not statically resolvable",
-            method.to_string(),
+            format!("{site}:{method}"),
         );
         return Binding::None;
     };
@@ -899,7 +921,7 @@ fn classify_reference(
     if node.is_none() || node != reference_param {
         resolver.drop_note_keyed(
             "reference read from a node other than the request",
-            format!("{method}:{}", path.join("/")),
+            format!("{site}:{method}:{}", path.join("/")),
         );
         return Binding::None;
     }
@@ -955,6 +977,7 @@ fn enum_arg_ref(
     accessor: Option<&str>,
     args: &[Argument],
     resolver: &Resolver,
+    site: &str,
 ) -> Option<AttrEnumRef> {
     if !matches!(accessor, Some("attrStringEnum") | Some("contentStringEnum")) {
         return None;
@@ -965,11 +988,13 @@ fn enum_arg_ref(
     // excluded by requiring a non-`WASmaxParse*` owner module).
     // The wire attribute the accessor reads, as the occurrence discriminator: two fields
     // validating against the same unresolvable enum are two lost constraints.
-    let occurrence = args
-        .iter()
-        .filter_map(arg_expr)
-        .find_map(as_string_lit)
-        .unwrap_or("<content>");
+    let occurrence = format!(
+        "{site}:{}",
+        args.iter()
+            .filter_map(arg_expr)
+            .find_map(as_string_lit)
+            .unwrap_or("<content>")
+    );
     let Some((module, name)) = args.iter().filter_map(arg_expr).find_map(module_member_ref) else {
         // An inline enum object, a local alias, or a `WASmaxParse*`-owned reference: the
         // accessor validates against SOMETHING we could not name. That is the exact
@@ -977,7 +1002,7 @@ fn enum_arg_ref(
         resolver.drop_note_keyed(ENUM_DROP, format!("<unnamed>@{occurrence}"));
         return None;
     };
-    resolver.resolve_enum(&module, &name, occurrence)
+    resolver.resolve_enum(&module, &name, &occurrence)
 }
 
 /// `o("Mod").NAME` (a member reference, not a call) → `(Mod, NAME)`, excluding the
@@ -2319,6 +2344,40 @@ mod tests {
             let values: Vec<&str> = er.variants.iter().map(|v| v.value.as_str()).collect();
             assert_eq!(values, ["off", "on"]);
         }
+    }
+
+    #[test]
+    fn two_parsers_losing_the_same_enum_are_two_lost_constraints() {
+        // The counter's unit is distinct LOST CONSTRAINTS, so keying on the enum — or on
+        // the enum plus the attribute — collapses separate parsers reading the same thing
+        // and lets constraints disappear without moving the number. The parser body is
+        // part of the key; the two analysis passes over one body still count once.
+        let slices = HashMap::new();
+        let resolver = Resolver::new(&slices);
+        let one = r#"function e(node){
+            var s = o("WASmaxParseUtils").attrStringEnum(node, "state", o("Missing").ENUM_X); if(!s.success) return s;
+            return o("WAResultOrError").makeResult({ state: s.value });
+        }"#;
+        let two = r#"function e(node){
+            var t = o("WASmaxParseUtils").assertTag(node, "iq"); if(!t.success) return t;
+            var s = o("WASmaxParseUtils").attrStringEnum(node, "state", o("Missing").ENUM_X); if(!s.success) return s;
+            return o("WAResultOrError").makeResult({ state: s.value });
+        }"#;
+        let count = || {
+            resolver
+                .drop_counts()
+                .get("response enum argument not structurally resolvable")
+                .copied()
+                .unwrap_or(0)
+        };
+        analyze_fn_source(one, &LocalFns::new(), &resolver, &mut HashSet::new());
+        assert_eq!(count(), 1);
+        // Re-analyzing the SAME body (as the assertion pass does) must not double-count.
+        analyze_fn_source(one, &LocalFns::new(), &resolver, &mut HashSet::new());
+        assert_eq!(count(), 1, "the same site analyzed twice is one loss");
+        // A DIFFERENT parser losing the same enum on the same attribute is a second loss.
+        analyze_fn_source(two, &LocalFns::new(), &resolver, &mut HashSet::new());
+        assert_eq!(count(), 2, "distinct parser sites are distinct losses");
     }
 
     #[test]

@@ -59,9 +59,23 @@ pub fn is_child_method(m: &str) -> bool {
     )
 }
 
-/// Content accessors (`contentString` / `contentBytes` / `contentInt`).
+/// Content accessors — every spelling that reads the element's content rather than an
+/// attribute, whatever it decodes to. The single source of truth for the question, so a
+/// caller cannot recognise a subset: teaching [`method_field_type`] about `contentUint`
+/// while a reader still whitelisted three spellings made those fields drop out entirely
+/// instead of being typed.
 pub fn is_content_method(m: &str) -> bool {
-    matches!(m, CONTENT_STRING | CONTENT_BYTES | CONTENT_INT)
+    matches!(
+        m,
+        CONTENT_STRING
+            | CONTENT_BYTES
+            | CONTENT_INT
+            | "contentUint"
+            | "contentEnum"
+            | "contentStringEnum"
+            | "contentBytesRange"
+            | "contentLiteralBytes"
+    )
 }
 
 /// The attribute value accessors (`attr*` / `maybeAttr*`, including the typed-JID

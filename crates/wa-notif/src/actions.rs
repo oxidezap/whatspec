@@ -488,8 +488,17 @@ fn merge_action(into: &mut NotifActionDef, from: NotifActionDef) {
         }
     }
     for c in from.children {
-        if !into.children.iter().any(|x| x.name == c.name) {
-            into.children.push(c);
+        match into.children.iter_mut().find(|x| x.name == c.name) {
+            // Two branches mapping the same output name: their element shapes are
+            // alternatives, so the field sets merge under the same requiredness rule.
+            // Discarding the later one lost fields only it reads, and left fields only
+            // the first reads marked required though a legal branch omits them.
+            Some(existing) if existing.wire_tag == c.wire_tag => {
+                merge_fields(&mut existing.fields, c.fields, false)
+            }
+            // Same output name, different wire tag — no single answer; drop it.
+            Some(_) => {}
+            None => into.children.push(c),
         }
     }
     into.constant_fields
@@ -1155,12 +1164,11 @@ fn find_accessor_at<'b, 'a>(
                 enum_arg,
             });
         }
-        // `X.contentString()` / `X.contentInt()` — no argument; the wire name is the tag
-        // of whatever `X` descends to, and `""` when it reads the arm's own node.
-        if matches!(
-            method,
-            wap::CONTENT_STRING | wap::CONTENT_INT | wap::CONTENT_BYTES
-        ) {
+        // A content read — `X.contentString()`, `X.contentUint()`, … — takes no attribute
+        // name, so the wire name is the tag of whatever `X` descends to, and `""` when it
+        // reads the arm's own node. Asking `wap` rather than listing spellings here is
+        // what keeps a newly classified accessor from being silently dropped.
+        if wap::is_content_method(method) {
             // The receiver is often hoisted (`var body = child.child("body"); … body
             // .contentString()`), so it must be dereferenced through the scope first —
             // otherwise the wire name comes out empty and a consumer cannot tell content
@@ -1285,6 +1293,11 @@ fn collect_shape_fields<'b, 'a>(
 
 /// Fold one branch's fields into the accumulated set: a field either branch reads is
 /// present, and required only when EVERY branch reads it unconditionally.
+///
+/// When two branches bind the same output key to **different wire reads**, there is no
+/// single answer — reporting the first branch's attribute would describe the other
+/// branch's payload wrongly — so the key is dropped. Missing, not wrong, as everywhere
+/// else in this module.
 fn merge_fields(into: &mut Vec<NotifActionField>, from: Vec<NotifActionField>, first: bool) {
     if !first {
         for existing in into.iter_mut() {
@@ -1293,13 +1306,24 @@ fn merge_fields(into: &mut Vec<NotifActionField>, from: Vec<NotifActionField>, f
             }
         }
     }
+    let mut conflicting: Vec<String> = Vec::new();
     for f in from {
         match into.iter_mut().find(|x| x.name == f.name) {
-            Some(existing) => existing.required &= f.required,
+            Some(existing) if same_wire_read(existing, &f) => existing.required &= f.required,
+            Some(existing) => conflicting.push(existing.name.clone()),
             None => into.push(NotifActionField {
                 required: f.required && first,
                 ..f
             }),
         }
     }
+    into.retain(|f| !conflicting.contains(&f.name));
+}
+
+/// Whether two bindings of the same output key describe the same wire read.
+fn same_wire_read(a: &NotifActionField, b: &NotifActionField) -> bool {
+    a.wire_name == b.wire_name
+        && a.field_type == b.field_type
+        && a.content == b.content
+        && a.enum_ref == b.enum_ref
 }

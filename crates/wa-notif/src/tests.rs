@@ -612,8 +612,8 @@ __d("WAWebGroupType",[],(function(t,n,r,o,a,i,l){
 __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGroupType"],(function(t,n,r,o,a,i,l){
   function w(e){ if (e.hasChild("a")) return {alpha:e.attrString("alpha")}; return {beta:e.attrString("beta")}; }
   function q(e){ return e.mapChildrenWithTag("entry", function(x){
-    if (x.hasChild("full")) return {id:x.attrString("id"), extra:x.attrString("extra")};
-    return {id:x.attrString("id")};
+    if (x.hasChild("full")) return {id:x.attrString("id"), extra:x.attrString("extra"), who:x.attrString("jid")};
+    return {id:x.attrString("id"), who:x.attrString("lid")};
   }); }
   function y(e,t){ return t.mapChildrenWithTag("participant", function(p){
     return { id: p.attrUserJid("jid"), displayName: p.maybeAttrString("display_name"), kind: p.maybeAttrEnum("type", o("WAWebGroupApiConst").GROUP_PARTICIPANT_TYPES) };
@@ -1042,4 +1042,31 @@ fn a_return_sees_only_the_bindings_that_ran_before_it() {
         "the early return ran before the rebind"
     );
     assert_eq!(pick("restrict"), Some("second"));
+}
+
+#[test]
+fn a_key_bound_to_different_wire_reads_is_dropped_not_guessed() {
+    // Two branches binding `who` to different attributes (`jid` and `lid`) have no single
+    // answer — publishing the first branch'"'"'s attribute would describe the other branch'"'"'s
+    // payload wrongly, and this is the JID conflation the repo treats as
+    // protocol-safety-critical. The key is dropped instead.
+    let ir = extract_notif(GROUP_ACTIONS_BUNDLE, "2.3000.test");
+    let entries = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .find(|a| a.wire_tag == "modify")
+        .expect("modify arm")
+        .children
+        .iter()
+        .find(|c| c.name == "entries")
+        .expect("entries child");
+    let names: Vec<&str> = entries.fields.iter().map(|f| f.name.as_str()).collect();
+    assert!(
+        !names.contains(&"who"),
+        "a conflicting source must be refused, not resolved to the first branch: {names:?}"
+    );
+    // The unambiguous keys still merge normally.
+    let f = |n: &str| entries.fields.iter().find(|f| f.name == n);
+    assert!(f("id").expect("id").required, "read by every branch");
+    assert!(!f("extra").expect("extra").required, "read by one branch");
 }
