@@ -6,7 +6,7 @@
 //!
 //! ```text
 //! <cache_dir>/
-//!   manifest.json   { wa_version, complete, bundles: [ … ], wasm: [ … ] }
+//!   manifest.json   { wa_version, complete, bundles: [ … ], wasm: [ … ], wasm_handles: {…} }
 //!   bundles/
 //!     AaZPUusmHmF.js
 //!     …
@@ -40,6 +40,7 @@
 //!
 //! Native-only (uses `std::fs`); not part of the WASM-safe port.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 
@@ -76,6 +77,35 @@ pub struct CacheManifest {
     /// simply "no wasm cached".
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub wasm: Vec<BundleEntry>,
+    /// Whether the run that stored the wasm payloads resolved and downloaded *everything*
+    /// it found.
+    ///
+    /// The bootloader endpoint answers the same request with varying subsets, so a run can
+    /// legitimately end up with fewer payloads than exist. Caching that sample as if it
+    /// were the whole set would freeze it: every later run for this version would hit the
+    /// cache and never ask again. A `false` here makes the next run re-resolve.
+    #[serde(default = "default_true", skip_serializing_if = "is_true")]
+    pub wasm_complete: bool,
+    /// Wasm URL → the bootloader (`bx`) handle that resolved it.
+    ///
+    /// Recorded because a **cache hit skips resolution**: without it, reusing the cache
+    /// would lose the pairing for every payload the entry page doesn't inline (most of
+    /// them), and the wasm lockfile written from a cached run would drop the join key back
+    /// to the `wasm` IR domain. Defaulted for caches written before this existed.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub wasm_handles: BTreeMap<String, String>,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde skip_serializing_if takes &T"
+)]
+fn is_true(b: &bool) -> bool {
+    *b
 }
 
 /// Result of probing the cache against the freshly-discovered remote state.
@@ -166,8 +196,21 @@ impl BundleCache {
             Ok(manifest) if manifest.wasm.is_empty() => {
                 CacheStatus::Miss("no wasm cached for this version".to_string())
             }
+            // A partial sample must not become this version's permanent answer.
+            Ok(manifest) if !manifest.wasm_complete => CacheStatus::Miss(
+                "previous wasm resolution was incomplete — resolving again".to_string(),
+            ),
             Ok(manifest) => self.load_set(&manifest.wasm, &self.wasm_dir()),
         }
+    }
+
+    /// The recorded wasm URL → `bx` handle pairing, empty when nothing is cached (or the
+    /// cache predates the field). Read separately from [`Self::check_wasm`] because the
+    /// pairing is provenance metadata, not part of the payload integrity contract.
+    pub fn wasm_handles(&self) -> BTreeMap<String, String> {
+        self.read_manifest()
+            .map(|m| m.wasm_handles)
+            .unwrap_or_default()
     }
 
     /// The manifest, if it is complete and for `remote_version`; otherwise the
@@ -228,6 +271,8 @@ impl BundleCache {
             complete: true,
             bundles: entries,
             wasm: Vec::new(),
+            wasm_complete: true,
+            wasm_handles: BTreeMap::new(),
         })
     }
 
@@ -238,7 +283,13 @@ impl BundleCache {
     /// part. Requires a complete cache of the same version — storing wasm against a
     /// missing or stale JS cache would produce a manifest whose two halves came from
     /// different WhatsApp builds.
-    pub fn store_wasm(&self, wa_version: &str, wasm: &[Bundle]) -> Result<()> {
+    pub fn store_wasm(
+        &self,
+        wa_version: &str,
+        wasm: &[Bundle],
+        handles: &BTreeMap<String, String>,
+        complete: bool,
+    ) -> Result<()> {
         let mut manifest = self.read_manifest().with_context(|| {
             format!(
                 "no cache manifest at {} — store the JS bundles before their wasm",
@@ -261,6 +312,13 @@ impl BundleCache {
                 .with_context(|| format!("remove {}", wasm_dir.display()))?;
         }
         manifest.wasm = self.write_set(wasm, &wasm_dir)?;
+        manifest.wasm_complete = complete;
+        // Only the handles for payloads actually stored — the caller's map may describe
+        // the whole bootloader resource set, most of which is not wasm.
+        manifest.wasm_handles = wasm
+            .iter()
+            .filter_map(|b| handles.get(&b.url).map(|id| (b.url.clone(), id.clone())))
+            .collect();
         self.write_manifest(&manifest)
     }
 
@@ -470,6 +528,8 @@ mod tests {
             .store_wasm(
                 "v1",
                 &[bundle("https://h/e.wasm", "e.wasm", b"\0asm\x01\0\0\0")],
+                &BTreeMap::new(),
+                true,
             )
             .unwrap();
 
@@ -520,7 +580,12 @@ mod tests {
             .store("v", &[bundle("https://h/a.js", "a.js", b"alpha")])
             .unwrap();
         cache
-            .store_wasm("v", &[bundle("https://h/e.wasm", "e.wasm", b"hello")])
+            .store_wasm(
+                "v",
+                &[bundle("https://h/e.wasm", "e.wasm", b"hello")],
+                &BTreeMap::new(),
+                true,
+            )
             .unwrap();
         // Same length, different bytes → checksum mismatch.
         fs::write(cache.wasm_path("https://h/e.wasm"), b"world").unwrap();
@@ -541,13 +606,19 @@ mod tests {
         let cache = BundleCache::new(&dir);
         let w = [bundle("https://h/e.wasm", "e.wasm", b"x")];
         // No cache at all.
-        let err = cache.store_wasm("v1", &w).unwrap_err().to_string();
+        let err = cache
+            .store_wasm("v1", &w, &BTreeMap::new(), true)
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("no cache manifest"), "{err}");
         // Cache for a different version.
         cache
             .store("v1", &[bundle("https://h/a.js", "a.js", b"x")])
             .unwrap();
-        let err = cache.store_wasm("v2", &w).unwrap_err().to_string();
+        let err = cache
+            .store_wasm("v2", &w, &BTreeMap::new(), true)
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("refusing to attach wasm"), "{err}");
         fs::remove_dir_all(&dir).ok();
     }
@@ -560,7 +631,12 @@ mod tests {
             .store("v1", &[bundle("https://h/a.js", "a.js", b"x")])
             .unwrap();
         cache
-            .store_wasm("v1", &[bundle("https://h/old.wasm", "old.wasm", b"old")])
+            .store_wasm(
+                "v1",
+                &[bundle("https://h/old.wasm", "old.wasm", b"old")],
+                &BTreeMap::new(),
+                true,
+            )
             .unwrap();
         cache
             .store("v2", &[bundle("https://h/b.js", "b.js", b"y")])
@@ -578,15 +654,126 @@ mod tests {
             .store("v", &[bundle("https://h/a.js", "a.js", b"x")])
             .unwrap();
         cache
-            .store_wasm("v", &[bundle("https://h/one.wasm", "one.wasm", b"1")])
+            .store_wasm(
+                "v",
+                &[bundle("https://h/one.wasm", "one.wasm", b"1")],
+                &BTreeMap::new(),
+                true,
+            )
             .unwrap();
         cache
-            .store_wasm("v", &[bundle("https://h/two.wasm", "two.wasm", b"2")])
+            .store_wasm(
+                "v",
+                &[bundle("https://h/two.wasm", "two.wasm", b"2")],
+                &BTreeMap::new(),
+                true,
+            )
             .unwrap();
         let m = cache.read_manifest().unwrap();
         assert_eq!(m.wasm.len(), 1);
         assert_eq!(m.wasm[0].file_name, "two.wasm");
         assert!(!cache.wasm_path("https://h/one.wasm").exists());
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn the_bx_handle_pairing_survives_a_cache_hit() {
+        // Regression: a cache hit skips resolution, so without persisting the pairing the
+        // wasm lockfile written from a cached run loses the `bx` join key for every
+        // payload the entry page doesn't inline — i.e. most of them.
+        let dir = tmp_dir("wasm-handles");
+        let cache = BundleCache::new(&dir);
+        cache
+            .store("v", &[bundle("https://h/a.js", "a.js", b"x")])
+            .unwrap();
+
+        let handles: BTreeMap<String, String> = [
+            ("https://h/e.wasm".to_string(), "32180".to_string()),
+            // A handle for something that is not being stored must not be persisted.
+            ("https://h/icon.webp".to_string(), "9547".to_string()),
+        ]
+        .into_iter()
+        .collect();
+        cache
+            .store_wasm(
+                "v",
+                &[bundle("https://h/e.wasm", "e.wasm", b"p")],
+                &handles,
+                true,
+            )
+            .unwrap();
+
+        let read = cache.wasm_handles();
+        assert_eq!(read.len(), 1, "only stored payloads: {read:?}");
+        assert_eq!(
+            read.get("https://h/e.wasm").map(String::as_str),
+            Some("32180")
+        );
+
+        // Re-storing without handles clears them rather than keeping a stale pairing.
+        cache
+            .store_wasm(
+                "v",
+                &[bundle("https://h/e.wasm", "e.wasm", b"p")],
+                &BTreeMap::new(),
+                true,
+            )
+            .unwrap();
+        assert!(cache.wasm_handles().is_empty());
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_cache_without_handles_reads_as_empty_not_an_error() {
+        // Caches written before the field existed must still load.
+        let dir = tmp_dir("wasm-nohandles");
+        let cache = BundleCache::new(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            cache.manifest_path(),
+            r#"{"wa_version":"v","complete":true,"bundles":[]}"#,
+        )
+        .unwrap();
+        assert!(cache.wasm_handles().is_empty());
+        assert!(
+            cache.read_manifest().is_some(),
+            "legacy manifest still parses"
+        );
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn an_incomplete_wasm_resolution_is_not_frozen_into_the_cache() {
+        // The endpoint hands out varying subsets, so a partial run must not become this
+        // version's permanent answer: the next run has to ask again.
+        let dir = tmp_dir("wasm-partial");
+        let cache = BundleCache::new(&dir);
+        cache
+            .store("v", &[bundle("https://h/a.js", "a.js", b"x")])
+            .unwrap();
+        cache
+            .store_wasm(
+                "v",
+                &[bundle("https://h/e.wasm", "e.wasm", b"p")],
+                &BTreeMap::new(),
+                false,
+            )
+            .unwrap();
+        match cache.check_wasm("v") {
+            CacheStatus::Miss(why) => assert!(why.contains("incomplete"), "reason: {why}"),
+            CacheStatus::Hit(_) => panic!("a partial sample must not be served as the set"),
+        }
+        // The JS half is unaffected, and a later complete run flips it to a hit.
+        assert!(matches!(cache.check("v"), CacheStatus::Hit(_)));
+        cache
+            .store_wasm(
+                "v",
+                &[bundle("https://h/e.wasm", "e.wasm", b"p")],
+                &BTreeMap::new(),
+                true,
+            )
+            .unwrap();
+        assert!(matches!(cache.check_wasm("v"), CacheStatus::Hit(_)));
         fs::remove_dir_all(&dir).ok();
     }
 

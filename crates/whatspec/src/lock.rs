@@ -133,8 +133,10 @@ pub struct WasmLockEntry {
     /// The `bx` handle that resolved to this URL, when one did.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub bx_id: Option<String>,
-    /// The content-hashed last URL segment (`COs9e0Kj0ic.wasm`) — the file name the
-    /// archive and `--wasm-out` write, and the identity a consumer keys on.
+    /// The content-hashed last URL segment (`COs9e0Kj0ic.wasm`) — the payload's published
+    /// identity, and the name `--wasm-out` and the archive use. (A pathological set whose
+    /// segments collide is renamed on disk by `save_bundles`; publishing then fails loudly
+    /// on the mismatch rather than shipping an archive the lock can't describe.)
     pub file_name: String,
     pub url: String,
     /// Lowercase hex SHA-256 of the payload bytes.

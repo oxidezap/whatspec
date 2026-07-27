@@ -107,5 +107,6 @@
   "waVersion": "2.3000.1043873090",
   "wamEvents": 433,
   "wasmBinaries": 6,
-  "wasmResources": 43
+  "wasmResources": 43,
+  "wasmWasmHandles": 6
 }

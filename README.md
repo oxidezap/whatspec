@@ -35,7 +35,7 @@ cargo run --release -p whatspec -- update --cache .wa-cache
 # Seed that same cache from the lock-pinned GitHub Release (no live bundle fetch):
 cargo run --release -p whatspec -- restore --from-lock generated/bundles.lock.json --cache .wa-cache
 
-# Also resolve, download and store the client's wasm payloads (~41 MB), as <id>.wasm:
+# Also resolve, download and store the client's wasm payloads (~41 MB), as <url-hash>.wasm:
 cargo run --release -p whatspec -- update --cache .wa-cache --wasm-out ./wasm
 
 # Restore a locked wasm set (its own lock + its own content-addressed release asset):
@@ -69,9 +69,11 @@ The client's heavy lifting — the VoIP engine, media codecs (mozjpeg, WebP, MP4
 
 `update --wasm` resolves them fully **headless**: the entry page inlines only ~3 handles, so `whatspec` additionally asks `/ajax/bootloader-endpoint/` for the components the page deferred — which is how it reaches the full set (9 payloads / ~41 MB at the time of writing) with no browser. The endpoint answers the same request with *different subsets*, so both request forms are merged over repeated rounds until a round adds nothing new; the resolved set is a best-effort superset and is reported as such.
 
+A run that resolves or downloads only part of the set is cached as **incomplete**, so the next run resolves again instead of freezing one sample of a varying endpoint as that version's answer. `--wasm-out` sweeps payloads that left the set, so the directory is always exactly the lock's, and `restore --wasm` writes each payload under the name the lock records for its content hash rather than the archive's own label.
+
 Wasm is deliberately **outside** the reproducibility chain above: no `generated/` artifact depends on the bytes, the resolved set isn't closed, and the JS `setHash` (which names the published bundles archive) must not move because a payload changed. It therefore gets its own lock and its own release asset, `wasm-<wasmSetHash>.tar.xz` — content-addressed with no version, because the payload set survives many rollouts and would otherwise be re-uploaded on every update run.
 
-`--wasm-out <dir>` writes them as `<id>.wasm`, which is the layout a wasm runner can be pointed straight at:
+`--wasm-out <dir>` writes each payload under its **content-hashed URL segment** — `COs9e0Kj0ic.wasm`, the same identity WhatsApp serves it under — not under its `bx` handle. That is what a wasm runner keys on, so it can be pointed straight at the directory:
 
 ```sh
 cargo run --release -p whatspec -- update --cache .wa-cache --wasm-out ./wasm

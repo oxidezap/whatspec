@@ -173,7 +173,15 @@ fn restore_wasm(opts: &RestoreOptions) -> Result<()> {
 
     match &opts.target {
         RestoreTarget::Bundles(out) => {
-            let written = write_bundles(&files, out, "wasm")?;
+            // Deliberately NOT the archive's own names: hash-multiset verification proves
+            // the *bytes* are the locked ones, not that each arrived under the right name.
+            // Wasm consumers select a module by filename, so a crafted archive that swaps
+            // two locked names would pass verification and then serve one payload in place
+            // of another. Naming from the lock makes the association part of what is
+            // verified. (The JS path is immune: `update --bundles` reads every `.js`
+            // regardless of name.)
+            let named = name_from_lock(files, &hashes, &lock)?;
+            let written = write_bundles(&named, out, "wasm")?;
             eprintln!(
                 "restored {} wasm payload(s) to {} — verified against the lock",
                 written,
@@ -183,8 +191,18 @@ fn restore_wasm(opts: &RestoreOptions) -> Result<()> {
         RestoreTarget::Cache(cache_dir) => {
             let payloads = payloads_for_cache(files, hashes, &lock)?;
             let written = payloads.len();
+            // The lock carries each payload's `bx` handle, so a restored cache is
+            // indistinguishable from a live-resolved one (a later cache hit keeps the
+            // join key back to the `wasm` IR domain).
+            let handles: std::collections::BTreeMap<String, String> = lock
+                .wasm
+                .iter()
+                .filter_map(|e| e.bx_id.clone().map(|id| (e.url.clone(), id)))
+                .collect();
             BundleCache::new(cache_dir.to_path_buf())
-                .store_wasm(&lock.wa_version, &payloads)
+                // A restored set is the lock's set, verified — the canonical answer for
+                // this version, not a sample of a varying endpoint, so it is complete.
+                .store_wasm(&lock.wa_version, &payloads, &handles, true)
                 .with_context(|| format!("attach wasm to the cache at {}", cache_dir.display()))?;
             eprintln!(
                 "restored {} wasm payload(s) into cache {} — verified against the lock",
@@ -199,6 +217,35 @@ fn restore_wasm(opts: &RestoreOptions) -> Result<()> {
 /// Re-pair verified archive bytes with the lock's URLs (the cache keys on URL, not on
 /// archive file name) and assert the recorded sizes. Every check runs before the cache is
 /// touched, so an inconsistent lock leaves the existing cache alone.
+/// Re-label verified archive entries with the file name the lock records for their content
+/// hash, so what lands on disk is the locked *(name, bytes)* pairing rather than whatever
+/// the archive claimed. Duplicate hashes (one payload served from two URLs) are matched
+/// one-for-one, so both locked names are produced.
+fn name_from_lock(
+    files: Vec<(String, Vec<u8>)>,
+    hashes: &[String],
+    lock: &crate::lock::WasmLock,
+) -> Result<Vec<(String, Vec<u8>)>> {
+    let mut names_by_hash: HashMap<&str, Vec<&str>> = HashMap::new();
+    for entry in &lock.wasm {
+        names_by_hash
+            .entry(entry.sha256.as_str())
+            .or_default()
+            .push(entry.file_name.as_str());
+    }
+    let mut out = Vec::with_capacity(files.len());
+    for ((archive_name, bytes), sha256) in files.into_iter().zip(hashes) {
+        let name = names_by_hash
+            .get_mut(sha256.as_str())
+            .and_then(Vec::pop)
+            .with_context(|| {
+                format!("archive entry {archive_name} ({sha256}) has no name in the lock")
+            })?;
+        out.push((name.to_string(), bytes));
+    }
+    Ok(out)
+}
+
 fn payloads_for_cache(
     files: Vec<(String, Vec<u8>)>,
     verified_hashes: Vec<String>,
@@ -1167,5 +1214,75 @@ mod tests {
         let err = read_wasm_lock(&path).unwrap_err().to_string();
         assert!(err.contains("inconsistent"), "{err}");
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_name_swapped_wasm_archive_is_relabelled_from_the_lock() {
+        // The attack multiset verification alone cannot see: both locked payloads are
+        // present, but the archive labels each with the other's name. Consumers select a
+        // module by filename, so accepting the archive's labels would hand a runner the
+        // wrong binary while reporting "verified against the lock".
+        let voip: &[u8] = b"\0asm\x01\0\0\0voip-engine";
+        let mp4: &[u8] = b"\0asm\x01\0\0\0mp4-utils";
+        let lock = wasm_lock_for(&[
+            ("voip.wasm", "https://static.whatsapp.net/voip.wasm", voip),
+            ("mp4.wasm", "https://static.whatsapp.net/mp4.wasm", mp4),
+        ]);
+        // Swapped labels, correct bytes → passes the multiset check.
+        let swapped = vec![
+            ("mp4.wasm".to_string(), voip.to_vec()),
+            ("voip.wasm".to_string(), mp4.to_vec()),
+        ];
+        let hashes = verify_multiset(
+            &swapped,
+            lock.wasm.iter().map(|e| e.sha256.as_str()),
+            lock.wasm_count,
+            "wasm payload",
+        )
+        .expect("bytes are the locked ones");
+
+        let named = name_from_lock(swapped, &hashes, &lock).unwrap();
+        let by_name: HashMap<&str, &[u8]> = named
+            .iter()
+            .map(|(n, b)| (n.as_str(), b.as_slice()))
+            .collect();
+        assert_eq!(
+            by_name["voip.wasm"], voip,
+            "name follows the locked content"
+        );
+        assert_eq!(by_name["mp4.wasm"], mp4);
+    }
+
+    #[test]
+    fn duplicate_content_keeps_both_locked_names() {
+        // Two URLs serving identical bytes (WA does this for the VoIP engine): both locked
+        // names must be produced, not one name twice.
+        let same: &[u8] = b"identical";
+        let lock = wasm_lock_for(&[
+            ("a.wasm", "https://static.whatsapp.net/a.wasm", same),
+            ("b.wasm", "https://static.whatsapp.net/b.wasm", same),
+        ]);
+        let files = vec![
+            ("x.wasm".to_string(), same.to_vec()),
+            ("y.wasm".to_string(), same.to_vec()),
+        ];
+        let hashes = vec![wa_text::sha256_hex(same), wa_text::sha256_hex(same)];
+        let mut names: Vec<String> = name_from_lock(files, &hashes, &lock)
+            .unwrap()
+            .into_iter()
+            .map(|(n, _)| n)
+            .collect();
+        names.sort();
+        assert_eq!(names, ["a.wasm", "b.wasm"]);
+    }
+
+    #[test]
+    fn an_entry_absent_from_the_lock_is_named_by_nothing() {
+        let lock = wasm_lock_for(&[("a.wasm", "https://static.whatsapp.net/a.wasm", b"a")]);
+        let files = vec![("x.wasm".to_string(), b"other".to_vec())];
+        let err = name_from_lock(files, &[wa_text::sha256_hex(b"other")], &lock)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("has no name in the lock"), "{err}");
     }
 }

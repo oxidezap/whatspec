@@ -37,6 +37,11 @@ use crate::util::{UA, host_of};
 /// steerable to an arbitrary host.
 const ALLOWED_HOST: &str = "static.whatsapp.net";
 
+/// Domains the bootloader endpoint may live on. `endpointURI` is read out of the page,
+/// i.e. it is remote input that decides where a request goes; restrict it the same way
+/// the payload URLs are restricted rather than trusting whatever the page names.
+const ENDPOINT_DOMAINS: [&str; 2] = [".whatsapp.com", ".whatsapp.net"];
+
 /// Body cap for one bootloader-endpoint response (they run ~1 MB; this is slack).
 const MAX_RESPONSE_BYTES: u64 = 32 * 1024 * 1024;
 
@@ -133,7 +138,14 @@ pub fn resolve_wasm_with(
         ));
     }
 
-    if let (Some(params), false) = (&discovered.bootloader, components.is_empty()) {
+    if let Some(params) = &discovered.bootloader
+        && !endpoint_is_trusted(&params.endpoint_uri)
+    {
+        out.failures.push(format!(
+            "refusing the bootloader endpoint {}: not an https WhatsApp host",
+            params.endpoint_uri
+        ));
+    } else if let (Some(params), false) = (&discovered.bootloader, components.is_empty()) {
         let joined = components.join(",");
         for round in 0..opts.max_rounds {
             let before = bx.len();
@@ -172,7 +184,7 @@ pub fn resolve_wasm_with(
 
     let mut urls: Vec<String> = Vec::new();
     for (id, uri) in bx {
-        if is_wasm_url(&uri) && host_of(&uri).as_deref() == Some(ALLOWED_HOST) {
+        if is_wasm_url(&uri) && is_cdn_payload(&uri) {
             urls.push(uri.clone());
             out.by_id.insert(id, uri);
         }
@@ -182,7 +194,7 @@ pub fn resolve_wasm_with(
         discovered
             .wasm
             .iter()
-            .filter(|u| host_of(u).as_deref() == Some(ALLOWED_HOST))
+            .filter(|u| is_cdn_payload(u))
             .cloned(),
     );
     urls.sort();
@@ -196,6 +208,36 @@ pub fn resolve_wasm_with(
 #[cfg(feature = "native")]
 pub fn resolve_wasm(discovered: &Discovered, opts: &WasmResolveOptions) -> WasmResolution {
     resolve_wasm_with(&crate::UreqClient::new(), discovered, opts)
+}
+
+/// Whether a payload URL may be downloaded: HTTPS, served by WA's static CDN exactly.
+///
+/// Both halves matter. The URL comes from a server payload, so the host is checked against
+/// the allowlist (see [`host_of`], which strips userinfo — a URL like
+/// `https://static.whatsapp.net:443@attacker.example/x.wasm` names `attacker.example` as
+/// the host a client would connect to, and must not pass as the CDN). Plaintext is refused
+/// so a downgraded URL can't put a fetched payload on the wire unauthenticated.
+fn is_cdn_payload(url: &str) -> bool {
+    url.starts_with("https://") && host_of(url).as_deref() == Some(ALLOWED_HOST)
+}
+
+/// Whether the page-supplied endpoint may be requested: HTTPS, on a WhatsApp domain.
+///
+/// The request carries no credentials, so the risk isn't leakage — it is that a page
+/// change (or a tampered response upstream of us) could point the run at an arbitrary
+/// host. The allowlist keeps "where we fetch from" a property of this code, not of the
+/// page. The trailing-dot form in [`ENDPOINT_DOMAINS`] is what makes
+/// `evil-whatsapp.com` and `whatsapp.com.evil.test` fail.
+fn endpoint_is_trusted(uri: &str) -> bool {
+    if !uri.starts_with("https://") {
+        return false;
+    }
+    match host_of(uri) {
+        Some(host) => ENDPOINT_DOMAINS
+            .iter()
+            .any(|d| host.ends_with(d) || host == d[1..]),
+        None => false,
+    }
 }
 
 /// Build one bootloader-endpoint URL. Mirrors the query a browser sends; `__a=1` is what
@@ -302,17 +344,89 @@ mod tests {
     }
 
     #[test]
+    fn payload_urls_must_be_https_on_the_cdn_host() {
+        assert!(is_cdn_payload(
+            "https://static.whatsapp.net/rsrc.php/x.wasm"
+        ));
+        // Plaintext, another host, and the userinfo trick that names a different host.
+        assert!(!is_cdn_payload("http://static.whatsapp.net/x.wasm"));
+        assert!(!is_cdn_payload("https://web.whatsapp.com/x.wasm"));
+        assert!(!is_cdn_payload(
+            "https://static.whatsapp.net:443@attacker.example/x.wasm"
+        ));
+    }
+
+    #[test]
+    fn only_https_whatsapp_endpoints_are_requestable() {
+        assert!(endpoint_is_trusted(
+            "https://web.whatsapp.com/ajax/bootloader-endpoint/"
+        ));
+        assert!(endpoint_is_trusted("https://whatsapp.com/x"));
+        assert!(endpoint_is_trusted("https://static.whatsapp.net/x"));
+        // Plaintext, look-alike and suffix-appended hosts are all refused.
+        assert!(!endpoint_is_trusted(
+            "http://web.whatsapp.com/ajax/bootloader-endpoint/"
+        ));
+        assert!(!endpoint_is_trusted("https://evil-whatsapp.com/x"));
+        assert!(!endpoint_is_trusted("https://whatsapp.com.evil.test/x"));
+        assert!(!endpoint_is_trusted("https://evil.test/whatsapp.com"));
+        assert!(!endpoint_is_trusted("/relative"));
+    }
+
+    #[test]
     fn percent_encoding_neutralizes_query_injection() {
         // A hostile/odd page value must not be able to add parameters.
         assert_eq!(percent_encode("a&__a=0 b"), "a%26__a%3D0%20b");
         assert_eq!(percent_encode("safe-._~,"), "safe-._~,");
     }
 
-    #[cfg(feature = "native")]
-    mod live {
+    /// Resolution exercised through the [`HttpClient`] port with a canned client: no
+    /// sockets, and — unlike a local test server — the endpoint can be a real WhatsApp
+    /// URL, which is what the host allowlist requires. This is the WASM-safe path too.
+    mod resolution {
         use super::*;
-        use crate::testutil::spawn_server;
-        use std::collections::HashMap;
+        use crate::http::{FetchError, HttpResponse};
+        use std::sync::Mutex;
+
+        /// Serves queued responses in order, then repeats the last one forever, and records
+        /// every requested URL.
+        struct CannedClient {
+            queued: Mutex<std::collections::VecDeque<(u16, Vec<u8>)>>,
+            repeat: (u16, Vec<u8>),
+            urls: Mutex<Vec<String>>,
+        }
+
+        impl CannedClient {
+            fn always(status: u16, body: Vec<u8>) -> Self {
+                Self {
+                    queued: Mutex::new(Default::default()),
+                    repeat: (status, body),
+                    urls: Mutex::new(Vec::new()),
+                }
+            }
+
+            fn calls(&self) -> Vec<String> {
+                self.urls.lock().unwrap().clone()
+            }
+        }
+
+        impl HttpClient for CannedClient {
+            fn get(
+                &self,
+                url: &str,
+                _headers: &[(&str, &str)],
+                _max_bytes: u64,
+            ) -> Result<HttpResponse, FetchError> {
+                self.urls.lock().unwrap().push(url.to_string());
+                let (status, body) = self
+                    .queued
+                    .lock()
+                    .unwrap()
+                    .pop_front()
+                    .unwrap_or_else(|| self.repeat.clone());
+                Ok(HttpResponse { status, body })
+            }
+        }
 
         /// A bootloader payload carrying `bxData` under `hrp.hsrp.hsdp`, as the real one does.
         fn payload(entries: &[(&str, &str)]) -> Vec<u8> {
@@ -342,38 +456,42 @@ mod tests {
             }
         }
 
+        const ENDPOINT: &str = "https://web.whatsapp.com/ajax/bootloader-endpoint/";
+
         #[test]
         fn merges_page_and_endpoint_handles_and_filters_non_wasm() {
-            let mut routes = HashMap::new();
-            routes.insert(
-                "/be".to_string(),
-                (
-                    200u16,
-                    payload(&[
-                        (
-                            "32180",
-                            "https://static.whatsapp.net/rsrc.php/v4/y/voip.wasm",
-                        ),
-                        // Not wasm → excluded.
-                        (
-                            "9547",
-                            "https://static.whatsapp.net/rsrc.php/v4/y/icon.webp",
-                        ),
-                        // Off-CDN → excluded even though it is wasm.
-                        ("6666", "https://evil.example/pwn.wasm"),
-                    ]),
-                ),
+            let client = CannedClient::always(
+                200,
+                payload(&[
+                    (
+                        "32180",
+                        "https://static.whatsapp.net/rsrc.php/v4/y/voip.wasm",
+                    ),
+                    // Not wasm → excluded.
+                    (
+                        "9547",
+                        "https://static.whatsapp.net/rsrc.php/v4/y/icon.webp",
+                    ),
+                    // Off-CDN → excluded even though it is wasm.
+                    ("6666", "https://evil.example/pwn.wasm"),
+                    // Userinfo naming another host → likewise excluded.
+                    (
+                        "6667",
+                        "https://static.whatsapp.net:443@attacker.example/pwn.wasm",
+                    ),
+                    // Plaintext on the right host → still refused.
+                    ("6668", "http://static.whatsapp.net/plain.wasm"),
+                ]),
             );
-            let base = spawn_server(routes);
             let d = discovered_with(
-                &format!("{base}/be"),
+                ENDPOINT,
                 &[(
                     "33861",
                     "https://static.whatsapp.net/rsrc.php/v4/y/kaleidoscope.wasm",
                 )],
             );
 
-            let res = resolve_wasm(&d, &WasmResolveOptions::default());
+            let res = resolve_wasm_with(&client, &d, &WasmResolveOptions::default());
             assert_eq!(res.from_page, 1);
             assert_eq!(
                 res.by_id.keys().collect::<Vec<_>>(),
@@ -382,22 +500,28 @@ mod tests {
             );
             assert_eq!(res.urls.len(), 2, "{:?}", res.urls);
             assert!(!res.urls.iter().any(|u| u.contains("evil.example")));
+            assert!(!res.urls.iter().any(|u| u.contains("attacker.example")));
+            assert!(!res.urls.iter().any(|u| u.starts_with("http://")));
             assert!(res.failures.is_empty(), "{:?}", res.failures);
+            // Both request spellings were tried, against the endpoint the page named.
+            let calls = client.calls();
+            assert!(calls.iter().any(|u| u.contains("nb_modules=")), "{calls:?}");
+            assert!(
+                calls
+                    .iter()
+                    .any(|u| u.contains("?modules=") || u.contains("&modules=")),
+                "{calls:?}"
+            );
+            assert!(calls.iter().all(|u| u.starts_with(ENDPOINT)), "{calls:?}");
         }
 
         #[test]
         fn stops_after_a_round_that_adds_nothing() {
-            let mut routes = HashMap::new();
-            routes.insert(
-                "/be".to_string(),
-                (
-                    200u16,
-                    payload(&[("1", "https://static.whatsapp.net/a.wasm")]),
-                ),
-            );
-            let base = spawn_server(routes);
-            let d = discovered_with(&format!("{base}/be"), &[]);
-            let res = resolve_wasm(
+            let client =
+                CannedClient::always(200, payload(&[("1", "https://static.whatsapp.net/a.wasm")]));
+            let d = discovered_with(ENDPOINT, &[]);
+            let res = resolve_wasm_with(
+                &client,
                 &d,
                 &WasmResolveOptions {
                     max_rounds: 5,
@@ -410,24 +534,86 @@ mod tests {
         }
 
         #[test]
-        fn endpoint_failure_degrades_to_page_handles() {
-            let mut routes = HashMap::new();
-            routes.insert("/be".to_string(), (500u16, b"nope".to_vec()));
-            let base = spawn_server(routes);
-            let d = discovered_with(
-                &format!("{base}/be"),
-                &[("33861", "https://static.whatsapp.net/k.wasm")],
+        fn a_varying_server_keeps_going_until_a_round_is_dry() {
+            // The real endpoint dribbles out different subsets; resolution must accumulate
+            // across rounds instead of trusting any single answer.
+            let client = CannedClient::always(200, payload(&[]));
+            {
+                let mut q = client.queued.lock().unwrap();
+                q.push_back((200, payload(&[("1", "https://static.whatsapp.net/a.wasm")])));
+                q.push_back((200, payload(&[])));
+                q.push_back((200, payload(&[("2", "https://static.whatsapp.net/b.wasm")])));
+                q.push_back((200, payload(&[])));
+            }
+            let d = discovered_with(ENDPOINT, &[]);
+            let res = resolve_wasm_with(
+                &client,
+                &d,
+                &WasmResolveOptions {
+                    max_rounds: 5,
+                    ..Default::default()
+                },
             );
-            let res = resolve_wasm(&d, &WasmResolveOptions::default());
+            assert_eq!(
+                res.urls,
+                [
+                    "https://static.whatsapp.net/a.wasm",
+                    "https://static.whatsapp.net/b.wasm"
+                ],
+                "both subsets merged"
+            );
+            assert_eq!(res.rounds, 3, "round 3 added nothing and ended the loop");
+        }
+
+        #[test]
+        fn endpoint_failure_degrades_to_page_handles() {
+            let client = CannedClient::always(500, b"nope".to_vec());
+            let d = discovered_with(ENDPOINT, &[("33861", "https://static.whatsapp.net/k.wasm")]);
+            let res = resolve_wasm_with(&client, &d, &WasmResolveOptions::default());
             assert_eq!(res.urls, ["https://static.whatsapp.net/k.wasm"]);
             assert_eq!(res.failures.len(), 2, "both param forms failed");
             assert!(res.failures[0].contains("500"), "{:?}", res.failures);
         }
 
         #[test]
+        fn an_unparseable_body_is_a_failure_not_a_panic() {
+            let client = CannedClient::always(200, b"for (;;);{not json".to_vec());
+            let d = discovered_with(ENDPOINT, &[]);
+            let res = resolve_wasm_with(&client, &d, &WasmResolveOptions::default());
+            assert!(res.urls.is_empty());
+            assert!(
+                res.failures
+                    .iter()
+                    .all(|f| f.contains("unparseable payload")),
+                "{:?}",
+                res.failures
+            );
+        }
+
+        #[test]
+        fn an_untrusted_endpoint_is_refused_without_a_request() {
+            // A page pointing the endpoint elsewhere must not steer the run there.
+            let client =
+                CannedClient::always(200, payload(&[("1", "https://static.whatsapp.net/a.wasm")]));
+            let d = discovered_with("http://127.0.0.1:9/be", &[]);
+            let res = resolve_wasm_with(&client, &d, &WasmResolveOptions::default());
+            assert_eq!(res.requests, 0, "nothing was requested");
+            assert!(client.calls().is_empty());
+            assert!(res.urls.is_empty());
+            assert!(
+                res.failures
+                    .iter()
+                    .any(|f| f.contains("not an https WhatsApp host")),
+                "{:?}",
+                res.failures
+            );
+        }
+
+        #[test]
         fn no_deferred_components_is_reported_not_silently_small() {
             // The page-shape regression this guards: params present, but the deferred set
             // came out empty, so resolution would quietly stop at the page handles.
+            let client = CannedClient::always(200, payload(&[]));
             let d = Discovered {
                 bx_data: [(
                     "1".to_string(),
@@ -439,7 +625,7 @@ mod tests {
                 deferred_components: Vec::new(),
                 ..Default::default()
             };
-            let res = resolve_wasm(&d, &WasmResolveOptions::default());
+            let res = resolve_wasm_with(&client, &d, &WasmResolveOptions::default());
             assert_eq!(res.requests, 0);
             assert_eq!(res.urls.len(), 1, "page handles still resolved");
             assert!(
@@ -453,6 +639,7 @@ mod tests {
 
         #[test]
         fn no_bootloader_params_means_no_requests() {
+            let client = CannedClient::always(200, payload(&[]));
             let d = Discovered {
                 bx_data: [(
                     "1".to_string(),
@@ -462,10 +649,31 @@ mod tests {
                 .collect(),
                 ..Default::default()
             };
-            let res = resolve_wasm(&d, &WasmResolveOptions::default());
+            let res = resolve_wasm_with(&client, &d, &WasmResolveOptions::default());
             assert_eq!(res.requests, 0);
             assert_eq!(res.urls.len(), 1);
             assert!(res.failures[0].contains("bootloader endpoint parameters"));
+        }
+
+        #[test]
+        fn a_capped_component_list_is_reported() {
+            // Silent truncation would read as "asked about everything".
+            let client = CannedClient::always(200, payload(&[]));
+            let mut d = discovered_with(ENDPOINT, &[]);
+            d.deferred_components = (0..10).map(|i| format!("Comp{i}")).collect();
+            let res = resolve_wasm_with(
+                &client,
+                &d,
+                &WasmResolveOptions {
+                    max_components: 3,
+                    ..Default::default()
+                },
+            );
+            assert!(
+                res.failures.iter().any(|f| f.contains("capped at 3 of 10")),
+                "{:?}",
+                res.failures
+            );
         }
     }
 }
