@@ -760,6 +760,16 @@ struct Loaded {
 fn load_source(opts: &Options) -> Result<Loaded> {
     match &opts.bundles_dir {
         Some(dir) => {
+            if opts.wasm {
+                // Resolving a wasm payload needs the live page (the `bx` id → URL map is
+                // server state), so the flag can't be honoured here. Say it instead of
+                // writing an artifact set that silently lacks the payloads asked for.
+                eprintln!(
+                    "{FLAG_WASM}: ignored with {FLAG_BUNDLES} — wasm URLs live in the live \
+                     page's bootloader data, not in the .js bundles; run without \
+                     {FLAG_BUNDLES} to resolve them"
+                );
+            }
             let (source, bundles) = read_local_bundles(dir)?;
             let wa_version = opts
                 .wa_version

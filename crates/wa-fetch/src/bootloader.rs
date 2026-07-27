@@ -158,6 +158,16 @@ pub fn resolve_wasm_with(
              BootloaderEndpointConfig) — only page-inlined handles are resolvable"
                 .to_string(),
         );
+    } else {
+        // Nothing deferred means nothing to ask about — but it is also what a change in
+        // the page's `compMap`/`rsrcMap` shape would look like, silently collapsing
+        // resolution to the ~3 page-inlined handles. Say so rather than return a small
+        // set as if it were the whole one.
+        out.failures.push(
+            "page deferred no server-fetchable components — nothing to ask the bootloader \
+             endpoint (expected ~150; suspect a page-payload shape change)"
+                .to_string(),
+        );
     }
 
     let mut urls: Vec<String> = Vec::new();
@@ -412,6 +422,33 @@ mod tests {
             assert_eq!(res.urls, ["https://static.whatsapp.net/k.wasm"]);
             assert_eq!(res.failures.len(), 2, "both param forms failed");
             assert!(res.failures[0].contains("500"), "{:?}", res.failures);
+        }
+
+        #[test]
+        fn no_deferred_components_is_reported_not_silently_small() {
+            // The page-shape regression this guards: params present, but the deferred set
+            // came out empty, so resolution would quietly stop at the page handles.
+            let d = Discovered {
+                bx_data: [(
+                    "1".to_string(),
+                    "https://static.whatsapp.net/a.wasm".to_string(),
+                )]
+                .into_iter()
+                .collect(),
+                bootloader: Some(params()),
+                deferred_components: Vec::new(),
+                ..Default::default()
+            };
+            let res = resolve_wasm(&d, &WasmResolveOptions::default());
+            assert_eq!(res.requests, 0);
+            assert_eq!(res.urls.len(), 1, "page handles still resolved");
+            assert!(
+                res.failures
+                    .iter()
+                    .any(|f| f.contains("deferred no server-fetchable")),
+                "{:?}",
+                res.failures
+            );
         }
 
         #[test]
