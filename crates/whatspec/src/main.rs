@@ -876,11 +876,19 @@ fn iq_constraint_counts(ir: &wa_ir::IqIr) -> IqConstraintCounts {
         }
         for v in &s.response.variants {
             c.reference_constraints += count_references(&v.assertions);
-            if v.error_class.is_some() {
+            if matches!(
+                v.kind,
+                wa_ir::ResponseVariantKind::ClientError | wa_ir::ResponseVariantKind::ServerError
+            ) {
                 c.typed_error_variants += 1;
             }
-            texts.extend(v.error_texts.iter().cloned());
-            c.error_arms += v.error_arms.len();
+            texts.extend(
+                v.error_arms
+                    .iter()
+                    .chain(v.error_envelope.as_ref())
+                    .filter_map(|a| a.text.clone()),
+            );
+            c.error_arms += v.error_arms.len() + usize::from(v.error_envelope.is_some());
             walk_fields(&v.fields, &mut c);
         }
     }

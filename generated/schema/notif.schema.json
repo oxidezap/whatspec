@@ -116,7 +116,7 @@
       ]
     },
     "ErrorArm": {
-      "description": "One accepted `<error>` shape of a response variant: the `code` and `text` that must\noccur **together**.\n\nThe flattened [`ResponseVariant::error_codes`] / [`error_texts`] lists answer \"what\nvalues does this RPC accept?\", but they cannot say which value goes with which: an\narm taking `400 bad-request` and `501 feature-not-implemented` flattens to two codes\nand two texts, and nothing then rules out `400 feature-not-implemented` — a\ncombination the parser rejects. An emitter that picks one value from each list\ntherefore produces an unparseable stanza, which is the exact failure class this\ndomain exists to prevent. The pairing lives here.\n\n[`error_texts`]: ResponseVariant::error_texts",
+      "description": "One accepted `<error>` shape of a response variant: the `code` and `text` that must\noccur **together**.\n\nA variant accepting `400 bad-request` and `501 feature-not-implemented` cannot be\ndescribed by two independent lists — nothing would then rule out `400\nfeature-not-implemented`, a combination the parser rejects, so an emitter picking one\nvalue from each list produces an unparseable stanza. The pairing is the point.\n\nEvery field is optional because each is a genuine shape: an arm may pin an exact\n`(code, text)`, pin only the code and read the text freely\n(`IQErrorReportTokenValidationFail` accepts any text with 548), or pin neither and\nrange-check the code (the `IQErrorFallback*` arms).",
       "type": "object",
       "properties": {
         "code": {
@@ -128,7 +128,7 @@
           "format": "int64"
         },
         "codeMax": {
-          "description": "Inclusive upper bound of a fallback arm's accepted code range.",
+          "description": "Inclusive upper bound of the same range (see [`code_min`]).\n\n[`code_min`]: ErrorArm::code_min",
           "type": [
             "integer",
             "null"
@@ -136,7 +136,7 @@
           "format": "int64"
         },
         "codeMin": {
-          "description": "Inclusive lower bound of a fallback arm's accepted code range.",
+          "description": "Inclusive lower bound of the codes this arm accepts, when it range-checks instead\nof pinning.",
           "type": [
             "integer",
             "null"
@@ -151,28 +151,13 @@
           ]
         },
         "text": {
-          "description": "The exact `text` this arm pins, when it pins one.\n\nAbsent is a **fact, not a gap**, and it comes in two shapes: a fallback arm pins\nneither value and accepts any text within [`code_min`]..=[`code_max`], while a\ncode-only arm pins the code and reads the text freely — `IQErrorReportTokenValidationFail`\npins `code=548` and accepts whatever `text` the server sends with it. In both, an\nemitter is free to choose the text; it is only [`code`] that is constrained.\n\n[`code`]: ErrorArm::code\n[`code_min`]: ErrorArm::code_min\n[`code_max`]: ErrorArm::code_max",
+          "description": "The exact `text` this arm pins. Absent is a fact, not a gap — see the note above.",
           "type": [
             "string",
             "null"
           ]
         }
       }
-    },
-    "ErrorClass": {
-      "description": "Which side an error variant blames, for a variant whose [`ResponseVariantKind`] is\n[`Error`]. WA models the two as separate parsers with disjoint code ranges: a client\nerror carries a 4xx code (`bad-request` 400, `rate-overlimit` 429, fallback 400–499)\nand a server error a 5xx one (`internal-server-error` 500, fallback 500–599).\n\nEmitted alongside — not instead of — [`ResponseVariant::kind`], so a consumer that\nonly understands `success`/`error` keeps working.\n\n[`Error`]: ResponseVariantKind::Error",
-      "oneOf": [
-        {
-          "description": "The request was wrong (4xx) — retrying it unchanged will fail again.",
-          "type": "string",
-          "const": "client"
-        },
-        {
-          "description": "The server failed (5xx) — the same request may succeed later.",
-          "type": "string",
-          "const": "server"
-        }
-      ]
     },
     "NotifActionChild": {
       "description": "A repeated sub-element an action arm maps over\n(`mapChildrenWithTag(\"participant\", …)`).",
@@ -698,49 +683,14 @@
           }
         },
         "errorArms": {
-          "description": "The accepted `<error>` shapes, in parser order — **which code goes with which\ntext**. See [`ErrorArm`] for why the flattened lists below cannot express it.\n\nAn arm describes the *discriminating* `<error>` node. When the variant also pins\nthe node above it, those pins are in [`error_envelope`], and the full shape is\n**arm + envelope** — an arm alone is not enough to build a response for such a\nvariant.\n\n[`error_envelope`]: ResponseVariant::error_envelope",
+          "description": "The accepted `<error>` shapes, in parser order — **which code goes with which\ntext**. See [`ErrorArm`]; this is the only representation of the vocabulary,\ndeliberately, because the flattened `errorCodes` / `errorTexts` lists it replaced\nlet an emitter combine one arm's code with another's text and produce a stanza no\nbranch accepts.\n\nAn arm describes the *discriminating* `<error>` node. When the variant also pins\nthe node above it, those pins are in [`error_envelope`], and the full shape is\n**arm + envelope**.\n\nTo answer \"does this RPC accept code N / text T?\", scan the arms — the question\nthe flat lists used to answer is one `.iter().any(…)` away, and asking it that way\ncannot produce an invalid pair.\n\n[`error_envelope`]: ResponseVariant::error_envelope",
           "type": "array",
           "items": {
             "$ref": "#/$defs/ErrorArm"
           }
         },
-        "errorClass": {
-          "description": "For an error variant, whether it is the client-error (4xx) or server-error (5xx)\narm. Absent for a success variant, and for an error variant whose parser carries\nno recoverable code evidence.",
-          "anyOf": [
-            {
-              "$ref": "#/$defs/ErrorClass"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "errorCodeMax": {
-          "description": "Upper bound of the fallback arm's code range (see [`error_code_min`]).\n\n[`error_code_min`]: ResponseVariant::error_code_min",
-          "type": [
-            "integer",
-            "null"
-          ],
-          "format": "int64"
-        },
-        "errorCodeMin": {
-          "description": "Lower bound of the open-ended fallback arm's code range, when the variant has one\n(`IQErrorFallbackServer` accepts any `code` in 500–599 with any `text`; its\nclient twin accepts 400–499). Together with [`error_code_max`] this says \"any\ncode in this range is also accepted\", which [`error_codes`] alone cannot express.\n\n[`error_code_max`]: ResponseVariant::error_code_max\n[`error_codes`]: ResponseVariant::error_codes",
-          "type": [
-            "integer",
-            "null"
-          ],
-          "format": "int64"
-        },
-        "errorCodes": {
-          "description": "The **closed set** of `<error code>` values this variant accepts, ascending — the\nunion over [`error_arms`], for the \"does this RPC accept code N?\" question.\n\nThe vocabulary is per-RPC, not global: `BatchGetGroupInfo`'s client-error arm\ntakes only `400` and `429` and **rejects `404`**, even though an\n`IQErrorItemNotFoundMixin` exists and other RPCs use it. Answering with a code\noutside this set matches no branch, so the client reports a parse failure rather\nthan the error. Empty when the variant pins no exact code (see [`error_code_min`]).\n\nAn emitter must pick a **pair** from [`error_arms`] (plus [`error_envelope`] when\npresent), never one value from this list and another from [`error_texts`].\n\n[`error_envelope`]: ResponseVariant::error_envelope\n\n[`error_arms`]: ResponseVariant::error_arms\n[`error_texts`]: ResponseVariant::error_texts\n[`error_code_min`]: ResponseVariant::error_code_min",
-          "type": "array",
-          "items": {
-            "type": "integer",
-            "format": "int64"
-          }
-        },
         "errorEnvelope": {
-          "description": "Pins on the `<error>` node **enclosing** the one the arms discriminate, for a\ntwo-level error.\n\n`SetResponsePreKeySuccessVnameFailure` is the shape: the response carries\n`<error code=\"207\">` — the partial-failure envelope, shared by every arm — around\nan inner `<error>` whose text the disjunction pins. The envelope belongs to no\nsingle arm, so duplicating it into all of them would misreport where the code\nsits; it is recorded once here instead. Absent for the ordinary one-level error,\nwhich is nearly all of them.",
+          "description": "Pins on the `<error>` node **enclosing** the one the arms discriminate, for a\ntwo-level error.\n\n`SetResponsePreKeySuccessVnameFailure` is the shape: `<error code=\"207\">` — the\npartial-failure envelope, shared by every arm — wrapping an inner `<error>` whose\ntext the disjunction pins and whose code is range-checked. Pins are partitioned by\nthe node they are read from, so the envelope holds only the enclosing node's and\nthe inner node's shared constraints stay on the arms; mixing them would tell a\nconsumer that code 207 must also fall in 400–599.",
           "anyOf": [
             {
               "$ref": "#/$defs/ErrorArm"
@@ -749,13 +699,6 @@
               "type": "null"
             }
           ]
-        },
-        "errorTexts": {
-          "description": "The `<error text>` values this variant accepts, sorted — the union over\n[`error_arms`]. Empty when only a fallback (any-text) arm applies. See the warning\non [`error_codes`] about combining the two lists.\n\n[`error_arms`]: ResponseVariant::error_arms\n[`error_codes`]: ResponseVariant::error_codes",
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
         },
         "fields": {
           "type": "array",
@@ -783,14 +726,28 @@
       ]
     },
     "ResponseVariantKind": {
-      "description": "How a response-root union variant classifies (drives codegen `Ok`/`Err` arms).",
+      "description": "How a response-root union variant classifies (drives codegen `Ok`/`Err` arms).\n\nThe error side is split by **who is at fault**, because that decides what a caller\nshould do: a 4xx will fail again if retried unchanged, a 5xx may not. WA models the\ntwo as separate parsers with disjoint code ranges (`bad-request` 400,\n`rate-overlimit` 429, fallback 400–499 / `internal-server-error` 500, fallback\n500–599), so the split is the protocol's, not an interpretation.\n\nThe side is derived from the **codes** the variant accepts, never from its name: WA\nspells the arms inconsistently (`…ResponseServerError`, but also\n`…ResponseInternalServerError`, and `SetResponsePreKeySuccessVnameFailure` reads as a\nsuccess while asserting `type=\"error\"`). A variant whose codes are mixed or outside\nboth families stays [`Error`] — an error whose side could not be determined, which is\na fact worth stating rather than a coin flip.\n\n[`Error`]: ResponseVariantKind::Error",
       "oneOf": [
         {
           "type": "string",
           "enum": [
-            "success",
-            "error"
+            "success"
           ]
+        },
+        {
+          "description": "The request was wrong (4xx) — retrying it unchanged will fail again.",
+          "type": "string",
+          "const": "client_error"
+        },
+        {
+          "description": "The server failed (5xx) — the same request may succeed later.",
+          "type": "string",
+          "const": "server_error"
+        },
+        {
+          "description": "An error whose side the accepted codes do not determine.",
+          "type": "string",
+          "const": "error"
         },
         {
           "description": "A structured non-happy outcome that still parses (Nack, Conflict, …).",

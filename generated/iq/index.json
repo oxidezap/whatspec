@@ -458,14 +458,6 @@
                 "text": "feature-not-implemented"
               }
             ],
-            "errorCodes": [
-              400,
-              501
-            ],
-            "errorTexts": [
-              "bad-request",
-              "feature-not-implemented"
-            ],
             "assertions": [
               {
                 "kind": "tag",
@@ -590,19 +582,12 @@
           {
             "tag": "GetExperimentConfigResponseErrorRetry",
             "moduleName": "WASmaxInAbPropsGetExperimentConfigResponseErrorRetry",
-            "kind": "error",
-            "errorClass": "server",
+            "kind": "server_error",
             "errorArms": [
               {
                 "code": 500,
                 "text": "internal-server-error"
               }
-            ],
-            "errorCodes": [
-              500
-            ],
-            "errorTexts": [
-              "internal-server-error"
             ],
             "assertions": [
               {
@@ -1013,14 +998,6 @@
                 "text": "feature-not-implemented"
               }
             ],
-            "errorCodes": [
-              400,
-              501
-            ],
-            "errorTexts": [
-              "bad-request",
-              "feature-not-implemented"
-            ],
             "assertions": [
               {
                 "kind": "tag",
@@ -1145,19 +1122,12 @@
           {
             "tag": "GetGroupExperimentConfigResponseErrorRetry",
             "moduleName": "WASmaxInAbPropsGetGroupExperimentConfigResponseErrorRetry",
-            "kind": "error",
-            "errorClass": "server",
+            "kind": "server_error",
             "errorArms": [
               {
                 "code": 500,
                 "text": "internal-server-error"
               }
-            ],
-            "errorCodes": [
-              500
-            ],
-            "errorTexts": [
-              "internal-server-error"
             ],
             "assertions": [
               {
@@ -2063,8 +2033,7 @@
           {
             "tag": "GetBlockListResponseInvalidRequest",
             "moduleName": "WASmaxInBlocklistsGetBlockListResponseInvalidRequest",
-            "kind": "error",
-            "errorClass": "client",
+            "kind": "client_error",
             "errorArms": [
               {
                 "name": "IQErrorBadRequest",
@@ -2076,14 +2045,6 @@
                 "code": 429,
                 "text": "rate-overlimit"
               }
-            ],
-            "errorCodes": [
-              400,
-              429
-            ],
-            "errorTexts": [
-              "bad-request",
-              "rate-overlimit"
             ],
             "assertions": [
               {
@@ -2209,8 +2170,7 @@
           {
             "tag": "GetBlockListResponseInternalServerError",
             "moduleName": "WASmaxInBlocklistsGetBlockListResponseInternalServerError",
-            "kind": "error",
-            "errorClass": "server",
+            "kind": "server_error",
             "errorArms": [
               {
                 "name": "IQErrorFeatureNotImplemented",
@@ -2222,14 +2182,6 @@
                 "code": 500,
                 "text": "internal-server-error"
               }
-            ],
-            "errorCodes": [
-              500,
-              501
-            ],
-            "errorTexts": [
-              "feature-not-implemented",
-              "internal-server-error"
             ],
             "assertions": [
               {
@@ -3072,8 +3024,7 @@
           {
             "tag": "UpdateBlockListResponseInvalidRequest",
             "moduleName": "WASmaxInBlocklistsUpdateBlockListResponseInvalidRequest",
-            "kind": "error",
-            "errorClass": "client",
+            "kind": "client_error",
             "errorArms": [
               {
                 "name": "IQErrorNotAcceptable",
@@ -3100,20 +3051,6 @@
                 "code": 405,
                 "text": "not-allowed"
               }
-            ],
-            "errorCodes": [
-              400,
-              403,
-              405,
-              406,
-              429
-            ],
-            "errorTexts": [
-              "bad-request",
-              "forbidden",
-              "not-acceptable",
-              "not-allowed",
-              "rate-overlimit"
             ],
             "assertions": [
               {
@@ -3398,8 +3335,7 @@
           {
             "tag": "UpdateBlockListResponseServerError",
             "moduleName": "WASmaxInBlocklistsUpdateBlockListResponseServerError",
-            "kind": "error",
-            "errorClass": "server",
+            "kind": "server_error",
             "errorArms": [
               {
                 "name": "IQErrorFeatureNotImplemented",
@@ -3411,14 +3347,6 @@
                 "code": 500,
                 "text": "internal-server-error"
               }
-            ],
-            "errorCodes": [
-              500,
-              501
-            ],
-            "errorTexts": [
-              "feature-not-implemented",
-              "internal-server-error"
             ],
             "assertions": [
               {
@@ -4213,18 +4141,6 @@
                 "code": 405,
                 "text": "not-allowed"
               }
-            ],
-            "errorCodes": [
-              400,
-              403,
-              405,
-              500
-            ],
-            "errorTexts": [
-              "bad-request",
-              "forbidden",
-              "internal-server-error",
-              "not-allowed"
             ],
             "assertions": [
               {
@@ -5718,8 +5634,7 @@
           {
             "tag": "FetchKeyBundlesResponseRequestError",
             "moduleName": "WASmaxInPreKeysFetchKeyBundlesResponseRequestError",
-            "kind": "error",
-            "errorClass": "client",
+            "kind": "client_error",
             "errorArms": [
               {
                 "name": "IQErrorBadRequest",
@@ -5737,16 +5652,6 @@
                 "codeMax": 499
               }
             ],
-            "errorCodes": [
-              400,
-              406
-            ],
-            "errorTexts": [
-              "bad-request",
-              "not-acceptable"
-            ],
-            "errorCodeMin": 400,
-            "errorCodeMax": 499,
             "assertions": [
               {
                 "kind": "tag",
@@ -5898,8 +5803,7 @@
           {
             "tag": "FetchKeyBundlesResponseServerError",
             "moduleName": "WASmaxInPreKeysFetchKeyBundlesResponseServerError",
-            "kind": "error",
-            "errorClass": "server",
+            "kind": "server_error",
             "errorArms": [
               {
                 "name": "IQErrorServiceUnavailable",
@@ -5912,14 +5816,6 @@
                 "codeMax": 599
               }
             ],
-            "errorCodes": [
-              503
-            ],
-            "errorTexts": [
-              "service-unavailable"
-            ],
-            "errorCodeMin": 500,
-            "errorCodeMax": 599,
             "assertions": [
               {
                 "kind": "tag",
@@ -6920,8 +6816,7 @@
           {
             "tag": "FetchMissingPreKeysResponseRequestError",
             "moduleName": "WASmaxInPreKeysFetchMissingPreKeysResponseRequestError",
-            "kind": "error",
-            "errorClass": "client",
+            "kind": "client_error",
             "errorArms": [
               {
                 "name": "IQErrorBadRequest",
@@ -6939,16 +6834,6 @@
                 "codeMax": 499
               }
             ],
-            "errorCodes": [
-              400,
-              406
-            ],
-            "errorTexts": [
-              "bad-request",
-              "not-acceptable"
-            ],
-            "errorCodeMin": 400,
-            "errorCodeMax": 499,
             "assertions": [
               {
                 "kind": "tag",
@@ -7100,8 +6985,7 @@
           {
             "tag": "FetchMissingPreKeysResponseServerError",
             "moduleName": "WASmaxInPreKeysFetchMissingPreKeysResponseServerError",
-            "kind": "error",
-            "errorClass": "server",
+            "kind": "server_error",
             "errorArms": [
               {
                 "name": "IQErrorServiceUnavailable",
@@ -7114,14 +6998,6 @@
                 "codeMax": 599
               }
             ],
-            "errorCodes": [
-              503
-            ],
-            "errorTexts": [
-              "service-unavailable"
-            ],
-            "errorCodeMin": 500,
-            "errorCodeMax": 599,
             "assertions": [
               {
                 "kind": "tag",
@@ -7539,8 +7415,7 @@
           {
             "tag": "AddResponseRequestError",
             "moduleName": "WASmaxInPreKeysAddResponseRequestError",
-            "kind": "error",
-            "errorClass": "client",
+            "kind": "client_error",
             "errorArms": [
               {
                 "name": "IQErrorNotAcceptable",
@@ -7553,14 +7428,6 @@
                 "codeMax": 499
               }
             ],
-            "errorCodes": [
-              406
-            ],
-            "errorTexts": [
-              "not-acceptable"
-            ],
-            "errorCodeMin": 400,
-            "errorCodeMax": 499,
             "assertions": [
               {
                 "kind": "tag",
@@ -7699,8 +7566,7 @@
           {
             "tag": "AddResponseServerError",
             "moduleName": "WASmaxInPreKeysAddResponseServerError",
-            "kind": "error",
-            "errorClass": "server",
+            "kind": "server_error",
             "errorArms": [
               {
                 "name": "IQErrorServiceUnavailable",
@@ -7713,14 +7579,6 @@
                 "codeMax": 599
               }
             ],
-            "errorCodes": [
-              503
-            ],
-            "errorTexts": [
-              "service-unavailable"
-            ],
-            "errorCodeMin": 500,
-            "errorCodeMax": 599,
             "assertions": [
               {
                 "kind": "tag",
@@ -7936,8 +7794,7 @@
           {
             "tag": "DeleteResponseRequestError",
             "moduleName": "WASmaxInPreKeysDeleteResponseRequestError",
-            "kind": "error",
-            "errorClass": "client",
+            "kind": "client_error",
             "errorArms": [
               {
                 "name": "IQErrorNotAcceptable",
@@ -7950,14 +7807,6 @@
                 "codeMax": 499
               }
             ],
-            "errorCodes": [
-              406
-            ],
-            "errorTexts": [
-              "not-acceptable"
-            ],
-            "errorCodeMin": 400,
-            "errorCodeMax": 499,
             "assertions": [
               {
                 "kind": "tag",
@@ -8096,8 +7945,7 @@
           {
             "tag": "DeleteResponseServerError",
             "moduleName": "WASmaxInPreKeysDeleteResponseServerError",
-            "kind": "error",
-            "errorClass": "server",
+            "kind": "server_error",
             "errorArms": [
               {
                 "name": "IQErrorServiceUnavailable",
@@ -8110,14 +7958,6 @@
                 "codeMax": 599
               }
             ],
-            "errorCodes": [
-              503
-            ],
-            "errorTexts": [
-              "service-unavailable"
-            ],
-            "errorCodeMin": 500,
-            "errorCodeMax": 599,
             "assertions": [
               {
                 "kind": "tag",
@@ -8389,35 +8229,31 @@
             "errorArms": [
               {
                 "name": "SetVnameFailureNotAcceptable",
-                "text": "not-acceptable"
+                "text": "not-acceptable",
+                "codeMin": 400,
+                "codeMax": 599
               },
               {
                 "name": "SetVnameFailureBadRequest",
-                "text": "bad-request"
+                "text": "bad-request",
+                "codeMin": 400,
+                "codeMax": 599
               },
               {
                 "name": "SetVnameFailureInternalServerError",
-                "text": "internal-server-error"
+                "text": "internal-server-error",
+                "codeMin": 400,
+                "codeMax": 599
               },
               {
-                "name": "SetVnameFailureFallback"
+                "name": "SetVnameFailureFallback",
+                "codeMin": 400,
+                "codeMax": 599
               }
             ],
             "errorEnvelope": {
-              "code": 207,
-              "codeMin": 400,
-              "codeMax": 599
+              "code": 207
             },
-            "errorCodes": [
-              207
-            ],
-            "errorTexts": [
-              "bad-request",
-              "internal-server-error",
-              "not-acceptable"
-            ],
-            "errorCodeMin": 400,
-            "errorCodeMax": 599,
             "assertions": [
               {
                 "kind": "tag",
@@ -8623,8 +8459,7 @@
           {
             "tag": "SetResponseRequestError",
             "moduleName": "WASmaxInPreKeysSetResponseRequestError",
-            "kind": "error",
-            "errorClass": "client",
+            "kind": "client_error",
             "errorArms": [
               {
                 "name": "IQErrorNotAcceptable",
@@ -8637,14 +8472,6 @@
                 "codeMax": 499
               }
             ],
-            "errorCodes": [
-              406
-            ],
-            "errorTexts": [
-              "not-acceptable"
-            ],
-            "errorCodeMin": 400,
-            "errorCodeMax": 499,
             "assertions": [
               {
                 "kind": "tag",
@@ -8783,8 +8610,7 @@
           {
             "tag": "SetResponseServerError",
             "moduleName": "WASmaxInPreKeysSetResponseServerError",
-            "kind": "error",
-            "errorClass": "server",
+            "kind": "server_error",
             "errorArms": [
               {
                 "name": "IQErrorServiceUnavailable",
@@ -8797,14 +8623,6 @@
                 "codeMax": 599
               }
             ],
-            "errorCodes": [
-              503
-            ],
-            "errorTexts": [
-              "service-unavailable"
-            ],
-            "errorCodeMin": 500,
-            "errorCodeMax": 599,
             "assertions": [
               {
                 "kind": "tag",
@@ -9377,19 +9195,12 @@
           {
             "tag": "GetAccessTokenAndSessionCookiesResponseTooManyAttempts",
             "moduleName": "WASmaxInBizCtwaAdAccountGetAccessTokenAndSessionCookiesResponseTooManyAttempts",
-            "kind": "error",
-            "errorClass": "client",
+            "kind": "client_error",
             "errorArms": [
               {
                 "code": 431,
                 "text": "TOO_MANY_ATTEMPTS"
               }
-            ],
-            "errorCodes": [
-              431
-            ],
-            "errorTexts": [
-              "TOO_MANY_ATTEMPTS"
             ],
             "assertions": [
               {
@@ -9459,19 +9270,12 @@
           {
             "tag": "GetAccessTokenAndSessionCookiesResponseIncorrectNonce",
             "moduleName": "WASmaxInBizCtwaAdAccountGetAccessTokenAndSessionCookiesResponseIncorrectNonce",
-            "kind": "error",
-            "errorClass": "client",
+            "kind": "client_error",
             "errorArms": [
               {
                 "code": 432,
                 "text": "INCORRECT_NONCE"
               }
-            ],
-            "errorCodes": [
-              432
-            ],
-            "errorTexts": [
-              "INCORRECT_NONCE"
             ],
             "assertions": [
               {
@@ -9563,18 +9367,6 @@
                 "code": 503,
                 "text": "service-unavailable"
               }
-            ],
-            "errorCodes": [
-              400,
-              403,
-              500,
-              503
-            ],
-            "errorTexts": [
-              "bad-request",
-              "forbidden",
-              "internal-server-error",
-              "service-unavailable"
             ],
             "assertions": [
               {
@@ -9963,16 +9755,6 @@
                 "code": 500,
                 "text": "internal-server-error"
               }
-            ],
-            "errorCodes": [
-              400,
-              475,
-              500
-            ],
-            "errorTexts": [
-              "bad-request",
-              "internal-server-error",
-              "notice-required"
             ],
             "assertions": [
               {
@@ -11139,19 +10921,12 @@
           {
             "tag": "GetLinkedAccountsResponseForbidden",
             "moduleName": "WASmaxInBizLinkingGetLinkedAccountsResponseForbidden",
-            "kind": "error",
-            "errorClass": "client",
+            "kind": "client_error",
             "errorArms": [
               {
                 "code": 403,
                 "text": "forbidden"
               }
-            ],
-            "errorCodes": [
-              403
-            ],
-            "errorTexts": [
-              "forbidden"
             ],
             "assertions": [
               {
@@ -11225,19 +11000,12 @@
           {
             "tag": "GetLinkedAccountsResponseError",
             "moduleName": "WASmaxInBizLinkingGetLinkedAccountsResponseError",
-            "kind": "error",
-            "errorClass": "server",
+            "kind": "server_error",
             "errorArms": [
               {
                 "code": 500,
                 "text": "internal-server-error"
               }
-            ],
-            "errorCodes": [
-              500
-            ],
-            "errorTexts": [
-              "internal-server-error"
             ],
             "assertions": [
               {
@@ -11510,18 +11278,6 @@
                 "code": 503,
                 "text": "service-unavailable"
               }
-            ],
-            "errorCodes": [
-              400,
-              403,
-              500,
-              503
-            ],
-            "errorTexts": [
-              "bad-request",
-              "forbidden",
-              "internal-server-error",
-              "service-unavailable"
             ],
             "assertions": [
               {
@@ -11903,18 +11659,6 @@
                 "code": 503,
                 "text": "service-unavailable"
               }
-            ],
-            "errorCodes": [
-              400,
-              403,
-              500,
-              503
-            ],
-            "errorTexts": [
-              "bad-request",
-              "forbidden",
-              "internal-server-error",
-              "service-unavailable"
             ],
             "assertions": [
               {
@@ -12751,18 +12495,6 @@
                 "text": "service-unavailable"
               }
             ],
-            "errorCodes": [
-              400,
-              403,
-              500,
-              503
-            ],
-            "errorTexts": [
-              "bad-request",
-              "forbidden",
-              "internal-server-error",
-              "service-unavailable"
-            ],
             "assertions": [
               {
                 "kind": "tag",
@@ -13134,14 +12866,6 @@
                 "text": "internal-server-error"
               }
             ],
-            "errorCodes": [
-              400,
-              500
-            ],
-            "errorTexts": [
-              "bad-request",
-              "internal-server-error"
-            ],
             "assertions": [
               {
                 "kind": "tag",
@@ -13382,19 +13106,12 @@
           {
             "tag": "GetPasskeyRequestOptionsResponseError",
             "moduleName": "WASmaxInMdGetPasskeyRequestOptionsResponseError",
-            "kind": "error",
-            "errorClass": "server",
+            "kind": "server_error",
             "errorArms": [
               {
                 "code": 500,
                 "text": "internal-server-error"
               }
-            ],
-            "errorCodes": [
-              500
-            ],
-            "errorTexts": [
-              "internal-server-error"
             ],
             "assertions": [
               {
@@ -13682,14 +13399,6 @@
                 "code": 400,
                 "text": "bad-request"
               }
-            ],
-            "errorCodes": [
-              400,
-              500
-            ],
-            "errorTexts": [
-              "bad-request",
-              "internal-server-error"
             ],
             "assertions": [
               {
@@ -14019,20 +13728,6 @@
                 "code": 403,
                 "text": "forbidden"
               }
-            ],
-            "errorCodes": [
-              400,
-              403,
-              429,
-              452,
-              500
-            ],
-            "errorTexts": [
-              "bad-request",
-              "feature-not-available",
-              "forbidden",
-              "internal-server-error",
-              "rate-overlimit"
             ],
             "assertions": [
               {
@@ -20140,8 +19835,7 @@
           {
             "tag": "GetNewsletterMessageUpdatesResponseClientError",
             "moduleName": "WASmaxInNewslettersGetNewsletterMessageUpdatesResponseClientError",
-            "kind": "error",
-            "errorClass": "client",
+            "kind": "client_error",
             "errorArms": [
               {
                 "name": "BadRequestIQErrorResponse",
@@ -20168,20 +19862,6 @@
                 "code": 429,
                 "text": "rate-overlimit"
               }
-            ],
-            "errorCodes": [
-              400,
-              404,
-              423,
-              429,
-              451
-            ],
-            "errorTexts": [
-              "bad-request",
-              "features-disabled",
-              "item-not-found",
-              "locked",
-              "rate-overlimit"
             ],
             "assertions": [
               {
@@ -20523,19 +20203,12 @@
           {
             "tag": "GetNewsletterMessageUpdatesResponseServerError",
             "moduleName": "WASmaxInNewslettersGetNewsletterMessageUpdatesResponseServerError",
-            "kind": "error",
-            "errorClass": "server",
+            "kind": "server_error",
             "errorArms": [
               {
                 "code": 500,
                 "text": "internal-server-error"
               }
-            ],
-            "errorCodes": [
-              500
-            ],
-            "errorTexts": [
-              "internal-server-error"
             ],
             "assertions": [
               {
@@ -26202,8 +25875,7 @@
           {
             "tag": "GetNewsletterMessagesResponseClientError",
             "moduleName": "WASmaxInNewslettersGetNewsletterMessagesResponseClientError",
-            "kind": "error",
-            "errorClass": "client",
+            "kind": "client_error",
             "errorArms": [
               {
                 "name": "BadRequestIQErrorResponse",
@@ -26235,22 +25907,6 @@
                 "code": 405,
                 "text": "not-allowed"
               }
-            ],
-            "errorCodes": [
-              400,
-              404,
-              405,
-              423,
-              429,
-              451
-            ],
-            "errorTexts": [
-              "bad-request",
-              "features-disabled",
-              "item-not-found",
-              "locked",
-              "not-allowed",
-              "rate-overlimit"
             ],
             "assertions": [
               {
@@ -26656,19 +26312,12 @@
           {
             "tag": "GetNewsletterMessagesResponseServerError",
             "moduleName": "WASmaxInNewslettersGetNewsletterMessagesResponseServerError",
-            "kind": "error",
-            "errorClass": "server",
+            "kind": "server_error",
             "errorArms": [
               {
                 "code": 500,
                 "text": "internal-server-error"
               }
-            ],
-            "errorCodes": [
-              500
-            ],
-            "errorTexts": [
-              "internal-server-error"
             ],
             "assertions": [
               {
@@ -27163,8 +26812,7 @@
           {
             "tag": "GetNewsletterResponsesResponseClientError",
             "moduleName": "WASmaxInNewslettersGetNewsletterResponsesResponseClientError",
-            "kind": "error",
-            "errorClass": "client",
+            "kind": "client_error",
             "errorArms": [
               {
                 "name": "BadRequestIQErrorResponse",
@@ -27196,22 +26844,6 @@
                 "code": 405,
                 "text": "not-allowed"
               }
-            ],
-            "errorCodes": [
-              400,
-              401,
-              404,
-              405,
-              423,
-              429
-            ],
-            "errorTexts": [
-              "bad-request",
-              "item-not-found",
-              "locked",
-              "not-allowed",
-              "not-authorized",
-              "rate-overlimit"
             ],
             "assertions": [
               {
@@ -27617,19 +27249,12 @@
           {
             "tag": "GetNewsletterResponsesResponseServerError",
             "moduleName": "WASmaxInNewslettersGetNewsletterResponsesResponseServerError",
-            "kind": "error",
-            "errorClass": "server",
+            "kind": "server_error",
             "errorArms": [
               {
                 "code": 500,
                 "text": "internal-server-error"
               }
-            ],
-            "errorCodes": [
-              500
-            ],
-            "errorTexts": [
-              "internal-server-error"
             ],
             "assertions": [
               {
@@ -28839,8 +28464,7 @@
           {
             "tag": "GetNewsletterStatusUpdatesResponseClientError",
             "moduleName": "WASmaxInNewslettersGetNewsletterStatusUpdatesResponseClientError",
-            "kind": "error",
-            "errorClass": "client",
+            "kind": "client_error",
             "errorArms": [
               {
                 "name": "BadRequestIQErrorResponse",
@@ -28867,20 +28491,6 @@
                 "code": 429,
                 "text": "rate-overlimit"
               }
-            ],
-            "errorCodes": [
-              400,
-              404,
-              423,
-              429,
-              451
-            ],
-            "errorTexts": [
-              "bad-request",
-              "features-disabled",
-              "item-not-found",
-              "locked",
-              "rate-overlimit"
             ],
             "assertions": [
               {
@@ -29222,19 +28832,12 @@
           {
             "tag": "GetNewsletterStatusUpdatesResponseServerError",
             "moduleName": "WASmaxInNewslettersGetNewsletterStatusUpdatesResponseServerError",
-            "kind": "error",
-            "errorClass": "server",
+            "kind": "server_error",
             "errorArms": [
               {
                 "code": 500,
                 "text": "internal-server-error"
               }
-            ],
-            "errorCodes": [
-              500
-            ],
-            "errorTexts": [
-              "internal-server-error"
             ],
             "assertions": [
               {
@@ -30509,8 +30112,7 @@
           {
             "tag": "GetNewsletterStatusesResponseClientError",
             "moduleName": "WASmaxInNewslettersGetNewsletterStatusesResponseClientError",
-            "kind": "error",
-            "errorClass": "client",
+            "kind": "client_error",
             "errorArms": [
               {
                 "name": "BadRequestIQErrorResponse",
@@ -30542,22 +30144,6 @@
                 "code": 405,
                 "text": "not-allowed"
               }
-            ],
-            "errorCodes": [
-              400,
-              404,
-              405,
-              423,
-              429,
-              451
-            ],
-            "errorTexts": [
-              "bad-request",
-              "features-disabled",
-              "item-not-found",
-              "locked",
-              "not-allowed",
-              "rate-overlimit"
             ],
             "assertions": [
               {
@@ -30963,19 +30549,12 @@
           {
             "tag": "GetNewsletterStatusesResponseServerError",
             "moduleName": "WASmaxInNewslettersGetNewsletterStatusesResponseServerError",
-            "kind": "error",
-            "errorClass": "server",
+            "kind": "server_error",
             "errorArms": [
               {
                 "code": 500,
                 "text": "internal-server-error"
               }
-            ],
-            "errorCodes": [
-              500
-            ],
-            "errorTexts": [
-              "internal-server-error"
             ],
             "assertions": [
               {
@@ -31347,8 +30926,7 @@
           {
             "tag": "MyAddOnsResponseClientError",
             "moduleName": "WASmaxInNewslettersMyAddOnsResponseClientError",
-            "kind": "error",
-            "errorClass": "client",
+            "kind": "client_error",
             "errorArms": [
               {
                 "name": "BadRequestIQErrorResponse",
@@ -31370,18 +30948,6 @@
                 "code": 429,
                 "text": "rate-overlimit"
               }
-            ],
-            "errorCodes": [
-              400,
-              401,
-              404,
-              429
-            ],
-            "errorTexts": [
-              "bad-request",
-              "item-not-found",
-              "not-authorized",
-              "rate-overlimit"
             ],
             "assertions": [
               {
@@ -31659,19 +31225,12 @@
           {
             "tag": "MyAddOnsResponseServerError",
             "moduleName": "WASmaxInNewslettersMyAddOnsResponseServerError",
-            "kind": "error",
-            "errorClass": "server",
+            "kind": "server_error",
             "errorArms": [
               {
                 "code": 500,
                 "text": "internal-server-error"
               }
-            ],
-            "errorCodes": [
-              500
-            ],
-            "errorTexts": [
-              "internal-server-error"
             ],
             "assertions": [
               {
@@ -31993,8 +31552,7 @@
           {
             "tag": "StatusMyAddOnsResponseClientError",
             "moduleName": "WASmaxInNewslettersStatusMyAddOnsResponseClientError",
-            "kind": "error",
-            "errorClass": "client",
+            "kind": "client_error",
             "errorArms": [
               {
                 "name": "BadRequestIQErrorResponse",
@@ -32016,18 +31574,6 @@
                 "code": 429,
                 "text": "rate-overlimit"
               }
-            ],
-            "errorCodes": [
-              400,
-              401,
-              404,
-              429
-            ],
-            "errorTexts": [
-              "bad-request",
-              "item-not-found",
-              "not-authorized",
-              "rate-overlimit"
             ],
             "assertions": [
               {
@@ -32305,19 +31851,12 @@
           {
             "tag": "StatusMyAddOnsResponseServerError",
             "moduleName": "WASmaxInNewslettersStatusMyAddOnsResponseServerError",
-            "kind": "error",
-            "errorClass": "server",
+            "kind": "server_error",
             "errorArms": [
               {
                 "code": 500,
                 "text": "internal-server-error"
               }
-            ],
-            "errorCodes": [
-              500
-            ],
-            "errorTexts": [
-              "internal-server-error"
             ],
             "assertions": [
               {
@@ -32488,8 +32027,7 @@
           {
             "tag": "SubscribeToLiveUpdatesResponseClientError",
             "moduleName": "WASmaxInNewslettersSubscribeToLiveUpdatesResponseClientError",
-            "kind": "error",
-            "errorClass": "client",
+            "kind": "client_error",
             "errorArms": [
               {
                 "name": "BadRequestIQErrorResponse",
@@ -32516,20 +32054,6 @@
                 "code": 429,
                 "text": "rate-overlimit"
               }
-            ],
-            "errorCodes": [
-              400,
-              404,
-              423,
-              429,
-              451
-            ],
-            "errorTexts": [
-              "bad-request",
-              "features-disabled",
-              "item-not-found",
-              "locked",
-              "rate-overlimit"
             ],
             "assertions": [
               {
@@ -32871,19 +32395,12 @@
           {
             "tag": "SubscribeToLiveUpdatesResponseServerError",
             "moduleName": "WASmaxInNewslettersSubscribeToLiveUpdatesResponseServerError",
-            "kind": "error",
-            "errorClass": "server",
+            "kind": "server_error",
             "errorArms": [
               {
                 "code": 500,
                 "text": "internal-server-error"
               }
-            ],
-            "errorCodes": [
-              500
-            ],
-            "errorTexts": [
-              "internal-server-error"
             ],
             "assertions": [
               {
@@ -33253,8 +32770,7 @@
           {
             "tag": "GetOptOutListResponseInvalidRequest",
             "moduleName": "WASmaxInBlocklistsGetOptOutListResponseInvalidRequest",
-            "kind": "error",
-            "errorClass": "client",
+            "kind": "client_error",
             "errorArms": [
               {
                 "name": "IQErrorBadRequest",
@@ -33266,14 +32782,6 @@
                 "code": 429,
                 "text": "rate-overlimit"
               }
-            ],
-            "errorCodes": [
-              400,
-              429
-            ],
-            "errorTexts": [
-              "bad-request",
-              "rate-overlimit"
             ],
             "assertions": [
               {
@@ -33399,8 +32907,7 @@
           {
             "tag": "GetOptOutListResponseInternalServerError",
             "moduleName": "WASmaxInBlocklistsGetOptOutListResponseInternalServerError",
-            "kind": "error",
-            "errorClass": "server",
+            "kind": "server_error",
             "errorArms": [
               {
                 "name": "IQErrorFeatureNotImplemented",
@@ -33412,14 +32919,6 @@
                 "code": 500,
                 "text": "internal-server-error"
               }
-            ],
-            "errorCodes": [
-              500,
-              501
-            ],
-            "errorTexts": [
-              "feature-not-implemented",
-              "internal-server-error"
             ],
             "assertions": [
               {
@@ -33999,8 +33498,7 @@
           {
             "tag": "UpdateOptOutListResponseInvalidRequest",
             "moduleName": "WASmaxInBlocklistsUpdateOptOutListResponseInvalidRequest",
-            "kind": "error",
-            "errorClass": "client",
+            "kind": "client_error",
             "errorArms": [
               {
                 "name": "IQErrorNotAcceptable",
@@ -34022,18 +33520,6 @@
                 "code": 429,
                 "text": "rate-overlimit"
               }
-            ],
-            "errorCodes": [
-              400,
-              403,
-              406,
-              429
-            ],
-            "errorTexts": [
-              "bad-request",
-              "forbidden",
-              "not-acceptable",
-              "rate-overlimit"
             ],
             "assertions": [
               {
@@ -34257,8 +33743,7 @@
           {
             "tag": "UpdateOptOutListResponseServerError",
             "moduleName": "WASmaxInBlocklistsUpdateOptOutListResponseServerError",
-            "kind": "error",
-            "errorClass": "server",
+            "kind": "server_error",
             "errorArms": [
               {
                 "name": "IQErrorFeatureNotImplemented",
@@ -34270,14 +33755,6 @@
                 "code": 500,
                 "text": "internal-server-error"
               }
-            ],
-            "errorCodes": [
-              500,
-              501
-            ],
-            "errorTexts": [
-              "feature-not-implemented",
-              "internal-server-error"
             ],
             "assertions": [
               {
@@ -34954,20 +34431,6 @@
                 "code": 500,
                 "text": "internal-server-error"
               }
-            ],
-            "errorCodes": [
-              400,
-              429,
-              500,
-              501,
-              503
-            ],
-            "errorTexts": [
-              "bad-request",
-              "feature-not-implemented",
-              "internal-server-error",
-              "rate-overlimit",
-              "service-unavailable"
             ],
             "assertions": [
               {
@@ -36086,16 +35549,6 @@
                 "text": "service-unavailable"
               }
             ],
-            "errorCodes": [
-              400,
-              501,
-              503
-            ],
-            "errorTexts": [
-              "bad-request",
-              "feature-not-implemented",
-              "service-unavailable"
-            ],
             "assertions": [
               {
                 "kind": "tag",
@@ -36257,19 +35710,12 @@
           {
             "tag": "SignCredentialResponseErrorRetry",
             "moduleName": "WASmaxInPrivatestatsSignCredentialResponseErrorRetry",
-            "kind": "error",
-            "errorClass": "server",
+            "kind": "server_error",
             "errorArms": [
               {
                 "code": 500,
                 "text": "internal-server-error"
               }
-            ],
-            "errorCodes": [
-              500
-            ],
-            "errorTexts": [
-              "internal-server-error"
             ],
             "assertions": [
               {
@@ -36624,21 +36070,6 @@
                 "code": 501,
                 "text": "feature-not-implemented"
               }
-            ],
-            "errorCodes": [
-              400,
-              403,
-              429,
-              500,
-              501,
-              548
-            ],
-            "errorTexts": [
-              "bad-request",
-              "feature-not-implemented",
-              "forbidden",
-              "internal-server-error",
-              "rate-overlimit"
             ],
             "assertions": [
               {
@@ -37102,21 +36533,6 @@
                 "text": "feature-not-implemented"
               }
             ],
-            "errorCodes": [
-              400,
-              403,
-              429,
-              500,
-              501,
-              548
-            ],
-            "errorTexts": [
-              "bad-request",
-              "feature-not-implemented",
-              "forbidden",
-              "internal-server-error",
-              "rate-overlimit"
-            ],
             "assertions": [
               {
                 "kind": "tag",
@@ -37570,21 +36986,6 @@
                 "text": "feature-not-implemented"
               }
             ],
-            "errorCodes": [
-              400,
-              403,
-              429,
-              500,
-              501,
-              548
-            ],
-            "errorTexts": [
-              "bad-request",
-              "feature-not-implemented",
-              "forbidden",
-              "internal-server-error",
-              "rate-overlimit"
-            ],
             "assertions": [
               {
                 "kind": "tag",
@@ -38032,21 +37433,6 @@
                 "text": "feature-not-implemented"
               }
             ],
-            "errorCodes": [
-              400,
-              403,
-              429,
-              500,
-              501,
-              548
-            ],
-            "errorTexts": [
-              "bad-request",
-              "feature-not-implemented",
-              "forbidden",
-              "internal-server-error",
-              "rate-overlimit"
-            ],
             "assertions": [
               {
                 "kind": "tag",
@@ -38479,18 +37865,6 @@
                 "text": "rate-overlimit"
               }
             ],
-            "errorCodes": [
-              400,
-              403,
-              429,
-              500
-            ],
-            "errorTexts": [
-              "bad-request",
-              "forbidden",
-              "internal-server-error",
-              "rate-overlimit"
-            ],
             "assertions": [
               {
                 "kind": "tag",
@@ -38917,19 +38291,12 @@
           {
             "tag": "GetDisclosureStageByIdsResponseClientError",
             "moduleName": "WASmaxInUserNoticeGetDisclosureStageByIdsResponseClientError",
-            "kind": "error",
-            "errorClass": "client",
+            "kind": "client_error",
             "errorArms": [
               {
                 "code": 400,
                 "text": "bad-request"
               }
-            ],
-            "errorCodes": [
-              400
-            ],
-            "errorTexts": [
-              "bad-request"
             ],
             "assertions": [
               {
@@ -39008,14 +38375,6 @@
                 "code": 429,
                 "text": "rate-overlimit"
               }
-            ],
-            "errorCodes": [
-              429,
-              500
-            ],
-            "errorTexts": [
-              "internal-server-error",
-              "rate-overlimit"
             ],
             "assertions": [
               {
@@ -39321,19 +38680,12 @@
           {
             "tag": "GetDisclosuresResponseClientError",
             "moduleName": "WASmaxInUserNoticeGetDisclosuresResponseClientError",
-            "kind": "error",
-            "errorClass": "client",
+            "kind": "client_error",
             "errorArms": [
               {
                 "code": 400,
                 "text": "bad-request"
               }
-            ],
-            "errorCodes": [
-              400
-            ],
-            "errorTexts": [
-              "bad-request"
             ],
             "assertions": [
               {
@@ -39412,14 +38764,6 @@
                 "code": 429,
                 "text": "rate-overlimit"
               }
-            ],
-            "errorCodes": [
-              429,
-              500
-            ],
-            "errorTexts": [
-              "internal-server-error",
-              "rate-overlimit"
             ],
             "assertions": [
               {
@@ -40502,22 +39846,6 @@
                 "text": "bad-request"
               }
             ],
-            "errorCodes": [
-              400,
-              403,
-              443,
-              453,
-              500,
-              503
-            ],
-            "errorTexts": [
-              "bad-request",
-              "config-mismatch",
-              "forbidden",
-              "internal-server-error",
-              "service-unavailable",
-              "upgrade-required"
-            ],
             "assertions": [
               {
                 "kind": "tag",
@@ -41301,19 +40629,12 @@
           {
             "tag": "SetResponseInternalServerError",
             "moduleName": "WASmaxInPushConfigSetResponseInternalServerError",
-            "kind": "error",
-            "errorClass": "server",
+            "kind": "server_error",
             "errorArms": [
               {
                 "code": 500,
                 "text": "internal-server-error"
               }
-            ],
-            "errorCodes": [
-              500
-            ],
-            "errorTexts": [
-              "internal-server-error"
             ],
             "assertions": [
               {
@@ -41380,19 +40701,12 @@
           {
             "tag": "SetResponseConflict",
             "moduleName": "WASmaxInPushConfigSetResponseConflict",
-            "kind": "error",
-            "errorClass": "client",
+            "kind": "client_error",
             "errorArms": [
               {
                 "code": 409,
                 "text": "conflict"
               }
-            ],
-            "errorCodes": [
-              409
-            ],
-            "errorTexts": [
-              "conflict"
             ],
             "assertions": [
               {
@@ -42500,18 +41814,6 @@
                 "text": "service-unavailable"
               }
             ],
-            "errorCodes": [
-              400,
-              403,
-              500,
-              503
-            ],
-            "errorTexts": [
-              "bad-request",
-              "forbidden",
-              "internal-server-error",
-              "service-unavailable"
-            ],
             "assertions": [
               {
                 "kind": "tag",
@@ -42915,18 +42217,6 @@
                 "code": 500,
                 "text": "internal-server-error"
               }
-            ],
-            "errorCodes": [
-              400,
-              500,
-              501,
-              503
-            ],
-            "errorTexts": [
-              "bad-request",
-              "feature-not-implemented",
-              "internal-server-error",
-              "service-unavailable"
             ],
             "assertions": [
               {
@@ -43913,24 +43203,6 @@
                 "text": "service-unavailable"
               }
             ],
-            "errorCodes": [
-              400,
-              401,
-              405,
-              429,
-              482,
-              500,
-              503
-            ],
-            "errorTexts": [
-              "bad-request",
-              "feature-limit",
-              "internal-server-error",
-              "not-allowed",
-              "not-authorized",
-              "rate-overlimit",
-              "service-unavailable"
-            ],
             "assertions": [
               {
                 "kind": "tag",
@@ -44445,18 +43717,6 @@
                 "code": 500,
                 "text": "internal-server-error"
               }
-            ],
-            "errorCodes": [
-              400,
-              500,
-              501,
-              503
-            ],
-            "errorTexts": [
-              "bad-request",
-              "feature-not-implemented",
-              "internal-server-error",
-              "service-unavailable"
             ],
             "assertions": [
               {
@@ -45385,8 +44645,7 @@
           {
             "tag": "UpdatePreferenceResponseInvalidRequest",
             "moduleName": "WASmaxInBizMsgUserFeedbackUpdatePreferenceResponseInvalidRequest",
-            "kind": "error",
-            "errorClass": "client",
+            "kind": "client_error",
             "errorArms": [
               {
                 "name": "IQErrorNotAcceptable",
@@ -45408,18 +44667,6 @@
                 "code": 429,
                 "text": "rate-overlimit"
               }
-            ],
-            "errorCodes": [
-              400,
-              403,
-              406,
-              429
-            ],
-            "errorTexts": [
-              "bad-request",
-              "forbidden",
-              "not-acceptable",
-              "rate-overlimit"
             ],
             "assertions": [
               {
@@ -45643,8 +44890,7 @@
           {
             "tag": "UpdatePreferenceResponseServerError",
             "moduleName": "WASmaxInBizMsgUserFeedbackUpdatePreferenceResponseServerError",
-            "kind": "error",
-            "errorClass": "server",
+            "kind": "server_error",
             "errorArms": [
               {
                 "name": "IQErrorFeatureNotImplemented",
@@ -45656,14 +44902,6 @@
                 "code": 500,
                 "text": "internal-server-error"
               }
-            ],
-            "errorCodes": [
-              500,
-              501
-            ],
-            "errorTexts": [
-              "feature-not-implemented",
-              "internal-server-error"
             ],
             "assertions": [
               {
@@ -45907,16 +45145,6 @@
                 "code": 503,
                 "text": "service-unavailable"
               }
-            ],
-            "errorCodes": [
-              408,
-              500,
-              503
-            ],
-            "errorTexts": [
-              "internal-server-error",
-              "request-timeout",
-              "service-unavailable"
             ],
             "assertions": [
               {
@@ -46236,18 +45464,6 @@
                 "code": 429,
                 "text": "rate-overlimit"
               }
-            ],
-            "errorCodes": [
-              408,
-              429,
-              500,
-              503
-            ],
-            "errorTexts": [
-              "internal-server-error",
-              "rate-overlimit",
-              "request-timeout",
-              "service-unavailable"
             ],
             "assertions": [
               {
@@ -46603,18 +45819,6 @@
                 "code": 429,
                 "text": "rate-overlimit"
               }
-            ],
-            "errorCodes": [
-              408,
-              429,
-              500,
-              503
-            ],
-            "errorTexts": [
-              "internal-server-error",
-              "rate-overlimit",
-              "request-timeout",
-              "service-unavailable"
             ],
             "assertions": [
               {
@@ -50306,8 +49510,7 @@
           {
             "tag": "BatchGetGroupInfoResponseClientError",
             "moduleName": "WASmaxInGroupsBatchGetGroupInfoResponseClientError",
-            "kind": "error",
-            "errorClass": "client",
+            "kind": "client_error",
             "errorArms": [
               {
                 "name": "IQErrorBadRequest",
@@ -50319,14 +49522,6 @@
                 "code": 429,
                 "text": "rate-overlimit"
               }
-            ],
-            "errorCodes": [
-              400,
-              429
-            ],
-            "errorTexts": [
-              "bad-request",
-              "rate-overlimit"
             ],
             "assertions": [
               {
@@ -50452,8 +49647,7 @@
           {
             "tag": "BatchGetGroupInfoResponseServerError",
             "moduleName": "WASmaxInGroupsBatchGetGroupInfoResponseServerError",
-            "kind": "error",
-            "errorClass": "server",
+            "kind": "server_error",
             "errorArms": [
               {
                 "name": "IQErrorInternalServerError",
@@ -50476,18 +49670,6 @@
                 "codeMax": 599
               }
             ],
-            "errorCodes": [
-              500,
-              503,
-              530
-            ],
-            "errorTexts": [
-              "internal-server-error",
-              "partial-server-error",
-              "service-unavailable"
-            ],
-            "errorCodeMin": 500,
-            "errorCodeMax": 599,
             "assertions": [
               {
                 "kind": "tag",
@@ -53920,8 +53102,7 @@
           {
             "tag": "GetGroupInfoResponseClientError",
             "moduleName": "WASmaxInGroupsGetGroupInfoResponseClientError",
-            "kind": "error",
-            "errorClass": "client",
+            "kind": "client_error",
             "errorArms": [
               {
                 "name": "IQErrorGone",
@@ -53954,22 +53135,6 @@
                 "codeMax": 499
               }
             ],
-            "errorCodes": [
-              400,
-              403,
-              404,
-              410,
-              429
-            ],
-            "errorTexts": [
-              "bad-request",
-              "forbidden",
-              "gone",
-              "item-not-found",
-              "rate-overlimit"
-            ],
-            "errorCodeMin": 400,
-            "errorCodeMax": 499,
             "assertions": [
               {
                 "kind": "tag",
@@ -54232,8 +53397,7 @@
           {
             "tag": "GetGroupInfoResponseServerError",
             "moduleName": "WASmaxInGroupsGetGroupInfoResponseServerError",
-            "kind": "error",
-            "errorClass": "server",
+            "kind": "server_error",
             "errorArms": [
               {
                 "name": "IQErrorInternalServerError",
@@ -54256,18 +53420,6 @@
                 "codeMax": 599
               }
             ],
-            "errorCodes": [
-              500,
-              503,
-              530
-            ],
-            "errorTexts": [
-              "internal-server-error",
-              "partial-server-error",
-              "service-unavailable"
-            ],
-            "errorCodeMin": 500,
-            "errorCodeMax": 599,
             "assertions": [
               {
                 "kind": "tag",
@@ -55043,8 +54195,7 @@
           {
             "tag": "GetGroupProfilePicturesResponseClientError",
             "moduleName": "WASmaxInGroupsGetGroupProfilePicturesResponseClientError",
-            "kind": "error",
-            "errorClass": "client",
+            "kind": "client_error",
             "errorArms": [
               {
                 "name": "IQErrorItemNotFound",
@@ -55077,22 +54228,6 @@
                 "codeMax": 499
               }
             ],
-            "errorCodes": [
-              400,
-              403,
-              404,
-              405,
-              429
-            ],
-            "errorTexts": [
-              "bad-request",
-              "forbidden",
-              "item-not-found",
-              "not-allowed",
-              "rate-overlimit"
-            ],
-            "errorCodeMin": 400,
-            "errorCodeMax": 499,
             "assertions": [
               {
                 "kind": "tag",
@@ -55355,8 +54490,7 @@
           {
             "tag": "GetGroupProfilePicturesResponseServerError",
             "moduleName": "WASmaxInGroupsGetGroupProfilePicturesResponseServerError",
-            "kind": "error",
-            "errorClass": "server",
+            "kind": "server_error",
             "errorArms": [
               {
                 "name": "IQErrorInternalServerError",
@@ -55379,18 +54513,6 @@
                 "codeMax": 599
               }
             ],
-            "errorCodes": [
-              500,
-              503,
-              530
-            ],
-            "errorTexts": [
-              "internal-server-error",
-              "partial-server-error",
-              "service-unavailable"
-            ],
-            "errorCodeMin": 500,
-            "errorCodeMax": 599,
             "assertions": [
               {
                 "kind": "tag",
@@ -57915,8 +57037,7 @@
           {
             "tag": "GetInviteGroupInfoResponseClientError",
             "moduleName": "WASmaxInGroupsGetInviteGroupInfoResponseClientError",
-            "kind": "error",
-            "errorClass": "client",
+            "kind": "client_error",
             "errorArms": [
               {
                 "name": "IQErrorBadRequest",
@@ -57964,28 +57085,6 @@
                 "codeMax": 499
               }
             ],
-            "errorCodes": [
-              400,
-              401,
-              404,
-              406,
-              410,
-              416,
-              423,
-              436
-            ],
-            "errorTexts": [
-              "bad-request",
-              "gone",
-              "growth-locked",
-              "item-not-found",
-              "locked",
-              "not-acceptable",
-              "not-authorized",
-              "parent-group-suspended"
-            ],
-            "errorCodeMin": 400,
-            "errorCodeMax": 499,
             "assertions": [
               {
                 "kind": "tag",
@@ -58408,8 +57507,7 @@
           {
             "tag": "GetInviteGroupInfoResponseServerError",
             "moduleName": "WASmaxInGroupsGetInviteGroupInfoResponseServerError",
-            "kind": "error",
-            "errorClass": "server",
+            "kind": "server_error",
             "errorArms": [
               {
                 "name": "IQErrorInternalServerError",
@@ -58432,18 +57530,6 @@
                 "codeMax": 599
               }
             ],
-            "errorCodes": [
-              500,
-              503,
-              530
-            ],
-            "errorTexts": [
-              "internal-server-error",
-              "partial-server-error",
-              "service-unavailable"
-            ],
-            "errorCodeMin": 500,
-            "errorCodeMax": 599,
             "assertions": [
               {
                 "kind": "tag",
@@ -61191,8 +60277,7 @@
           {
             "tag": "GetLinkedGroupResponseClientError",
             "moduleName": "WASmaxInGroupsGetLinkedGroupResponseClientError",
-            "kind": "error",
-            "errorClass": "client",
+            "kind": "client_error",
             "errorArms": [
               {
                 "name": "IQErrorItemNotFound",
@@ -61220,20 +60305,6 @@
                 "codeMax": 499
               }
             ],
-            "errorCodes": [
-              400,
-              403,
-              404,
-              405
-            ],
-            "errorTexts": [
-              "bad-request",
-              "forbidden",
-              "item-not-found",
-              "not-allowed"
-            ],
-            "errorCodeMin": 400,
-            "errorCodeMax": 499,
             "assertions": [
               {
                 "kind": "tag",
@@ -61459,8 +60530,7 @@
           {
             "tag": "GetLinkedGroupResponseServerError",
             "moduleName": "WASmaxInGroupsGetLinkedGroupResponseServerError",
-            "kind": "error",
-            "errorClass": "server",
+            "kind": "server_error",
             "errorArms": [
               {
                 "name": "IQErrorInternalServerError",
@@ -61483,18 +60553,6 @@
                 "codeMax": 599
               }
             ],
-            "errorCodes": [
-              500,
-              503,
-              530
-            ],
-            "errorTexts": [
-              "internal-server-error",
-              "partial-server-error",
-              "service-unavailable"
-            ],
-            "errorCodeMin": 500,
-            "errorCodeMax": 599,
             "assertions": [
               {
                 "kind": "tag",
@@ -61895,8 +60953,7 @@
           {
             "tag": "GetLinkedGroupsParticipantsResponseClientError",
             "moduleName": "WASmaxInGroupsGetLinkedGroupsParticipantsResponseClientError",
-            "kind": "error",
-            "errorClass": "client",
+            "kind": "client_error",
             "errorArms": [
               {
                 "name": "IQErrorBadRequest",
@@ -61918,18 +60975,6 @@
                 "code": 429,
                 "text": "rate-overlimit"
               }
-            ],
-            "errorCodes": [
-              400,
-              401,
-              404,
-              429
-            ],
-            "errorTexts": [
-              "bad-request",
-              "item-not-found",
-              "not-authorized",
-              "rate-overlimit"
             ],
             "assertions": [
               {
@@ -62129,8 +61174,7 @@
           {
             "tag": "GetLinkedGroupsParticipantsResponseServerError",
             "moduleName": "WASmaxInGroupsGetLinkedGroupsParticipantsResponseServerError",
-            "kind": "error",
-            "errorClass": "server",
+            "kind": "server_error",
             "errorArms": [
               {
                 "name": "IQErrorInternalServerError",
@@ -62153,18 +61197,6 @@
                 "codeMax": 599
               }
             ],
-            "errorCodes": [
-              500,
-              503,
-              530
-            ],
-            "errorTexts": [
-              "internal-server-error",
-              "partial-server-error",
-              "service-unavailable"
-            ],
-            "errorCodeMin": 500,
-            "errorCodeMax": 599,
             "assertions": [
               {
                 "kind": "tag",
@@ -62809,8 +61841,7 @@
           {
             "tag": "GetMembershipApprovalRequestsResponseClientError",
             "moduleName": "WASmaxInGroupsGetMembershipApprovalRequestsResponseClientError",
-            "kind": "error",
-            "errorClass": "client",
+            "kind": "client_error",
             "errorArms": [
               {
                 "name": "IQErrorBadRequest",
@@ -62848,24 +61879,6 @@
                 "codeMax": 499
               }
             ],
-            "errorCodes": [
-              400,
-              401,
-              403,
-              404,
-              423,
-              429
-            ],
-            "errorTexts": [
-              "bad-request",
-              "forbidden",
-              "item-not-found",
-              "locked",
-              "not-authorized",
-              "rate-overlimit"
-            ],
-            "errorCodeMin": 400,
-            "errorCodeMax": 499,
             "assertions": [
               {
                 "kind": "tag",
@@ -63165,8 +62178,7 @@
           {
             "tag": "GetMembershipApprovalRequestsResponseServerError",
             "moduleName": "WASmaxInGroupsGetMembershipApprovalRequestsResponseServerError",
-            "kind": "error",
-            "errorClass": "server",
+            "kind": "server_error",
             "errorArms": [
               {
                 "name": "IQErrorInternalServerError",
@@ -63189,18 +62201,6 @@
                 "codeMax": 599
               }
             ],
-            "errorCodes": [
-              500,
-              503,
-              530
-            ],
-            "errorTexts": [
-              "internal-server-error",
-              "partial-server-error",
-              "service-unavailable"
-            ],
-            "errorCodeMin": 500,
-            "errorCodeMax": 599,
             "assertions": [
               {
                 "kind": "tag",
@@ -66752,8 +65752,7 @@
           {
             "tag": "GetParticipatingGroupsResponseClientError",
             "moduleName": "WASmaxInGroupsGetParticipatingGroupsResponseClientError",
-            "kind": "error",
-            "errorClass": "client",
+            "kind": "client_error",
             "errorArms": [
               {
                 "name": "IQErrorBadRequest",
@@ -66771,16 +65770,6 @@
                 "codeMax": 499
               }
             ],
-            "errorCodes": [
-              400,
-              429
-            ],
-            "errorTexts": [
-              "bad-request",
-              "rate-overlimit"
-            ],
-            "errorCodeMin": 400,
-            "errorCodeMax": 499,
             "assertions": [
               {
                 "kind": "tag",
@@ -66932,8 +65921,7 @@
           {
             "tag": "GetParticipatingGroupsResponseServerError",
             "moduleName": "WASmaxInGroupsGetParticipatingGroupsResponseServerError",
-            "kind": "error",
-            "errorClass": "server",
+            "kind": "server_error",
             "errorArms": [
               {
                 "name": "IQErrorInternalServerError",
@@ -66956,18 +65944,6 @@
                 "codeMax": 599
               }
             ],
-            "errorCodes": [
-              500,
-              503,
-              530
-            ],
-            "errorTexts": [
-              "internal-server-error",
-              "partial-server-error",
-              "service-unavailable"
-            ],
-            "errorCodeMin": 500,
-            "errorCodeMax": 599,
             "assertions": [
               {
                 "kind": "tag",
@@ -67504,8 +66480,7 @@
           {
             "tag": "GetReportedMessagesResponseClientError",
             "moduleName": "WASmaxInGroupsGetReportedMessagesResponseClientError",
-            "kind": "error",
-            "errorClass": "client",
+            "kind": "client_error",
             "errorArms": [
               {
                 "name": "IQErrorBadRequest",
@@ -67532,20 +66507,6 @@
                 "code": 423,
                 "text": "locked"
               }
-            ],
-            "errorCodes": [
-              400,
-              401,
-              404,
-              423,
-              429
-            ],
-            "errorTexts": [
-              "bad-request",
-              "item-not-found",
-              "locked",
-              "not-authorized",
-              "rate-overlimit"
             ],
             "assertions": [
               {
@@ -67782,8 +66743,7 @@
           {
             "tag": "GetReportedMessagesResponseServerError",
             "moduleName": "WASmaxInGroupsGetReportedMessagesResponseServerError",
-            "kind": "error",
-            "errorClass": "server",
+            "kind": "server_error",
             "errorArms": [
               {
                 "name": "IQErrorInternalServerError",
@@ -67806,18 +66766,6 @@
                 "codeMax": 599
               }
             ],
-            "errorCodes": [
-              500,
-              503,
-              530
-            ],
-            "errorTexts": [
-              "internal-server-error",
-              "partial-server-error",
-              "service-unavailable"
-            ],
-            "errorCodeMin": 500,
-            "errorCodeMax": 599,
             "assertions": [
               {
                 "kind": "tag",
@@ -68388,36 +67336,6 @@
                 "codeMax": 499
               }
             ],
-            "errorCodes": [
-              304,
-              400,
-              401,
-              403,
-              404,
-              405,
-              409,
-              410,
-              412,
-              419,
-              423,
-              500
-            ],
-            "errorTexts": [
-              "already-exists",
-              "bad-request",
-              "conflict",
-              "forbidden",
-              "gone",
-              "item-not-found",
-              "linked-groups-participants-resource-limit",
-              "locked",
-              "not-allowed",
-              "not-authorized",
-              "resource-constraint",
-              "resource-limit"
-            ],
-            "errorCodeMin": 400,
-            "errorCodeMax": 499,
             "assertions": [
               {
                 "kind": "tag",
@@ -68939,8 +67857,7 @@
           {
             "tag": "AcceptGroupAddResponseServerError",
             "moduleName": "WASmaxInGroupsAcceptGroupAddResponseServerError",
-            "kind": "error",
-            "errorClass": "server",
+            "kind": "server_error",
             "errorArms": [
               {
                 "name": "IQErrorInternalServerError",
@@ -68963,18 +67880,6 @@
                 "codeMax": 599
               }
             ],
-            "errorCodes": [
-              500,
-              503,
-              530
-            ],
-            "errorTexts": [
-              "internal-server-error",
-              "partial-server-error",
-              "service-unavailable"
-            ],
-            "errorCodeMin": 500,
-            "errorCodeMax": 599,
             "assertions": [
               {
                 "kind": "tag",
@@ -69243,8 +68148,7 @@
           {
             "tag": "AcknowledgeGroupResponseClientError",
             "moduleName": "WASmaxInGroupsAcknowledgeGroupResponseClientError",
-            "kind": "error",
-            "errorClass": "client",
+            "kind": "client_error",
             "errorArms": [
               {
                 "name": "IQErrorItemNotFound",
@@ -69267,18 +68171,6 @@
                 "codeMax": 499
               }
             ],
-            "errorCodes": [
-              400,
-              404,
-              429
-            ],
-            "errorTexts": [
-              "bad-request",
-              "item-not-found",
-              "rate-overlimit"
-            ],
-            "errorCodeMin": 400,
-            "errorCodeMax": 499,
             "assertions": [
               {
                 "kind": "tag",
@@ -69467,8 +68359,7 @@
           {
             "tag": "AcknowledgeGroupResponseServerError",
             "moduleName": "WASmaxInGroupsAcknowledgeGroupResponseServerError",
-            "kind": "error",
-            "errorClass": "server",
+            "kind": "server_error",
             "errorArms": [
               {
                 "name": "IQErrorInternalServerError",
@@ -69491,18 +68382,6 @@
                 "codeMax": 599
               }
             ],
-            "errorCodes": [
-              500,
-              503,
-              530
-            ],
-            "errorTexts": [
-              "internal-server-error",
-              "partial-server-error",
-              "service-unavailable"
-            ],
-            "errorCodeMin": 500,
-            "errorCodeMax": 599,
             "assertions": [
               {
                 "kind": "tag",
@@ -71111,8 +69990,7 @@
           {
             "tag": "AddParticipantsResponseClientError",
             "moduleName": "WASmaxInGroupsAddParticipantsResponseClientError",
-            "kind": "error",
-            "errorClass": "client",
+            "kind": "client_error",
             "errorArms": [
               {
                 "name": "IQErrorBadRequest",
@@ -71170,28 +70048,6 @@
                 "codeMax": 499
               }
             ],
-            "errorCodes": [
-              400,
-              401,
-              403,
-              404,
-              405,
-              416,
-              423,
-              429
-            ],
-            "errorTexts": [
-              "bad-request",
-              "forbidden",
-              "item-not-found",
-              "locked",
-              "not-allowed",
-              "not-authorized",
-              "parent-group-suspended",
-              "rate-overlimit"
-            ],
-            "errorCodeMin": 400,
-            "errorCodeMax": 499,
             "assertions": [
               {
                 "kind": "tag",
@@ -71672,8 +70528,7 @@
           {
             "tag": "AddParticipantsResponseServerError",
             "moduleName": "WASmaxInGroupsAddParticipantsResponseServerError",
-            "kind": "error",
-            "errorClass": "server",
+            "kind": "server_error",
             "errorArms": [
               {
                 "name": "IQErrorInternalServerError",
@@ -71696,18 +70551,6 @@
                 "codeMax": 599
               }
             ],
-            "errorCodes": [
-              500,
-              503,
-              530
-            ],
-            "errorTexts": [
-              "internal-server-error",
-              "partial-server-error",
-              "service-unavailable"
-            ],
-            "errorCodeMin": 500,
-            "errorCodeMax": 599,
             "assertions": [
               {
                 "kind": "tag",
@@ -72234,8 +71077,7 @@
           {
             "tag": "CancelGroupMembershipRequestsResponseClientError",
             "moduleName": "WASmaxInGroupsCancelGroupMembershipRequestsResponseClientError",
-            "kind": "error",
-            "errorClass": "client",
+            "kind": "client_error",
             "errorArms": [
               {
                 "name": "IQErrorBadRequest",
@@ -72263,20 +71105,6 @@
                 "codeMax": 499
               }
             ],
-            "errorCodes": [
-              400,
-              404,
-              423,
-              429
-            ],
-            "errorTexts": [
-              "bad-request",
-              "item-not-found",
-              "locked",
-              "rate-overlimit"
-            ],
-            "errorCodeMin": 400,
-            "errorCodeMax": 499,
             "assertions": [
               {
                 "kind": "tag",
@@ -72502,8 +71330,7 @@
           {
             "tag": "CancelGroupMembershipRequestsResponseServerError",
             "moduleName": "WASmaxInGroupsCancelGroupMembershipRequestsResponseServerError",
-            "kind": "error",
-            "errorClass": "server",
+            "kind": "server_error",
             "errorArms": [
               {
                 "name": "IQErrorInternalServerError",
@@ -72526,18 +71353,6 @@
                 "codeMax": 599
               }
             ],
-            "errorCodes": [
-              500,
-              503,
-              530
-            ],
-            "errorTexts": [
-              "internal-server-error",
-              "partial-server-error",
-              "service-unavailable"
-            ],
-            "errorCodeMin": 500,
-            "errorCodeMax": 599,
             "assertions": [
               {
                 "kind": "tag",
@@ -75499,32 +74314,6 @@
                 "codeMax": 499
               }
             ],
-            "errorCodes": [
-              400,
-              403,
-              404,
-              405,
-              406,
-              412,
-              416,
-              419,
-              429,
-              500
-            ],
-            "errorTexts": [
-              "bad-request",
-              "forbidden",
-              "item-not-found",
-              "linked-groups-participants-resource-limit",
-              "not-acceptable",
-              "not-allowed",
-              "parent-group-suspended",
-              "rate-overlimit",
-              "resource-constraint",
-              "resource-limit"
-            ],
-            "errorCodeMin": 400,
-            "errorCodeMax": 499,
             "assertions": [
               {
                 "kind": "tag",
@@ -76103,8 +74892,7 @@
           {
             "tag": "CreateResponseServerError",
             "moduleName": "WASmaxInGroupsCreateResponseServerError",
-            "kind": "error",
-            "errorClass": "server",
+            "kind": "server_error",
             "errorArms": [
               {
                 "name": "IQErrorInternalServerError",
@@ -76127,18 +74915,6 @@
                 "codeMax": 599
               }
             ],
-            "errorCodes": [
-              500,
-              503,
-              530
-            ],
-            "errorTexts": [
-              "internal-server-error",
-              "partial-server-error",
-              "service-unavailable"
-            ],
-            "errorCodeMin": 500,
-            "errorCodeMax": 599,
             "assertions": [
               {
                 "kind": "tag",
@@ -76893,8 +75669,7 @@
           {
             "tag": "CreateSubGroupSuggestionResponseClientError",
             "moduleName": "WASmaxInGroupsCreateSubGroupSuggestionResponseClientError",
-            "kind": "error",
-            "errorClass": "client",
+            "kind": "client_error",
             "errorArms": [
               {
                 "name": "IQErrorForbidden",
@@ -76937,26 +75712,6 @@
                 "codeMax": 499
               }
             ],
-            "errorCodes": [
-              400,
-              403,
-              404,
-              405,
-              406,
-              419,
-              429
-            ],
-            "errorTexts": [
-              "bad-request",
-              "forbidden",
-              "item-not-found",
-              "not-acceptable",
-              "not-allowed",
-              "rate-overlimit",
-              "resource-limit"
-            ],
-            "errorCodeMin": 400,
-            "errorCodeMax": 499,
             "assertions": [
               {
                 "kind": "tag",
@@ -77317,8 +76072,7 @@
           {
             "tag": "CreateSubGroupSuggestionResponseServerError",
             "moduleName": "WASmaxInGroupsCreateSubGroupSuggestionResponseServerError",
-            "kind": "error",
-            "errorClass": "server",
+            "kind": "server_error",
             "errorArms": [
               {
                 "name": "IQErrorInternalServerError",
@@ -77341,18 +76095,6 @@
                 "codeMax": 599
               }
             ],
-            "errorCodes": [
-              500,
-              503,
-              530
-            ],
-            "errorTexts": [
-              "internal-server-error",
-              "partial-server-error",
-              "service-unavailable"
-            ],
-            "errorCodeMin": 500,
-            "errorCodeMax": 599,
             "assertions": [
               {
                 "kind": "tag",
@@ -77621,8 +76363,7 @@
           {
             "tag": "DeleteParentGroupResponseClientError",
             "moduleName": "WASmaxInGroupsDeleteParentGroupResponseClientError",
-            "kind": "error",
-            "errorClass": "client",
+            "kind": "client_error",
             "errorArms": [
               {
                 "name": "IQErrorBadRequest",
@@ -77639,16 +76380,6 @@
                 "code": 404,
                 "text": "item-not-found"
               }
-            ],
-            "errorCodes": [
-              400,
-              401,
-              404
-            ],
-            "errorTexts": [
-              "bad-request",
-              "item-not-found",
-              "not-authorized"
             ],
             "assertions": [
               {
@@ -77811,8 +76542,7 @@
           {
             "tag": "DeleteParentGroupResponseServerError",
             "moduleName": "WASmaxInGroupsDeleteParentGroupResponseServerError",
-            "kind": "error",
-            "errorClass": "server",
+            "kind": "server_error",
             "errorArms": [
               {
                 "name": "IQErrorInternalServerError",
@@ -77835,18 +76565,6 @@
                 "codeMax": 599
               }
             ],
-            "errorCodes": [
-              500,
-              503,
-              530
-            ],
-            "errorTexts": [
-              "internal-server-error",
-              "partial-server-error",
-              "service-unavailable"
-            ],
-            "errorCodeMin": 500,
-            "errorCodeMax": 599,
             "assertions": [
               {
                 "kind": "tag",
@@ -78224,32 +76942,6 @@
                 "codeMax": 499
               }
             ],
-            "errorCodes": [
-              304,
-              400,
-              401,
-              403,
-              404,
-              405,
-              406,
-              409,
-              419,
-              426
-            ],
-            "errorTexts": [
-              "already-exists",
-              "bad-request",
-              "conflict",
-              "forbidden",
-              "item-not-found",
-              "not-acceptable",
-              "not-allowed",
-              "not-authorized",
-              "resource-limit",
-              "upgrade-required"
-            ],
-            "errorCodeMin": 400,
-            "errorCodeMax": 499,
             "assertions": [
               {
                 "kind": "tag",
@@ -78721,8 +77413,7 @@
           {
             "tag": "JoinLinkedGroupResponseServerError",
             "moduleName": "WASmaxInGroupsJoinLinkedGroupResponseServerError",
-            "kind": "error",
-            "errorClass": "server",
+            "kind": "server_error",
             "errorArms": [
               {
                 "name": "IQErrorInternalServerError",
@@ -78745,18 +77436,6 @@
                 "codeMax": 599
               }
             ],
-            "errorCodes": [
-              500,
-              503,
-              530
-            ],
-            "errorTexts": [
-              "internal-server-error",
-              "partial-server-error",
-              "service-unavailable"
-            ],
-            "errorCodeMin": 500,
-            "errorCodeMax": 599,
             "assertions": [
               {
                 "kind": "tag",
@@ -79649,8 +78328,7 @@
           {
             "tag": "LinkSubGroupsResponseClientError",
             "moduleName": "WASmaxInGroupsLinkSubGroupsResponseClientError",
-            "kind": "error",
-            "errorClass": "client",
+            "kind": "client_error",
             "errorArms": [
               {
                 "name": "IQErrorBadRequest",
@@ -79702,30 +78380,6 @@
                 "code": 429,
                 "text": "rate-overlimit"
               }
-            ],
-            "errorCodes": [
-              400,
-              401,
-              403,
-              404,
-              405,
-              413,
-              416,
-              419,
-              429,
-              433
-            ],
-            "errorTexts": [
-              "bad-request",
-              "forbidden",
-              "item-not-found",
-              "not-allowed",
-              "not-authorized",
-              "parent-group-suspended",
-              "payload-too-large",
-              "pending-add-requests",
-              "rate-overlimit",
-              "resource-limit"
             ],
             "assertions": [
               {
@@ -80147,8 +78801,7 @@
           {
             "tag": "LinkSubGroupsResponseServerError",
             "moduleName": "WASmaxInGroupsLinkSubGroupsResponseServerError",
-            "kind": "error",
-            "errorClass": "server",
+            "kind": "server_error",
             "errorArms": [
               {
                 "name": "IQErrorInternalServerError",
@@ -80171,18 +78824,6 @@
                 "codeMax": 599
               }
             ],
-            "errorCodes": [
-              500,
-              503,
-              530
-            ],
-            "errorTexts": [
-              "internal-server-error",
-              "partial-server-error",
-              "service-unavailable"
-            ],
-            "errorCodeMin": 500,
-            "errorCodeMax": 599,
             "assertions": [
               {
                 "kind": "tag",
@@ -81446,8 +80087,7 @@
           {
             "tag": "MembershipRequestsActionResponseClientError",
             "moduleName": "WASmaxInGroupsMembershipRequestsActionResponseClientError",
-            "kind": "error",
-            "errorClass": "client",
+            "kind": "client_error",
             "errorArms": [
               {
                 "name": "IQErrorBadRequest",
@@ -81480,22 +80120,6 @@
                 "codeMax": 499
               }
             ],
-            "errorCodes": [
-              400,
-              401,
-              404,
-              423,
-              429
-            ],
-            "errorTexts": [
-              "bad-request",
-              "item-not-found",
-              "locked",
-              "not-authorized",
-              "rate-overlimit"
-            ],
-            "errorCodeMin": 400,
-            "errorCodeMax": 499,
             "assertions": [
               {
                 "kind": "tag",
@@ -81758,8 +80382,7 @@
           {
             "tag": "MembershipRequestsActionResponseServerError",
             "moduleName": "WASmaxInGroupsMembershipRequestsActionResponseServerError",
-            "kind": "error",
-            "errorClass": "server",
+            "kind": "server_error",
             "errorArms": [
               {
                 "name": "IQErrorInternalServerError",
@@ -81782,18 +80405,6 @@
                 "codeMax": 599
               }
             ],
-            "errorCodes": [
-              500,
-              503,
-              530
-            ],
-            "errorTexts": [
-              "internal-server-error",
-              "partial-server-error",
-              "service-unavailable"
-            ],
-            "errorCodeMin": 500,
-            "errorCodeMax": 599,
             "assertions": [
               {
                 "kind": "tag",
@@ -82299,8 +80910,7 @@
           {
             "tag": "PromoteDemoteAdminResponseClientError",
             "moduleName": "WASmaxInGroupsPromoteDemoteAdminResponseClientError",
-            "kind": "error",
-            "errorClass": "client",
+            "kind": "client_error",
             "errorArms": [
               {
                 "name": "IQErrorRateOverlimit",
@@ -82343,26 +80953,6 @@
                 "codeMax": 499
               }
             ],
-            "errorCodes": [
-              400,
-              401,
-              403,
-              404,
-              423,
-              429,
-              486
-            ],
-            "errorTexts": [
-              "bad-request",
-              "blocked-integrity-enforcement",
-              "forbidden",
-              "item-not-found",
-              "locked",
-              "not-authorized",
-              "rate-overlimit"
-            ],
-            "errorCodeMin": 400,
-            "errorCodeMax": 499,
             "assertions": [
               {
                 "kind": "tag",
@@ -82699,8 +81289,7 @@
           {
             "tag": "PromoteDemoteAdminResponseServerError",
             "moduleName": "WASmaxInGroupsPromoteDemoteAdminResponseServerError",
-            "kind": "error",
-            "errorClass": "server",
+            "kind": "server_error",
             "errorArms": [
               {
                 "name": "IQErrorInternalServerError",
@@ -82723,18 +81312,6 @@
                 "codeMax": 599
               }
             ],
-            "errorCodes": [
-              500,
-              503,
-              530
-            ],
-            "errorTexts": [
-              "internal-server-error",
-              "partial-server-error",
-              "service-unavailable"
-            ],
-            "errorCodeMin": 500,
-            "errorCodeMax": 599,
             "assertions": [
               {
                 "kind": "tag",
@@ -83362,8 +81939,7 @@
           {
             "tag": "PromoteDemoteResponseClientError",
             "moduleName": "WASmaxInGroupsPromoteDemoteResponseClientError",
-            "kind": "error",
-            "errorClass": "client",
+            "kind": "client_error",
             "errorArms": [
               {
                 "name": "IQErrorRateOverlimit",
@@ -83406,26 +81982,6 @@
                 "codeMax": 499
               }
             ],
-            "errorCodes": [
-              400,
-              401,
-              403,
-              404,
-              423,
-              429,
-              486
-            ],
-            "errorTexts": [
-              "bad-request",
-              "blocked-integrity-enforcement",
-              "forbidden",
-              "item-not-found",
-              "locked",
-              "not-authorized",
-              "rate-overlimit"
-            ],
-            "errorCodeMin": 400,
-            "errorCodeMax": 499,
             "assertions": [
               {
                 "kind": "tag",
@@ -83762,8 +82318,7 @@
           {
             "tag": "PromoteDemoteResponseServerError",
             "moduleName": "WASmaxInGroupsPromoteDemoteResponseServerError",
-            "kind": "error",
-            "errorClass": "server",
+            "kind": "server_error",
             "errorArms": [
               {
                 "name": "IQErrorInternalServerError",
@@ -83786,18 +82341,6 @@
                 "codeMax": 599
               }
             ],
-            "errorCodes": [
-              500,
-              503,
-              530
-            ],
-            "errorTexts": [
-              "internal-server-error",
-              "partial-server-error",
-              "service-unavailable"
-            ],
-            "errorCodeMin": 500,
-            "errorCodeMax": 599,
             "assertions": [
               {
                 "kind": "tag",
@@ -84480,8 +83023,7 @@
           {
             "tag": "RemoveParticipantsResponseClientError",
             "moduleName": "WASmaxInGroupsRemoveParticipantsResponseClientError",
-            "kind": "error",
-            "errorClass": "client",
+            "kind": "client_error",
             "errorArms": [
               {
                 "name": "IQErrorRateOverlimit",
@@ -84524,26 +83066,6 @@
                 "codeMax": 499
               }
             ],
-            "errorCodes": [
-              400,
-              401,
-              403,
-              404,
-              413,
-              423,
-              429
-            ],
-            "errorTexts": [
-              "bad-request",
-              "forbidden",
-              "item-not-found",
-              "locked",
-              "not-authorized",
-              "payload-too-large",
-              "rate-overlimit"
-            ],
-            "errorCodeMin": 400,
-            "errorCodeMax": 499,
             "assertions": [
               {
                 "kind": "tag",
@@ -84880,8 +83402,7 @@
           {
             "tag": "RemoveParticipantsResponseServerError",
             "moduleName": "WASmaxInGroupsRemoveParticipantsResponseServerError",
-            "kind": "error",
-            "errorClass": "server",
+            "kind": "server_error",
             "errorArms": [
               {
                 "name": "IQErrorInternalServerError",
@@ -84904,18 +83425,6 @@
                 "codeMax": 599
               }
             ],
-            "errorCodes": [
-              500,
-              503,
-              530
-            ],
-            "errorTexts": [
-              "internal-server-error",
-              "partial-server-error",
-              "service-unavailable"
-            ],
-            "errorCodeMin": 500,
-            "errorCodeMax": 599,
             "assertions": [
               {
                 "kind": "tag",
@@ -85197,8 +83706,7 @@
           {
             "tag": "ReportMessagesResponseClientError",
             "moduleName": "WASmaxInGroupsReportMessagesResponseClientError",
-            "kind": "error",
-            "errorClass": "client",
+            "kind": "client_error",
             "errorArms": [
               {
                 "name": "IQErrorBadRequest",
@@ -85225,20 +83733,6 @@
                 "code": 423,
                 "text": "locked"
               }
-            ],
-            "errorCodes": [
-              400,
-              403,
-              404,
-              423,
-              429
-            ],
-            "errorTexts": [
-              "bad-request",
-              "forbidden",
-              "item-not-found",
-              "locked",
-              "rate-overlimit"
             ],
             "assertions": [
               {
@@ -85475,8 +83969,7 @@
           {
             "tag": "ReportMessagesResponseServerError",
             "moduleName": "WASmaxInGroupsReportMessagesResponseServerError",
-            "kind": "error",
-            "errorClass": "server",
+            "kind": "server_error",
             "errorArms": [
               {
                 "name": "IQErrorInternalServerError",
@@ -85499,18 +83992,6 @@
                 "codeMax": 599
               }
             ],
-            "errorCodes": [
-              500,
-              503,
-              530
-            ],
-            "errorTexts": [
-              "internal-server-error",
-              "partial-server-error",
-              "service-unavailable"
-            ],
-            "errorCodeMin": 500,
-            "errorCodeMax": 599,
             "assertions": [
               {
                 "kind": "tag",
@@ -85973,8 +84454,7 @@
           {
             "tag": "RevokeRequestCodeResponseClientError",
             "moduleName": "WASmaxInGroupsRevokeRequestCodeResponseClientError",
-            "kind": "error",
-            "errorClass": "client",
+            "kind": "client_error",
             "errorArms": [
               {
                 "name": "IQErrorBadRequest",
@@ -86007,22 +84487,6 @@
                 "codeMax": 499
               }
             ],
-            "errorCodes": [
-              400,
-              401,
-              403,
-              404,
-              423
-            ],
-            "errorTexts": [
-              "bad-request",
-              "forbidden",
-              "item-not-found",
-              "locked",
-              "not-authorized"
-            ],
-            "errorCodeMin": 400,
-            "errorCodeMax": 499,
             "assertions": [
               {
                 "kind": "tag",
@@ -86285,8 +84749,7 @@
           {
             "tag": "RevokeRequestCodeResponseServerError",
             "moduleName": "WASmaxInGroupsRevokeRequestCodeResponseServerError",
-            "kind": "error",
-            "errorClass": "server",
+            "kind": "server_error",
             "errorArms": [
               {
                 "name": "IQErrorInternalServerError",
@@ -86309,18 +84772,6 @@
                 "codeMax": 599
               }
             ],
-            "errorCodes": [
-              500,
-              503,
-              530
-            ],
-            "errorTexts": [
-              "internal-server-error",
-              "partial-server-error",
-              "service-unavailable"
-            ],
-            "errorCodeMin": 500,
-            "errorCodeMax": 599,
             "assertions": [
               {
                 "kind": "tag",
@@ -86627,8 +85078,7 @@
           {
             "tag": "SetDescriptionResponseClientError",
             "moduleName": "WASmaxInGroupsSetDescriptionResponseClientError",
-            "kind": "error",
-            "errorClass": "client",
+            "kind": "client_error",
             "errorArms": [
               {
                 "name": "IQErrorBadRequest",
@@ -86671,26 +85121,6 @@
                 "codeMax": 499
               }
             ],
-            "errorCodes": [
-              400,
-              401,
-              403,
-              404,
-              406,
-              409,
-              423
-            ],
-            "errorTexts": [
-              "bad-request",
-              "conflict",
-              "forbidden",
-              "item-not-found",
-              "locked",
-              "not-acceptable",
-              "not-authorized"
-            ],
-            "errorCodeMin": 400,
-            "errorCodeMax": 499,
             "assertions": [
               {
                 "kind": "tag",
@@ -87051,8 +85481,7 @@
           {
             "tag": "SetDescriptionResponseServerError",
             "moduleName": "WASmaxInGroupsSetDescriptionResponseServerError",
-            "kind": "error",
-            "errorClass": "server",
+            "kind": "server_error",
             "errorArms": [
               {
                 "name": "IQErrorInternalServerError",
@@ -87075,18 +85504,6 @@
                 "codeMax": 599
               }
             ],
-            "errorCodes": [
-              500,
-              503,
-              530
-            ],
-            "errorTexts": [
-              "internal-server-error",
-              "partial-server-error",
-              "service-unavailable"
-            ],
-            "errorCodeMin": 500,
-            "errorCodeMax": 599,
             "assertions": [
               {
                 "kind": "tag",
@@ -87839,8 +86256,7 @@
           {
             "tag": "SetPropertyResponseClientError",
             "moduleName": "WASmaxInGroupsSetPropertyResponseClientError",
-            "kind": "error",
-            "errorClass": "client",
+            "kind": "client_error",
             "errorArms": [
               {
                 "name": "IQErrorBadRequest",
@@ -87893,30 +86309,6 @@
                 "codeMax": 499
               }
             ],
-            "errorCodes": [
-              400,
-              401,
-              403,
-              404,
-              405,
-              419,
-              423,
-              426,
-              429
-            ],
-            "errorTexts": [
-              "bad-request",
-              "forbidden",
-              "item-not-found",
-              "locked",
-              "not-allowed",
-              "not-authorized",
-              "rate-overlimit",
-              "resource-limit",
-              "upgrade-required"
-            ],
-            "errorCodeMin": 400,
-            "errorCodeMax": 499,
             "assertions": [
               {
                 "kind": "tag",
@@ -88327,8 +86719,7 @@
           {
             "tag": "SetPropertyResponseServerError",
             "moduleName": "WASmaxInGroupsSetPropertyResponseServerError",
-            "kind": "error",
-            "errorClass": "server",
+            "kind": "server_error",
             "errorArms": [
               {
                 "name": "IQErrorInternalServerError",
@@ -88351,18 +86742,6 @@
                 "codeMax": 599
               }
             ],
-            "errorCodes": [
-              500,
-              503,
-              530
-            ],
-            "errorTexts": [
-              "internal-server-error",
-              "partial-server-error",
-              "service-unavailable"
-            ],
-            "errorCodeMin": 500,
-            "errorCodeMax": 599,
             "assertions": [
               {
                 "kind": "tag",
@@ -88631,8 +87010,7 @@
           {
             "tag": "SetSubjectResponseClientError",
             "moduleName": "WASmaxInGroupsSetSubjectResponseClientError",
-            "kind": "error",
-            "errorClass": "client",
+            "kind": "client_error",
             "errorArms": [
               {
                 "name": "IQErrorBadRequest",
@@ -88675,26 +87053,6 @@
                 "codeMax": 499
               }
             ],
-            "errorCodes": [
-              400,
-              401,
-              403,
-              404,
-              406,
-              423,
-              429
-            ],
-            "errorTexts": [
-              "bad-request",
-              "forbidden",
-              "item-not-found",
-              "locked",
-              "not-acceptable",
-              "not-authorized",
-              "rate-overlimit"
-            ],
-            "errorCodeMin": 400,
-            "errorCodeMax": 499,
             "assertions": [
               {
                 "kind": "tag",
@@ -89055,8 +87413,7 @@
           {
             "tag": "SetSubjectResponseServerError",
             "moduleName": "WASmaxInGroupsSetSubjectResponseServerError",
-            "kind": "error",
-            "errorClass": "server",
+            "kind": "server_error",
             "errorArms": [
               {
                 "name": "IQErrorInternalServerError",
@@ -89079,18 +87436,6 @@
                 "codeMax": 599
               }
             ],
-            "errorCodes": [
-              500,
-              503,
-              530
-            ],
-            "errorTexts": [
-              "internal-server-error",
-              "partial-server-error",
-              "service-unavailable"
-            ],
-            "errorCodeMin": 500,
-            "errorCodeMax": 599,
             "assertions": [
               {
                 "kind": "tag",
@@ -90301,8 +88646,7 @@
           {
             "tag": "SubGroupSuggestionsActionResponseClientError",
             "moduleName": "WASmaxInGroupsSubGroupSuggestionsActionResponseClientError",
-            "kind": "error",
-            "errorClass": "client",
+            "kind": "client_error",
             "errorArms": [
               {
                 "name": "IQErrorBadRequest",
@@ -90330,20 +88674,6 @@
                 "codeMax": 499
               }
             ],
-            "errorCodes": [
-              400,
-              401,
-              404,
-              429
-            ],
-            "errorTexts": [
-              "bad-request",
-              "item-not-found",
-              "not-authorized",
-              "rate-overlimit"
-            ],
-            "errorCodeMin": 400,
-            "errorCodeMax": 499,
             "assertions": [
               {
                 "kind": "tag",
@@ -90569,8 +88899,7 @@
           {
             "tag": "SubGroupSuggestionsActionResponseServerError",
             "moduleName": "WASmaxInGroupsSubGroupSuggestionsActionResponseServerError",
-            "kind": "error",
-            "errorClass": "server",
+            "kind": "server_error",
             "errorArms": [
               {
                 "name": "IQErrorInternalServerError",
@@ -90593,18 +88922,6 @@
                 "codeMax": 599
               }
             ],
-            "errorCodes": [
-              500,
-              503,
-              530
-            ],
-            "errorTexts": [
-              "internal-server-error",
-              "partial-server-error",
-              "service-unavailable"
-            ],
-            "errorCodeMin": 500,
-            "errorCodeMax": 599,
             "assertions": [
               {
                 "kind": "tag",
@@ -91281,8 +89598,7 @@
           {
             "tag": "UnlinkGroupsResponseClientError",
             "moduleName": "WASmaxInGroupsUnlinkGroupsResponseClientError",
-            "kind": "error",
-            "errorClass": "client",
+            "kind": "client_error",
             "errorArms": [
               {
                 "name": "IQErrorBadRequest",
@@ -91304,18 +89620,6 @@
                 "code": 406,
                 "text": "not-acceptable"
               }
-            ],
-            "errorCodes": [
-              400,
-              401,
-              404,
-              406
-            ],
-            "errorTexts": [
-              "bad-request",
-              "item-not-found",
-              "not-acceptable",
-              "not-authorized"
             ],
             "assertions": [
               {
@@ -91539,8 +89843,7 @@
           {
             "tag": "UnlinkGroupsResponseServerError",
             "moduleName": "WASmaxInGroupsUnlinkGroupsResponseServerError",
-            "kind": "error",
-            "errorClass": "server",
+            "kind": "server_error",
             "errorArms": [
               {
                 "name": "IQErrorInternalServerError",
@@ -91563,18 +89866,6 @@
                 "codeMax": 599
               }
             ],
-            "errorCodes": [
-              500,
-              503,
-              530
-            ],
-            "errorTexts": [
-              "internal-server-error",
-              "partial-server-error",
-              "service-unavailable"
-            ],
-            "errorCodeMin": 500,
-            "errorCodeMax": 599,
             "assertions": [
               {
                 "kind": "tag",
@@ -97130,24 +95421,6 @@
                 "text": "service-unavailable"
               }
             ],
-            "errorCodes": [
-              400,
-              401,
-              404,
-              429,
-              500,
-              501,
-              503
-            ],
-            "errorTexts": [
-              "bad-request",
-              "feature-not-implemented",
-              "internal-server-error",
-              "item-not-found",
-              "not-authorized",
-              "rate-overlimit",
-              "service-unavailable"
-            ],
             "assertions": [
               {
                 "kind": "tag",
@@ -97722,16 +95995,6 @@
                 "text": "feature-not-implemented"
               }
             ],
-            "errorCodes": [
-              400,
-              406,
-              501
-            ],
-            "errorTexts": [
-              "bad-request",
-              "feature-not-implemented",
-              "not-acceptable"
-            ],
             "assertions": [
               {
                 "kind": "tag",
@@ -97917,19 +96180,12 @@
           {
             "tag": "SendBufferResponseErrorRetry",
             "moduleName": "WASmaxInStatsSendBufferResponseErrorRetry",
-            "kind": "error",
-            "errorClass": "server",
+            "kind": "server_error",
             "errorArms": [
               {
                 "code": 503,
                 "text": "service-unavailable"
               }
-            ],
-            "errorCodes": [
-              503
-            ],
-            "errorTexts": [
-              "service-unavailable"
             ],
             "assertions": [
               {
@@ -98439,34 +96695,6 @@
                 "code": 485,
                 "text": "wf-state-mismatch"
               }
-            ],
-            "errorCodes": [
-              400,
-              401,
-              405,
-              408,
-              409,
-              429,
-              480,
-              483,
-              484,
-              485,
-              500,
-              503
-            ],
-            "errorTexts": [
-              "bad-request",
-              "conflict",
-              "internal-server-error",
-              "not-allowed",
-              "not-authorized",
-              "payload-enc-dec-failed",
-              "rate-overlimit",
-              "request-timeout",
-              "service-unavailable",
-              "wf-not-found",
-              "wf-state-mismatch",
-              "wf-suspended"
             ],
             "assertions": [
               {
@@ -99124,22 +97352,6 @@
                 "text": "not-allowed"
               }
             ],
-            "errorCodes": [
-              400,
-              405,
-              408,
-              429,
-              500,
-              503
-            ],
-            "errorTexts": [
-              "bad-request",
-              "internal-server-error",
-              "not-allowed",
-              "rate-overlimit",
-              "request-timeout",
-              "service-unavailable"
-            ],
             "assertions": [
               {
                 "kind": "tag",
@@ -99585,28 +97797,6 @@
                 "code": 485,
                 "text": "wf-state-mismatch"
               }
-            ],
-            "errorCodes": [
-              400,
-              405,
-              408,
-              409,
-              429,
-              483,
-              485,
-              500,
-              503
-            ],
-            "errorTexts": [
-              "bad-request",
-              "conflict",
-              "internal-server-error",
-              "not-allowed",
-              "rate-overlimit",
-              "request-timeout",
-              "service-unavailable",
-              "wf-not-found",
-              "wf-state-mismatch"
             ],
             "assertions": [
               {
@@ -100314,36 +98504,6 @@
                 "code": 416,
                 "text": "wf-not-authorized-invalid-password"
               }
-            ],
-            "errorCodes": [
-              304,
-              400,
-              401,
-              405,
-              408,
-              409,
-              416,
-              429,
-              480,
-              483,
-              485,
-              500,
-              503
-            ],
-            "errorTexts": [
-              "already-exists",
-              "bad-request",
-              "conflict",
-              "internal-server-error",
-              "not-allowed",
-              "not-authorized",
-              "payload-enc-dec-failed",
-              "rate-overlimit",
-              "request-timeout",
-              "service-unavailable",
-              "wf-not-authorized-invalid-password",
-              "wf-not-found",
-              "wf-state-mismatch"
             ],
             "assertions": [
               {
@@ -101187,32 +99347,6 @@
                 "text": "wf-jurisdiction-gating"
               }
             ],
-            "errorCodes": [
-              304,
-              400,
-              401,
-              405,
-              408,
-              409,
-              418,
-              429,
-              480,
-              500,
-              503
-            ],
-            "errorTexts": [
-              "already-exists",
-              "bad-request",
-              "conflict",
-              "internal-server-error",
-              "not-allowed",
-              "not-authorized",
-              "payload-enc-dec-failed",
-              "rate-overlimit",
-              "request-timeout",
-              "service-unavailable",
-              "wf-jurisdiction-gating"
-            ],
             "assertions": [
               {
                 "kind": "tag",
@@ -102000,24 +100134,6 @@
                 "text": "feature-not-implemented"
               }
             ],
-            "errorCodes": [
-              400,
-              405,
-              408,
-              429,
-              500,
-              501,
-              503
-            ],
-            "errorTexts": [
-              "bad-request",
-              "feature-not-implemented",
-              "internal-server-error",
-              "not-allowed",
-              "rate-overlimit",
-              "request-timeout",
-              "service-unavailable"
-            ],
             "assertions": [
               {
                 "kind": "tag",
@@ -102626,36 +100742,6 @@
                 "code": 416,
                 "text": "wf-not-authorized-invalid-password"
               }
-            ],
-            "errorCodes": [
-              400,
-              401,
-              405,
-              408,
-              409,
-              416,
-              429,
-              480,
-              483,
-              484,
-              485,
-              500,
-              503
-            ],
-            "errorTexts": [
-              "bad-request",
-              "conflict",
-              "internal-server-error",
-              "not-allowed",
-              "not-authorized",
-              "payload-enc-dec-failed",
-              "rate-overlimit",
-              "request-timeout",
-              "service-unavailable",
-              "wf-not-authorized-invalid-password",
-              "wf-not-found",
-              "wf-state-mismatch",
-              "wf-suspended"
             ],
             "assertions": [
               {
@@ -103423,22 +101509,6 @@
                 "text": "not-allowed"
               }
             ],
-            "errorCodes": [
-              400,
-              405,
-              408,
-              429,
-              500,
-              503
-            ],
-            "errorTexts": [
-              "bad-request",
-              "internal-server-error",
-              "not-allowed",
-              "rate-overlimit",
-              "request-timeout",
-              "service-unavailable"
-            ],
             "assertions": [
               {
                 "kind": "tag",
@@ -103883,34 +101953,6 @@
                 "code": 485,
                 "text": "wf-state-mismatch"
               }
-            ],
-            "errorCodes": [
-              400,
-              401,
-              405,
-              408,
-              409,
-              429,
-              480,
-              483,
-              484,
-              485,
-              500,
-              503
-            ],
-            "errorTexts": [
-              "bad-request",
-              "conflict",
-              "internal-server-error",
-              "not-allowed",
-              "not-authorized",
-              "payload-enc-dec-failed",
-              "rate-overlimit",
-              "request-timeout",
-              "service-unavailable",
-              "wf-not-found",
-              "wf-state-mismatch",
-              "wf-suspended"
             ],
             "assertions": [
               {

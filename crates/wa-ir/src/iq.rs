@@ -515,48 +515,61 @@ pub struct ParsedField {
 }
 
 /// How a response-root union variant classifies (drives codegen `Ok`/`Err` arms).
+///
+/// The error side is split by **who is at fault**, because that decides what a caller
+/// should do: a 4xx will fail again if retried unchanged, a 5xx may not. WA models the
+/// two as separate parsers with disjoint code ranges (`bad-request` 400,
+/// `rate-overlimit` 429, fallback 400–499 / `internal-server-error` 500, fallback
+/// 500–599), so the split is the protocol's, not an interpretation.
+///
+/// The side is derived from the **codes** the variant accepts, never from its name: WA
+/// spells the arms inconsistently (`…ResponseServerError`, but also
+/// `…ResponseInternalServerError`, and `SetResponsePreKeySuccessVnameFailure` reads as a
+/// success while asserting `type="error"`). A variant whose codes are mixed or outside
+/// both families stays [`Error`] — an error whose side could not be determined, which is
+/// a fact worth stating rather than a coin flip.
+///
+/// [`Error`]: ResponseVariantKind::Error
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum ResponseVariantKind {
     #[default]
     Success,
+    /// The request was wrong (4xx) — retrying it unchanged will fail again.
+    ClientError,
+    /// The server failed (5xx) — the same request may succeed later.
+    ServerError,
+    /// An error whose side the accepted codes do not determine.
     Error,
     /// A structured non-happy outcome that still parses (Nack, Conflict, …).
     Alternative,
 }
 
-/// Which side an error variant blames, for a variant whose [`ResponseVariantKind`] is
-/// [`Error`]. WA models the two as separate parsers with disjoint code ranges: a client
-/// error carries a 4xx code (`bad-request` 400, `rate-overlimit` 429, fallback 400–499)
-/// and a server error a 5xx one (`internal-server-error` 500, fallback 500–599).
-///
-/// Emitted alongside — not instead of — [`ResponseVariant::kind`], so a consumer that
-/// only understands `success`/`error` keeps working.
-///
-/// [`Error`]: ResponseVariantKind::Error
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
-#[serde(rename_all = "snake_case")]
-pub enum ErrorClass {
-    /// The request was wrong (4xx) — retrying it unchanged will fail again.
-    Client,
-    /// The server failed (5xx) — the same request may succeed later.
-    Server,
+impl ResponseVariantKind {
+    /// Whether this is any error outcome, whichever side is at fault.
+    pub fn is_error(&self) -> bool {
+        matches!(
+            self,
+            ResponseVariantKind::Error
+                | ResponseVariantKind::ClientError
+                | ResponseVariantKind::ServerError
+        )
+    }
 }
 
 /// One accepted `<error>` shape of a response variant: the `code` and `text` that must
 /// occur **together**.
 ///
-/// The flattened [`ResponseVariant::error_codes`] / [`error_texts`] lists answer "what
-/// values does this RPC accept?", but they cannot say which value goes with which: an
-/// arm taking `400 bad-request` and `501 feature-not-implemented` flattens to two codes
-/// and two texts, and nothing then rules out `400 feature-not-implemented` — a
-/// combination the parser rejects. An emitter that picks one value from each list
-/// therefore produces an unparseable stanza, which is the exact failure class this
-/// domain exists to prevent. The pairing lives here.
+/// A variant accepting `400 bad-request` and `501 feature-not-implemented` cannot be
+/// described by two independent lists — nothing would then rule out `400
+/// feature-not-implemented`, a combination the parser rejects, so an emitter picking one
+/// value from each list produces an unparseable stanza. The pairing is the point.
 ///
-/// [`error_texts`]: ResponseVariant::error_texts
+/// Every field is optional because each is a genuine shape: an arm may pin an exact
+/// `(code, text)`, pin only the code and read the text freely
+/// (`IQErrorReportTokenValidationFail` accepts any text with 548), or pin neither and
+/// range-check the code (the `IQErrorFallback*` arms).
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
@@ -569,23 +582,16 @@ pub struct ErrorArm {
     /// The exact `code` this arm pins, when it pins one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code: Option<i64>,
-    /// The exact `text` this arm pins, when it pins one.
-    ///
-    /// Absent is a **fact, not a gap**, and it comes in two shapes: a fallback arm pins
-    /// neither value and accepts any text within [`code_min`]..=[`code_max`], while a
-    /// code-only arm pins the code and reads the text freely — `IQErrorReportTokenValidationFail`
-    /// pins `code=548` and accepts whatever `text` the server sends with it. In both, an
-    /// emitter is free to choose the text; it is only [`code`] that is constrained.
-    ///
-    /// [`code`]: ErrorArm::code
-    /// [`code_min`]: ErrorArm::code_min
-    /// [`code_max`]: ErrorArm::code_max
+    /// The exact `text` this arm pins. Absent is a fact, not a gap — see the note above.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
-    /// Inclusive lower bound of a fallback arm's accepted code range.
+    /// Inclusive lower bound of the codes this arm accepts, when it range-checks instead
+    /// of pinning.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code_min: Option<i64>,
-    /// Inclusive upper bound of a fallback arm's accepted code range.
+    /// Inclusive upper bound of the same range (see [`code_min`]).
+    ///
+    /// [`code_min`]: ErrorArm::code_min
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code_max: Option<i64>,
 }
@@ -601,18 +607,19 @@ pub struct ResponseVariant {
     pub tag: String,
     pub module_name: String,
     pub kind: ResponseVariantKind,
-    /// For an error variant, whether it is the client-error (4xx) or server-error (5xx)
-    /// arm. Absent for a success variant, and for an error variant whose parser carries
-    /// no recoverable code evidence.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub error_class: Option<ErrorClass>,
     /// The accepted `<error>` shapes, in parser order — **which code goes with which
-    /// text**. See [`ErrorArm`] for why the flattened lists below cannot express it.
+    /// text**. See [`ErrorArm`]; this is the only representation of the vocabulary,
+    /// deliberately, because the flattened `errorCodes` / `errorTexts` lists it replaced
+    /// let an emitter combine one arm's code with another's text and produce a stanza no
+    /// branch accepts.
     ///
     /// An arm describes the *discriminating* `<error>` node. When the variant also pins
     /// the node above it, those pins are in [`error_envelope`], and the full shape is
-    /// **arm + envelope** — an arm alone is not enough to build a response for such a
-    /// variant.
+    /// **arm + envelope**.
+    ///
+    /// To answer "does this RPC accept code N / text T?", scan the arms — the question
+    /// the flat lists used to answer is one `.iter().any(…)` away, and asking it that way
+    /// cannot produce an invalid pair.
     ///
     /// [`error_envelope`]: ResponseVariant::error_envelope
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -620,55 +627,14 @@ pub struct ResponseVariant {
     /// Pins on the `<error>` node **enclosing** the one the arms discriminate, for a
     /// two-level error.
     ///
-    /// `SetResponsePreKeySuccessVnameFailure` is the shape: the response carries
-    /// `<error code="207">` — the partial-failure envelope, shared by every arm — around
-    /// an inner `<error>` whose text the disjunction pins. The envelope belongs to no
-    /// single arm, so duplicating it into all of them would misreport where the code
-    /// sits; it is recorded once here instead. Absent for the ordinary one-level error,
-    /// which is nearly all of them.
+    /// `SetResponsePreKeySuccessVnameFailure` is the shape: `<error code="207">` — the
+    /// partial-failure envelope, shared by every arm — wrapping an inner `<error>` whose
+    /// text the disjunction pins and whose code is range-checked. Pins are partitioned by
+    /// the node they are read from, so the envelope holds only the enclosing node's and
+    /// the inner node's shared constraints stay on the arms; mixing them would tell a
+    /// consumer that code 207 must also fall in 400–599.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error_envelope: Option<ErrorArm>,
-    /// The **closed set** of `<error code>` values this variant accepts, ascending — the
-    /// union over [`error_arms`], for the "does this RPC accept code N?" question.
-    ///
-    /// The vocabulary is per-RPC, not global: `BatchGetGroupInfo`'s client-error arm
-    /// takes only `400` and `429` and **rejects `404`**, even though an
-    /// `IQErrorItemNotFoundMixin` exists and other RPCs use it. Answering with a code
-    /// outside this set matches no branch, so the client reports a parse failure rather
-    /// than the error. Empty when the variant pins no exact code (see [`error_code_min`]).
-    ///
-    /// An emitter must pick a **pair** from [`error_arms`] (plus [`error_envelope`] when
-    /// present), never one value from this list and another from [`error_texts`].
-    ///
-    /// [`error_envelope`]: ResponseVariant::error_envelope
-    ///
-    /// [`error_arms`]: ResponseVariant::error_arms
-    /// [`error_texts`]: ResponseVariant::error_texts
-    /// [`error_code_min`]: ResponseVariant::error_code_min
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub error_codes: Vec<i64>,
-    /// The `<error text>` values this variant accepts, sorted — the union over
-    /// [`error_arms`]. Empty when only a fallback (any-text) arm applies. See the warning
-    /// on [`error_codes`] about combining the two lists.
-    ///
-    /// [`error_arms`]: ResponseVariant::error_arms
-    /// [`error_codes`]: ResponseVariant::error_codes
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub error_texts: Vec<String>,
-    /// Lower bound of the open-ended fallback arm's code range, when the variant has one
-    /// (`IQErrorFallbackServer` accepts any `code` in 500–599 with any `text`; its
-    /// client twin accepts 400–499). Together with [`error_code_max`] this says "any
-    /// code in this range is also accepted", which [`error_codes`] alone cannot express.
-    ///
-    /// [`error_code_max`]: ResponseVariant::error_code_max
-    /// [`error_codes`]: ResponseVariant::error_codes
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub error_code_min: Option<i64>,
-    /// Upper bound of the fallback arm's code range (see [`error_code_min`]).
-    ///
-    /// [`error_code_min`]: ResponseVariant::error_code_min
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub error_code_max: Option<i64>,
     pub assertions: Vec<ResponseAssertion>,
     pub fields: Vec<ParsedField>,
 }

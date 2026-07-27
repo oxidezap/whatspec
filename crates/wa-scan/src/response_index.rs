@@ -13,8 +13,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use wa_ir::{
-    ErrorArm, ErrorClass, ParsedField, ParsedFieldType, ParsedResponse, ResponseVariant,
-    ResponseVariantKind,
+    ErrorArm, ParsedField, ParsedFieldType, ParsedResponse, ResponseVariant, ResponseVariantKind,
 };
 
 use crate::response_smax::{
@@ -153,7 +152,7 @@ pub(crate) fn build_pass(defs: &[ModuleDefinition], source: &str) -> ResponseInd
             // or `text` field for unrelated reasons (three PreKeys success variants do),
             // and reporting that as an accepted error vocabulary contradicts the
             // per-error-arm meaning documented on `ResponseVariant`.
-            let vocab = if kind == ResponseVariantKind::Error {
+            let vocab = if kind.is_error() {
                 error_vocabulary(&fields)
             } else {
                 ErrorVocabulary::default()
@@ -161,14 +160,11 @@ pub(crate) fn build_pass(defs: &[ModuleDefinition], source: &str) -> ResponseInd
             variants.push(ResponseVariant {
                 tag,
                 module_name: module,
-                kind,
-                error_class: vocab.class(),
+                // The side at fault is a property of the codes, so it is settled only
+                // once the vocabulary is read.
+                kind: vocab.refine(kind),
                 error_arms: vocab.arms,
                 error_envelope: vocab.envelope,
-                error_codes: vocab.codes,
-                error_texts: vocab.texts,
-                error_code_min: vocab.code_min,
-                error_code_max: vocab.code_max,
                 assertions,
                 fields,
             });
@@ -220,45 +216,43 @@ pub(crate) fn build_pass(defs: &[ModuleDefinition], source: &str) -> ResponseInd
 /// disjunction.
 #[derive(Default)]
 struct ErrorVocabulary {
-    /// The accepted `(code, text)` shapes, in parser order — the authoritative form.
+    /// The accepted `(code, text)` shapes, in parser order.
     arms: Vec<ErrorArm>,
     /// Pins on the `<error>` node enclosing the ones the arms discriminate, for a
     /// two-level error. Recorded once rather than duplicated into every arm.
     envelope: Option<ErrorArm>,
-    /// Flattened unions over `arms`, kept for the "does this RPC accept N?" question.
-    codes: Vec<i64>,
-    texts: Vec<String>,
-    code_min: Option<i64>,
-    code_max: Option<i64>,
 }
 
 impl ErrorVocabulary {
-    /// Which side the codes blame: 4xx is the client's fault, 5xx the server's. Derived
-    /// from the evidence rather than the variant's name, since WA spells the two arms
-    /// inconsistently (`…ResponseServerError` but also `…ResponseInternalServerError`).
-    /// `None` when the arm pins no code at all, or mixes both families (never guessed).
-    fn class(&self) -> Option<ErrorClass> {
+    /// Refine `Error` into the side at fault: 4xx is the client's, 5xx the server's.
+    /// Derived from every code the variant accepts — arms and envelope alike — so a
+    /// variant that mixes families, or pins something outside both (the 207 partial
+    /// failure), stays a plain `Error` rather than being guessed into a side.
+    fn refine(&self, kind: ResponseVariantKind) -> ResponseVariantKind {
+        if kind != ResponseVariantKind::Error {
+            return kind;
+        }
         let of = |c: i64| match c {
-            400..=499 => Some(ErrorClass::Client),
-            500..=599 => Some(ErrorClass::Server),
+            400..=499 => Some(ResponseVariantKind::ClientError),
+            500..=599 => Some(ResponseVariantKind::ServerError),
             _ => None,
         };
-        let mut seen: Option<ErrorClass> = None;
+        let mut seen: Option<ResponseVariantKind> = None;
         for c in self
-            .codes
+            .arms
             .iter()
-            .copied()
-            .chain(self.code_min)
-            .chain(self.code_max)
+            .chain(self.envelope.as_ref())
+            .flat_map(|a| [a.code, a.code_min, a.code_max])
+            .flatten()
         {
             match (of(c), seen) {
-                (None, _) => return None,
+                (None, _) => return ResponseVariantKind::Error,
                 (Some(cur), None) => seen = Some(cur),
                 (Some(cur), Some(prev)) if cur == prev => {}
-                _ => return None,
+                _ => return ResponseVariantKind::Error,
             }
         }
-        seen
+        seen.unwrap_or(ResponseVariantKind::Error)
     }
 }
 
@@ -280,31 +274,74 @@ impl ErrorVocabulary {
 fn error_vocabulary(fields: &[ParsedField]) -> ErrorVocabulary {
     let mut v = ErrorVocabulary::default();
     let from_union = collect_error_arms(fields, &mut v.arms);
-    // A two-level error — an outer `<error code="207">` wrapping an inner `<error>` whose
-    // text the disjunction pins — has pins the ARMS cannot carry: an arm describes one
-    // discriminating node, and the envelope belongs to none of them. Recorded once, so an
-    // "arm + envelope" reading is complete; duplicating it into every arm would misreport
-    // where the code sits.
-    // Only when the arms came from a DISJUNCTION are the variant's own pins a separate,
-    // enclosing node. Without a disjunction those same pins ARE the single arm, and
-    // recording them twice would invent an envelope the response does not have.
-    let envelope = arm_pins(fields);
-    if from_union && envelope != ErrorArm::default() {
-        v.envelope = Some(envelope.clone());
-    }
-    for a in v.arms.iter().chain(std::iter::once(&envelope)) {
-        v.codes.extend(a.code);
-        v.texts.extend(a.text.clone());
-        if let (Some(min), Some(max)) = (a.code_min, a.code_max) {
-            v.code_min = Some(v.code_min.map_or(min, |cur: i64| cur.min(min)));
-            v.code_max = Some(v.code_max.map_or(max, |cur: i64| cur.max(max)));
+    // Partition the variant's own (non-alternative) pins by the NODE they are read from.
+    // `SetResponsePreKeySuccessVnameFailure` pins `code=207` on `<error>` and
+    // range-checks `code` 400..=599 on the `<error><error>` inside it: folding both into
+    // one envelope tells a consumer that 207 must also fall in 400..=599, and leaves the
+    // inner range attached to nothing. The deepest pins belong to the node the arms
+    // discriminate and are merged into them; anything shallower is the envelope.
+    let mut by_path: std::collections::BTreeMap<Vec<String>, ErrorArm> = Default::default();
+    pins_by_path(fields, &[], &mut by_path);
+    if from_union && !by_path.is_empty() {
+        let deepest = by_path.keys().map(Vec::len).max().unwrap_or(0);
+        let (inner, outer): (Vec<_>, Vec<_>) = by_path
+            .into_iter()
+            .partition(|(path, _)| path.len() == deepest && deepest > 0);
+        // Shared constraints of the discriminating node: every arm is subject to them.
+        for (_, shared) in &inner {
+            for arm in &mut v.arms {
+                arm.code = arm.code.or(shared.code);
+                arm.text = arm.text.clone().or_else(|| shared.text.clone());
+                arm.code_min = arm.code_min.or(shared.code_min);
+                arm.code_max = arm.code_max.or(shared.code_max);
+            }
+        }
+        let mut envelope = ErrorArm::default();
+        for (_, outer_pins) in outer {
+            envelope.code = envelope.code.or(outer_pins.code);
+            envelope.text = envelope.text.or(outer_pins.text);
+            envelope.code_min = envelope.code_min.or(outer_pins.code_min);
+            envelope.code_max = envelope.code_max.or(outer_pins.code_max);
+        }
+        if envelope != ErrorArm::default() {
+            v.envelope = Some(envelope);
         }
     }
-    v.codes.sort_unstable();
-    v.codes.dedup();
-    v.texts.sort();
-    v.texts.dedup();
     v
+}
+
+/// The `code`/`text` pins of the variant's own fields, grouped by the node path they are
+/// read from. Disjunction alternatives are skipped — each of those is its own arm.
+fn pins_by_path(
+    fields: &[ParsedField],
+    base: &[String],
+    out: &mut std::collections::BTreeMap<Vec<String>, ErrorArm>,
+) {
+    for f in fields {
+        let mut path = base.to_vec();
+        path.extend(f.source_path.iter().flatten().cloned());
+        match (f.wire_name.as_deref().unwrap_or(&f.name), &f.literal_value) {
+            ("code", Some(lit)) => {
+                if let Ok(code) = lit.parse::<i64>() {
+                    out.entry(path.clone()).or_default().code = Some(code);
+                }
+            }
+            ("text", Some(lit)) => {
+                out.entry(path.clone()).or_default().text = Some(lit.clone());
+            }
+            ("code", None) => {
+                if let (Some(min), Some(max)) = (f.int_min, f.int_max) {
+                    let e = out.entry(path.clone()).or_default();
+                    e.code_min = Some(min);
+                    e.code_max = Some(max);
+                }
+            }
+            _ => {}
+        }
+        if let Some(children) = &f.children {
+            pins_by_path(children, &path, out);
+        }
+    }
 }
 
 /// One arm per accepted `<error>` shape, so the `(code, text)` pairing survives.
@@ -583,25 +620,27 @@ mod tests {
                 .find(|v| v.tag == tag)
                 .unwrap_or_else(|| panic!("no variant {tag}"))
         };
-        // A success variant carries no error vocabulary and no error class.
+        // A success variant carries no error vocabulary.
         let ok = v("GetBarResponseSuccess");
         assert_eq!(ok.kind, ResponseVariantKind::Success);
-        assert!(ok.error_class.is_none());
-        assert!(ok.error_codes.is_empty() && ok.error_texts.is_empty());
+        assert!(ok.error_arms.is_empty() && ok.error_envelope.is_none());
         // The client arm's vocabulary is CLOSED: exactly what its disjunction accepts.
         // Answering `404 item-not-found` here matches no branch — the bug this exists
         // to make visible — so 404 must not appear.
         let ce = v("GetBarResponseClientError");
-        assert_eq!(ce.error_class, Some(ErrorClass::Client));
-        assert_eq!(ce.error_codes, vec![400]);
-        assert_eq!(ce.error_texts, vec!["bad-request".to_string()]);
-        assert_eq!((ce.error_code_min, ce.error_code_max), (None, None));
+        assert_eq!(ce.kind, ResponseVariantKind::ClientError);
+        assert_eq!(ce.error_arms.len(), 1);
+        assert_eq!(
+            (ce.error_arms[0].code, ce.error_arms[0].text.as_deref()),
+            (Some(400), Some("bad-request"))
+        );
         // The server arm is the open-ended fallback: any text, any code in 500..=599.
         let se = v("GetBarResponseServerError");
-        assert_eq!(se.error_class, Some(ErrorClass::Server));
-        assert!(se.error_codes.is_empty(), "a range is not an exact code");
+        assert_eq!(se.kind, ResponseVariantKind::ServerError);
+        assert_eq!(se.error_arms.len(), 1);
+        assert_eq!(se.error_arms[0].code, None, "a range is not an exact code");
         assert_eq!(
-            (se.error_code_min, se.error_code_max),
+            (se.error_arms[0].code_min, se.error_arms[0].code_max),
             (Some(500), Some(599))
         );
     }
@@ -626,9 +665,6 @@ mod tests {
             (arm.code, arm.text.as_deref()),
             (Some(400), Some("bad-request"))
         );
-        // The flat lists stay a VIEW over the arms, so the two can never disagree.
-        assert_eq!(ce.error_codes, vec![400]);
-        assert_eq!(ce.error_texts, vec!["bad-request".to_string()]);
 
         // A fallback arm pins a range and NO text: it accepts any text in 500..=599, so
         // a `text` of `None` there is the fact, not a gap.
@@ -718,32 +754,45 @@ mod tests {
     }
 
     #[test]
-    fn error_class_is_derived_from_codes_not_from_the_variant_name() {
-        // Codes decide, so `…ResponseInternalServerError` (which reads like a server
-        // arm but is spelled inconsistently across namespaces) can't be misfiled.
-        let v = ErrorVocabulary {
-            codes: vec![400, 429],
+    fn the_error_side_is_derived_from_codes_not_from_the_variant_name() {
+        // The codes decide, so `…ResponseInternalServerError` (which reads like a server
+        // arm but is spelled inconsistently across namespaces) cannot be misfiled, and a
+        // variant whose codes settle nothing stays a plain `Error` rather than a guess.
+        let arm = |code: Option<i64>, min: Option<i64>, max: Option<i64>| ErrorArm {
+            code,
+            code_min: min,
+            code_max: max,
             ..Default::default()
         };
-        assert_eq!(v.class(), Some(ErrorClass::Client));
-        let v = ErrorVocabulary {
-            code_min: Some(500),
-            code_max: Some(599),
-            ..Default::default()
+        let vocab = |arms: Vec<ErrorArm>| ErrorVocabulary {
+            arms,
+            envelope: None,
         };
-        assert_eq!(v.class(), Some(ErrorClass::Server));
+        let refine = |arms: Vec<ErrorArm>| vocab(arms).refine(ResponseVariantKind::Error);
+
+        assert_eq!(
+            refine(vec![arm(Some(400), None, None), arm(Some(429), None, None)]),
+            ResponseVariantKind::ClientError
+        );
+        assert_eq!(
+            refine(vec![arm(None, Some(500), Some(599))]),
+            ResponseVariantKind::ServerError
+        );
         // Mixed families, or a code outside both, is not classified — never guessed.
-        let v = ErrorVocabulary {
-            codes: vec![400, 500],
-            ..Default::default()
-        };
-        assert_eq!(v.class(), None);
-        let v = ErrorVocabulary {
-            codes: vec![304],
-            ..Default::default()
-        };
-        assert_eq!(v.class(), None);
-        assert_eq!(ErrorVocabulary::default().class(), None);
+        assert_eq!(
+            refine(vec![arm(Some(400), None, None), arm(Some(500), None, None)]),
+            ResponseVariantKind::Error
+        );
+        assert_eq!(
+            refine(vec![arm(Some(207), None, None)]),
+            ResponseVariantKind::Error
+        );
+        assert_eq!(refine(vec![]), ResponseVariantKind::Error);
+        // A success variant is never touched.
+        assert_eq!(
+            vocab(vec![arm(Some(400), None, None)]).refine(ResponseVariantKind::Success),
+            ResponseVariantKind::Success
+        );
     }
 
     #[test]
