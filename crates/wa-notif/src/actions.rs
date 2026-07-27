@@ -726,8 +726,50 @@ fn inline_local(fn_src: &str, def: &mut NotifActionDef, ctx: &ArmCtx, depth: u8)
     }) else {
         return;
     };
+    // Each of the helper's result branches is folded on its own and then MERGED, not
+    // accumulated: a helper returning `{x: …}` in one branch and `{y: …}` in another
+    // describes two legal shapes, and combining them would make the enclosing action
+    // require both and reject either. `merge_action` weakens what only some branches
+    // carry — the same rule the switch arms use.
+    let mut branches: Vec<NotifActionDef> = Vec::new();
     for (shape, scope) in fn_result_shapes(func, &Scope::new()) {
-        fold_shape(shape, &scope, def, ctx, depth + 1);
+        let mut one = empty_action(String::new());
+        fold_shape(shape, &scope, &mut one, ctx, depth + 1);
+        match branches
+            .iter_mut()
+            .find(|b| b.action_type == one.action_type)
+        {
+            Some(existing) => merge_action(existing, one),
+            None => branches.push(one),
+        }
+    }
+    // Distinct action types cannot arise here (a value-position helper contributes
+    // fields, it does not pick the action), so folding the merged branches in is safe.
+    for b in branches {
+        merge_into(def, b);
+    }
+}
+
+/// Fold a helper's contribution into the enclosing action, keeping what the enclosing
+/// object already stated and weakening nothing it owns.
+fn merge_into(def: &mut NotifActionDef, from: NotifActionDef) {
+    if def.action_type.is_none() {
+        def.action_type = from.action_type;
+    }
+    for f in from.fields {
+        if !def.fields.iter().any(|x| x.name == f.name) {
+            def.fields.push(f);
+        }
+    }
+    for c in from.children {
+        if !def.children.iter().any(|x| x.name == c.name) {
+            def.children.push(c);
+        }
+    }
+    for c in from.constant_fields {
+        if !def.constant_fields.iter().any(|x| x.name == c.name) {
+            def.constant_fields.push(c);
+        }
     }
 }
 
@@ -880,11 +922,19 @@ fn read_field<'b, 'a>(
 }
 
 /// Whether the value is read behind a presence guard, so the attribute may be absent.
+///
+/// A ternary and a `guard && value` both gate the read on something. `a || b` / `a ?? b`
+/// do NOT: the accessor on the left runs unconditionally and `attrString` still rejects
+/// an absent attribute — the right operand only supplies a default for a value the
+/// parser already required. Treating those as guards marked required fields optional.
 fn is_guarded(e: &Expression) -> bool {
-    matches!(
-        e,
-        Expression::ConditionalExpression(_) | Expression::LogicalExpression(_)
-    )
+    match e {
+        Expression::ConditionalExpression(_) => true,
+        Expression::LogicalExpression(l) => {
+            l.operator == oxc_syntax::operator::LogicalOperator::And
+        }
+        _ => false,
+    }
 }
 
 /// The value branch of a `cond ? value : fallback` / `a || b` guard, else `e` itself.

@@ -135,7 +135,7 @@
           ]
         },
         "text": {
-          "description": "The exact `text` this arm pins. Absent on a fallback arm, which accepts any text\nwithin [`code_min`]..=[`code_max`].\n\n[`code_min`]: ErrorArm::code_min\n[`code_max`]: ErrorArm::code_max",
+          "description": "The exact `text` this arm pins, when it pins one.\n\nAbsent is a **fact, not a gap**, and it comes in two shapes: a fallback arm pins\nneither value and accepts any text within [`code_min`]..=[`code_max`], while a\ncode-only arm pins the code and reads the text freely — `IQErrorReportTokenValidationFail`\npins `code=548` and accepts whatever `text` the server sends with it. In both, an\nemitter is free to choose the text; it is only [`code`] that is constrained.\n\n[`code`]: ErrorArm::code\n[`code_min`]: ErrorArm::code_min\n[`code_max`]: ErrorArm::code_max",
           "type": [
             "string",
             "null"

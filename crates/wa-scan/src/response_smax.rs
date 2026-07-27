@@ -618,26 +618,36 @@ fn classify_call(
                 .get(3)
                 .and_then(arg_expr)
                 .and_then(|e| reference_path_of(e, bindings));
-            if source_path.is_none()
-                && let Some(attr) = attr
-            {
+            // The ASSERTION is root-relative, so it is only emitted for a pin on the
+            // parser's own node. The DROP is not: a nested pin we could not resolve is a
+            // constraint lost just the same, and suppressing its report along with the
+            // assertion would leave the field with no pin while `dropsByReason`
+            // simultaneously claimed nothing had gone missing.
+            if let Some(attr) = attr {
                 match (&literal_value, &reference_path) {
-                    (Some(value), _) => assertions.push(ResponseAssertion {
-                        kind: AssertionKind::Attr,
-                        name: Some(attr.to_string()),
-                        value: Some(value.clone()),
-                        reference_path: None,
-                    }),
-                    (None, Some(path)) => assertions.push(ResponseAssertion {
-                        kind: AssertionKind::Reference,
-                        name: Some(attr.to_string()),
-                        value: None,
-                        reference_path: Some(path.clone()),
-                    }),
+                    (Some(value), _) if source_path.is_none() => {
+                        assertions.push(ResponseAssertion {
+                            kind: AssertionKind::Attr,
+                            name: Some(attr.to_string()),
+                            value: Some(value.clone()),
+                            reference_path: None,
+                        })
+                    }
+                    (None, Some(path)) if source_path.is_none() => {
+                        assertions.push(ResponseAssertion {
+                            kind: AssertionKind::Reference,
+                            name: Some(attr.to_string()),
+                            value: None,
+                            reference_path: Some(path.clone()),
+                        })
+                    }
                     (None, None) => resolver.drop_note_keyed(
                         "literal attr value not statically resolvable",
                         attr.to_string(),
                     ),
+                    // A resolved pin on a descended node: carried on the field below,
+                    // where it belongs, rather than as a root assertion.
+                    _ => {}
                 }
             }
             let inner = args

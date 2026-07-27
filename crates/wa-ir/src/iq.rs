@@ -569,9 +569,15 @@ pub struct ErrorArm {
     /// The exact `code` this arm pins, when it pins one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code: Option<i64>,
-    /// The exact `text` this arm pins. Absent on a fallback arm, which accepts any text
-    /// within [`code_min`]..=[`code_max`].
+    /// The exact `text` this arm pins, when it pins one.
     ///
+    /// Absent is a **fact, not a gap**, and it comes in two shapes: a fallback arm pins
+    /// neither value and accepts any text within [`code_min`]..=[`code_max`], while a
+    /// code-only arm pins the code and reads the text freely — `IQErrorReportTokenValidationFail`
+    /// pins `code=548` and accepts whatever `text` the server sends with it. In both, an
+    /// emitter is free to choose the text; it is only [`code`] that is constrained.
+    ///
+    /// [`code`]: ErrorArm::code
     /// [`code_min`]: ErrorArm::code_min
     /// [`code_max`]: ErrorArm::code_max
     #[serde(default, skip_serializing_if = "Option::is_none")]

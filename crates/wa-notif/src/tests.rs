@@ -608,6 +608,7 @@ __d("WAWebGroupType",[],(function(t,n,r,o,a,i,l){
   l.GROUP_ACTIONS=d;
 }), 1);
 __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGroupType"],(function(t,n,r,o,a,i,l){
+  function w(e){ if (e.hasChild("a")) return {alpha:e.attrString("alpha")}; return {beta:e.attrString("beta")}; }
   function y(e,t){ return t.mapChildrenWithTag("participant", function(p){
     return { id: p.attrUserJid("jid"), displayName: p.maybeAttrString("display_name"), kind: p.maybeAttrEnum("type", o("WAWebGroupApiConst").GROUP_PARTICIPANT_TYPES) };
   }); }
@@ -627,7 +628,7 @@ __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGr
           var n = t.attrString("subject");
           return {actionType:o("WAWebGroupType").GROUP_ACTIONS.SUBJECT, subject:n, note:t.hasAttr("note")&&t.attrString("note")};
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.EPHEMERAL:
-          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.EPHEMERAL, duration:t.attrInt("expiration")};
+          return babelHelpers.extends({actionType:o("WAWebGroupType").GROUP_ACTIONS.EPHEMERAL, duration:t.attrInt("expiration"), code:t.attrString("code")||"none"}, w(t));
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.NOT_EPHEMERAL:
           return {actionType:o("WAWebGroupType").GROUP_ACTIONS.EPHEMERAL, duration:0};
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.LOCKED: {
@@ -923,4 +924,45 @@ fn an_action_enum_field_carries_its_variants() {
     assert_eq!(er.name, "GROUP_PARTICIPANT_TYPES");
     let values: Vec<&str> = er.variants.iter().map(|v| v.value.as_str()).collect();
     assert_eq!(values, ["admin", "superadmin", "participant"]);
+}
+
+#[test]
+fn a_value_position_helper_weakens_its_branch_only_fields() {
+    // A helper used as an `extends` operand can return mutually exclusive shapes.
+    // Accumulating them makes the enclosing action require BOTH and reject either legal
+    // payload, so the branches are merged with the same optionality rule the switch arms
+    // use: a field only some branches carry is optional.
+    let ir = extract_notif(GROUP_ACTIONS_BUNDLE, "2.3000.test");
+    let eph = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .find(|a| a.wire_tag == "ephemeral")
+        .expect("ephemeral arm");
+    let f = |name: &str| eph.fields.iter().find(|f| f.name == name);
+    for name in ["alpha", "beta"] {
+        let field = f(name).unwrap_or_else(|| panic!("{name} recovered"));
+        assert!(!field.required, "{name} comes from only one branch");
+    }
+    // The arm's own unconditional read stays required.
+    assert!(f("duration").expect("duration").required);
+}
+
+#[test]
+fn a_defaulted_read_stays_required() {
+    // `child.attrString("code") || "none"` still calls `attrString`, which rejects an
+    // absent attribute — the right operand only defaults a value the parser already
+    // demanded. Classifying every logical expression as a presence guard marked it
+    // optional.
+    let ir = extract_notif(GROUP_ACTIONS_BUNDLE, "2.3000.test");
+    let code = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .find(|a| a.wire_tag == "ephemeral")
+        .expect("ephemeral arm")
+        .fields
+        .iter()
+        .find(|f| f.name == "code")
+        .expect("code field");
+    assert_eq!(code.wire_name, "code");
+    assert!(code.required, "`a || default` is not a presence guard");
 }
