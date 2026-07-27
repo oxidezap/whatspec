@@ -596,7 +596,9 @@ __d("WAWebHandleDeviceNotification",["WADeprecatedWapParser"],(function(t,n,r,o,
   l.handleDevicesNotification = h;
 }), 1);
 __d("WAWebHandleGroupNotificationConst",[],(function(t,n,r,o,a,i,l){
-  var e=Object.freeze({ADD:"add",SUBJECT:"subject",EPHEMERAL:"ephemeral",NOT_EPHEMERAL:"not_ephemeral",LOCKED:"locked",REVOKE_INVITE:"revoke",DESC:"description",UNLINK:"unlink"});
+  var cache={};
+  cache.GROUP_NOTIFICATION_TAG={ADD:"WRONG_add",SUBJECT:"WRONG_subject"};
+  var e=Object.freeze({ADD:"add",SUBJECT:"subject",EPHEMERAL:"ephemeral",NOT_EPHEMERAL:"not_ephemeral",MODIFY:"modify",LOCKED:"locked",REVOKE_INVITE:"revoke",DESC:"description",UNLINK:"unlink"});
   l.GROUP_NOTIFICATION_TAG=e;
 }), 1);
 __d("WAWebGroupApiConst",[],(function(t,n,r,o,a,i,l){
@@ -604,11 +606,15 @@ __d("WAWebGroupApiConst",[],(function(t,n,r,o,a,i,l){
   l.GROUP_PARTICIPANT_TYPES=g;
 }), 1);
 __d("WAWebGroupType",[],(function(t,n,r,o,a,i,l){
-  var d=Object.freeze({ADD:"add",SUBJECT:"subject",EPHEMERAL:"ephemeral",RESTRICT:"restrict",REVOKE_INVITE:"revoke_invite",DESC_ADD:"desc_add",DESC_REMOVE:"desc_remove"});
+  var d=Object.freeze({ADD:"add",SUBJECT:"subject",EPHEMERAL:"ephemeral",MODIFY:"modify",RESTRICT:"restrict",REVOKE_INVITE:"revoke_invite",DESC_ADD:"desc_add",DESC_REMOVE:"desc_remove"});
   l.GROUP_ACTIONS=d;
 }), 1);
 __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGroupType"],(function(t,n,r,o,a,i,l){
   function w(e){ if (e.hasChild("a")) return {alpha:e.attrString("alpha")}; return {beta:e.attrString("beta")}; }
+  function q(e){ return e.mapChildrenWithTag("entry", function(x){
+    if (x.hasChild("full")) return {id:x.attrString("id"), extra:x.attrString("extra")};
+    return {id:x.attrString("id")};
+  }); }
   function y(e,t){ return t.mapChildrenWithTag("participant", function(p){
     return { id: p.attrUserJid("jid"), displayName: p.maybeAttrString("display_name"), kind: p.maybeAttrEnum("type", o("WAWebGroupApiConst").GROUP_PARTICIPANT_TYPES) };
   }); }
@@ -631,6 +637,8 @@ __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGr
           return babelHelpers.extends({actionType:o("WAWebGroupType").GROUP_ACTIONS.EPHEMERAL, duration:t.attrInt("expiration"), code:t.attrString("code")||"none"}, w(t));
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.NOT_EPHEMERAL:
           return {actionType:o("WAWebGroupType").GROUP_ACTIONS.EPHEMERAL, duration:0};
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.MODIFY:
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.MODIFY, entries:q(t)};
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.LOCKED: {
           var n;
           return {actionType:o("WAWebGroupType").GROUP_ACTIONS.RESTRICT, value:!0, threshold:(n=t.maybeAttrString("threshold"))!=null?n:void 0};
@@ -965,4 +973,43 @@ fn a_defaulted_read_stays_required() {
         .expect("code field");
     assert_eq!(code.wire_name, "code");
     assert!(code.required, "`a || default` is not a presence guard");
+}
+
+#[test]
+fn a_const_table_on_a_non_export_receiver_is_ignored() {
+    // `cache.GROUP_NOTIFICATION_TAG = {…}` written before the real
+    // `exports.GROUP_NOTIFICATION_TAG = …` would otherwise be taken as the export and,
+    // being first, kept — resolving case labels through an unrelated table and minting
+    // wrong wire tags. Only the module factory's own parameters count as receivers.
+    let ir = extract_notif(GROUP_ACTIONS_BUNDLE, "2.3000.test");
+    let tags: Vec<&str> = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .map(|a| a.wire_tag.as_str())
+        .collect();
+    assert!(tags.contains(&"add"), "the real table must win: {tags:?}");
+    assert!(
+        !tags.iter().any(|t| t.starts_with("WRONG_")),
+        "decoy table leaked into the catalog: {tags:?}"
+    );
+}
+
+#[test]
+fn a_branching_mapped_child_callback_weakens_its_branch_only_fields() {
+    // A callback returning different objects from an `if` describes alternative element
+    // shapes. Flattening every property in the body into one list marks a field read in
+    // only one branch as required, so a consumer would reject a legal element.
+    let ir = extract_notif(GROUP_ACTIONS_BUNDLE, "2.3000.test");
+    let entries = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .find(|a| a.wire_tag == "modify")
+        .expect("modify arm")
+        .children
+        .iter()
+        .find(|c| c.name == "entries")
+        .expect("entries child");
+    let f = |name: &str| entries.fields.iter().find(|f| f.name == name);
+    assert!(f("id").expect("id").required, "read by every branch");
+    assert!(!f("extra").expect("extra").required, "read by one branch");
 }

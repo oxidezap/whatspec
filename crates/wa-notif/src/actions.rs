@@ -121,6 +121,14 @@ fn const_string_map(slice: &str, export: &str) -> Option<ConstMap> {
         return None;
     }
     let mut collector = ConstCollector {
+        // Only the module factory's own parameters count as export receivers. Without
+        // that, `cache.GROUP_ACTIONS = local` written before the real
+        // `exports.GROUP_ACTIONS = actual` would be taken as the export and — being
+        // first — kept, resolving case labels through an unrelated table and minting
+        // wrong wire tags. Empty when the factory shape is not recognised, in which case
+        // any identifier receiver is accepted, as before: a narrower rule must not turn
+        // an unfamiliar module into a silently empty one.
+        receivers: factory_params(&ret.program),
         locals: HashMap::new(),
         exports: HashMap::new(),
     };
@@ -139,7 +147,40 @@ enum Export {
     Local(String),
 }
 
+/// The parameter names of the `__d(name, deps, factory)` module factory — the only
+/// identifiers a module can legitimately hang an export off.
+fn factory_params(program: &oxc_ast::ast::Program) -> Vec<String> {
+    fn params_of(e: &Expression) -> Option<Vec<String>> {
+        let f = match e {
+            Expression::ParenthesizedExpression(p) => return params_of(&p.expression),
+            Expression::FunctionExpression(f) => f,
+            _ => return None,
+        };
+        Some(
+            f.params
+                .items
+                .iter()
+                .filter_map(|p| p.pattern.get_identifier_name().map(|n| n.to_string()))
+                .collect(),
+        )
+    }
+    for stmt in &program.body {
+        if let Statement::ExpressionStatement(es) = stmt
+            && let Some(call) = as_call(&es.expression)
+        {
+            for arg in &call.arguments {
+                if let Some(params) = arg_expr(arg).and_then(params_of) {
+                    return params;
+                }
+            }
+        }
+    }
+    Vec::new()
+}
+
 struct ConstCollector {
+    /// See the note at the construction site.
+    receivers: Vec<String>,
     /// Local name → its all-string object, or `None` when the same minified name is
     /// bound to **different** objects in the module. The minifier reuses short
     /// identifiers aggressively across nested scopes, so a module-wide "last one wins"
@@ -173,6 +214,9 @@ impl<'a> Visit<'a> for ConstCollector {
     fn visit_assignment_expression(&mut self, a: &oxc_ast::ast::AssignmentExpression<'a>) {
         if let Some(m) = a.left.as_member_expression()
             && let Some(prop) = m.static_property_name()
+            && m.object().get_identifier_reference().is_some_and(|id| {
+                self.receivers.is_empty() || self.receivers.iter().any(|r| r == id.name.as_str())
+            })
         {
             if let Some(map) = string_const_object(&a.right) {
                 self.exports
@@ -495,6 +539,15 @@ fn collect_branches<'b, 'a>(e: &'b Expression<'a>, out: &mut Vec<&'b Expression<
             collect_branches(&c.alternate, out);
         }
         Expression::ParenthesizedExpression(p) => collect_branches(&p.expression, out),
+        // `return sideEffect(…), value` — a comma expression's value is its LAST element.
+        // The minifier uses it constantly to fold a call in before returning the object
+        // (`return c || C(chat, u, tag), u`), so taking the whole sequence as the shape
+        // finds no object at all.
+        Expression::SequenceExpression(seq) => {
+            if let Some(last) = seq.expressions.last() {
+                collect_branches(last, out);
+            }
+        }
         other => out.push(other),
     }
 }
@@ -1102,6 +1155,58 @@ fn collect_accessor_fields<'b, 'a>(
     if let Some(stmts) = function_body_of(e) {
         scope.extend(scope_bindings(stmts));
     }
+    // Only function arguments hold the per-element shape; a bare expression contributes
+    // nothing (the tag string, the bounds).
+    if !matches!(
+        e,
+        Expression::FunctionExpression(_) | Expression::ArrowFunctionExpression(_)
+    ) {
+        return;
+    }
+    // Per RETURN SHAPE, then merged — the same rule the action arms and the value-position
+    // helpers use. A callback that returns different objects from an `if` or a ternary
+    // describes alternative element shapes: flattening every property in the body into
+    // one list would mark a field read in only one branch as required, and let two
+    // branches reusing an output name silently keep whichever came first.
+    let mut merged: Vec<NotifActionField> = Vec::new();
+    let mut branches = 0usize;
+    for (shape, inner) in fn_result_shapes(e, &scope) {
+        branches += 1;
+        let mut fields = Vec::new();
+        collect_shape_fields(shape, &inner, consts, &mut fields);
+        merge_fields(&mut merged, fields, branches == 1);
+    }
+    // A callback that returns a bare value rather than an object
+    // (`p => userJidToUserWid(p.attrUserJid("jid"))`) has no property key to name the
+    // field by, so the wire attribute names it — better than reporting no fields at all.
+    if merged.is_empty() {
+        for (shape, inner) in fn_result_shapes(e, &scope) {
+            if let Some(acc) = find_accessor(shape, &inner) {
+                merged.push(NotifActionField {
+                    name: acc.wire_name.clone(),
+                    wire_name: acc.wire_name,
+                    field_type: wap::method_field_type(&acc.method),
+                    required: !wap::is_optional_method(&acc.method),
+                    content: acc.content,
+                    enum_ref: acc.enum_arg.and_then(|a| consts.enum_ref(a)),
+                });
+            }
+        }
+    }
+    for f in merged {
+        if !out.iter().any(|x| x.name == f.name) {
+            out.push(f);
+        }
+    }
+}
+
+/// Every `{ key: <wire read> }` property reachable in one result shape.
+fn collect_shape_fields<'b, 'a>(
+    shape: &'b Expression<'a>,
+    scope: &Scope<'b, 'a>,
+    consts: &ConstResolver,
+    out: &mut Vec<NotifActionField>,
+) {
     struct Walker<'o, 'b, 'a> {
         scope: &'o Scope<'b, 'a>,
         consts: &'o ConstResolver<'o>,
@@ -1118,34 +1223,30 @@ fn collect_accessor_fields<'b, 'a>(
             walk::walk_object_property(self, p);
         }
     }
-    // Only function arguments hold the per-element shape; a bare expression contributes
-    // nothing (the tag string, the bounds).
-    if matches!(
-        e,
-        Expression::FunctionExpression(_) | Expression::ArrowFunctionExpression(_)
-    ) {
-        let mut w = Walker {
-            scope: &scope,
-            consts,
-            out,
-        };
-        w.visit_expression(e);
-    }
-    // A callback that returns a bare value rather than an object
-    // (`p => userJidToUserWid(p.attrUserJid("jid"))`) has no property key to name the
-    // field by, so the wire attribute names it — better than reporting no fields at all.
-    if out.is_empty() {
-        for (shape, inner) in fn_result_shapes(e, &scope) {
-            if let Some(acc) = find_accessor(shape, &inner) {
-                out.push(NotifActionField {
-                    name: acc.wire_name.clone(),
-                    wire_name: acc.wire_name,
-                    field_type: wap::method_field_type(&acc.method),
-                    required: !wap::is_optional_method(&acc.method),
-                    content: acc.content,
-                    enum_ref: acc.enum_arg.and_then(|a| consts.enum_ref(a)),
-                });
+    let mut w = Walker { scope, consts, out };
+    // The minifier almost always builds the object into a local and returns the name
+    // (`var u = {…}; return sideEffect(), u`), so the returned expression is an
+    // identifier — walking it directly would find no properties at all.
+    w.visit_expression(deref_ident(shape, scope));
+}
+
+/// Fold one branch's fields into the accumulated set: a field either branch reads is
+/// present, and required only when EVERY branch reads it unconditionally.
+fn merge_fields(into: &mut Vec<NotifActionField>, from: Vec<NotifActionField>, first: bool) {
+    if !first {
+        for existing in into.iter_mut() {
+            if !from.iter().any(|f| f.name == existing.name) {
+                existing.required = false;
             }
+        }
+    }
+    for f in from {
+        match into.iter_mut().find(|x| x.name == f.name) {
+            Some(existing) => existing.required &= f.required,
+            None => into.push(NotifActionField {
+                required: f.required && first,
+                ..f
+            }),
         }
     }
 }

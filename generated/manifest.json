@@ -5,7 +5,7 @@
     "iq": {
       "candidateModules": 207,
       "constraints": {
-        "errorArms": 639,
+        "errorArms": 643,
         "errorTexts": 38,
         "fieldEnumRefs": 146,
         "fieldLiterals": 1782,
@@ -61,7 +61,7 @@
     "iq": {
       "file": "iq/index.json",
       "schema": "schema/iq.schema.json",
-      "sha256": "00e670a763c73e70476d36e873caf495f4d6c419020161d9253fdc0493a9323c"
+      "sha256": "5783eece985d5d233bd6cf86aca221e8a9a6d785953c4b7a1892031cb0b48256"
     },
     "mex": {
       "file": "mex/index.json",

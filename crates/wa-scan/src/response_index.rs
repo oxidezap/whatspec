@@ -78,7 +78,7 @@ impl ResponseIndex {
             // Skip the bare `…Response`, error variants, and mixin payloads.
             if variant.is_empty()
                 || variant.contains("Mixin")
-                || variant_kind(variant) != ResponseVariantKind::Success
+                || variant_kind(variant, &[]) != ResponseVariantKind::Success
             {
                 continue;
             }
@@ -136,7 +136,7 @@ pub(crate) fn build_pass(defs: &[ModuleDefinition], source: &str) -> ResponseInd
                 Some(Resolved::Union(v)) if !v.is_empty() => vec![union_field("value", v)],
                 _ => Vec::new(),
             };
-            let kind = variant_kind(&tag);
+            let kind = variant_kind(&tag, &resolver.assertions(&module, &func));
             if kind == ResponseVariantKind::Success && primary.is_empty() {
                 primary = fields.clone();
             }
@@ -276,8 +276,14 @@ impl ErrorVocabulary {
 fn error_vocabulary(fields: &[ParsedField]) -> ErrorVocabulary {
     let mut v = ErrorVocabulary::default();
     collect_error_arms(fields, &mut v.arms);
-    // The flat lists are a VIEW over the arms, so the two can never disagree.
-    for a in &v.arms {
+    // A two-level error — an outer `<error code="207">` wrapping an inner `<error>` whose
+    // text the disjunction pins — has pins the ARMS cannot carry: an arm describes one
+    // innermost alternative, so the envelope's own code belongs to none of them.
+    // `SetResponsePreKeySuccessVnameFailure` is that shape. Fold the variant's own pins
+    // into the flat vocabulary so the envelope's code is not simply lost, while the arms
+    // stay the per-alternative view.
+    let envelope = arm_pins(fields);
+    for a in v.arms.iter().chain(std::iter::once(&envelope)) {
         v.codes.extend(a.code);
         v.texts.extend(a.text.clone());
         if let (Some(min), Some(max)) = (a.code_min, a.code_max) {
@@ -395,8 +401,29 @@ fn rpc_op_name(module: &str) -> String {
         .to_string()
 }
 
-/// Classify a response variant by its discriminator tag's tokens.
-fn variant_kind(tag: &str) -> ResponseVariantKind {
+/// Classify a response variant: by what its parser asserts on the wire first, then by
+/// its discriminator tag's tokens.
+///
+/// The root discriminator wins because it is the protocol talking rather than a naming
+/// convention. `SetResponsePreKeySuccessVnameFailure` reads as a success by every token
+/// in its name, yet it asserts `type="error"` and parses an `<error code="207">` — the
+/// prekeys landed, the vname did not, and the server said so with an error stanza.
+/// Judging it by the tag alone classified a wire error as a success and, since the error
+/// vocabulary is gated on the kind, silently dropped the codes and texts it accepts.
+fn variant_kind(tag: &str, assertions: &[wa_ir::ResponseAssertion]) -> ResponseVariantKind {
+    let asserts_error = assertions.iter().any(|a| {
+        a.kind == wa_ir::AssertionKind::Attr
+            && a.name.as_deref() == Some("type")
+            && a.value.as_deref() == Some("error")
+    });
+    if asserts_error {
+        return ResponseVariantKind::Error;
+    }
+    variant_kind_by_tag(tag)
+}
+
+/// The name-token fallback, for a variant whose parser pins no `type`.
+fn variant_kind_by_tag(tag: &str) -> ResponseVariantKind {
     const ERROR_TOKENS: &[&str] = &[
         "Error",
         "InvalidRequest",

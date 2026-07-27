@@ -8385,7 +8385,34 @@
           {
             "tag": "SetResponsePreKeySuccessVnameFailure",
             "moduleName": "WASmaxInPreKeysSetResponsePreKeySuccessVnameFailure",
-            "kind": "success",
+            "kind": "error",
+            "errorArms": [
+              {
+                "name": "SetVnameFailureNotAcceptable",
+                "text": "not-acceptable"
+              },
+              {
+                "name": "SetVnameFailureBadRequest",
+                "text": "bad-request"
+              },
+              {
+                "name": "SetVnameFailureInternalServerError",
+                "text": "internal-server-error"
+              },
+              {
+                "name": "SetVnameFailureFallback"
+              }
+            ],
+            "errorCodes": [
+              207
+            ],
+            "errorTexts": [
+              "bad-request",
+              "internal-server-error",
+              "not-acceptable"
+            ],
+            "errorCodeMin": 400,
+            "errorCodeMax": 599,
             "assertions": [
               {
                 "kind": "tag",
