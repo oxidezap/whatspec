@@ -70,7 +70,7 @@
           }
         },
         "wasmHint": {
-          "description": "Why this handle is believed to address wasm, sorted: `emscriptenGlue` (a consuming\nmodule declares a `wasmBinaryFile`), `moduleName` (a consumer is named `…Wasm…`),\n`wasmModuleCacheDep` (a consumer depends on `WAWasmModuleCache`).",
+          "description": "Why this handle is believed to address wasm, sorted. Exactly the values the\nextractor emits — this text ships inside the published JSON Schema, so a consumer\nmatching on it must find the real names:\n\n- `wasmBinaryLiteral` — a consuming module names a `*.wasm` payload (emscripten glue)\n- `moduleName` — a consumer is named `…Wasm…`\n- `wasmModuleCacheDep` — a consumer depends on `WAWasmModuleCache`",
           "type": "array",
           "items": {
             "type": "string"

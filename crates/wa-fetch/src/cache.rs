@@ -163,25 +163,34 @@ impl BundleCache {
         }
     }
 
-    /// Probe the cache for `remote_version`'s **wasm** payloads.
+    /// Read `remote_version`'s cached **wasm** payloads, keeping every one that passes its
+    /// size + SHA-256 check and reporting the rest.
     ///
-    /// Same all-or-nothing integrity contract as [`Self::check`], against the separate
-    /// `wasm/` subtree. A cache written without wasm (an older run, or one that didn't
-    /// ask for it) is a miss, not an empty hit — the caller must be able to tell "none
-    /// cached" from "there are none".
+    /// Deliberately **not** the all-or-nothing contract of [`Self::check`]. The JS set is
+    /// concatenated into one source, so a single bad bundle poisons the whole thing. Wasm
+    /// payloads are independent binaries, and the set *accumulates* across runs (the
+    /// bootloader endpoint reveals varying subsets) — so discarding eight intact payloads
+    /// because a ninth is corrupt would shrink the accumulated set, and the run that
+    /// re-stored it would then delete them for good.
     ///
-    /// Unlike the JS set, a hit here is **not** a licence to skip resolution: the
-    /// bootloader endpoint answers with varying subsets, so no run can establish that it
-    /// saw the whole set. These payloads are a byte pool — bytes already paid for — that
-    /// the caller unions with whatever the current run resolves.
-    pub fn check_wasm(&self, remote_version: &str) -> CacheStatus {
-        match self.usable_manifest(remote_version) {
-            Err(miss) => miss,
-            Ok(manifest) if manifest.wasm.is_empty() => {
-                CacheStatus::Miss("no wasm cached for this version".to_string())
+    /// A hit here is also not a licence to skip resolution: these are bytes already paid
+    /// for, to be unioned with whatever the current run resolves.
+    pub fn wasm_payloads(&self, remote_version: &str) -> (Vec<Bundle>, Vec<String>) {
+        let manifest = match self.usable_manifest(remote_version) {
+            Ok(manifest) => manifest,
+            Err(CacheStatus::Miss(why)) => return (Vec::new(), vec![why]),
+            Err(CacheStatus::Hit(_)) => unreachable!("usable_manifest only errors with Miss"),
+        };
+        let dir = self.wasm_dir();
+        let mut payloads = Vec::with_capacity(manifest.wasm.len());
+        let mut skipped = Vec::new();
+        for entry in &manifest.wasm {
+            match self.load_one(entry, &dir) {
+                Ok(bundle) => payloads.push(bundle),
+                Err(why) => skipped.push(why),
             }
-            Ok(manifest) => self.load_set(&manifest.wasm, &self.wasm_dir()),
         }
+        (payloads, skipped)
     }
 
     /// The recorded wasm URL → `bx` handle pairing, empty when nothing is cached (or the
@@ -218,23 +227,32 @@ impl BundleCache {
     fn load_set(&self, entries: &[BundleEntry], dir: &std::path::Path) -> CacheStatus {
         let mut bundles = Vec::with_capacity(entries.len());
         for entry in entries {
-            let path = dir.join(cache_file_name(&entry.url));
-            let Ok(bytes) = fs::read(&path) else {
-                return CacheStatus::Miss(format!("missing cached file {}", entry.file_name));
-            };
-            if bytes.len() as u64 != entry.size {
-                return CacheStatus::Miss(format!("size mismatch for {}", entry.file_name));
+            match self.load_one(entry, dir) {
+                Ok(bundle) => bundles.push(bundle),
+                Err(why) => return CacheStatus::Miss(why),
             }
-            if sha256_hex(&bytes) != entry.sha256 {
-                return CacheStatus::Miss(format!("checksum mismatch for {}", entry.file_name));
-            }
-            bundles.push(Bundle {
-                url: entry.url.clone(),
-                file_name: entry.file_name.clone(),
-                bytes,
-            });
         }
         CacheStatus::Hit(bundles)
+    }
+
+    /// Read one recorded file from `dir`, verifying size **and** SHA-256. `Err` carries the
+    /// human-readable reason it can't be used.
+    fn load_one(&self, entry: &BundleEntry, dir: &std::path::Path) -> Result<Bundle, String> {
+        let path = dir.join(cache_file_name(&entry.url));
+        let Ok(bytes) = fs::read(&path) else {
+            return Err(format!("missing cached file {}", entry.file_name));
+        };
+        if bytes.len() as u64 != entry.size {
+            return Err(format!("size mismatch for {}", entry.file_name));
+        }
+        if sha256_hex(&bytes) != entry.sha256 {
+            return Err(format!("checksum mismatch for {}", entry.file_name));
+        }
+        Ok(Bundle {
+            url: entry.url.clone(),
+            file_name: entry.file_name.clone(),
+            bytes,
+        })
     }
 
     /// Replace the cache contents with `bundles` for `wa_version`.
@@ -320,10 +338,19 @@ impl BundleCache {
 
     /// Commit point: the manifest is the last thing written, so a crash before here
     /// leaves no valid cache to trust.
+    ///
+    /// Written to a sibling temp file and **renamed into place**, which is atomic on the
+    /// same filesystem. A plain `fs::write` truncates first, so a full disk or an
+    /// interrupt partway through would leave the shared manifest unreadable — and since
+    /// the wasm update treats its own failure as non-fatal, an auxiliary wasm write could
+    /// silently cost the (expensive) JS cache, forcing a full re-download next run.
     fn write_manifest(&self, manifest: &CacheManifest) -> Result<()> {
         let json = serde_json::to_string_pretty(manifest)? + "\n";
-        fs::write(self.manifest_path(), json)
-            .with_context(|| format!("write {}", self.manifest_path().display()))?;
+        let final_path = self.manifest_path();
+        let tmp = final_path.with_extension("json.tmp");
+        fs::write(&tmp, json).with_context(|| format!("write {}", tmp.display()))?;
+        fs::rename(&tmp, &final_path)
+            .with_context(|| format!("commit {} -> {}", tmp.display(), final_path.display()))?;
         Ok(())
     }
 
@@ -516,14 +543,11 @@ mod tests {
             }
             CacheStatus::Miss(why) => panic!("expected JS hit: {why}"),
         }
-        match cache.check_wasm("v1") {
-            CacheStatus::Hit(wasm) => {
-                assert_eq!(wasm.len(), 1);
-                assert_eq!(wasm[0].file_name, "e.wasm");
-                assert!(wasm[0].bytes.starts_with(b"\0asm"));
-            }
-            CacheStatus::Miss(why) => panic!("expected wasm hit: {why}"),
-        }
+        let (wasm, skipped) = cache.wasm_payloads("v1");
+        assert_eq!(wasm.len(), 1);
+        assert_eq!(wasm[0].file_name, "e.wasm");
+        assert!(wasm[0].bytes.starts_with(b"\0asm"));
+        assert!(skipped.is_empty(), "{skipped:?}");
         // Distinct subtrees on disk.
         assert!(cache.bundle_path("https://h/a.js").exists());
         assert!(cache.wasm_path("https://h/e.wasm").exists());
@@ -538,10 +562,12 @@ mod tests {
         cache
             .store("v", &[bundle("https://h/a.js", "a.js", b"x")])
             .unwrap();
-        match cache.check_wasm("v") {
-            CacheStatus::Miss(why) => assert!(why.contains("no wasm cached"), "reason: {why}"),
-            CacheStatus::Hit(_) => panic!("expected miss"),
-        }
+        let (wasm, skipped) = cache.wasm_payloads("v");
+        assert!(wasm.is_empty());
+        assert!(
+            skipped.is_empty(),
+            "nothing cached is not a failure: {skipped:?}"
+        );
         // The manifest omits the empty list entirely, so an old cache file still parses.
         let raw = fs::read_to_string(cache.manifest_path()).unwrap();
         assert!(!raw.contains("wasm"), "{raw}");
@@ -564,10 +590,10 @@ mod tests {
             .unwrap();
         // Same length, different bytes → checksum mismatch.
         fs::write(cache.wasm_path("https://h/e.wasm"), b"world").unwrap();
-        match cache.check_wasm("v") {
-            CacheStatus::Miss(why) => assert!(why.contains("checksum"), "reason: {why}"),
-            CacheStatus::Hit(_) => panic!("expected miss"),
-        }
+        let (wasm, skipped) = cache.wasm_payloads("v");
+        assert!(wasm.is_empty());
+        assert_eq!(skipped.len(), 1);
+        assert!(skipped[0].contains("checksum"), "reason: {:?}", skipped[0]);
         assert!(
             matches!(cache.check("v"), CacheStatus::Hit(_)),
             "JS unaffected"
@@ -705,6 +731,71 @@ mod tests {
             cache.read_manifest().is_some(),
             "legacy manifest still parses"
         );
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn one_corrupt_payload_does_not_discard_the_others() {
+        // The wasm set accumulates across runs, and a run that loaded nothing would
+        // re-store a smaller set — deleting intact payloads for good. Each payload is an
+        // independent binary, so they are salvaged individually.
+        let dir = tmp_dir("wasm-salvage");
+        let cache = BundleCache::new(&dir);
+        cache
+            .store("v", &[bundle("https://h/a.js", "a.js", b"x")])
+            .unwrap();
+        cache
+            .store_wasm(
+                "v",
+                &[
+                    bundle("https://h/good.wasm", "good.wasm", b"intact"),
+                    bundle("https://h/bad.wasm", "bad.wasm", b"rotten"),
+                ],
+                &BTreeMap::new(),
+            )
+            .unwrap();
+        // Corrupt one of them in place (same length, different bytes).
+        fs::write(cache.wasm_path("https://h/bad.wasm"), b"ROTTEN").unwrap();
+
+        let (payloads, skipped) = cache.wasm_payloads("v");
+        assert_eq!(payloads.len(), 1, "the intact payload survives");
+        assert_eq!(payloads[0].file_name, "good.wasm");
+        assert_eq!(skipped.len(), 1);
+        assert!(skipped[0].contains("bad.wasm"), "{:?}", skipped[0]);
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_failed_manifest_write_leaves_the_previous_one_intact() {
+        // The wasm update treats its own failure as non-fatal, so a truncating write would
+        // silently cost the expensive JS cache. The commit is a rename, not a truncate.
+        let dir = tmp_dir("manifest-atomic");
+        let cache = BundleCache::new(&dir);
+        cache
+            .store("v", &[bundle("https://h/a.js", "a.js", b"x")])
+            .unwrap();
+        let before = fs::read_to_string(cache.manifest_path()).unwrap();
+
+        // A directory where the temp file must go makes the write fail without ever
+        // touching the committed manifest.
+        let tmp_path = cache.manifest_path().with_extension("json.tmp");
+        fs::create_dir(&tmp_path).unwrap();
+        assert!(
+            cache
+                .store_wasm(
+                    "v",
+                    &[bundle("https://h/e.wasm", "e.wasm", b"p")],
+                    &BTreeMap::new(),
+                )
+                .is_err(),
+            "the write must fail for this test to mean anything"
+        );
+        assert_eq!(
+            fs::read_to_string(cache.manifest_path()).unwrap(),
+            before,
+            "the JS cache is still described by a valid manifest"
+        );
+        assert!(matches!(cache.check("v"), CacheStatus::Hit(_)));
         fs::remove_dir_all(&dir).ok();
     }
 

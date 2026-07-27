@@ -36,6 +36,30 @@ if [ "$locked" != "$present" ]; then
   exit 1
 fi
 
+# ...and each one must actually BE the locked payload. A directory holding the right names
+# with truncated or stale bytes would otherwise be uploaded under the lock-derived
+# wasmSetHash, and `--clobber` would replace a valid asset at that content-addressed name
+# with one every later restore rejects.
+if command -v sha256sum >/dev/null 2>&1; then
+  sha256_of() { sha256sum -- "$1" | cut -d" " -f1; }
+elif command -v shasum >/dev/null 2>&1; then
+  sha256_of() { shasum -a 256 -- "$1" | cut -d" " -f1; }
+else
+  echo "no sha256sum/shasum found — cannot verify payloads before publishing" >&2; exit 1
+fi
+while read -r name sha size; do
+  [ -n "$name" ] || continue
+  path="$wasm_dir/$name"
+  actual_size=$(wc -c < "$path" | tr -d " ")
+  if [ "$actual_size" != "$size" ]; then
+    echo "$name: size $actual_size, lock says $size" >&2; exit 1
+  fi
+  actual_sha=$(sha256_of "$path")
+  if [ "$actual_sha" != "$sha" ]; then
+    echo "$name: sha256 $actual_sha, lock says $sha" >&2; exit 1
+  fi
+done < <(jq -r '.wasm[] | "\(.fileName) \(.sha256) \(.size)"' "$lock")
+
 # ...and only those files are archived. Archiving the whole directory (`tar -cf - .`) would
 # sweep in anything else that happens to sit there — a .DS_Store, an editor swapfile, a log
 # — producing an asset with more entries than the lock describes, which `restore` rejects

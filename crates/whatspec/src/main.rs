@@ -1078,17 +1078,16 @@ fn load_wasm(
         eprintln!("  wasm resolution: {why}");
     }
 
-    // Bytes already paid for in an earlier run of this same version.
+    // Bytes already paid for in an earlier run of this same version. Salvaged one by one:
+    // a single corrupt file must not discard the rest, because the set that gets re-stored
+    // below would then be permanently smaller.
     let mut cached: BTreeMap<String, wa_fetch::Bundle> = BTreeMap::new();
-    if let Some(cache) = &cache
-        && let Some(version) = remote_version
-    {
-        match cache.check_wasm(version) {
-            wa_fetch::CacheStatus::Hit(payloads) => {
-                cached.extend(payloads.into_iter().map(|b| (b.url.clone(), b)));
-            }
-            wa_fetch::CacheStatus::Miss(reason) => eprintln!("  wasm cache: {reason}"),
+    if let Some((cache, version)) = cache.as_ref().zip(remote_version) {
+        let (payloads, skipped) = cache.wasm_payloads(version);
+        for why in &skipped {
+            eprintln!("  wasm cache: {why}");
         }
+        cached.extend(payloads.into_iter().map(|b| (b.url.clone(), b)));
     }
 
     let to_download: Vec<String> = resolution
@@ -1102,35 +1101,42 @@ fn load_wasm(
         eprintln!("  wasm download failed: {} — {}", f.url, f.error);
     }
 
-    // The set for a version accumulates: a payload cached by an earlier run stays even if
-    // this run's responses didn't mention it (the endpoint's subsets vary), and a newly
-    // resolved one joins it.
-    let mut payloads: BTreeMap<String, wa_fetch::Bundle> = cached;
-    payloads.extend(outcome.bundles.into_iter().map(|b| (b.url.clone(), b)));
-    let before = payloads.len();
     // A 2xx anti-bot or error page is a "successful" download as far as the transport is
     // concerned. Hashing, locking and publishing one would propagate a body no runner can
-    // instantiate, and restore would faithfully verify the corruption forever after.
-    payloads.retain(|url, b| {
+    // instantiate, and restore would faithfully verify the corruption forever after. The
+    // same check covers cached bytes: `wasm_payloads` proves they are the bytes recorded,
+    // not that those bytes were ever a module (a lock-restored cache is hash-verified too).
+    let mut discarded = 0usize;
+    let mut keep = |b: &wa_fetch::Bundle| {
         let ok = b.bytes.starts_with(WASM_MAGIC);
         if !ok {
+            discarded += 1;
             eprintln!(
-                "  discarding {url}: {} bytes that are not a wasm module (no \\0asm header)",
+                "  discarding {}: {} bytes that are not a wasm module (no \\0asm header)",
+                b.url,
                 b.bytes.len()
             );
         }
         ok
-    });
-    let discarded = before - payloads.len();
-    let payloads: Vec<wa_fetch::Bundle> = payloads.into_values().collect();
+    };
+    let downloaded: Vec<wa_fetch::Bundle> =
+        outcome.bundles.into_iter().filter(|b| keep(b)).collect();
+    let reused: Vec<wa_fetch::Bundle> = cached.into_values().filter(|b| keep(b)).collect();
+    let (new_count, reused_count) = (downloaded.len(), reused.len());
+
+    // The set for a version accumulates: a payload cached by an earlier run stays even if
+    // this run's responses didn't mention it (the endpoint's subsets vary), and a newly
+    // resolved one joins it. Fresh bytes win on a shared URL.
+    let mut merged: BTreeMap<String, wa_fetch::Bundle> =
+        reused.into_iter().map(|b| (b.url.clone(), b)).collect();
+    merged.extend(downloaded.into_iter().map(|b| (b.url.clone(), b)));
+    let payloads: Vec<wa_fetch::Bundle> = merged.into_values().collect();
+
     eprintln!(
-        "wasm set: {} payload(s), {:.1} MB ({} newly downloaded, {} reused from cache{})",
+        "wasm set: {} payload(s), {:.1} MB ({new_count} newly downloaded, {reused_count} \
+         reused from cache{})",
         payloads.len(),
         payloads.iter().map(|b| b.bytes.len()).sum::<usize>() as f64 / 1e6,
-        to_download.len() - outcome.failures.len() - discarded,
-        payloads
-            .len()
-            .saturating_sub(to_download.len() - outcome.failures.len() - discarded),
         if discarded > 0 {
             format!(", {discarded} discarded as non-wasm")
         } else {
@@ -1138,6 +1144,10 @@ fn load_wasm(
         }
     );
     if payloads.is_empty() {
+        // Still sweep: an explicit `--wasm-out` that produced nothing must not leave the
+        // previous run's payloads behind, or a runner would consume a set no lock
+        // describes. Not an error — a blocked resolution must not fail a spec update.
+        maybe_save_wasm(opts, &payloads)?;
         return Ok(Vec::new());
     }
 

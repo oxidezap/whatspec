@@ -42,9 +42,13 @@ pub struct WasmResourceRef {
     pub bx_id: String,
     /// The WA Web modules that request this id, sorted.
     pub consumers: Vec<String>,
-    /// Why this handle is believed to address wasm, sorted: `emscriptenGlue` (a consuming
-    /// module declares a `wasmBinaryFile`), `moduleName` (a consumer is named `…Wasm…`),
-    /// `wasmModuleCacheDep` (a consumer depends on `WAWasmModuleCache`).
+    /// Why this handle is believed to address wasm, sorted. Exactly the values the
+    /// extractor emits — this text ships inside the published JSON Schema, so a consumer
+    /// matching on it must find the real names:
+    ///
+    /// - `wasmBinaryLiteral` — a consuming module names a `*.wasm` payload (emscripten glue)
+    /// - `moduleName` — a consumer is named `…Wasm…`
+    /// - `wasmModuleCacheDep` — a consumer depends on `WAWasmModuleCache`
     pub wasm_hint: Vec<String>,
 }
 
