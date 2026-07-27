@@ -15,6 +15,14 @@
 //!     …
 //! ```
 //!
+//! The cache is **not** content-addressed, unlike the durable release store it can be
+//! seeded from (`bundles-<version>-<setHash>.tar.xz`). A cache filename is a *location*
+//! label — the JS name comes from the URL's last segment, the wasm name is
+//! `sha256(url)` — while the `sha256` recorded in `manifest.json` is the hash of the
+//! **bytes**, and that is what integrity is checked against. Two hashes of different
+//! things sit side by side here, so: the name never proves the content, the manifest
+//! does.
+//!
 //! JS and wasm live in **separate subtrees and separate manifest lists** on purpose:
 //! the JS set is concatenated into the source the extractors parse, so a wasm payload
 //! that leaked into that list would put megabytes of binary into it. [`BundleCache::check`]

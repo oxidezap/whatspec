@@ -383,6 +383,20 @@ fn analyze_function(
     visited: &mut HashSet<String>,
 ) -> Option<(Vec<ResponseAssertion>, Vec<ParsedField>)> {
     let body = func.body.as_ref()?;
+    // A response parser's signature is `parse…(node, reference)`: the second parameter
+    // is the REQUEST the answer is correlated against. Every echo rule is relative to
+    // it, so it is threaded down and a `…FromReference` call on any other node is
+    // rejected rather than silently reported as "the request" (see [`classify_reference`]).
+    let reference_param = func
+        .params
+        .items
+        .get(1)
+        .and_then(|p| p.pattern.get_identifier_name());
+    let ctx = FnCtx {
+        locals,
+        resolver,
+        reference_param: reference_param.as_deref(),
+    };
     // Same-node cross-module mixins bubble their discriminators up by default (so an
     // error variant inherits the `type:"error"` its mixin asserts). But a mixin whose
     // result the tail consumes *optionally* (`X.success ? X.value : null`) does not
@@ -413,8 +427,7 @@ fn analyze_function(
                         let b = classify_call(
                             init,
                             &mut assertions,
-                            locals,
-                            resolver,
+                            &ctx,
                             visited,
                             &bindings,
                             suppressed.contains(name.as_str()),
@@ -436,19 +449,33 @@ fn analyze_function(
     Some((assertions, fields))
 }
 
+/// The immutable context one parse function is analyzed under: its module's local
+/// parsers, the cross-module resolver, and the name of its `reference` parameter.
+/// Grouped so the per-binding classifier keeps a readable signature.
+struct FnCtx<'c> {
+    locals: &'c LocalFns,
+    resolver: &'c Resolver<'c>,
+    /// The parser's `reference` parameter — the request an echo rule is relative to.
+    reference_param: Option<&'c str>,
+}
+
 /// Classify the RHS of a railway binding into a [`Binding`], recording any
 /// assertion it implies (assertTag/assertAttr/literal…).
 fn classify_call(
     init: &Expression,
     assertions: &mut Vec<ResponseAssertion>,
-    locals: &LocalFns,
-    resolver: &Resolver,
+    ctx: &FnCtx,
     visited: &mut HashSet<String>,
     bindings: &HashMap<String, Binding>,
     // Whether this binding's var is consumed optionally by the tail, so a same-node
     // mixin it binds must not bubble its discriminators (see `analyze_function`).
     suppress_bubble: bool,
 ) -> Binding {
+    let FnCtx {
+        resolver,
+        reference_param,
+        ..
+    } = *ctx;
     let Some(call) = as_call(init) else {
         return Binding::None;
     };
@@ -657,7 +684,9 @@ fn classify_call(
         | "optionalAttrStringFromReference"
         | "attrFromReference"
         | "optionalAttrFromReference"
-        | "contentStringFromReference" => classify_reference(method, args, resolver),
+        | "contentStringFromReference" => {
+            classify_reference(method, args, resolver, reference_param)
+        }
         // `optional(ACCESSOR, node, …)` → the wrapped accessor decides the type;
         // required = false.
         "optional" => {
@@ -695,7 +724,7 @@ fn classify_call(
         | "optionalChild"
         | "optionalChildWithTag"
         | "flattenedChildWithTag"
-        | "mapChildrenWithTag" => classify_child(method, args, locals, resolver, visited, bindings),
+        | "mapChildrenWithTag" => classify_child(method, args, ctx, visited, bindings),
         other => match normalize_accessor(other) {
             Some((m, ft, bl)) => {
                 let (field_type, int_range) = int_range_and_type(Some(other), args, ft);
@@ -761,11 +790,36 @@ fn reference_path_of(e: &Expression, bindings: &HashMap<String, Binding>) -> Opt
 ///
 /// The path argument is the helper's own contract: every element but the last is a
 /// child tag to descend in the request, the last is the attribute read there.
-fn classify_reference(method: &str, args: &[Argument], resolver: &Resolver) -> Binding {
-    let Some(path) = args.iter().find_map(|a| arg_expr(a).and_then(string_array)) else {
+fn classify_reference(
+    method: &str,
+    args: &[Argument],
+    resolver: &Resolver,
+    reference_param: Option<&str>,
+) -> Binding {
+    let Some(path_idx) = args
+        .iter()
+        .position(|a| arg_expr(a).is_some_and(|e| string_array(e).is_some()))
+    else {
         resolver.drop_note("reference path argument not statically resolvable");
         return Binding::None;
     };
+    let path = arg_expr(&args[path_idx])
+        .and_then(string_array)
+        .expect("position matched");
+    // The node the path is walked from is the identifier argument just before it. It
+    // MUST be the parser's reference parameter: `referencePath` is documented as
+    // "relative to the request", and a consumer acting on it would be silently wrong if
+    // WA ever pointed a `…FromReference` helper at some other node. Enforce the
+    // invariant instead of trusting it — and count the rejection rather than dropping
+    // it silently, so the day it happens is visible.
+    let node = args[..path_idx]
+        .iter()
+        .rev()
+        .find_map(|a| arg_expr(a).and_then(as_identifier));
+    if node.is_none() || node != reference_param {
+        resolver.drop_note("reference read from a node other than the request");
+        return Binding::None;
+    }
     // An explicit accessor (the `attrFromReference` family) decides the type; the
     // `attrString…` spelling is fixed to a string.
     let (base_method, field_type) = match method {
@@ -874,11 +928,13 @@ fn node_descend_path(
 fn classify_child(
     method: &str,
     args: &oxc_allocator::Vec<oxc_ast::ast::Argument>,
-    locals: &LocalFns,
-    resolver: &Resolver,
+    ctx: &FnCtx,
     visited: &mut HashSet<String>,
     bindings: &HashMap<String, Binding>,
 ) -> Binding {
+    let FnCtx {
+        locals, resolver, ..
+    } = *ctx;
     // The wire tag is the first string-literal arg.
     let Some(tag_idx) = args
         .iter()
@@ -1955,6 +2011,35 @@ mod tests {
             .find(|f| f.name == "type")
             .expect("type field");
         assert_eq!(ty.literal_value.as_deref(), Some("error"));
+    }
+
+    #[test]
+    fn a_reference_off_a_node_other_than_the_request_is_rejected() {
+        // `referencePath` is documented as relative to the REQUEST, and a consumer acts
+        // on that. If WA ever pointed a `…FromReference` helper at some other node, an
+        // echo rule read as "the request's" would be silently wrong — so the invariant
+        // is enforced, and the rejection is counted rather than dropped in silence.
+        let slices = HashMap::new();
+        let resolver = Resolver::new(&slices);
+        // `node` is the FIRST parameter (the response), not the reference.
+        let body = r#"function e(node, ref){
+            var r = o("WASmaxParseReference").attrStringFromReference(node, ["id"]); if(!r.success) return r;
+            var a = o("WASmaxParseUtils").literal(o("WASmaxParseUtils").attrString, node, "id", r.value);
+            return o("WAResultOrError").makeResult({ id: a.value });
+        }"#;
+        let (asserts, _f) =
+            analyze_fn_source(body, &LocalFns::new(), &resolver, &mut HashSet::new())
+                .expect("analyzed");
+        assert!(
+            !asserts.iter().any(|a| a.kind == AssertionKind::Reference),
+            "an echo off a non-request node must not be reported as a request echo"
+        );
+        assert_eq!(
+            resolver
+                .drop_counts()
+                .get("reference read from a node other than the request"),
+            Some(&1)
+        );
     }
 
     #[test]

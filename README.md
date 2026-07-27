@@ -47,7 +47,8 @@ cargo run --release -p whatspec -- update --cache .wa-cache
 # Seed that same cache from the lock-pinned GitHub Release (no live bundle fetch):
 cargo run --release -p whatspec -- restore --from-lock generated/bundles.lock.json --cache .wa-cache
 
-# Also resolve, download and store the client's wasm payloads (~41 MB), as <url-hash>.wasm:
+# Also resolve, download and store the client's wasm payloads (~41 MB), as <url-hash>.wasm
+# (a cache filename is a location label, not a content address — see the note below):
 cargo run --release -p whatspec -- update --cache .wa-cache --wasm-out ./wasm
 
 # Restore a locked wasm set (its own lock + its own content-addressed release asset):
@@ -68,6 +69,7 @@ WhatsApp only serves the *current* bundle version — old bundle URLs 404 — so
 
 - **`generated/bundles.lock.json`** records the content SHA-256 (+ size, and origin URL when known) of every bundle that produced the committed `generated/`, plus a one-line, order-invariant `setHash` fingerprint of the whole set.
 - The **bytes** live in a durable, WhatsApp-independent store: a rolling **`bundle-store`** GitHub Release whose assets are **content-addressed** — `bundles-<version>-<setHash>.tar.xz` (pure-Rust xz, roughly half the size of gzip; legacy `.tar.gz` assets are still read) — so a set is never overwritten with different bytes and every past commit's lock keeps resolving the exact archive it pins. Published automatically by the update workflow.
+  Note the two different hashes: a **release asset** is named after its *contents* (`setHash`), while a **cache** filename is named after its *URL* (the JS last segment, or `sha256(url)` for wasm) — there, the content hash lives in the cache's `manifest.json` and is what integrity is verified against. A cache filename never proves what is inside the file.
 - **`whatspec restore --from-lock generated/bundles.lock.json --out <dir>`** pulls that archive, verifies every bundle's SHA-256 against the lock, and writes a directory ready for `update --bundles`. Use **`--cache <dir>`** instead to seed the exact version directly into the reusable `update --cache` layout; cache metadata and integrity files are written by the same `BundleCache` implementation as a live fetch. **`scripts/regen.sh`** wraps restore + `update --check` into a one-shot, offline determinism check — also run in CI, so every commit's committed IR (each `index.json` + `WAProto.proto`) is proven reproducible from its pinned inputs.
 
 > Bootstrap: the lock and the first archive are created by the first run of the update workflow (or a manual `update --save-bundles <dir>` followed by `scripts/publish-bundles.sh <dir>`). Until then the CI reproducibility gate stays dormant.
