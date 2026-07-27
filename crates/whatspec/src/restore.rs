@@ -200,9 +200,7 @@ fn restore_wasm(opts: &RestoreOptions) -> Result<()> {
                 .filter_map(|e| e.bx_id.clone().map(|id| (e.url.clone(), id)))
                 .collect();
             BundleCache::new(cache_dir.to_path_buf())
-                // A restored set is the lock's set, verified — the canonical answer for
-                // this version, not a sample of a varying endpoint, so it is complete.
-                .store_wasm(&lock.wa_version, &payloads, &handles, true)
+                .store_wasm(&lock.wa_version, &payloads, &handles)
                 .with_context(|| format!("attach wasm to the cache at {}", cache_dir.display()))?;
             eprintln!(
                 "restored {} wasm payload(s) into cache {} — verified against the lock",
@@ -228,6 +226,12 @@ fn name_from_lock(
 ) -> Result<Vec<(String, Vec<u8>)>> {
     let mut names_by_hash: HashMap<&str, Vec<&str>> = HashMap::new();
     for entry in &lock.wasm {
+        // The name is about to be joined onto the output directory, and `fileName` is not
+        // covered by the lock's self-consistency check — a hand-edited or hostile lock
+        // could name `../../x` and make a "verified" restore write outside the directory
+        // the caller asked for. (The JS path is immune: it uses the archive entry's
+        // basename.) Require a plain payload basename.
+        safe_payload_name(&entry.file_name)?;
         names_by_hash
             .entry(entry.sha256.as_str())
             .or_default()
@@ -297,6 +301,29 @@ fn payloads_for_cache(
     }
     payloads.sort_by(|a, b| a.url.cmp(&b.url));
     Ok(payloads)
+}
+
+/// Accept only a single, unambiguous `*.wasm` file name: no separators, no traversal, no
+/// drive/root prefix, nothing that could escape the output directory when joined to it.
+fn safe_payload_name(name: &str) -> Result<()> {
+    let rejected = name.is_empty()
+        || name == "."
+        || name == ".."
+        || name.contains('/')
+        || name.contains('\\')
+        || name.contains('\0')
+        || Path::new(name)
+            .file_name()
+            .map(|n| n != name)
+            .unwrap_or(true)
+        || !name.ends_with(".wasm");
+    if rejected {
+        bail!(
+            "lock entry names a payload {name:?} that is not a plain `*.wasm` file name — \
+             refusing to write it"
+        );
+    }
+    Ok(())
 }
 
 fn read_wasm_lock(path: &Path) -> Result<crate::lock::WasmLock> {
@@ -1284,5 +1311,42 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(err.contains("has no name in the lock"), "{err}");
+    }
+
+    #[test]
+    fn lock_supplied_names_cannot_escape_the_output_directory() {
+        // `fileName` is not covered by the lock's setHash, so a hand-edited lock could
+        // otherwise make a "verified" restore write anywhere.
+        for hostile in [
+            "../../target/pwned.wasm",
+            "/etc/pwned.wasm",
+            "sub/dir.wasm",
+            "back\\slash.wasm",
+            "..",
+            "",
+            "plain.txt",
+        ] {
+            assert!(
+                safe_payload_name(hostile).is_err(),
+                "should reject {hostile:?}"
+            );
+        }
+        assert!(safe_payload_name("COs9e0Kj0ic.wasm").is_ok());
+        assert!(
+            safe_payload_name("-5fSEd7-h_f.wasm").is_ok(),
+            "a leading dash is a real WA name, not a flag"
+        );
+    }
+
+    #[test]
+    fn a_traversing_lock_is_rejected_before_anything_is_written() {
+        let bytes: &[u8] = b"payload";
+        let mut lock = wasm_lock_for(&[("ok.wasm", "https://static.whatsapp.net/ok.wasm", bytes)]);
+        lock.wasm[0].file_name = "../escape.wasm".to_string();
+        let files = vec![("archive.wasm".to_string(), bytes.to_vec())];
+        let err = name_from_lock(files, &[wa_text::sha256_hex(bytes)], &lock)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("not a plain `*.wasm` file name"), "{err}");
     }
 }

@@ -2,7 +2,7 @@
 //! versioned artifacts (IQ specs, WAProto.proto, mex operations, appstate
 //! schemas) to disk, ready to be committed — locally or from CI.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -16,6 +16,11 @@ mod restore;
 
 /// The committed bundle lockfile, written next to the domain artifacts.
 const BUNDLE_LOCK_NAME: &str = "bundles.lock.json";
+/// Every WebAssembly module starts with this header; a download that doesn't is an error
+/// page, not a payload.
+#[cfg(feature = "fetch")]
+const WASM_MAGIC: &[u8] = b"\0asm";
+
 /// The committed wasm lockfile — what a `--wasm` fetch resolved and stored. Separate
 /// from [`BUNDLE_LOCK_NAME`] because wasm is not an input to `generated/`; see
 /// [`lock::WasmLock`].
@@ -935,7 +940,7 @@ fn fetch_source(opts: &Options) -> Result<Loaded> {
                     bundles.len()
                 );
                 maybe_save_bundles(opts, &bundles)?;
-                let wasm = load_wasm(opts, &discovered, remote_version)?;
+                let wasm = load_wasm(opts, &discovered, Some(remote_version.as_str()))?;
                 return Ok(Loaded {
                     wa_version: version,
                     source: concat_bundles(&bundles),
@@ -983,10 +988,9 @@ fn fetch_source(opts: &Options) -> Result<Loaded> {
     maybe_save_bundles(opts, &outcome.bundles)?;
     // Wasm is resolved after the JS set is complete and cached: it is auxiliary, so it
     // must never be able to cost the (expensive) JS download a retry.
-    let wasm = match &discovered.wa_version {
-        Some(remote_version) => load_wasm(opts, &discovered, remote_version)?,
-        None => Vec::new(),
-    };
+    // The discovered version keys the cache; it does not gate the fetch. A run stamped
+    // with `--wa-version` over an unreadable page still collects its payloads.
+    let wasm = load_wasm(opts, &discovered, discovered.wa_version.as_deref())?;
     Ok(Loaded {
         wa_version: version,
         source: concat_bundles(&outcome.bundles),
@@ -1026,52 +1030,44 @@ fn concat_bundles(bundles: &[wa_fetch::Bundle]) -> String {
 /// payloads with the reason on stderr, rather than aborting a spec update. Only
 /// `--wasm-out`, an explicit user request for files on disk, is allowed to error.
 ///
-/// Unlike the JS set, a partial wasm set is still worth keeping: the resolved set isn't
-/// closed anyway (the endpoint varies per request), so "8 of 9" is a normal outcome, not
-/// a corrupt input.
+/// # Why the cache never short-circuits resolution
+///
+/// The bootloader endpoint answers with varying subsets, so **no run can establish that
+/// it saw the whole set** — not even one where nothing failed, since the resolver stops on
+/// a round that merely added nothing new. Treating any live result as final would freeze
+/// it: later runs would hit the cache and never ask again, so a payload that only appears
+/// in some responses would be lost for that version forever.
+///
+/// So resolution runs every time (four small JSON requests), and the cache is a **byte
+/// pool**: payloads already downloaded are reused instead of re-fetched, and the version's
+/// set *accumulates* across runs rather than being replaced by the latest sample. That is
+/// the honest model for a best-effort superset.
 #[cfg(feature = "fetch")]
 fn load_wasm(
     opts: &Options,
     discovered: &wa_fetch::Discovered,
-    remote_version: &str,
+    remote_version: Option<&str>,
 ) -> Result<Vec<WasmLockEntry>> {
     if !opts.wasm {
         return Ok(Vec::new());
     }
 
-    // Cache fast-path: skip resolution *and* ~40 MB of download when this version's
-    // payloads are already cached, complete and intact.
+    // The cache is keyed by the *discovered* version. Without one it can't be used at all
+    // — but resolution and download still can, so a `--wa-version`-stamped run with an
+    // unreadable page still collects its payloads.
     let cache = opts
         .cache_dir
         .as_ref()
-        .map(|dir| wa_fetch::BundleCache::new(dir.clone()));
-    if let Some(cache) = &cache {
-        match cache.check_wasm(remote_version) {
-            wa_fetch::CacheStatus::Hit(payloads) => {
-                eprintln!(
-                    "wasm cache hit for {remote_version} ({} payloads) — skipping resolution",
-                    payloads.len()
-                );
-                // A cache hit skips resolution, so the pairing comes from what the cache
-                // recorded when it *was* resolved; the page's own map only fills in
-                // anything the cache predates. Without this the lock would lose the `bx`
-                // join key for every payload the page doesn't inline.
-                let mut handles = invert(&discovered.bx_data);
-                handles.extend(cache.wasm_handles());
-                let entries = wasm_entries(&payloads, &handles);
-                maybe_save_wasm(opts, &payloads)?;
-                return Ok(entries);
-            }
-            wa_fetch::CacheStatus::Miss(reason) => {
-                eprintln!("wasm cache miss ({reason}) — resolving");
-            }
-        }
+        .zip(remote_version)
+        .map(|(dir, _)| wa_fetch::BundleCache::new(dir.clone()));
+    if opts.cache_dir.is_some() && remote_version.is_none() {
+        eprintln!("wasm cache disabled: remote version is undetectable, cannot key the cache");
     }
 
     let resolution = wa_fetch::resolve_wasm(discovered, &wa_fetch::WasmResolveOptions::default());
     eprintln!(
-        "resolved {} wasm payload(s): {} from the page, {} after {} bootloader round(s) \
-         ({} request(s))",
+        "resolved {} wasm payload(s): {} from the page, {} handle(s) after {} bootloader \
+         round(s) ({} request(s))",
         resolution.urls.len(),
         resolution.from_page,
         resolution.by_id.len(),
@@ -1081,57 +1077,97 @@ fn load_wasm(
     for why in &resolution.failures {
         eprintln!("  wasm resolution: {why}");
     }
-    if resolution.urls.is_empty() {
-        eprintln!("no wasm payloads resolved — nothing to fetch");
-        return Ok(Vec::new());
+
+    // Bytes already paid for in an earlier run of this same version.
+    let mut cached: BTreeMap<String, wa_fetch::Bundle> = BTreeMap::new();
+    if let Some(cache) = &cache
+        && let Some(version) = remote_version
+    {
+        match cache.check_wasm(version) {
+            wa_fetch::CacheStatus::Hit(payloads) => {
+                cached.extend(payloads.into_iter().map(|b| (b.url.clone(), b)));
+            }
+            wa_fetch::CacheStatus::Miss(reason) => eprintln!("  wasm cache: {reason}"),
+        }
     }
 
-    let outcome =
-        wa_fetch::download_bundles(&resolution.urls, &wa_fetch::DownloadOptions::default());
+    let to_download: Vec<String> = resolution
+        .urls
+        .iter()
+        .filter(|u| !cached.contains_key(*u))
+        .cloned()
+        .collect();
+    let outcome = wa_fetch::download_bundles(&to_download, &wa_fetch::DownloadOptions::default());
     for f in &outcome.failures {
         eprintln!("  wasm download failed: {} — {}", f.url, f.error);
     }
+
+    // The set for a version accumulates: a payload cached by an earlier run stays even if
+    // this run's responses didn't mention it (the endpoint's subsets vary), and a newly
+    // resolved one joins it.
+    let mut payloads: BTreeMap<String, wa_fetch::Bundle> = cached;
+    payloads.extend(outcome.bundles.into_iter().map(|b| (b.url.clone(), b)));
+    let before = payloads.len();
+    // A 2xx anti-bot or error page is a "successful" download as far as the transport is
+    // concerned. Hashing, locking and publishing one would propagate a body no runner can
+    // instantiate, and restore would faithfully verify the corruption forever after.
+    payloads.retain(|url, b| {
+        let ok = b.bytes.starts_with(WASM_MAGIC);
+        if !ok {
+            eprintln!(
+                "  discarding {url}: {} bytes that are not a wasm module (no \\0asm header)",
+                b.bytes.len()
+            );
+        }
+        ok
+    });
+    let discarded = before - payloads.len();
+    let payloads: Vec<wa_fetch::Bundle> = payloads.into_values().collect();
     eprintln!(
-        "downloaded {} of {} wasm payload(s), {:.1} MB",
-        outcome.bundles.len(),
-        resolution.urls.len(),
-        outcome.bundles.iter().map(|b| b.bytes.len()).sum::<usize>() as f64 / 1e6
+        "wasm set: {} payload(s), {:.1} MB ({} newly downloaded, {} reused from cache{})",
+        payloads.len(),
+        payloads.iter().map(|b| b.bytes.len()).sum::<usize>() as f64 / 1e6,
+        to_download.len() - outcome.failures.len() - discarded,
+        payloads
+            .len()
+            .saturating_sub(to_download.len() - outcome.failures.len() - discarded),
+        if discarded > 0 {
+            format!(", {discarded} discarded as non-wasm")
+        } else {
+            String::new()
+        }
     );
-    if outcome.bundles.is_empty() {
+    if payloads.is_empty() {
         return Ok(Vec::new());
     }
 
-    // The wasm cache is attached to the JS cache for the same version; if that isn't there
+    // Handles: what this run resolved, plus what the cache recorded for payloads it is
+    // carrying over (their `bx` ids were learned in the run that downloaded them).
+    let mut handles = invert(&discovered.bx_data);
+    if let Some(cache) = &cache {
+        handles.extend(cache.wasm_handles());
+    }
+    handles.extend(resolution.handle_by_url());
+
+    // The wasm cache attaches to the JS cache for the same version; if that isn't there
     // (e.g. the JS came straight from a download with no `--cache`), skip caching rather
     // than fail — the payloads are already in hand for this run.
-    // Whether this run saw the whole picture: nothing failed to resolve and every URL it
-    // found came down. Anything less is a sample of a varying endpoint, and caching it as
-    // final would stop later runs from ever asking again.
-    let complete = resolution.failures.is_empty()
-        && outcome.failures.is_empty()
-        && outcome.bundles.len() == resolution.urls.len();
-    let handles = resolution.handle_by_url();
-    if let Some(cache) = &cache
-        && let Err(e) = cache.store_wasm(remote_version, &outcome.bundles, &handles, complete)
+    if let Some((cache, version)) = cache.as_ref().zip(remote_version)
+        && let Err(e) = cache.store_wasm(version, &payloads, &handles)
     {
         eprintln!("  wasm cache not updated: {e:#}");
     }
-    if !complete {
-        eprintln!("  wasm set is partial — cached as incomplete, the next run resolves again");
-    }
 
-    let entries = wasm_entries(&outcome.bundles, &handles);
-    maybe_save_wasm(opts, &outcome.bundles)?;
+    let entries = wasm_entries(&payloads, &handles);
+    maybe_save_wasm(opts, &payloads)?;
     Ok(entries)
 }
 
 /// `bx` id → URI inverted into URI → `bx` id, lowest id winning on a shared URI (the
 /// input is sorted, so the choice is deterministic).
 #[cfg(feature = "fetch")]
-fn invert(
-    by_id: &std::collections::BTreeMap<String, String>,
-) -> std::collections::BTreeMap<String, String> {
-    let mut out = std::collections::BTreeMap::new();
+fn invert(by_id: &BTreeMap<String, String>) -> BTreeMap<String, String> {
+    let mut out = BTreeMap::new();
     for (id, uri) in by_id {
         out.entry(uri.clone()).or_insert_with(|| id.clone());
     }
@@ -1143,7 +1179,7 @@ fn invert(
 #[cfg(feature = "fetch")]
 fn wasm_entries(
     payloads: &[wa_fetch::Bundle],
-    handle_by_url: &std::collections::BTreeMap<String, String>,
+    handle_by_url: &BTreeMap<String, String>,
 ) -> Vec<WasmLockEntry> {
     payloads
         .iter()

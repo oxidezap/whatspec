@@ -27,8 +27,7 @@ lock="generated/wasm.lock.json"
 sethash=$(jq -r .wasmSetHash "$lock")
 [ -n "$sethash" ] && [ "$sethash" != "null" ] || { echo "no wasmSetHash in $lock" >&2; exit 1; }
 
-# Only publish what the lock pins. A stray file in the directory would land in an asset
-# whose name claims a different content hash, and restore would then reject it.
+# Only publish what the lock pins. Every locked payload must be present...
 locked=$(jq -r '.wasm[].fileName' "$lock" | sort)
 present=$(cd "$wasm_dir" && ls -1 ./*.wasm 2>/dev/null | sed 's|^\./||' | sort || true)
 if [ "$locked" != "$present" ]; then
@@ -36,6 +35,14 @@ if [ "$locked" != "$present" ]; then
   diff <(echo "$locked") <(echo "$present") >&2 || true
   exit 1
 fi
+
+# ...and only those files are archived. Archiving the whole directory (`tar -cf - .`) would
+# sweep in anything else that happens to sit there — a .DS_Store, an editor swapfile, a log
+# — producing an asset with more entries than the lock describes, which `restore` rejects
+# outright. Since the asset name is content-addressed, that bad upload would also clobber
+# the name a valid archive would have had. The `./` prefix keeps names starting with `-`
+# (WA serves e.g. `-5fSEd7-h_f.wasm`) from being read as tar options.
+members=$(jq -r '.wasm[].fileName' "$lock" | sed 's|^|./|')
 
 command -v xz >/dev/null 2>&1 || { echo "xz not found — install xz-utils to publish the archive" >&2; exit 1; }
 # See publish-bundles.sh: xz reads XZ_DEFAULTS/XZ_OPT before the command line, so clear
@@ -56,11 +63,20 @@ fi
 # (~41 MB → ~7 MB measured). restore verifies each payload's SHA-256 against the lock,
 # so envelope reproducibility is a nicety, not a correctness requirement.
 if [ -n "$gnu_tar" ]; then
-  "$gnu_tar" --sort=name --owner=0 --group=0 --numeric-owner --mtime='@0' \
-      -C "$wasm_dir" -cf - . | xz -9 --format=xz --check=crc64 -T1 -c > "$archive"
+  printf '%s\n' "$members" | "$gnu_tar" --sort=name --owner=0 --group=0 --numeric-owner \
+      --mtime='@0' -C "$wasm_dir" -cf - -T - | xz -9 --format=xz --check=crc64 -T1 -c > "$archive"
 else
   echo "note: GNU tar not found — writing a non-reproducible archive (restore still verifies per-payload SHA-256)" >&2
-  tar -C "$wasm_dir" -cf - . | xz -9 --format=xz --check=crc64 -T1 -c > "$archive"
+  printf '%s\n' "$members" | tar -C "$wasm_dir" -cf - -T - | xz -9 --format=xz --check=crc64 -T1 -c > "$archive"
+fi
+
+# Prove the asset carries exactly the locked set before uploading under a name that claims
+# its content hash.
+archived=$(xz -dc "$archive" | tar -tf - | sed 's|^\./||' | grep -v '^$' | sort)
+if [ "$archived" != "$locked" ]; then
+  echo "archive contents do not match $lock:" >&2
+  diff <(echo "$locked") <(echo "$archived") >&2 || true
+  exit 1
 fi
 
 gh release view bundle-store >/dev/null 2>&1 \
