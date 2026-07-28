@@ -469,6 +469,15 @@ impl<'a> Visit<'a> for NamedResolver {
         // shadows, and poisoning `e` for the entire module would refuse a composition
         // written outside this body that never sees the inner binding at all.
         let mut hoisted = param_names(&f.params);
+        // A NAMED function expression binds its own name inside its body (`var g =
+        // function e(){ … e … }` sees the function, not an outer `e`). That name lives on
+        // `f.id`, not among the declarations collected from the enclosing body, so it was
+        // the one binding form the prescan could not see.
+        if let Some(id) = &f.id
+            && self.locals.contains_key(id.name.as_str())
+        {
+            hoisted.insert(id.name.to_string());
+        }
         if let Some(body) = &f.body {
             let mut declared = HashSet::new();
             collect_hoisted(&body.statements, &mut declared);
@@ -982,6 +991,13 @@ mod tests {
             function g(){ var x=babelHelpers.extends({},e,{B:"b"}); if (c) { var e={X:"x"} } i.OUT=x }
         }),1);"#;
         assert!(resolve_named_enum(var_in_block, "M", "OUT").is_none());
+
+        // A named function EXPRESSION binds its own name inside its body.
+        let self_named = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"};
+            var f=function e(){ var x=babelHelpers.extends({},e,{B:"b"}); i.OUT=x };
+        }),1);"#;
+        assert!(resolve_named_enum(self_named, "M", "OUT").is_none());
 
         // A name rebound to the SAME body is not ambiguous — refusing it would throw away
         // a resolvable enum for nothing.

@@ -543,6 +543,18 @@ def check_enum_catalog_refs(data, domain, errors):
                         f"{e.get('valueKind')!r} but variant "
                         f"{(v.get('name') or v.get('key'))!r} carries {val!r}"
                     )
+        # Integer members become discriminants of a `#[repr(i64)]` Rust enum, where a
+        # repeat is E0081 — so a catalog the linter certifies would not compile.
+        vals = [
+            v.get("value")
+            for v in e.get("variants") or []
+            if isinstance(v, dict) and isinstance(v.get("value"), int)
+        ]
+        dup_vals = sorted({v for v in vals if vals.count(v) > 1})
+        if dup_vals:
+            errors.append(
+                f"{domain}/enums/{i}: enum {e.get('name')!r} reuses value(s) {dup_vals}"
+            )
         if "module" in e:
             by_module.setdefault(e["module"], []).append(e)
 
@@ -657,6 +669,13 @@ def check_action_keys(node, path, errors):
     internally consistent by construction; nothing compared them to each other.
     """
     arrays = [k for k in ("fields", "constantFields", "children") if isinstance(node.get(k), list)]
+    # Deliberately ACROSS arrays only. Widening this to catch a repeat within a single
+    # array was tried and reverted: it fires 15 times on the committed IR, and the cases
+    # are not contradictions. `iq/stanzas/49/response` carries ten `value` fields whose
+    # `enumRef`s differ per privacy category — alternatives the extractor models on
+    # purpose, not one key answered twice. A guard that fails CI on correct data is worse
+    # than the gap it closes; the shape those ten represent is a modelling question, and
+    # it is recorded in the PR rather than silently enforced here.
     if len(arrays) < 2:
         return
     names = [
@@ -680,9 +699,20 @@ def check_abprops(data, domain, errors):
     configs = data.get("configs")
     if not isinstance(configs, list):
         return
+    seen_ids = {}
     for i, c in enumerate(configs):
         if not isinstance(c, dict):
             continue
+        # `(module, name)` IS the flag identity. Two records under one identity leave a
+        # consumer no way to pick; the reference generator just suffixes the second and
+        # puts both contradictory entries in `ALL`.
+        ident = (c.get("module"), c.get("name"))
+        if ident in seen_ids:
+            errors.append(
+                f"{domain}/configs/{i}: {ident} already defined at index {seen_ids[ident]}"
+            )
+        else:
+            seen_ids[ident] = i
         vt = c.get("valueType")
         for key in ("default", "altDefault"):
             if key not in c:
@@ -707,17 +737,50 @@ def check_abprops(data, domain, errors):
                 )
 
 
+def check_appstate_collections(data, domain, errors):
+    """An action's `collection` must be one the document declares.
+
+    The schema is only a string. `generate_appstate_schemas` builds the `Collection` enum
+    from the top-level list alone, so a name absent from it emits a variant that does not
+    exist — the certified IR generates uncompilable Rust. An omitted field means `regular`,
+    which must therefore be declared too.
+    """
+    declared = data.get("collections")
+    actions = data.get("actions")
+    if not isinstance(declared, list) or not isinstance(actions, dict):
+        return
+    known = {c for c in declared if isinstance(c, str)}
+    for name, a in sorted(actions.items()):
+        if not isinstance(a, dict):
+            continue
+        used = a.get("collection", "regular")
+        if used not in known:
+            errors.append(
+                f"{domain}/actions/{name}: collection {used!r} is not among "
+                f"{sorted(known)}"
+            )
+
+
 def check_child_requiredness(node, path, errors):
-    """A `NotifActionChild` must SAY whether it is always present.
+    """Every `NotifActionChild` must SAY whether it is always present.
 
     Rust reads a missing `required` as `true` through a serde default, but the schema
     cannot carry that: the default makes schemars drop the property from its `required`
     list, so an omission validates clean and a non-Rust consumer — who the IR is for —
-    cannot tell "required by default" from "unspecified". The field's own documentation
-    forbids exactly that, and this is the only place the contract can be enforced.
+    cannot tell "required by default" from "unspecified".
+
+    Driven from the `children` ARRAY. Keying on the child's own `fields` missed a child
+    that has none, which `serde(skip_serializing_if = "Vec::is_empty")` makes a perfectly
+    ordinary serialized shape.
     """
-    if "wireTag" in node and "fields" in node and "name" in node and "required" not in node:
-        errors.append(f"{path}: mapped child does not say whether it is required")
+    children = node.get("children")
+    if not isinstance(children, list):
+        return
+    for i, c in enumerate(children):
+        if isinstance(c, dict) and "wireTag" in c and "required" not in c:
+            errors.append(
+                f"{path}/children/{i}: mapped child does not say whether it is required"
+            )
 
 
 def check_variant_groups(node, path, errors):
@@ -838,6 +901,7 @@ def main() -> int:
         check_enum_catalog_refs(data, domain, errors)
         check_event_codes(data, domain, errors)
         check_abprops(data, domain, errors)
+        check_appstate_collections(data, domain, errors)
         collect_unresolved_enums(data, domain, proto_enums, unresolved)
 
     ok = True
