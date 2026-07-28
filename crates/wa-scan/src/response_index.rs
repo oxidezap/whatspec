@@ -491,6 +491,25 @@ fn variant_kind(tag: &str, assertions: &[wa_ir::ResponseAssertion]) -> ResponseV
     if asserts_error {
         return ResponseVariantKind::Error;
     }
+    // `type="result"` is the wire saying this arrived on the SUCCESS channel, and the
+    // discriminator outranks the name — the whole point of taking the root assertion
+    // first. Only `type="error"` was honoured, so `CreateResponseGroupAlreadyExists` and
+    // `RequestSilentNonceResponseRecoveryRequired` shipped as `kind: "error"` while
+    // asserting `type: "result"`, telling a consumer to route them opposite to the wire.
+    //
+    // An error-ish NAME on a `result` still means something: it is a structured
+    // non-happy outcome, not an ordinary success. That is what `Alternative` is for.
+    let asserts_result = assertions.iter().any(|a| {
+        a.kind == wa_ir::AssertionKind::Attr
+            && a.name.as_deref() == Some("type")
+            && a.value.as_deref() == Some("result")
+    });
+    if asserts_result {
+        return match variant_kind_by_tag(tag) {
+            ResponseVariantKind::Success => ResponseVariantKind::Success,
+            _ => ResponseVariantKind::Alternative,
+        };
+    }
     variant_kind_by_tag(tag)
 }
 
@@ -532,6 +551,38 @@ fn response_op_name(module: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn attr(name: &str, value: &str) -> wa_ir::ResponseAssertion {
+        wa_ir::ResponseAssertion {
+            kind: wa_ir::AssertionKind::Attr,
+            name: Some(name.to_string()),
+            value: Some(value.to_string()),
+            reference_path: None,
+        }
+    }
+
+    #[test]
+    fn an_asserted_result_outranks_an_error_name_token() {
+        // `CreateResponseGroupAlreadyExists` asserts `type="result"`: the wire says it
+        // arrived on the success channel, and the discriminator outranks the name. Only
+        // `type="error"` was honoured, so these shipped as `kind: "error"` and told a
+        // consumer to route them opposite to the wire.
+        let a = [attr("type", "result")];
+        assert_eq!(
+            variant_kind("CreateResponseGroupAlreadyExists", &a),
+            ResponseVariantKind::Alternative,
+            "an error-ish name on a `result` is a structured non-happy outcome"
+        );
+        assert_eq!(
+            variant_kind("CreateResponseSuccess", &a),
+            ResponseVariantKind::Success
+        );
+        // The error discriminator still wins outright.
+        assert_eq!(
+            variant_kind("CreateResponseSuccess", &[attr("type", "error")]),
+            ResponseVariantKind::Error
+        );
+    }
 
     #[test]
     fn op_name_strips_prefix_suffix() {

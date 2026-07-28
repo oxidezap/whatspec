@@ -93,8 +93,12 @@ pub fn scan_incoming_with_diagnostics(
         }
     }
     // The smax-parsed `<ack>` read-shapes (a client publish's server ack) — a distinct
-    // mechanism the legacy pass above never sees. Merged into the same catalog.
-    out.extend(scan_incoming_smax_acks(source, defs));
+    // mechanism the legacy pass above never sees. Merged into the same catalog, and so
+    // are its losses: that pass runs its own smax `Resolver`, whose drops used to be
+    // discarded, so the ack's `deprecatedEditMixin.edit` shipped as an enum with no
+    // values while this domain's `dropsByReason` stayed empty.
+    let (acks, ack_drops) = scan_incoming_smax_acks(source, defs);
+    out.extend(acks);
     // Deterministic order, independent of bundle layout; then drop exact
     // (tag, parser, module) duplicates (a parser re-declared verbatim).
     out.sort_by(|a, b| {
@@ -106,7 +110,11 @@ pub fn scan_incoming_with_diagnostics(
     out.dedup_by(|a, b| {
         a.tag == b.tag && a.module == b.module && a.shape.parser_name == b.shape.parser_name
     });
-    (out, enums.into_drop_counts())
+    let mut drops = enums.into_drop_counts();
+    for (reason, n) in ack_drops {
+        *drops.entry(reason).or_default() += n;
+    }
+    (out, drops)
 }
 
 /// A `WASmaxIn*Response{Success,Negative}` module whose root reads a top-level `<ack>` —
@@ -124,7 +132,10 @@ fn is_smax_ack_response_module(name: &str) -> bool {
 /// that asserts the top-level `ack`, with its field tree (ack envelope + edit/revoke/paid
 /// sub-mixins and disjunctions) resolved through the shared [`Resolver`]. Mirrors the
 /// srvreq root pass; only the tag gate (`ack`, not the server-request set) differs.
-fn scan_incoming_smax_acks(source: &str, defs: &[ModuleDefinition]) -> Vec<IncomingDef> {
+fn scan_incoming_smax_acks(
+    source: &str,
+    defs: &[ModuleDefinition],
+) -> (Vec<IncomingDef>, std::collections::BTreeMap<String, usize>) {
     // Every module name → slice (first occurrence wins; shard dedup) so the resolver can
     // chase the cross-module ack mixins these roots fold in.
     let mut slices: HashMap<&str, &str> = HashMap::new();
@@ -141,7 +152,13 @@ fn scan_incoming_smax_acks(source: &str, defs: &[ModuleDefinition]) -> Vec<Incom
         if !is_smax_ack_response_module(&m.name) || !seen.insert(m.name.as_str()) {
             continue;
         }
+        // This pass parses every `WASmaxIn*Response*` module and keeps only the roots
+        // asserting `<ack>` — the rest are IQ responses. Their losses must not be charged
+        // to this domain, so the collector is rewound when a module contributes nothing,
+        // the same rule the legacy pass follows by gating on the tag first.
+        let before = resolver.drops_snapshot();
         let exports = analyze_module_exports(&source[m.start..m.end], &resolver);
+        let mut kept_any = false;
         for (name, shape) in &exports {
             // Skip inner child parsers: their export name extends another export's at a
             // word boundary (`<root><ChildSuffix>`), and their fields already nest in the
@@ -174,14 +191,18 @@ fn scan_incoming_smax_acks(source: &str, defs: &[ModuleDefinition]) -> Vec<Incom
                 }
             }
             shape.assertions = deduped;
+            kept_any = true;
             out.push(IncomingDef {
                 tag: IncomingTag::Ack,
                 module: m.name.clone(),
                 shape,
             });
         }
+        if !kept_any {
+            resolver.restore_drops(before);
+        }
     }
-    out
+    (out, resolver.drop_counts())
 }
 
 #[cfg(test)]

@@ -839,6 +839,11 @@ fn collect_returns<'b, 'a>(
                     collect_branches(arg, &mut branches);
                     out.extend(branches.into_iter().map(|e| (e, scope.clone())));
                 }
+                // Nothing after an unconditional `return` runs. Continuing to scan the
+                // list published unreachable returns as additional legal actions —
+                // `return {actionType: A}; return {actionType: B};` yielded both — and
+                // let statements below it contribute phantom fields.
+                return;
             }
             Statement::BlockStatement(b) => collect_returns(&as_refs(&b.body), &scope, out),
             Statement::IfStatement(i) => {
@@ -1359,7 +1364,14 @@ fn fold_object<'b, 'a>(
         // leaving `actionType` and the constants on first-write was the same rule
         // written in three places again.
         if key == "actionType" {
-            def.action_type = ctx.consts.resolve(value);
+            // A shape may write the normalised identity directly (`{actionType: "create"}`)
+            // instead of through the constant table. The resolver only accepts
+            // `o("Mod").OBJECT.MEMBER`, so a fully static literal came back `None` and the
+            // arm published no `actionType` at all — indistinguishable from an identity
+            // the arm genuinely computes.
+            def.action_type = as_string_lit(value)
+                .map(str::to_string)
+                .or_else(|| ctx.consts.resolve(value));
             continue;
         }
         if let Some(c) = const_value(value) {

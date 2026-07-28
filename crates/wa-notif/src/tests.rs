@@ -1229,7 +1229,7 @@ __d("WAWebCommsHandleLoggedInStanza",["WAWebHandleGroupNotification"],function(g
   }); };
 }, 1);
 __d("WAWebHandleGroupNotificationConst",[],(function(t,n,r,o,a,i,l){
-  l.GROUP_NOTIFICATION_TAG=Object.freeze({EVICT:"evict",COND:"cond",REBIND:"rebind",PICK:"pick",BARE:"bare",HELPER:"helper",ESCAPE:"escape",TAIL:"tail",JOIN:"join",SEQ:"seq",SUFFIX:"suffix",AFTER:"after",TRY:"try_tag",FIN:"fin",FINCOND:"fincond",FINTHROW:"finthrow",MULTI:"multi",MULTI3:"multi3"});
+  l.GROUP_NOTIFICATION_TAG=Object.freeze({EVICT:"evict",COND:"cond",REBIND:"rebind",PICK:"pick",BARE:"bare",HELPER:"helper",ESCAPE:"escape",TAIL:"tail",JOIN:"join",SEQ:"seq",SUFFIX:"suffix",AFTER:"after",TRY:"try_tag",FIN:"fin",FINCOND:"fincond",FINTHROW:"finthrow",MULTI:"multi",MULTI3:"multi3",DEAD:"dead",LIT:"lit"});
 }), 1);
 __d("WAWebGroupType",[],(function(t,n,r,o,a,i,l){
   l.GROUP_ACTIONS=Object.freeze({FIRST:"first",SECOND:"second",THIRD:"third"});
@@ -1282,6 +1282,11 @@ __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGr
           return {actionType:o("WAWebGroupType").GROUP_ACTIONS.SECOND, id:combine(t.attrString("jid"), t.attrString("lid")), plain:t.attrString("plain")};
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.MULTI3:
           return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, id:combine(t.attrString("jid"), t.attrString("jid"), t.attrString("lid")), plain:t.attrString("plain")};
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.DEAD:
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, a:t.attrString("a")};
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.SECOND, b:t.attrString("b")};
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.LIT:
+          return {actionType:"create", who:t.attrString("who")};
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.SUFFIX:
           switch (t.attrString("k")) {
             case "a": t.attrString("setup");
@@ -1573,4 +1578,28 @@ fn a_conflict_past_the_second_wrapper_argument_still_refuses() {
         "and the unambiguous sibling survives: {:?}",
         a.fields
     );
+}
+
+#[test]
+fn a_return_after_an_unconditional_return_is_unreachable() {
+    // `return A; return B;` — B never runs. Treating every syntactic return as reachable
+    // published it as a second legal action for the tag, and let statements below the
+    // return contribute fields too.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let got: Vec<&str> = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .filter(|a| a.wire_tag == "dead")
+        .filter_map(|a| a.action_type.as_deref())
+        .collect();
+    assert_eq!(got, ["first"], "only the reachable shape: {got:?}");
+}
+
+#[test]
+fn a_literal_action_type_is_kept() {
+    // `{actionType: "create"}` is fully static. Resolving only `o("Mod").OBJECT.MEMBER`
+    // left the arm with no `actionType`, indistinguishable from one the arm computes.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let a = edge_action(&ir, "lit");
+    assert_eq!(a.action_type.as_deref(), Some("create"));
 }

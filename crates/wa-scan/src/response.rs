@@ -752,6 +752,20 @@ impl ParserAnalyzer<'_, '_> {
             {
                 if f.enum_keys.is_none() {
                     f.enum_keys = Some(keys);
+                    // Retype the companion read. The plain `maybeAttrString("type")` beside
+                    // `attrEnumOrNullIfUnknown("type", map)` is the SAME wire attribute
+                    // validated against that key set, so leaving it `type: "string"` while
+                    // hanging nine `enumKeys` off it hid the constraint from every consumer
+                    // that selects enum fields by `type == "enum"` — the incoming receipt's
+                    // `type` shipped exactly that way.
+                    let optional = wap::is_optional_method(&f.method);
+                    f.method = if optional {
+                        wap::MAYBE_ATTR_ENUM.to_string()
+                    } else {
+                        wap::ATTR_ENUM.to_string()
+                    };
+                    f.field_type = ParsedFieldType::Enum;
+                    f.required = !optional;
                 }
             } else {
                 // No companion plain read created a field for this attr (doesn't occur in
@@ -760,7 +774,7 @@ impl ParserAnalyzer<'_, '_> {
                 // optional attr validated against an enum key set, which is exactly
                 // `maybeAttrEnum`. A raw "attrEnumOrNullIfUnknown" method would not be in
                 // `wap::is_attr_method`, leaving the field unclassified downstream.
-                let mut f = mk_field(wap::MAYBE_ATTR_ENUM, &wire, ParsedFieldType::String, false);
+                let mut f = mk_field(wap::MAYBE_ATTR_ENUM, &wire, ParsedFieldType::Enum, false);
                 f.enum_keys = Some(keys);
                 self.fields.push(f);
             }
@@ -1491,6 +1505,45 @@ mod tests {
         assert_eq!(
             type_fields[0].enum_keys.as_deref(),
             Some(["delivery", "read", "played"].map(String::from).as_slice())
+        );
+    }
+
+    #[test]
+    fn a_companion_read_is_retyped_when_it_gains_enum_keys() {
+        // `attrEnumOrNullIfUnknown("type", map)` beside a plain `maybeAttrString("type")`
+        // is the SAME attribute validated against that key set. Hanging `enumKeys` off the
+        // companion while leaving it `type: "string"` hid the constraint from every
+        // consumer that selects enum fields by `type == "enum"`.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            var u={delivery:1,read:2};
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                var t=e.hasAttr("type")?e.attrEnumOrNullIfUnknown("type",u):0;
+                e.maybeAttrString("type");
+                return {};
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let f = p
+            .fields
+            .iter()
+            .find(|f| f.name == "type" && f.tag.is_none())
+            .expect("the type field");
+        assert_eq!(
+            f.field_type,
+            ParsedFieldType::Enum,
+            "retyped, not just annotated"
+        );
+        assert_eq!(
+            f.method,
+            wap::MAYBE_ATTR_ENUM,
+            "and under the enum accessor"
+        );
+        assert!(!f.required, "the companion read was optional and stays so");
+        assert_eq!(
+            f.enum_keys.as_deref(),
+            Some(["delivery", "read"].map(String::from).as_slice())
         );
     }
 

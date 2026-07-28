@@ -11264,7 +11264,7 @@
           {
             "tag": "RequestSilentNonceResponseRecoveryRequired",
             "moduleName": "WASmaxInBizAccessTokenRequestSilentNonceResponseRecoveryRequired",
-            "kind": "error",
+            "kind": "alternative",
             "assertions": [
               {
                 "kind": "tag",
@@ -74331,7 +74331,7 @@
           {
             "tag": "CreateResponseGroupAlreadyExists",
             "moduleName": "WASmaxInGroupsCreateResponseGroupAlreadyExists",
-            "kind": "error",
+            "kind": "alternative",
             "assertions": [
               {
                 "kind": "tag",

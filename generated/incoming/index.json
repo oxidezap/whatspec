@@ -280,9 +280,9 @@
             "required": false
           },
           {
-            "method": "maybeAttrString",
+            "method": "maybeAttrEnum",
             "name": "type",
-            "type": "string",
+            "type": "enum",
             "required": false,
             "enumKeys": [
               "delivery",

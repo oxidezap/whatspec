@@ -118,16 +118,39 @@ impl<'a> Resolver<'a> {
         }
     }
 
-    /// The drops this resolver alone recorded, as counts. Production code reads the
-    /// shared collector through [`crate::response_index::ResponseIndex`] instead, since
-    /// the fallback resolver reports into the same place; this is the unit-test view.
-    #[cfg(test)]
+    /// The drops this resolver alone recorded, as counts.
+    ///
+    /// The IQ path reads the shared collector through
+    /// [`crate::response_index::ResponseIndex`] instead, since its fallback resolver
+    /// reports into the same place. The incoming ack pass owns its resolver outright and
+    /// reads it here — those drops were simply discarded before.
     pub(crate) fn drop_counts(&self) -> BTreeMap<String, usize> {
         self.drops
             .borrow()
             .iter()
             .map(|(reason, keys)| (reason.clone(), keys.len()))
             .collect()
+    }
+
+    /// A snapshot of the collector, so a caller that may REJECT the shape it just
+    /// analyzed can undo the drops that analysis recorded.
+    ///
+    /// A pass that parses more modules than it keeps (the incoming ack scan parses every
+    /// `WASmaxIn*Response*` and keeps only the ones asserting `<ack>`) would otherwise
+    /// charge the rejected modules' losses to a domain whose artifact never contains
+    /// them — a diagnostic that does not describe the file beside it.
+    pub(crate) fn drops_snapshot(&self) -> BTreeMap<String, std::collections::BTreeSet<String>> {
+        self.drops.borrow().clone()
+    }
+
+    /// Restore a [`drops_snapshot`], discarding everything recorded since.
+    ///
+    /// [`drops_snapshot`]: Resolver::drops_snapshot
+    pub(crate) fn restore_drops(
+        &self,
+        snapshot: BTreeMap<String, std::collections::BTreeSet<String>>,
+    ) {
+        *self.drops.borrow_mut() = snapshot;
     }
 
     /// A resolver that reports its drops into an existing collector.
