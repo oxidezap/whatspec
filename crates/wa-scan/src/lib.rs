@@ -276,7 +276,11 @@ pub fn scan_iq_with_diagnostics(
         let site = format!("{}::{}", s.module_name, s.response.parser_name);
         enum_linker.resolve(&site, &mut s.response);
     }
-    let enum_drops = enum_linker.into_drops();
+    // Every reason the linker collected, not just the enum one: it also drains the
+    // legacy scanner's other unresolved constraints (a byte pin, a length band) off the
+    // shapes, and reading only `into_drops()` here discarded them — IQ reported no loss
+    // for exactly the constraints the previous round taught it to see.
+    let legacy_drops = enum_linker.into_drop_counts();
 
     // Normalize ordering by an intrinsic key so the output (index.json + the
     // grouped codegen) is independent of bundle/source order, matching every
@@ -306,8 +310,8 @@ pub fn scan_iq_with_diagnostics(
             // unusual response shapes that fallback exists to handle.
             constraint_drops: {
                 let mut d = response_index.drop_counts();
-                if !enum_drops.is_empty() {
-                    *d.entry(response_smax::ENUM_DROP.to_string()).or_default() += enum_drops.len();
+                for (reason, n) in legacy_drops {
+                    *d.entry(reason).or_default() += n;
                 }
                 d
             },

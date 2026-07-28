@@ -123,14 +123,17 @@ pub(crate) fn is_child_field(f: &ParsedField) -> bool {
 }
 
 /// A field the codegen materializes as a top-level attr-style field: an attribute
-/// accessor (via [`wap::is_attr_method`]), a `contentBytes` leaf, or a `hasAttr`
-/// presence marker (the latter filtered out by callers before emission).
+/// accessor (via [`wap::is_attr_method`]), **any** content leaf (via
+/// [`wap::is_content_method`]), or a `hasAttr` presence marker (the latter filtered out
+/// by callers before emission).
+///
+/// The content half is derived, not enumerated. Naming three spellings here was the
+/// fourth site of that mistake in this change, and the most misleading: the scanners
+/// recovered live `contentUint` fields, the IR carried them, and the reference codegen
+/// dropped them on the floor — so the generated Rust came out byte-identical and the
+/// unchanged output read as "nothing broke" rather than "the new data is being ignored".
 pub(crate) fn is_attr_field(f: &ParsedField) -> bool {
-    wap::is_attr_method(&f.method)
-        || f.method == wap::CONTENT_BYTES
-        || f.method == wap::CONTENT_STRING
-        || f.method == wap::CONTENT_INT
-        || f.method == wap::HAS_ATTR
+    wap::is_attr_method(&f.method) || wap::is_content_method(&f.method) || f.method == wap::HAS_ATTR
 }
 
 /// If `f` is a `child`/`maybeChild` whose body is just a content accessor
@@ -145,15 +148,24 @@ pub(crate) fn child_content_type(f: &ParsedField) -> Option<ContentType> {
     if kids.is_empty() || !kids.iter().all(is_content_method) {
         return None;
     }
+    // Bytes wins a mixed group (the widest reading); otherwise the kids' own decoded
+    // type decides. Collapsing everything that was not bytes onto `String` is what made
+    // `<registration>`, `<type>` and `<id>` — three `contentUint` siblings — share a
+    // single generated `content` field, two of the three silently dropped.
     Some(if kids.iter().any(|c| c.method == wap::CONTENT_BYTES) {
         ContentType::Bytes
+    } else if kids
+        .iter()
+        .all(|c| wap::method_field_type(&c.method) == wa_ir::ParsedFieldType::Integer)
+    {
+        ContentType::Integer
     } else {
         ContentType::String
     })
 }
 
 fn is_content_method(f: &ParsedField) -> bool {
-    f.method == wap::CONTENT_STRING || f.method == wap::CONTENT_BYTES
+    wap::is_content_method(&f.method)
 }
 
 fn children_of(f: &ParsedField) -> &[ParsedField] {
@@ -253,10 +265,10 @@ pub(crate) fn collect_response_fields(
             // `child("x").contentString()` → a single `x: String` field (named by
             // the child tag), not a stray `content` attr that collapses siblings.
             if let Some(ct) = f.content_type.or_else(|| child_content_type(f)) {
-                let base = if ct == ContentType::Bytes {
-                    "Vec<u8>"
-                } else {
-                    "String"
+                let base = match ct {
+                    ContentType::Bytes => "Vec<u8>",
+                    ContentType::Integer => "u64",
+                    _ => "String",
                 };
                 let wrapped = if f.method == "maybeChild" {
                     format!("Option<{base}>")

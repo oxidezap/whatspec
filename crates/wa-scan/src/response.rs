@@ -966,11 +966,13 @@ fn merge_child_shape(fields: &mut [ParsedField], tag: &str, new_children: Vec<Pa
     }
 }
 
+/// The content kind an accessor decodes to, derived from the canonical classifier so a
+/// newly-recognized spelling is typed rather than defaulted to text.
 fn content_kind(method: &str) -> ContentType {
-    if method == "contentBytes" {
-        ContentType::Bytes
-    } else {
-        ContentType::String
+    match wap::method_field_type(method) {
+        ParsedFieldType::Bytes => ContentType::Bytes,
+        ParsedFieldType::Integer => ContentType::Integer,
+        _ => ContentType::String,
     }
 }
 
@@ -1596,6 +1598,27 @@ mod tests {
             "the loss is counted: {:?}",
             r.unresolved
         );
+    }
+
+    #[test]
+    fn a_byte_pin_from_a_foreign_factory_is_not_trusted() {
+        // `factory.of(1, 2)` is an ordinary call that may return anything; reading its
+        // arguments as the pinned bytes would invent a `literalValue` rather than record
+        // an unresolved one. Same for `new Whatever([1, 2])`.
+        for src in [
+            r#"{ e.child("t").contentLiteralBytes(factory.of(1, 2)); }"#,
+            r#"{ e.child("t").contentLiteralBytes(new Whatever([1, 2])); }"#,
+        ] {
+            let r = analyze_parser_ast(src, "e");
+            let leaf = r.fields[0].children.as_ref().unwrap()[0].clone();
+            assert_eq!(leaf.literal_value, None, "no invented pin for {src}");
+            assert!(
+                r.unresolved
+                    .iter()
+                    .any(|d| d.starts_with("contentLiteralBytes@")),
+                "and the loss is counted for {src}"
+            );
+        }
     }
 
     #[test]

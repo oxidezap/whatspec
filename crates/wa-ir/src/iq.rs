@@ -379,6 +379,13 @@ impl ParsedFieldType {
 pub enum ContentType {
     String,
     Bytes,
+    /// A decimal integer in the element body (`contentUint`, `contentInt`). Distinct
+    /// from [`String`] because a consumer that reads it as text has to re-parse, and
+    /// because collapsing it onto `String` is how three sibling integer contents ended
+    /// up sharing one generated field.
+    ///
+    /// [`String`]: ContentType::String
+    Integer,
     Nodes,
 }
 

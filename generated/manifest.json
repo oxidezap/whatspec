@@ -3,9 +3,7 @@
   "appstateActions": 67,
   "diagnostics": {
     "incoming": {
-      "dropsByReason": {
-        "response enum argument not structurally resolvable": 4
-      }
+      "dropsByReason": {}
     },
     "iq": {
       "candidateModules": 207,

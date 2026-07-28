@@ -44,7 +44,9 @@ use wa_ir::{
     ResponseAssertion, Scalar, UnionVariant,
 };
 
-use wa_oxc::{arg_expr, as_call, as_identifier, as_int, as_string_lit, callee_method};
+use wa_oxc::{
+    arg_expr, as_call, as_identifier, as_int, as_string_lit, callee_method, callee_object,
+};
 
 /// Drop reason for an enum accessor whose enum could not be resolved to its variants.
 pub(crate) const ENUM_DROP: &str = "response enum argument not structurally resolvable";
@@ -2050,8 +2052,12 @@ pub(crate) fn static_byte_literal(e: &Expression) -> Option<Vec<u8>> {
     // `Uint8Array.of(1, 2)` — the bytes are the ARGUMENTS, not an array operand. It was
     // documented as supported here and was not: every call expression fell through to
     // `None` and the pin was reported as an unresolved constraint.
+    // The receiver must be `Uint8Array`: `factory.of(1, 2)` is an ordinary call that may
+    // return anything, and reading its arguments as the pinned bytes would invent a
+    // `literalValue` rather than record an unresolved one.
     if let Some(call) = wa_oxc::as_call(e)
         && callee_method(call) == Some("of")
+        && callee_object(call).and_then(as_identifier) == Some("Uint8Array")
     {
         return call
             .arguments
@@ -2064,7 +2070,12 @@ pub(crate) fn static_byte_literal(e: &Expression) -> Option<Vec<u8>> {
         Expression::NewExpression(n) => {
             // `new Uint8Array([...])` — the sequence is the sole argument. `new
             // Uint8Array(4)` (a LENGTH, not a value) deliberately does not match: it pins
-            // no bytes, and reading `4` as the byte 0x04 would invent a constraint.
+            // no bytes, and reading `4` as the byte 0x04 would invent a constraint. The
+            // constructor is checked for the same reason the `.of` receiver is: `new
+            // Whatever([1,2])` need not produce those bytes.
+            if as_identifier(&n.callee) != Some("Uint8Array") {
+                return None;
+            }
             match arg_expr(n.arguments.first()?)? {
                 Expression::ArrayExpression(a) => a,
                 _ => return None,

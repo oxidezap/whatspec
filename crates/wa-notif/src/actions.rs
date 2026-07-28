@@ -505,7 +505,13 @@ fn terminates(stmts: &[Statement]) -> bool {
 /// outer case, yet the later `return` made the whole list look terminating. A statement
 /// that can escape upward poisons the conclusion before any later statement is consulted.
 fn list_exits(stmts: &[Statement], nested: bool) -> bool {
-    for s in stmts {
+    list_exits_refs(&stmts.iter().collect::<Vec<_>>(), nested)
+}
+
+/// [`list_exits`] over borrowed statements, so a fall-through suffix can be assembled
+/// across cases without cloning the AST.
+fn list_exits_refs(stmts: &[&Statement], nested: bool) -> bool {
+    for s in stmts.iter().copied() {
         if can_escape(s, nested) {
             return false;
         }
@@ -550,14 +556,22 @@ fn stmt_exits(s: &Statement, nested: bool) -> bool {
             .alternate
             .as_ref()
             .is_some_and(|alt| stmt_exits(&i.consequent, nested) && stmt_exits(alt, nested)),
-        // Exhaustive only with a `default`; an empty case body falls into the next one,
-        // so it does not have to exit on its own.
+        // Exhaustive only with a `default`, and only if every case leaves the switch —
+        // which each case may do through its own fall-through suffix, not just its own
+        // body. `case X: setup(); default: return A` exits on both paths: `X` runs
+        // `setup()` and falls into the default's `return`. Requiring the body alone to
+        // exit (accepting only an EMPTY fall-through label) called that switch
+        // non-terminating, and the enclosing case then borrowed the next outer case's
+        // action for a wire tag that never produces it.
         Statement::SwitchStatement(sw) => {
             sw.cases.iter().any(|c| c.test.is_none())
-                && sw
-                    .cases
-                    .iter()
-                    .all(|c| c.consequent.is_empty() || list_exits(&c.consequent, true))
+                && (0..sw.cases.len()).all(|i| {
+                    let suffix: Vec<&Statement> = sw.cases[i..]
+                        .iter()
+                        .flat_map(|c| c.consequent.iter())
+                        .collect();
+                    list_exits_refs(&suffix, true)
+                })
         }
         _ => false,
     }

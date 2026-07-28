@@ -69,7 +69,6 @@ pub fn scan_incoming_with_diagnostics(
             continue;
         }
         for mut shape in parse_module_wap_parsers(slice) {
-            enums.resolve(&format!("{}::{}", m.name, shape.parser_name), &mut shape);
             // The parser's `assertTag("…")` is the received stanza's tag.
             // `assertTag("receipt")` stores the tag in the assertion's `name`.
             let tag = shape
@@ -78,7 +77,13 @@ pub fn scan_incoming_with_diagnostics(
                 .find(|a| a.kind == AssertionKind::Tag)
                 .and_then(|a| a.name.as_deref())
                 .and_then(incoming_tag);
+            // The tag gate comes FIRST. This pass sees every legacy parser in the bundle,
+            // most of which belong to the IQ or notification domains; resolving before
+            // the gate charged their losses to `diagnostics.incoming`, which then
+            // described parsers absent from `incoming/index.json`. A diagnostic that does
+            // not describe the artifact beside it is worse than none.
             if let Some(tag) = tag {
+                enums.resolve(&format!("{}::{}", m.name, shape.parser_name), &mut shape);
                 out.push(IncomingDef {
                     tag,
                     module: m.name.clone(),

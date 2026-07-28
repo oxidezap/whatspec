@@ -319,6 +319,61 @@ mod tests {
     }
 
     #[test]
+    fn integer_content_children_get_their_own_named_fields() {
+        // Two things were wrong at once, and the second hid the first: the codegen's
+        // content predicate admitted only three spellings, so live `contentUint` fields
+        // were dropped and the generated Rust came out unchanged — which read as "nothing
+        // broke". Once they arrived, every one of them was named `content` and collapsed
+        // into a single field, so two of three values were still lost.
+        let uint_child = |tag: &str| {
+            let mut c = parsed("child", tag, ParsedFieldType::String);
+            c.tag = Some(tag.into());
+            c.children = Some(vec![parsed(
+                "contentUint",
+                "content",
+                ParsedFieldType::Integer,
+            )]);
+            c
+        };
+        let ir = IqIr {
+            wa_version: "0.0.0".into(),
+            stanzas: vec![IqStanzaDef {
+                module_name: "WAWebDigest".into(),
+                namespace: "encrypt".into(),
+                iq_type: IqType::Get,
+                target: IqTarget::Server,
+                parser_name: "p".into(),
+                exported_function: Some("digest".into()),
+                all_exports: vec!["digest".into()],
+                request: IqRequestDef {
+                    namespace: "encrypt".into(),
+                    iq_type: IqType::Get,
+                    target: IqTarget::Server,
+                    children: vec![],
+                },
+                response: ParsedResponse {
+                    parser_name: "p".into(),
+                    assertions: vec![],
+                    fields: vec![uint_child("registration"), uint_child("id")],
+                    ..Default::default()
+                },
+            }],
+            unparseable: vec![],
+        };
+        let c = &generate_iq(&ir);
+        assert!(c.contains("pub registration: u64,"), "registration field");
+        assert!(c.contains("pub id: u64,"), "id field");
+        assert!(
+            !c.contains("pub content: u64,"),
+            "must not collapse both onto `content`"
+        );
+        assert!(
+            c.contains("content_str().and_then(|s| s.parse().ok())"),
+            "and the value is actually parsed"
+        );
+    }
+
+    #[test]
     fn generates_spec_with_request_and_response() {
         let ir = IqIr {
             wa_version: "0.0.0".into(),

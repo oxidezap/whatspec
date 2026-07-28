@@ -91,11 +91,20 @@
     },
     "ContentType": {
       "description": "How a child/leaf node's content is accessed in the response parser.",
-      "type": "string",
-      "enum": [
-        "string",
-        "bytes",
-        "nodes"
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "string",
+            "bytes",
+            "nodes"
+          ]
+        },
+        {
+          "description": "A decimal integer in the element body (`contentUint`, `contentInt`). Distinct\nfrom [`String`] because a consumer that reads it as text has to re-parse, and\nbecause collapsing it onto `String` is how three sibling integer contents ended\nup sharing one generated field.\n\n[`String`]: ContentType::String",
+          "type": "string",
+          "const": "integer"
+        }
       ]
     },
     "Direction": {

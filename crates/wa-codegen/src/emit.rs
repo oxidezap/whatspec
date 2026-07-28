@@ -38,20 +38,21 @@ pub(crate) fn emit_field_parse(f: &ParsedField, node_var: &str, indent: &str) ->
     let fmsg = rust_lit_inner(wire);
     let method = f.method.as_str();
 
-    if method == wap::CONTENT_BYTES {
-        return vec![format!(
-            "{indent}let {name} = {node_var}.content_bytes().map(|b| b.to_vec()).unwrap_or_default();"
-        )];
-    }
-    if method == wap::CONTENT_STRING {
-        return vec![format!(
-            "{indent}let {name} = {node_var}.content_str().unwrap_or_default().to_string();"
-        )];
-    }
-    if method == wap::CONTENT_INT {
-        return vec![format!(
-            "{indent}let {name} = {node_var}.content_str().and_then(|s| s.parse().ok()).unwrap_or_default();"
-        )];
+    // Every remaining content spelling reads the node body and is typed by the canonical
+    // classifier, so a newly-recognized one (`contentUint`, `contentEnum`,
+    // `contentBytesRange`, `contentLiteralBytes`) is parsed rather than silently skipped.
+    if wap::is_content_method(method) {
+        return match wap::method_field_type(method) {
+            ParsedFieldType::Bytes => vec![format!(
+                "{indent}let {name} = {node_var}.content_bytes().map(|b| b.to_vec()).unwrap_or_default();"
+            )],
+            ParsedFieldType::Integer => vec![format!(
+                "{indent}let {name} = {node_var}.content_str().and_then(|s| s.parse().ok()).unwrap_or_default();"
+            )],
+            _ => vec![format!(
+                "{indent}let {name} = {node_var}.content_str().unwrap_or_default().to_string();"
+            )],
+        };
     }
     if !wap::is_attr_method(method) {
         return Vec::new();
@@ -269,16 +270,29 @@ fn emit_struct_reads(
                 indent,
             );
             let lit = rust_lit(tag);
-            let bytes = ct == wa_ir::ContentType::Bytes;
+            // Two spellings per kind: one that yields an `Option` for the `maybeChild`
+            // chain, one that unwraps for the required branch. Kept as literal text per
+            // kind so adding the integer reading leaves the existing bytes/string output
+            // byte-for-byte unchanged.
+            let (opt_read, req_read) = match ct {
+                wa_ir::ContentType::Bytes => (
+                    "content_bytes().map(|b| b.to_vec())",
+                    "content_bytes().map(|b| b.to_vec()).unwrap_or_default()",
+                ),
+                wa_ir::ContentType::Integer => (
+                    "content_str().and_then(|s| s.parse().ok())",
+                    "content_str().and_then(|s| s.parse().ok()).unwrap_or_default()",
+                ),
+                _ => (
+                    "content_str().map(|s| s.to_string())",
+                    "content_str().unwrap_or_default().to_string()",
+                ),
+            };
             if f.method == "maybeChild" {
                 lines.push(format!(
                     "{indent}let {id} = {base}.get_optional_child({lit})"
                 ));
-                lines.push(if bytes {
-                    format!("{indent}    .and_then(|n| n.content_bytes().map(|b| b.to_vec()));")
-                } else {
-                    format!("{indent}    .and_then(|n| n.content_str().map(|s| s.to_string()));")
-                });
+                lines.push(format!("{indent}    .and_then(|n| n.{opt_read});"));
             } else {
                 lines.push(format!(
                     "{indent}let {id}_node = {base}.get_optional_child({lit})"
@@ -287,11 +301,7 @@ fn emit_struct_reads(
                     "{indent}    .ok_or_else(|| anyhow::anyhow!(\"missing <{}>\"))?;",
                     rust_lit_inner(tag)
                 ));
-                lines.push(if bytes {
-                    format!("{indent}let {id} = {id}_node.content_bytes().map(|b| b.to_vec()).unwrap_or_default();")
-                } else {
-                    format!("{indent}let {id} = {id}_node.content_str().unwrap_or_default().to_string();")
-                });
+                lines.push(format!("{indent}let {id} = {id}_node.{req_read};"));
             }
             inits.push(format!("{indent}    {id},"));
             continue;

@@ -1229,7 +1229,7 @@ __d("WAWebCommsHandleLoggedInStanza",["WAWebHandleGroupNotification"],function(g
   }); };
 }, 1);
 __d("WAWebHandleGroupNotificationConst",[],(function(t,n,r,o,a,i,l){
-  l.GROUP_NOTIFICATION_TAG=Object.freeze({EVICT:"evict",COND:"cond",REBIND:"rebind",PICK:"pick",BARE:"bare",HELPER:"helper",ESCAPE:"escape",TAIL:"tail",JOIN:"join",SEQ:"seq"});
+  l.GROUP_NOTIFICATION_TAG=Object.freeze({EVICT:"evict",COND:"cond",REBIND:"rebind",PICK:"pick",BARE:"bare",HELPER:"helper",ESCAPE:"escape",TAIL:"tail",JOIN:"join",SEQ:"seq",SUFFIX:"suffix",AFTER:"after"});
 }), 1);
 __d("WAWebGroupType",[],(function(t,n,r,o,a,i,l){
   l.GROUP_ACTIONS=Object.freeze({FIRST:"first",SECOND:"second",THIRD:"third"});
@@ -1266,6 +1266,13 @@ __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGr
           if (t.hasChild("alt")) j=t.attrString("lid");
           return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, id:j};
         }
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.SUFFIX:
+          switch (t.attrString("k")) {
+            case "a": t.attrString("setup");
+            default: return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, s:t.attrString("s")};
+          }
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.AFTER:
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.THIRD, a1:t.attrString("a1")};
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.SEQ: {
           var s1, s2;
           s1=t.attrString("jid"), s2=t.attrInt("n");
@@ -1433,4 +1440,25 @@ fn a_comma_sequence_of_assignments_binds_every_operand() {
     };
     assert_eq!(wire("id"), Some("jid"));
     assert_eq!(wire("n"), Some("n"));
+}
+
+#[test]
+fn a_nested_case_exits_through_its_own_fall_through_suffix() {
+    // `case "a": setup(); default: return X` — the `a` path runs `setup()` and falls into
+    // the default's return, so the switch DOES leave the enclosing case on every path.
+    // Requiring each nested case body to exit on its own (accepting only an empty
+    // fall-through label) called it non-terminating, and `suffix` then borrowed the
+    // following outer case's action for a wire tag that never produces it.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let got: Vec<&str> = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .filter(|a| a.wire_tag == "suffix")
+        .filter_map(|a| a.action_type.as_deref())
+        .collect();
+    assert!(got.contains(&"first"), "its own action survives: {got:?}");
+    assert!(
+        !got.contains(&"third"),
+        "and it must not borrow the next case's: {got:?}"
+    );
 }
