@@ -421,11 +421,10 @@ fn extract_switch(switch: &SwitchStatement, ctx: &ArmCtx) -> Vec<NotifActionDef>
         // fall through, and treating that as its own arm loses the action type and every
         // field of a legally dispatched tag. Search forward for the first case that
         // yields a result shape instead.
-        let consequent = switch.cases[i..]
-            .iter()
-            .map(|c| &c.consequent[..])
-            .find(|c| !arm_result_shapes(c).is_empty())
-            .unwrap_or(&case.consequent);
+        // …but the chain ENDS at a terminating statement. `case A: log(); break; case B:
+        // return {…}` does not fall through, and scanning past the `break` would publish
+        // B's action type and fields under A's wire tag — a shape that tag never produces.
+        let consequent = fall_through_body(&switch.cases[i..]).unwrap_or(&case.consequent);
         let shapes = arm_result_shapes(consequent);
         if shapes.is_empty() {
             // A recognised tag whose arm returns no shape (a bare flag set, an early
@@ -441,21 +440,56 @@ fn extract_switch(switch: &SwitchStatement, ctx: &ArmCtx) -> Vec<NotifActionDef>
         // So branches are grouped by `actionType`: different ones stay separate arms of
         // the union, identical ones merge into one (a field only some branches read is
         // optional in the merge).
-        let mut grouped: Vec<NotifActionDef> = Vec::new();
+        // One conflict tombstone per grouped arm, living for every branch folded into it.
+        let mut grouped: Vec<(NotifActionDef, Conflicts)> = Vec::new();
         for (shape, scope) in shapes {
             for action in expand_shape(&wire_tag, shape, &scope, ctx, 0) {
                 match grouped
                     .iter_mut()
-                    .find(|g| g.action_type == action.action_type)
+                    .find(|(g, _)| g.action_type == action.action_type)
                 {
-                    Some(existing) => merge_action(existing, action),
-                    None => grouped.push(action),
+                    Some((existing, dead)) => merge_action(existing, action, dead),
+                    None => grouped.push((action, Conflicts::new())),
                 }
             }
         }
-        out.extend(grouped);
+        out.extend(grouped.into_iter().map(|(g, _)| g));
     }
     out
+}
+
+/// The body a case actually runs, following the fall-through chain.
+///
+/// Starting at the case itself, walk forward until one yields a result shape — a label
+/// may do setup or log before falling through, so "the first non-empty consequent" is not
+/// the answer. The chain **ends** at a terminating statement: `case A: log(); break;` does
+/// not fall through, and continuing past it would publish the next case's action under
+/// A's wire tag, a shape that tag never produces.
+fn fall_through_body<'b, 'a>(
+    cases: &'b [oxc_ast::ast::SwitchCase<'a>],
+) -> Option<&'b [Statement<'a>]> {
+    for case in cases {
+        if !arm_result_shapes(&case.consequent).is_empty() {
+            return Some(&case.consequent);
+        }
+        if terminates(&case.consequent) {
+            return None;
+        }
+    }
+    None
+}
+
+/// Whether a case body ends its own control flow rather than falling through.
+fn terminates(stmts: &[Statement]) -> bool {
+    stmts.iter().any(|s| {
+        matches!(
+            s,
+            Statement::BreakStatement(_)
+                | Statement::ReturnStatement(_)
+                | Statement::ContinueStatement(_)
+                | Statement::ThrowStatement(_)
+        ) || matches!(s, Statement::BlockStatement(b) if terminates(&b.body))
+    })
 }
 
 fn empty_action(wire_tag: String) -> NotifActionDef {
@@ -471,7 +505,7 @@ fn empty_action(wire_tag: String) -> NotifActionDef {
 /// Fold a second branch of the same action into the first: a field either branch reads
 /// is present, and required only if BOTH read it unconditionally. A constant only one
 /// branch stamps is dropped — it is not a property of the action, only of that branch.
-fn merge_action(into: &mut NotifActionDef, from: NotifActionDef) {
+fn merge_action(into: &mut NotifActionDef, from: NotifActionDef, dead: &mut Conflicts) {
     // A field the incoming branch does not read at all is, by definition, absent from
     // one legal shape of this action — so it cannot stay required just because the
     // first branch read it unconditionally. Weaken those before folding the rest in.
@@ -483,9 +517,12 @@ fn merge_action(into: &mut NotifActionDef, from: NotifActionDef) {
     // Scalars go through the same rule the mapped children use, tombstone included: a
     // key bound to different wire reads in two branches has no single answer, and
     // updating only `required` here would publish the first branch's attribute for both.
-    let mut dead = Conflicts::new();
-    merge_fields(&mut into.fields, from.fields, false, &mut dead);
-    apply_conflicts(&mut into.fields, &dead);
+    //
+    // The tombstone is the CALLER's, so it survives the whole fold: with three returns
+    // sharing an action type, A(jid) vs B(lid) removes the key and a fresh set would let
+    // C(jid) add it straight back.
+    merge_fields(&mut into.fields, from.fields, false, dead);
+    apply_conflicts(&mut into.fields, dead);
     let mut dead_children: Vec<String> = Vec::new();
     for c in from.children {
         match into.children.iter_mut().find(|x| x.name == c.name) {
@@ -531,7 +568,7 @@ fn arm_result_shapes_in<'b, 'a>(
 }
 
 /// Every `return` reachable in `stmts`, descending through control flow (`if`/`else`,
-/// blocks, `try`) but never into a nested function or a nested `switch` — an arm or helper that
+/// blocks, `try`, a nested `switch`) but never into a nested function — an arm or helper that
 /// writes `if (cond) return {actionType: A, …}; return {actionType: B, …}` exposes both
 /// shapes, where a direct-children-only scan would silently keep just the last.
 /// The result shapes of a function expression, handling the implicit return of an
@@ -591,9 +628,17 @@ fn collect_returns<'b, 'a>(
                 }
             }
             Statement::TryStatement(t) => collect_returns(&t.block.body, &scope, out),
-            // Deliberately NOT descending into a nested `switch`: that is a different
-            // dispatch level, and its arms are other actions' shapes, not branches of
-            // this one.
+            // A nested `switch` inside an arm (or a helper body) is how THAT arm picks
+            // its shape — `case LINK: switch (linkType) { case "parent": return {…};
+            // default: return {…} }` describes two legal actions for `link`, and skipping
+            // it left the arm empty. Nested *functions* are still not descended into,
+            // which is what keeps the top-level child-tag dispatch out of a helper's
+            // returns.
+            Statement::SwitchStatement(sw) => {
+                for c in &sw.cases {
+                    collect_returns(&c.consequent, &scope, out);
+                }
+            }
             _ => {}
         }
     }
@@ -750,16 +795,19 @@ fn expand_helper(wire_tag: &str, fn_src: &str, ctx: &ArmCtx, depth: u8) -> Vec<N
     }) else {
         return Vec::new();
     };
-    let mut out: Vec<NotifActionDef> = Vec::new();
+    let mut merged: Vec<(NotifActionDef, Conflicts)> = Vec::new();
     for (shape, scope) in fn_result_shapes(func, &Scope::new()) {
         for action in expand_shape(wire_tag, shape, &scope, ctx, depth) {
-            match out.iter_mut().find(|g| g.action_type == action.action_type) {
-                Some(existing) => merge_action(existing, action),
-                None => out.push(action),
+            match merged
+                .iter_mut()
+                .find(|(g, _)| g.action_type == action.action_type)
+            {
+                Some((existing, dead)) => merge_action(existing, action, dead),
+                None => merged.push((action, Conflicts::new())),
             }
         }
     }
-    out
+    merged.into_iter().map(|(g, _)| g).collect()
 }
 
 /// Read one arm result shape into a [`NotifActionDef`].
@@ -851,18 +899,19 @@ fn inline_local(fn_src: &str, def: &mut NotifActionDef, ctx: &ArmCtx, depth: u8)
     // describes two legal shapes, and combining them would make the enclosing action
     // require both and reject either. `merge_action` weakens what only some branches
     // carry — the same rule the switch arms use.
-    let mut branches: Vec<NotifActionDef> = Vec::new();
+    let mut branches: Vec<(NotifActionDef, Conflicts)> = Vec::new();
     for (shape, scope) in fn_result_shapes(func, &Scope::new()) {
         let mut one = empty_action(String::new());
         fold_shape(shape, &scope, &mut one, ctx, depth + 1);
         match branches
             .iter_mut()
-            .find(|b| b.action_type == one.action_type)
+            .find(|(b, _)| b.action_type == one.action_type)
         {
-            Some(existing) => merge_action(existing, one),
-            None => branches.push(one),
+            Some((existing, dead)) => merge_action(existing, one, dead),
+            None => branches.push((one, Conflicts::new())),
         }
     }
+    let branches: Vec<NotifActionDef> = branches.into_iter().map(|(b, _)| b).collect();
     // Distinct action types cannot arise here (a value-position helper contributes
     // fields, it does not pick the action), so folding the merged branches in is safe.
     for b in branches {
@@ -876,19 +925,25 @@ fn merge_into(def: &mut NotifActionDef, from: NotifActionDef) {
     if def.action_type.is_none() {
         def.action_type = from.action_type;
     }
+    // A helper folded in as an `extends` operand contributes at ITS position in the
+    // argument list, so what it writes overrides what an earlier operand wrote — the same
+    // last-write rule an object literal follows.
     for f in from.fields {
-        if !def.fields.iter().any(|x| x.name == f.name) {
-            def.fields.push(f);
+        match def.fields.iter_mut().find(|x| x.name == f.name) {
+            Some(existing) => *existing = f,
+            None => def.fields.push(f),
         }
     }
     for c in from.children {
-        if !def.children.iter().any(|x| x.name == c.name) {
-            def.children.push(c);
+        match def.children.iter_mut().find(|x| x.name == c.name) {
+            Some(existing) => *existing = c,
+            None => def.children.push(c),
         }
     }
     for c in from.constant_fields {
-        if !def.constant_fields.iter().any(|x| x.name == c.name) {
-            def.constant_fields.push(c);
+        match def.constant_fields.iter_mut().find(|x| x.name == c.name) {
+            Some(existing) => *existing = c,
+            None => def.constant_fields.push(c),
         }
     }
 }
@@ -948,21 +1003,29 @@ fn fold_object<'b, 'a>(
             // one that returns a flat object contributes its fields under their own names.
             for mut c in nested.children {
                 c.name = key.to_string();
-                if !def.children.iter().any(|x| x.name == c.name) {
-                    def.children.push(c);
+                match def.children.iter_mut().find(|x| x.name == c.name) {
+                    Some(existing) => *existing = c,
+                    None => def.children.push(c),
                 }
             }
             for f in nested.fields {
-                if !def.fields.iter().any(|x| x.name == f.name) {
-                    def.fields.push(f);
+                match def.fields.iter_mut().find(|x| x.name == f.name) {
+                    Some(existing) => *existing = f,
+                    None => def.fields.push(f),
                 }
             }
             continue;
         }
-        if let Some(field) = read_field(key, value, scope, ctx.consts)
-            && !def.fields.iter().any(|x| x.name == field.name)
-        {
-            def.fields.push(field);
+        if let Some(field) = read_field(key, value, scope, ctx.consts) {
+            // Last write wins WITHIN one shape: a duplicate key in an object literal, and
+            // a later `babelHelpers.extends(…)` operand, both override at runtime —
+            // `extends({id: attrString("jid")}, {id: attrString("lid")})` yields `lid`.
+            // (Between mutually exclusive BRANCHES the rule is the opposite: they merge,
+            // and a genuine disagreement is refused. See `merge_fields`.)
+            match def.fields.iter_mut().find(|x| x.name == field.name) {
+                Some(existing) => *existing = field,
+                None => def.fields.push(field),
+            }
         }
     }
 }

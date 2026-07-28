@@ -598,7 +598,7 @@ __d("WAWebHandleDeviceNotification",["WADeprecatedWapParser"],(function(t,n,r,o,
 __d("WAWebHandleGroupNotificationConst",[],(function(t,n,r,o,a,i,l){
   var cache={};
   cache.GROUP_NOTIFICATION_TAG={ADD:"WRONG_add",SUBJECT:"WRONG_subject"};
-  var e=Object.freeze({ADD:"add",SUBJECT:"subject",EPHEMERAL:"ephemeral",NOT_EPHEMERAL:"not_ephemeral",MODIFY:"modify",GROWTH_LOCKED:"growth_locked",LOCKED:"locked",REVOKE_INVITE:"revoke",DESC:"description",UNLINK:"unlink"});
+  var e=Object.freeze({ADD:"add",SUBJECT:"subject",EPHEMERAL:"ephemeral",NOT_EPHEMERAL:"not_ephemeral",MODIFY:"modify",GROWTH_LOCKED:"growth_locked",INVITE:"invite",LINK:"link",LOCKED:"locked",REVOKE_INVITE:"revoke",DESC:"description",UNLINK:"unlink"});
   l.GROUP_NOTIFICATION_TAG=e;
 }), 1);
 __d("WAWebGroupApiConst",[],(function(t,n,r,o,a,i,l){
@@ -643,6 +643,15 @@ __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGr
           if (t.hasChild("early")) return {actionType:o("WAWebGroupType").GROUP_ACTIONS.MODIFY, entries:q(t), pick:z};
           var z = t.attrString("second");
           return {actionType:o("WAWebGroupType").GROUP_ACTIONS.RESTRICT, pick:z};
+        }
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.INVITE:
+          o("WALogger").INFO("no fall-through"); break;
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.LINK: {
+          var lt = t.attrString("link_type");
+          switch (lt) {
+            case "parent": return {actionType:o("WAWebGroupType").GROUP_ACTIONS.DESC_ADD, parentId:t.attrString("pid")};
+            default: return {actionType:o("WAWebGroupType").GROUP_ACTIONS.DESC_REMOVE, subId:t.attrString("sid")};
+          }
         }
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.GROWTH_LOCKED:
           o("WALogger").INFO("setup");
@@ -1114,4 +1123,40 @@ fn a_third_branch_cannot_resurrect_a_conflicted_key() {
         "the third branch must not resurrect the conflict: {names:?}"
     );
     assert!(names.contains(&"id"), "unambiguous keys survive: {names:?}");
+}
+
+#[test]
+fn a_terminating_case_does_not_borrow_the_next_action() {
+    // `case INVITE: log(); break;` does not fall through. Scanning past the `break` for
+    // "the next case that yields a shape" would publish that action under `invite`, a
+    // shape the tag never produces.
+    let ir = extract_notif(GROUP_ACTIONS_BUNDLE, "2.3000.test");
+    let invite: Vec<_> = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .filter(|a| a.wire_tag == "invite")
+        .collect();
+    assert_eq!(invite.len(), 1);
+    assert_eq!(
+        invite[0].action_type, None,
+        "a terminating arm produces no shape of its own, and must borrow none"
+    );
+    assert!(invite[0].fields.is_empty() && invite[0].children.is_empty());
+}
+
+#[test]
+fn an_arm_selecting_through_a_nested_switch_yields_both_actions() {
+    // `case UNLINK: switch (linkType) { case "parent": return {…}; default: return {…} }`
+    // describes two legal actions for one wire tag. Skipping nested switches — which the
+    // walk used to do, on the theory that they are a different dispatch level — left the
+    // arm empty.
+    let ir = extract_notif(GROUP_ACTIONS_BUNDLE, "2.3000.test");
+    let mut got: Vec<&str> = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .filter(|a| a.wire_tag == "link")
+        .filter_map(|a| a.action_type.as_deref())
+        .collect();
+    got.sort_unstable();
+    assert_eq!(got, ["desc_add", "desc_remove"]);
 }
