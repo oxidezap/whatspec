@@ -625,6 +625,9 @@ __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGr
   function hh(e){ return {wrongHelper:e.attrString("wrong")}; }
   function callsShadowed(e,hh){ return hh(e); }
   function parseP(x){ return {aliased:x.attrString("via_alias")}; }
+  function hx(e){ return {wrongFormal:e.attrString("nope")}; }
+  function realCb(e){ return {rightFormal:e.attrString("ok2")}; }
+  function outerH(node, hx){ return hx(node); }
   function mk(v){ return {chained:v}; }
   function mk2(v){ return mk(v); }
   function mixedKids(e){ return {plainField:e.attrString("plain"), kids:e.mapChildrenWithTag("mixed_user", function(x){ return {id:x.attrUserJid("jid")}; })}; }
@@ -692,7 +695,9 @@ __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGr
             twoDeep: mk2(t.attrString("deep_jid")),
             viaShadowedCallee: callsShadowed(t, function(z){ return {rightHelper:z.attrString("ok")}; }),
             mixed: t.hasChild("mx") && mixedKids(t),
-            aliasedCb: t.mapChildrenWithTag("alias_user", cbAlias)};
+            aliasedCb: t.mapChildrenWithTag("alias_user", cbAlias),
+            nestedGuard: t.hasChild("ng") ? (t.hasChild("en") && t.mapChildrenWithTag("nested_user", function(x){ return {id:x.attrUserJid("jid")}; })) : [{id:"fb"}],
+            fromFormal: outerH(t, realCb)};
         }
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.REVOKE_INVITE:
           return {actionType:o("WAWebGroupType").GROUP_ACTIONS.REVOKE_INVITE, participants:t.mapChildrenWithTag("participant", function(p){ return {id:p.attrUserJid("jid"), expiration:p.attrInt("expiration")}; }), owners:t.mapChildrenWithTag("owner", p=>o("WAWebJidToWid").userJidToUserWid(p.maybeAttrPhoneUserJid("phone_number")))};
@@ -897,6 +902,12 @@ fn a_mapped_child_is_optional_only_when_the_guard_admits_absence() {
         !names.contains(&"wrongHelper"),
         "the module-level `hh` must not be inlined over the bound one: {names:?}"
     );
+    // ...and the one that IS bound must still come through. Asserting only the absence
+    // would pass just as happily if the resolution silently produced nothing.
+    assert!(
+        names.contains(&"rightHelper"),
+        "the callback the caller bound is the one that runs: {names:?}"
+    );
 
     // A guarded value-position helper whose branches yield BOTH a collection and a flat
     // field must weaken both. Only the collection was being weakened.
@@ -923,6 +934,21 @@ fn a_mapped_child_is_optional_only_when_the_guard_admits_absence() {
             .collect::<Vec<_>>(),
         ["aliased"],
         "a terminal alias resolves through the module callbacks"
+    );
+
+    // A guard NESTED inside a ternary branch: neither end is nullish, but the `&&` path
+    // still yields no collection.
+    assert!(
+        !child("nestedGuard").required,
+        "a guard inside a branch counts, not only a nullish terminal"
+    );
+
+    // A helper FORMAL shadows a module helper of the same name even when `apply_args`
+    // declines to substitute — the formal never reaches `Scope` on that path.
+    let names2: Vec<&str> = arm.fields.iter().map(|f| f.name.as_str()).collect();
+    assert!(
+        !names2.contains(&"wrongFormal"),
+        "the module-level `hx` must not win over the formal: {names2:?}"
     );
 
     // The guard must not cost the child's contents.

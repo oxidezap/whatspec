@@ -59,7 +59,7 @@
 //! and `dropsByReason` counts what was seen and not recovered. That is the invariant to
 //! preserve if this grows: a reader that guesses is worse than one that reports a gap.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{Expression, Statement, SwitchStatement};
@@ -408,10 +408,12 @@ pub(crate) fn extract_actions(
         .into_iter()
         .filter_map(|(n, src)| src.map(|s| (n, s)))
         .collect();
+    let no_formals = HashSet::new();
     let ctx = ArmCtx {
         consts,
         source: handler_slice,
         locals: &locals,
+        formals: &no_formals,
     };
     let mut finder = SwitchFinder {
         ctx: &ctx,
@@ -436,15 +438,24 @@ struct ArmCtx<'c, 'a> {
     /// slicing the module with them lands on unrelated text — in range, so the bounds
     /// check never fires, just wrong. `inline_local` rebinds this to the buffer it parsed.
     source: &'c str,
+    /// Formal parameter names of the helper currently being inlined.
+    ///
+    /// They SHADOW module helpers of the same name for the whole body, but they are not
+    /// in `Scope`: `apply_args` deliberately declines to substitute unless an argument
+    /// carries a wire read (doing it unconditionally cost 62 shape elements), so the
+    /// binding that would have recorded them never happens. Carried separately so the
+    /// shadowing survives even when the substitution is skipped.
+    formals: &'c HashSet<String>,
 }
 
 impl<'c, 'a> ArmCtx<'c, 'a> {
-    /// The same context reading a different source buffer.
-    fn with_source(&self, source: &'c str) -> ArmCtx<'c, 'a> {
+    /// The same context reading a different source buffer, for the helper's formals.
+    fn nested(&self, source: &'c str, formals: &'c HashSet<String>) -> ArmCtx<'c, 'a> {
         ArmCtx {
             consts: self.consts,
             locals: self.locals,
             source,
+            formals,
         }
     }
 }
@@ -1456,6 +1467,28 @@ fn apply_args(fn_src: &str, arg_srcs: &[String]) -> String {
     }
 }
 
+/// The parameter names a helper declares, whether or not the call was substituted.
+fn helper_formals(e: &Expression) -> HashSet<String> {
+    let params = match e {
+        Expression::FunctionExpression(f) => &f.params,
+        Expression::ArrowFunctionExpression(f) => &f.params,
+        _ => return HashSet::new(),
+    };
+    let mut out = HashSet::new();
+    let mut add = |p: &oxc_ast::ast::BindingPattern| {
+        for id in p.get_binding_identifiers() {
+            out.insert(id.name.to_string());
+        }
+    };
+    for p in &params.items {
+        add(&p.pattern);
+    }
+    if let Some(rest) = &params.rest {
+        add(&rest.rest.argument);
+    }
+    out
+}
+
 /// Split a parsed `((fn)(a, b))` into the function and a scope binding its formals to
 /// the call-site argument expressions.
 ///
@@ -1606,14 +1639,27 @@ fn local_call_source<'b, 'a>(
     let call = as_call(e)?;
     let name = as_identifier(&call.callee)?;
     // The CALLEE is subject to the caller's bindings too, not only the arguments below.
-    // `outer(h, node){ return h(node) }` calls the `h` it was handed; inlining the
-    // module-level `h` of the same name would publish an unrelated helper's fields, or
-    // even a different action. Refused rather than guessed at — the same rule the named
-    // mapped-callback path applies, and for the same reason.
-    if scope.get(name).is_some() {
-        return None;
-    }
-    let src = ctx.locals.get(name).cloned()?;
+    // `outer(h, node){ return h(node) }` calls the `h` it was handed, so the module-level
+    // `h` of the same name would publish an unrelated helper's fields, or a different
+    // action entirely.
+    //
+    // What the caller bound is preferred, not merely refused: its text comes out of the
+    // source these spans index, which is why `ArmCtx` carries that buffer. Refusing
+    // outright loses a resolvable case — the whole field list of a callback passed as a
+    // literal. Only when the binding cannot be read back does it fall through to nothing.
+    let src = match scope.get(name) {
+        Some(bound) => {
+            let sp = oxc_span::GetSpan::span(*bound);
+            ctx.source
+                .get(sp.start as usize..sp.end as usize)?
+                .to_string()
+        }
+        // A formal whose argument `apply_args` declined to substitute: the name is bound
+        // at runtime to something this pass never saw, so the module helper is certainly
+        // not it.
+        None if ctx.formals.contains(name) => return None,
+        None => ctx.locals.get(name).cloned()?,
+    };
     // The argument TEXT, so `inline_local` can bind the helper's formals. A span outside
     // the module source (a synthesized node) yields nothing for that position rather than
     // a wrong slice.
@@ -1670,7 +1716,8 @@ fn inline_local(
     // Folding with the outer source would slice the module at this buffer's offsets: in
     // range and therefore unguarded, but unrelated text — which cost the field a second
     // helper level down (`mk2(v){ return mk(v) }`).
-    let ctx = &ctx.with_source(&wrapped);
+    let formals = helper_formals(func);
+    let ctx = &ctx.nested(&wrapped, &formals);
     // Each of the helper's result branches is folded on its own and then MERGED, not
     // accumulated: a helper returning `{x: …}` in one branch and `{y: …}` in another
     // describes two legal shapes, and combining them would make the enclosing action
@@ -2032,7 +2079,14 @@ fn guard_admits_absence(e: &Expression) -> bool {
         // for exactly this reason, so the two must agree on what they are looking at.
         Expression::ParenthesizedExpression(p) => guard_admits_absence(&p.expression),
         Expression::ConditionalExpression(c) => {
-            is_nullish(strip_guard(&c.consequent)) || is_nullish(strip_guard(&c.alternate))
+            // Each branch is examined WHOLE, not just its stripped terminal: a guard can
+            // sit inside one (`cond ? enabled && map(…) : fallback`), where neither end
+            // is nullish yet the `!enabled` path still yields no collection. Terminates —
+            // every step descends into a strictly smaller expression.
+            is_nullish(strip_guard(&c.consequent))
+                || is_nullish(strip_guard(&c.alternate))
+                || guard_admits_absence(&c.consequent)
+                || guard_admits_absence(&c.alternate)
         }
         Expression::LogicalExpression(l) => {
             l.operator == oxc_syntax::operator::LogicalOperator::And

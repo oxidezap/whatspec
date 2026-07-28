@@ -81,6 +81,10 @@ UNRESOLVED_ENUMS = {
 # for one; `contentUint(N)` reads N big-endian bytes and must always carry it.
 WIDTH_BEARING = {"contentUint"}
 
+# `WamChannel`. Anything else is mapped to `Regular` by the reference generator rather
+# than preserved, so an unknown value loses the channel silently instead of failing.
+WAM_CHANNELS = {"regular", "realtime", "private"}
+
 # Keys only a response field carries. They identify a `ParsedField` independently of
 # whether its `type` is one we know — which is what lets an unrecognized type be
 # REPORTED instead of skipped. Deliberately excludes `name`/`type` alone: appstate has
@@ -137,6 +141,12 @@ def check_field(f, path, domain, errors, counts, unresolved):
         counts["content integer with no byte width"] += 1
 
     lv = f.get("literalValue")
+    # The schema types it as a string; anything else would make the hex scan below iterate
+    # a non-iterable and abort the whole run — the same "error path assumes a shape it did
+    # not verify" that already crashed this file once.
+    if lv is not None and not isinstance(lv, str):
+        errors.append(f"{path}: literalValue is {type(lv).__name__}, not a string")
+        lv = None
     if lv is not None:
         if t == "integer":
             try:
@@ -178,12 +188,18 @@ def check_field(f, path, domain, errors, counts, unresolved):
     # so is half of one — the schema permits either key alone, but a consumer handed
     # `intMin` with no `intMax` has a weaker constraint than the wire actually enforces
     # and no way to know it lost the other end.
-    for lo, hi in (("byteMin", "byteMax"), ("intMin", "intMax")):
+    for (lo, hi), owner in ((("byteMin", "byteMax"), "bytes"), (("intMin", "intMax"), "integer")):
         if (lo in f) != (hi in f):
             present, missing = (lo, hi) if lo in f else (hi, lo)
             errors.append(f"{path}: {present} without {missing} is half a range")
         elif lo in f and f[lo] > f[hi]:
             errors.append(f"{path}: {lo} {f[lo]} exceeds {hi} {f[hi]}")
+        # A byte range belongs to a bytes field and an integer range to an integer one.
+        # On any other type the two halves instruct a consumer to do incompatible things
+        # — a string with a numeric range — and it either builds a nonsense validator or
+        # drops the constraint. Today every one of them sits on its own type.
+        if lo in f and t != owner:
+            errors.append(f"{path}: {lo}/{hi} on a {t!r} field, not {owner!r}")
 
     # An echo rule with no path says "this equals something in the request" and
     # then does not say what.
@@ -346,6 +362,23 @@ def check_event_codes(data, domain, errors):
         # `[default, ring1, ring2]` — the positions ARE the meaning, so a short array does
         # not lose the last ring, it shifts every ring that remains. The schema permits any
         # length.
+        # The wire format carries the code in 16 bits, and the reference consumer emits it
+        # as `u16`. The schema permits the whole `u32` range, and the extractor turns a
+        # negative source literal into a large one — either way the IR would be declared
+        # usable and then generate metadata that cannot encode.
+        if isinstance(code, int) and not 0 <= code <= 0xFFFF:
+            errors.append(
+                f"{domain}: event {e.get('name')!r} has code {code}, "
+                f"which does not fit the 16-bit wire field"
+            )
+        # An unrecognised channel is not preserved by the reference generator — it maps
+        # to `Regular`, so a typo silently uploads on channel 0 instead of failing.
+        channel = e.get("channel")
+        if channel is not None and channel not in WAM_CHANNELS:
+            errors.append(
+                f"{domain}: event {e.get('name')!r} has channel {channel!r}, "
+                f"not one of {sorted(WAM_CHANNELS)}"
+            )
         weights = e.get("weights")
         if not isinstance(weights, list) or len(weights) != 3:
             errors.append(
