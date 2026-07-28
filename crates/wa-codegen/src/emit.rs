@@ -51,7 +51,10 @@ pub(crate) fn emit_field_parse(f: &ParsedField, node_var: &str, indent: &str) ->
         return Vec::new();
     }
 
-    let optional = wap::is_optional_method(method);
+    // See `rust_field_type`: the accessor spelling and the IR's `required` are both
+    // sources of optionality, and the two must agree or the initializer will not match the
+    // declared field type.
+    let optional = wap::is_optional_method(method) || !f.required;
     match wap::method_field_type(method) {
         ParsedFieldType::Integer if optional => vec![format!(
             "{indent}let {name} = {node_var}.get_attr({flit}).and_then(|v| v.as_str().parse().ok());"

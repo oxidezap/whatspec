@@ -826,7 +826,13 @@ struct IqConstraintCounts {
     field_enum_refs: usize,
     /// Response variants classified as a client or server error.
     typed_error_variants: usize,
-    /// Distinct `<error text>` values across every RPC's error vocabulary.
+    /// Text-pinned error arms, keyed by `(module, variant, arm, text)`.
+    ///
+    /// NOT the count of distinct texts. A global set of strings cannot fall when one RPC
+    /// loses its `bad-request` pin while another still carries it — and the arm survives
+    /// too, so `errorArms` does not move either, and the floor passes while that RPC's
+    /// accepted `(code, text)` pairing has silently degraded. Counting occurrences is what
+    /// makes the guard able to see a per-RPC loss.
     error_texts: usize,
     /// Accepted `(code, text)` error shapes across every RPC — the paired form, which
     /// the flattened `errorTexts` count cannot regress on its own.
@@ -882,11 +888,25 @@ fn iq_constraint_counts(ir: &wa_ir::IqIr) -> IqConstraintCounts {
             ) {
                 c.typed_error_variants += 1;
             }
+            // Keyed by the ARM this text pins, not by the text alone. A global set of
+            // distinct strings cannot fall when one RPC loses its `bad-request` pin while
+            // another still carries it — and the arm survives too, so `errorArms` does not
+            // move either, and the floor passes while a specific RPC's accepted
+            // `(code, text)` pairing silently degrades.
             texts.extend(
                 v.error_arms
                     .iter()
                     .chain(v.error_envelope.as_ref())
-                    .filter_map(|a| a.text.clone()),
+                    .filter(|a| a.text.is_some())
+                    .map(|a| {
+                        format!(
+                            "{}\u{1}{}\u{1}{}\u{1}{}",
+                            s.module_name,
+                            v.tag,
+                            a.name.as_deref().unwrap_or_default(),
+                            a.text.as_deref().unwrap_or_default()
+                        )
+                    }),
             );
             // Alternatives only. Folding the envelope in made the number disagree with
             // the artifact (646 reported against 645 present) and let an envelope

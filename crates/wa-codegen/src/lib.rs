@@ -399,11 +399,20 @@ mod tests {
                 response: ParsedResponse {
                     parser_name: "p".into(),
                     assertions: vec![],
-                    fields: vec![parsed(
-                        "maybeAttrPhoneUserJid",
-                        "participant_pn",
-                        ParsedFieldType::UserJid,
-                    )],
+                    fields: vec![
+                        parsed(
+                            "maybeAttrPhoneUserJid",
+                            "participant_pn",
+                            ParsedFieldType::UserJid,
+                        ),
+                        // Optional by the IR, NOT by the accessor spelling: a smax tail
+                        // conditional makes a field optional without renaming its
+                        // accessor, and 108 such JID fields are live in the artifact.
+                        ParsedField {
+                            required: false,
+                            ..parsed("attrUserJid", "to", ParsedFieldType::UserJid)
+                        },
+                    ],
                     ..Default::default()
                 },
             }],
@@ -417,6 +426,14 @@ mod tests {
         assert!(
             !c.contains("missing participant_pn"),
             "and never required in the parser:\n{c}"
+        );
+        assert!(
+            c.contains("pub to: Option<Jid>,"),
+            "`required: false` alone is enough to make it optional:\n{c}"
+        );
+        assert!(
+            !c.contains("missing to"),
+            "so the parser never demands it:\n{c}"
         );
         assert!(
             c.contains(".and_then(|v| v.to_jid());"),

@@ -89,7 +89,13 @@ pub(crate) fn rust_field_type(field: &ParsedField) -> &'static str {
         // String / Enum / (Bool/Union handled elsewhere) materialize as String.
         _ => "String",
     };
-    if wap::is_optional_method(&field.method) {
+    // Optionality has TWO sources. The accessor spelling is one; the IR's own `required`
+    // is the other, and it is the only one that sees a smax tail conditional making a
+    // field optional without changing its accessor. 108 JID fields in the committed
+    // artifact are `attrUserJid` with `required: false`, and deriving from the name alone
+    // declared them `Jid` and emitted `ok_or_else("missing …")` — rejecting responses the
+    // IR explicitly says may omit them.
+    if wap::is_optional_method(&field.method) || !field.required {
         match base {
             "u64" => "Option<u64>",
             "Vec<u8>" => "Option<Vec<u8>>",

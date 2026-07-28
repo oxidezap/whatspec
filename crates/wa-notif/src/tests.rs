@@ -1229,7 +1229,7 @@ __d("WAWebCommsHandleLoggedInStanza",["WAWebHandleGroupNotification"],function(g
   }); };
 }, 1);
 __d("WAWebHandleGroupNotificationConst",[],(function(t,n,r,o,a,i,l){
-  l.GROUP_NOTIFICATION_TAG=Object.freeze({EVICT:"evict",COND:"cond",REBIND:"rebind",PICK:"pick",BARE:"bare",HELPER:"helper",ESCAPE:"escape",TAIL:"tail",JOIN:"join",SEQ:"seq",SUFFIX:"suffix",AFTER:"after",TRY:"try_tag",FIN:"fin",FINCOND:"fincond",FINTHROW:"finthrow",MULTI:"multi",MULTI3:"multi3",DEAD:"dead",LIT:"lit",LOOP:"loop_tag",FINTRY:"fintry",PARAM:"param",BLK:"blk",EXH:"exh",NFT:"nft",LATE:"late",DOW:"dow",SHADOW:"shadow",CATCHP:"catchp"});
+  l.GROUP_NOTIFICATION_TAG=Object.freeze({EVICT:"evict",COND:"cond",REBIND:"rebind",PICK:"pick",BARE:"bare",HELPER:"helper",ESCAPE:"escape",TAIL:"tail",JOIN:"join",SEQ:"seq",SUFFIX:"suffix",AFTER:"after",TRY:"try_tag",FIN:"fin",FINCOND:"fincond",FINTHROW:"finthrow",MULTI:"multi",MULTI3:"multi3",DEAD:"dead",LIT:"lit",LOOP:"loop_tag",FINTRY:"fintry",PARAM:"param",BLK:"blk",EXH:"exh",NFT:"nft",LATE:"late",DOW:"dow",SHADOW:"shadow",CATCHP:"catchp",DOWX:"dowx"});
 }), 1);
 __d("WAWebGroupType",[],(function(t,n,r,o,a,i,l){
   l.GROUP_ACTIONS=Object.freeze({FIRST:"first",SECOND:"second",THIRD:"third"});
@@ -1333,6 +1333,9 @@ __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGr
           try { return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, id:e2}; }
           catch (e2) { return {actionType:o("WAWebGroupType").GROUP_ACTIONS.SECOND, id:e2}; }
         }
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.DOWX:
+          do { return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, a:t.attrString("a")}; } while (t.hasChild("again"));
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.SECOND, b:t.attrString("b")};
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.SUFFIX:
           switch (t.attrString("k")) {
             case "a": t.attrString("setup");
@@ -1879,4 +1882,19 @@ fn a_catch_parameter_shadows_the_outer_binding() {
         "but its `id` resolves to the exception, not to `jid`: {:?}",
         second[0].fields
     );
+}
+
+#[test]
+fn nothing_after_an_exiting_do_while_is_reachable() {
+    // `do { return A } while (c); return B` — the body runs at least once and returns, so
+    // B is dead. `stmt_exits` had no `do…while` arm, so traversal walked on and published
+    // it as a second legal action.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let got: Vec<&str> = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .filter(|a| a.wire_tag == "dowx")
+        .filter_map(|a| a.action_type.as_deref())
+        .collect();
+    assert_eq!(got, ["first"], "only the reachable shape: {got:?}");
 }

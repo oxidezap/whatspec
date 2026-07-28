@@ -11,7 +11,7 @@
       "candidateModules": 207,
       "constraints": {
         "errorArms": 645,
-        "errorTexts": 38,
+        "errorTexts": 577,
         "fieldEnumRefs": 150,
         "fieldLiterals": 1784,
         "referenceConstraints": 584,

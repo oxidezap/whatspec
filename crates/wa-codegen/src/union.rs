@@ -712,7 +712,7 @@ fn field_expr(f: &ParsedField, node_var: &str) -> String {
     }
     let wire = f.wire_name.as_deref().unwrap_or(&f.name);
     let flit = rust_lit(wire);
-    let optional = wap::is_optional_method(method);
+    let optional = wap::is_optional_method(method) || !f.required;
     match wap::method_field_type(method) {
         ParsedFieldType::Integer if optional => {
             format!("{node_var}.get_attr({flit}).and_then(|v| v.as_str().parse().ok())")

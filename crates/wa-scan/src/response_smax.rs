@@ -836,7 +836,7 @@ fn classify_call(
             match inner.and_then(normalize_accessor) {
                 Some((m, ft, bl)) => {
                     let (field_type, int_range) = int_range_and_type(inner, args, ft);
-                    let (cbl, byte_range) = content_byte_length(inner, args);
+                    let (cbl, byte_range) = content_byte_length(inner, args, resolver, site);
                     let enum_ref =
                         enum_arg_ref(inner, args, resolver, site, source_path.as_deref());
                     Binding::Field {
@@ -869,7 +869,7 @@ fn classify_call(
         other => match normalize_accessor(other) {
             Some((m, ft, bl)) => {
                 let (field_type, int_range) = int_range_and_type(Some(other), args, ft);
-                let (cbl, byte_range) = content_byte_length(Some(other), args);
+                let (cbl, byte_range) = content_byte_length(Some(other), args, resolver, site);
                 let enum_ref =
                     enum_arg_ref(Some(other), args, resolver, site, source_path.as_deref());
                 Binding::Field {
@@ -1230,6 +1230,8 @@ fn int_range_and_type(
 fn content_byte_length(
     accessor: Option<&str>,
     args: &[Argument],
+    resolver: &Resolver,
+    site: &str,
 ) -> (Option<u32>, Option<(u32, u32)>) {
     // `contentUint(N)` reads N big-endian bytes, so N is a fixed length like
     // `contentBytes(N)`'s — not a bound.
@@ -1238,7 +1240,17 @@ fn content_byte_length(
             .iter()
             .filter_map(|a| arg_expr(a).and_then(as_int))
             .next();
-        return (n.and_then(|n| u32::try_from(n).ok()), None);
+        let width = n.and_then(|n| u32::try_from(n).ok());
+        if width.is_none() {
+            // Recognizing the accessor PROVES an exact byte width exists — a hoisted
+            // constant hides the number, not the constraint. Returning nothing published
+            // an unrestricted integer with no signal that the width was lost.
+            resolver.drop_note_keyed(
+                "contentUint width not statically resolvable",
+                site.to_string(),
+            );
+        }
+        return (width, None);
     }
     if accessor != Some("contentBytesRange") {
         return (None, None);

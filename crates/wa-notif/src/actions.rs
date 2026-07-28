@@ -668,6 +668,10 @@ fn stmt_exits(s: &Statement, nested: bool) -> bool {
                         .as_ref()
                         .is_none_or(|h| list_exits(&h.body.body, nested)))
         }
+        // A `do…while` body runs at least once, so if it exits on every path the loop
+        // does. `do { return A } while (c); return B` was collecting A and then walking
+        // on to publish the unreachable B.
+        Statement::DoWhileStatement(d) => stmt_exits(&d.body, nested),
         Statement::SwitchStatement(sw) => {
             sw.cases.iter().any(|c| c.test.is_none())
                 && (0..sw.cases.len()).all(|i| {
