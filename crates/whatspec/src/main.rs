@@ -1364,8 +1364,12 @@ fn load_wasm(
         }
     }
     // Every id the run OBSERVED, before the CDN/wasm filter drops any of them: absence
-    // from the pins then distinguishes "rejected" from "never seen".
-    let live_ids: BTreeSet<String> = resolution.by_id.keys().cloned().collect();
+    // from the pins then distinguishes "rejected" from "never seen". Taken from
+    // `observed_ids`, NOT `by_id` — the latter holds only the survivors, so building the
+    // tombstone from it failed for exactly the case the tombstone exists to cover. Taken from
+    // , NOT  — the latter holds only the survivors, so building the
+    // tombstone from it failed for precisely the case the tombstone exists to cover.
+    let live_ids: BTreeSet<String> = resolution.observed_ids.clone();
     let pins = bootloader_pins(&resolution, &ids);
 
     if payloads.is_empty() {

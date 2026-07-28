@@ -716,12 +716,24 @@ def check_abprops(data, domain, errors):
     if not isinstance(configs, list):
         return
     seen_ids = {}
+    seen_codes = {}
     for i, c in enumerate(configs):
         if not isinstance(c, dict):
             continue
         # `(module, name)` IS the flag identity. Two records under one identity leave a
         # consumer no way to pick; the reference generator just suffixes the second and
         # puts both contradictory entries in `ALL`.
+        # The `code` is what the `<props>` IQ sends, so two flags sharing one inside a
+        # module leave a consumer unable to associate a returned value with either.
+        code_key = (c.get("module"), c.get("code"))
+        if all(isinstance(part, (str, int)) and not isinstance(part, bool) for part in code_key):
+            if code_key in seen_codes:
+                errors.append(
+                    f"{domain}/configs/{i}: code {c.get('code')!r} in "
+                    f"{c.get('module')!r} already used at index {seen_codes[code_key]}"
+                )
+            else:
+                seen_codes[code_key] = i
         ident = (c.get("module"), c.get("name"))
         if not all(isinstance(part, str) for part in ident):
             errors.append(f"{domain}/configs/{i}: identity {ident!r} is not two strings")
@@ -755,6 +767,47 @@ def check_abprops(data, domain, errors):
                 )
 
 
+def pascal_case(name):
+    """`naming::pascal_case`, which is what actually names the generated variants.
+
+    Splitting only on `-`/`_` was an approximation: `fooBar` and `foo-bar` both become
+    `FooBar` in the generator but came out `Foobar` and `FooBar` here, so a pair that
+    cannot compile was certified. Case boundaries count as separators too.
+    """
+    parts, cur = [], ""
+    for ch in name:
+        if ch in "-_ ":
+            if cur:
+                parts.append(cur)
+            cur = ""
+        elif ch.isupper() and cur and not cur[-1].isupper():
+            parts.append(cur)
+            cur = ch
+        else:
+            cur += ch
+    if cur:
+        parts.append(cur)
+    return "".join(p[:1].upper() + p[1:].lower() for p in parts)
+
+
+def check_tokens(data, domain, errors):
+    """`singleByte[tag]` is a direct wire lookup with index zero reserved.
+
+    The IR promises that, and nothing checked it: a table that lost its leading empty
+    string shifts every single-byte token by one, so the generated consumer encodes and
+    decodes different strings than the wire carries — silently, and for everything.
+    """
+    table = data.get("singleByte")
+    if not isinstance(table, list):
+        return
+    if not table:
+        errors.append(f"{domain}/singleByte: the table is empty")
+    elif table[0] != "":
+        errors.append(
+            f"{domain}/singleByte[0] is {table[0]!r}; index zero is the reserved slot"
+        )
+
+
 def check_appstate_collections(data, domain, errors):
     """An action's `collection` must be one the document declares.
 
@@ -767,12 +820,18 @@ def check_appstate_collections(data, domain, errors):
     actions = data.get("actions")
     if not isinstance(declared, list) or not isinstance(actions, dict):
         return
-    known = {c for c in declared if isinstance(c, str)}
+    names = [c for c in declared if isinstance(c, str)]
+    # Exact repeats first: the set below collapses them, so checking after it would never
+    # see a pair that `render_collection_enum` happily emits twice.
+    exact = sorted({c for c in names if names.count(c) > 1})
+    if exact:
+        errors.append(f"{domain}/collections: {exact} listed more than once")
+    known = set(names)
     # `render_collection_enum` runs each through `pascal_case` without deduplicating, so
     # two wire names that normalise alike emit the same variant twice and will not compile.
     by_variant = {}
     for c in sorted(known):
-        variant = "".join(part.capitalize() for part in c.replace("-", "_").split("_"))
+        variant = pascal_case(c)
         if variant in by_variant:
             errors.append(
                 f"{domain}/collections: {c!r} and {by_variant[variant]!r} both become "
@@ -802,6 +861,27 @@ def check_appstate_collections(data, domain, errors):
             errors.append(
                 f"{domain}/actions/{name}: indexParts does not begin with a literal"
             )
+        # `chatJidIndex` is the POSITION holding the chat JID, passed through unchanged to
+        # the encoder — so an out-of-range one indexes past `indexParts`, and one pointing
+        # at a non-JID part encodes the wrong component. `null` means "no chat JID", which
+        # 47 of the 67 actions legitimately are.
+        cji = a.get("chatJidIndex")
+        if cji is not None:
+            parts_list = parts if isinstance(parts, list) else []
+            if not isinstance(cji, int) or isinstance(cji, bool) or not 0 <= cji < len(parts_list):
+                errors.append(
+                    f"{domain}/actions/{name}: chatJidIndex {cji!r} is not a position in "
+                    f"its {len(parts_list)} index part(s)"
+                )
+            elif not (
+                isinstance(parts_list[cji], dict) and parts_list[cji].get("type") == "jid"
+            ):
+                errors.append(
+                    f"{domain}/actions/{name}: chatJidIndex {cji} points at a "
+                    f"{parts_list[cji].get('type') if isinstance(parts_list[cji], dict) else parts_list[cji]!r} part, not a jid"
+                )
+        if not isinstance(first, dict) or first.get("type") != "literal":
+            pass
         elif first.get("value") != a.get("name"):
             errors.append(
                 f"{domain}/actions/{name}: index begins with {first.get('value')!r}, "
@@ -950,6 +1030,7 @@ def main() -> int:
         check_event_codes(data, domain, errors)
         check_abprops(data, domain, errors)
         check_appstate_collections(data, domain, errors)
+        check_tokens(data, domain, errors)
         collect_unresolved_enums(data, domain, proto_enums, unresolved)
 
     ok = True

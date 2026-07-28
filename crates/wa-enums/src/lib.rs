@@ -114,7 +114,11 @@ fn collect_hoisted(stmts: &[oxc_ast::ast::Statement], out: &mut HashSet<String>)
                     out.insert(id.name.to_string());
                 }
             }
-            S::VariableDeclaration(d) => collect_declared(d, out),
+            // ONLY `var` hoists to the function. A `let`/`const` in a nested block is
+            // scoped to that block, so treating it as a function-wide binding refused an
+            // outer composition written where the binding is not even in scope — the
+            // over-refusal this whole mechanism keeps having to avoid.
+            S::VariableDeclaration(d) if d.kind.is_var() => collect_declared(d, out),
             S::BlockStatement(b) => collect_hoisted(&b.body, out),
             S::IfStatement(i) => {
                 collect_hoisted(std::slice::from_ref(&i.consequent), out);
@@ -126,19 +130,25 @@ fn collect_hoisted(stmts: &[oxc_ast::ast::Statement], out: &mut HashSet<String>)
             // exactly as one in the body is — scanning only the body left
             // `for (var e of xs)` invisible.
             S::ForStatement(f) => {
-                if let Some(oxc_ast::ast::ForStatementInit::VariableDeclaration(d)) = &f.init {
+                if let Some(oxc_ast::ast::ForStatementInit::VariableDeclaration(d)) = &f.init
+                    && d.kind.is_var()
+                {
                     collect_declared(d, out);
                 }
                 collect_hoisted(std::slice::from_ref(&f.body), out);
             }
             S::ForInStatement(f) => {
-                if let oxc_ast::ast::ForStatementLeft::VariableDeclaration(d) = &f.left {
+                if let oxc_ast::ast::ForStatementLeft::VariableDeclaration(d) = &f.left
+                    && d.kind.is_var()
+                {
                     collect_declared(d, out);
                 }
                 collect_hoisted(std::slice::from_ref(&f.body), out);
             }
             S::ForOfStatement(f) => {
-                if let oxc_ast::ast::ForStatementLeft::VariableDeclaration(d) = &f.left {
+                if let oxc_ast::ast::ForStatementLeft::VariableDeclaration(d) = &f.left
+                    && d.kind.is_var()
+                {
                     collect_declared(d, out);
                 }
                 collect_hoisted(std::slice::from_ref(&f.body), out);
@@ -168,37 +178,58 @@ fn collect_hoisted(stmts: &[oxc_ast::ast::Statement], out: &mut HashSet<String>)
 /// Every plain identifier an assignment TARGET writes, however the pattern is spelled.
 fn assignment_target_names(target: &oxc_ast::ast::AssignmentTarget) -> Vec<String> {
     let mut out = Vec::new();
-    // Cheap and textual on the AST: only the simple names matter here, because only a
-    // simple name can be an enum local this pass recorded.
-    if let Some(pattern) = target.as_assignment_target_pattern() {
-        use oxc_ast::ast::AssignmentTargetPattern as P;
-        match pattern {
-            P::ArrayAssignmentTarget(a) => {
-                for el in a.elements.iter().flatten() {
-                    if let Some(id) = el.identifier() {
-                        out.push(id.name.to_string());
-                    }
-                }
-            }
-            P::ObjectAssignmentTarget(o) => {
-                for prop in &o.properties {
-                    match prop {
-                        oxc_ast::ast::AssignmentTargetProperty::AssignmentTargetPropertyIdentifier(
-                            p,
-                        ) => out.push(p.binding.name.to_string()),
-                        oxc_ast::ast::AssignmentTargetProperty::AssignmentTargetPropertyProperty(
-                            p,
-                        ) => {
-                            if let Some(id) = p.binding.identifier() {
-                                out.push(id.name.to_string());
-                            }
-                        }
-                    }
+    collect_target_names(target, &mut out);
+    out
+}
+
+/// Recursive: a nested pattern (`({x: {e}} = obj)`) or a rest (`({...e} = obj)`) writes
+/// just as much as a direct element does, and the first version of this looked only one
+/// level deep.
+fn collect_target_names(target: &oxc_ast::ast::AssignmentTarget, out: &mut Vec<String>) {
+    use oxc_ast::ast::AssignmentTargetPattern as P;
+    if let Some(id) = target.get_identifier_name() {
+        out.push(id.to_string());
+        return;
+    }
+    let Some(pattern) = target.as_assignment_target_pattern() else {
+        return;
+    };
+    fn maybe_default(d: &oxc_ast::ast::AssignmentTargetMaybeDefault, out: &mut Vec<String>) {
+        use oxc_ast::ast::AssignmentTargetMaybeDefault as D;
+        match d {
+            D::AssignmentTargetWithDefault(w) => collect_target_names(&w.binding, out),
+            _ => {
+                if let Some(t) = d.as_assignment_target() {
+                    collect_target_names(t, out);
                 }
             }
         }
     }
-    out
+    match pattern {
+        P::ArrayAssignmentTarget(a) => {
+            for el in a.elements.iter().flatten() {
+                maybe_default(el, out);
+            }
+            if let Some(rest) = &a.rest {
+                collect_target_names(&rest.target, out);
+            }
+        }
+        P::ObjectAssignmentTarget(o) => {
+            for prop in &o.properties {
+                match prop {
+                    oxc_ast::ast::AssignmentTargetProperty::AssignmentTargetPropertyIdentifier(
+                        p,
+                    ) => out.push(p.binding.name.to_string()),
+                    oxc_ast::ast::AssignmentTargetProperty::AssignmentTargetPropertyProperty(p) => {
+                        maybe_default(&p.binding, out)
+                    }
+                }
+            }
+            if let Some(rest) = &o.rest {
+                collect_target_names(&rest.target, out);
+            }
+        }
+    }
 }
 
 /// Every identifier one `var`/`let`/`const` declaration binds.
@@ -354,6 +385,12 @@ struct NamedResolver {
     /// and costs real constraints — `STANZA_MSG_TYPES` resolves at module level in a
     /// module that happens to reuse its local's name as a parameter elsewhere.
     param_scopes: Vec<HashSet<String>>,
+    /// Whether the declaration currently being visited is a `var`.
+    ///
+    /// Only `var` reaches beyond its block, so only `var` may invalidate a module-level
+    /// name. A `let`/`const` in a nested block is invisible to a read written outside it,
+    /// and treating it as a shadow dropped a resolvable enum.
+    in_var_decl: bool,
     exports: HashMap<String, EnumData>,
     pending: Vec<(String, String)>,
 }
@@ -364,6 +401,7 @@ impl NamedResolver {
             locals: HashMap::new(),
             shadowed: HashSet::new(),
             param_scopes: Vec::new(),
+            in_var_decl: false,
             exports: HashMap::new(),
             pending: Vec::new(),
         }
@@ -478,6 +516,12 @@ impl NamedResolver {
 }
 
 impl<'a> Visit<'a> for NamedResolver {
+    fn visit_variable_declaration(&mut self, d: &oxc_ast::ast::VariableDeclaration<'a>) {
+        let was = std::mem::replace(&mut self.in_var_decl, d.kind.is_var());
+        walk::walk_variable_declaration(self, d);
+        self.in_var_decl = was;
+    }
+
     fn visit_variable_declarator(&mut self, d: &VariableDeclarator<'a>) {
         // `var x = extends(e, {B:"b"})` MUTATES `e`. `merge_extends` already refuses to
         // publish `x`, but `e` itself kept its pre-merge body and a later `i.BASE = e`
@@ -533,7 +577,9 @@ impl<'a> Visit<'a> for NamedResolver {
                 // `locals`, and a later composition would publish values the runtime
                 // never has. Only when the name is already bound — an unparseable `var`
                 // that shadows nothing costs nothing to ignore.
-                None if self.locals.contains_key(local.as_str()) => {
+                // `var` only: a block-scoped `let`/`const` cannot be what a read written
+                // outside its block sees.
+                None if self.in_var_decl && self.locals.contains_key(local.as_str()) => {
                     self.shadowed.insert(local.to_string());
                 }
                 None => {}
@@ -1143,6 +1189,41 @@ mod tests {
             i.OUT=x
         }),1);"#;
         assert!(resolve_named_enum(destructure_assign, "M", "OUT").is_none());
+
+        // Nested and rest patterns write just as much as a direct element does.
+        for pat in [
+            "({x: {e}} = obj)",
+            "({...e} = obj)",
+            "([[e]] = xs)",
+            "({e = 1} = obj)",
+        ] {
+            let src = format!(
+                r#"__d("M",[],(function(t,n,r,o,a,i){{
+                    var e={{A:"a"}};
+                    {pat};
+                    var x=babelHelpers.extends({{}},e,{{B:"b"}});
+                    i.OUT=x
+                }}),1);"#
+            );
+            assert!(
+                resolve_named_enum(&src, "M", "OUT").is_none(),
+                "the pattern rebinds `e`: {pat}"
+            );
+        }
+
+        // A `let` in a NESTED BLOCK is scoped to that block, so a composition written
+        // outside it must still resolve — hoisting it function-wide was over-refusal.
+        let block_let = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"};
+            function f(){ { let e = 1; } var x=babelHelpers.extends({},e,{B:"b"}); i.OUT=x }
+        }),1);"#;
+        assert_eq!(
+            resolve_named_enum(block_let, "M", "OUT")
+                .expect("a block-scoped `let` does not shadow the outer read")
+                .variants
+                .len(),
+            2
+        );
 
         // A name rebound to the SAME body is not ambiguous — refusing it would throw away
         // a resolvable enum for nothing.
