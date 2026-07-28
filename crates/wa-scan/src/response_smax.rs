@@ -1192,44 +1192,47 @@ fn content_byte_length(
     }
 }
 
-/// Map a smax accessor name → (canonical wap method, field type, byte_length).
+/// Map a smax accessor name → its canonical wap method and the type that method decodes
+/// to.
+///
+/// This table decides **only the name**. The type comes from [`wap::method_field_type`],
+/// so there is exactly one classifier in the codebase and the two cannot drift — they
+/// already had, twice: `attrJidWithType` carried `jid` here and `jid_typed` there for the
+/// same wire contract, and the enum accessors were `enum` on one side and `string` on the
+/// other. A local table that repeats the type is a second source of truth waiting to go
+/// stale, so this one does not have one.
+///
+/// Aliasing is what remains: `attrStanzaId` and `attrCallId` are `attrString` reads under
+/// another name, `attrPhoneUserJid` is the explicit-PN spelling of `attrUserJid`, and
+/// `contentBytesRange` is `contentBytes` with a length rule. Anything not aliased keeps
+/// its own name, which is how the JID flavour — protocol-safety-critical, since a LID and
+/// a PN user JID are different identities for the same person — survives.
 fn normalize_accessor(m: &str) -> Option<(String, ParsedFieldType, Option<u32>)> {
-    let s = |c: &str, t: ParsedFieldType| Some((c.to_string(), t, None));
-    match m {
-        "attrString" | "attrStanzaId" | "attrCallId" | "attrStringFromReference" => {
-            s(wap::ATTR_STRING, ParsedFieldType::String)
-        }
-        "attrInt" | "attrIntRange" => s(wap::ATTR_INT, ParsedFieldType::Integer),
-        "attrStringEnum" => s(wap::ATTR_ENUM, ParsedFieldType::Enum),
-        "contentString" => s(wap::CONTENT_STRING, ParsedFieldType::String),
-        "contentInt" => s(wap::CONTENT_INT, ParsedFieldType::Integer),
-        "contentStringEnum" => s(wap::ATTR_ENUM, ParsedFieldType::Enum),
-        "contentBytes" => s(wap::CONTENT_BYTES, ParsedFieldType::Bytes),
-        "contentBytesRange" => s(wap::CONTENT_BYTES, ParsedFieldType::Bytes),
-        // Keep the JID flavor each accessor validates rather than collapsing every JID
-        // to one type. The flavor is protocol-safety-critical: a LID user JID and a PN
-        // user JID are different identities for the same person. The `phone*` variants
-        // are the explicit-PN spelling of the plain user/device accessors.
-        "attrUserJid" | "attrPhoneUserJid" => s(wap::ATTR_USER_JID, ParsedFieldType::UserJid),
-        "attrLidUserJid" => s(wap::ATTR_LID_USER_JID, ParsedFieldType::LidUserJid),
-        "attrDeviceJid" | "attrPhoneDeviceJid" => {
-            s(wap::ATTR_DEVICE_JID, ParsedFieldType::DeviceJid)
-        }
-        "attrLidDeviceJid" => s(wap::ATTR_LID_DEVICE_JID, ParsedFieldType::LidDeviceJid),
-        "attrGroupJid" => s(wap::ATTR_GROUP_JID, ParsedFieldType::GroupJid),
-        "attrNewsletterJid" => s(wap::ATTR_NEWSLETTER_JID, ParsedFieldType::NewsletterJid),
-        "attrCallJid" => s(wap::ATTR_CALL_JID, ParsedFieldType::CallJid),
-        "attrBroadcastJid" => s(wap::ATTR_BROADCAST_JID, ParsedFieldType::BroadcastJid),
-        "attrStatusJid" => s(wap::ATTR_STATUS_JID, ParsedFieldType::StatusJid),
-        // Every remaining JID accessor keeps its OWN name and takes its type from the
-        // shared classifier. Collapsing them onto `attrJidWithType`/`Jid` lost which
-        // accessor validated the value AND made one method carry two types in the same
-        // artifact — `attrJidWithType` appeared as `jid` 68 times (this path) and
-        // `jid_typed` 12 times (the legacy path, via the classifier), for the same wire
-        // contract. One classifier, one answer.
-        other if wap::method_field_type(other).is_jid() => s(other, wap::method_field_type(other)),
-        _ => None,
-    }
+    let canonical = match m {
+        "attrStanzaId" | "attrCallId" | "attrStringFromReference" => wap::ATTR_STRING,
+        "attrIntRange" => wap::ATTR_INT,
+        "attrStringEnum" | "contentStringEnum" => wap::ATTR_ENUM,
+        "contentBytesRange" => wap::CONTENT_BYTES,
+        "attrPhoneUserJid" => wap::ATTR_USER_JID,
+        "attrPhoneDeviceJid" => wap::ATTR_DEVICE_JID,
+        // Not aliased: the accessor names itself, and the classifier types it.
+        other if is_known_accessor(other) => other,
+        _ => return None,
+    };
+    Some((
+        canonical.to_string(),
+        wap::method_field_type(canonical),
+        None,
+    ))
+}
+
+/// Whether the classifier recognises this accessor as a value read at all.
+///
+/// A smax parser calls plenty of helpers that are not field accessors (`assertTag`,
+/// `optional`, the child descents), so an unknown name must yield no field rather than a
+/// defaulted string — the callers rely on `None` to skip.
+fn is_known_accessor(m: &str) -> bool {
+    wap::is_attr_method(m) || wap::is_content_method(m)
 }
 
 /// The optional (`maybe…`) variant of a canonical method, where one exists.

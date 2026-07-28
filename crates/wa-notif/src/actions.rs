@@ -440,20 +440,19 @@ fn extract_switch(switch: &SwitchStatement, ctx: &ArmCtx) -> Vec<NotifActionDef>
         // So branches are grouped by `actionType`: different ones stay separate arms of
         // the union, identical ones merge into one (a field only some branches read is
         // optional in the merge).
-        // One conflict tombstone per grouped arm, living for every branch folded into it.
-        let mut grouped: Vec<(NotifActionDef, Conflicts)> = Vec::new();
+        let mut grouped: Vec<BranchFold> = Vec::new();
         for (shape, scope) in shapes {
             for action in expand_shape(&wire_tag, shape, &scope, ctx, 0) {
                 match grouped
                     .iter_mut()
-                    .find(|(g, _)| g.action_type == action.action_type)
+                    .find(|g| g.def.action_type == action.action_type)
                 {
-                    Some((existing, dead)) => merge_action(existing, action, dead),
-                    None => grouped.push((action, Conflicts::new())),
+                    Some(fold) => fold.absorb(action),
+                    None => grouped.push(BranchFold::new(action)),
                 }
             }
         }
-        out.extend(grouped.into_iter().map(|(g, _)| g));
+        out.extend(grouped.into_iter().map(BranchFold::finish));
     }
     out
 }
@@ -502,49 +501,84 @@ fn empty_action(wire_tag: String) -> NotifActionDef {
     }
 }
 
-/// Fold a second branch of the same action into the first: a field either branch reads
-/// is present, and required only if BOTH read it unconditionally. A constant only one
-/// branch stamps is dropped — it is not a property of the action, only of that branch.
-fn merge_action(into: &mut NotifActionDef, from: NotifActionDef, dead: &mut Conflicts) {
-    // A field the incoming branch does not read at all is, by definition, absent from
-    // one legal shape of this action — so it cannot stay required just because the
-    // first branch read it unconditionally. Weaken those before folding the rest in.
-    for existing in into.fields.iter_mut() {
-        if !from.fields.iter().any(|f| f.name == existing.name) {
-            existing.required = false;
+/// The union of one wire tag's branches, accumulated.
+///
+/// **One** implementation of the alternative rule, because writing it per level is what
+/// kept going wrong: the rule lived in three places (scalars, children, child fields) and
+/// each review round fixed the copy that had been pointed at while the others stayed
+/// stale. Every tombstone below lives for the whole fold rather than one call of it —
+/// that was the other half of the same bug, since a conflict removed by branch B is
+/// re-added by branch C if the state resets in between.
+///
+/// The rule itself: a field either branch reads is present; it is required only when
+/// EVERY branch reads it unconditionally; and a key two branches bind to *different* wire
+/// reads is refused, because reporting one of them describes the other branch's payload
+/// wrongly. Distinct from composition *within* one shape (`babelHelpers.extends`, a
+/// duplicate object key), where the last write simply wins — see [`merge_into`].
+struct BranchFold {
+    def: NotifActionDef,
+    /// Scalar keys two branches disagreed on.
+    dead: Conflicts,
+    /// Child names bound to two different wire tags.
+    dead_children: Conflicts,
+    /// Per child name, the field keys its branches disagreed on.
+    dead_child_fields: HashMap<String, Conflicts>,
+    first: bool,
+}
+
+impl BranchFold {
+    fn new(def: NotifActionDef) -> Self {
+        Self {
+            def,
+            dead: Conflicts::new(),
+            dead_children: Conflicts::new(),
+            dead_child_fields: HashMap::new(),
+            first: true,
         }
     }
-    // Scalars go through the same rule the mapped children use, tombstone included: a
-    // key bound to different wire reads in two branches has no single answer, and
-    // updating only `required` here would publish the first branch's attribute for both.
-    //
-    // The tombstone is the CALLER's, so it survives the whole fold: with three returns
-    // sharing an action type, A(jid) vs B(lid) removes the key and a fresh set would let
-    // C(jid) add it straight back.
-    merge_fields(&mut into.fields, from.fields, false, dead);
-    apply_conflicts(&mut into.fields, dead);
-    let mut dead_children: Vec<String> = Vec::new();
-    for c in from.children {
-        match into.children.iter_mut().find(|x| x.name == c.name) {
-            // Two branches mapping the same output name: their element shapes are
-            // alternatives, so the field sets merge under the same requiredness rule.
-            // Discarding the later one lost fields only it reads, and left fields only
-            // the first reads marked required though a legal branch omits them.
-            Some(existing) if existing.wire_tag == c.wire_tag => {
-                let mut d = Conflicts::new();
-                merge_fields(&mut existing.fields, c.fields, false, &mut d);
-                apply_conflicts(&mut existing.fields, &d);
+
+    /// Fold one more branch of the same action into the union.
+    fn absorb(&mut self, from: NotifActionDef) {
+        self.first = false;
+        if self.def.action_type.is_none() {
+            self.def.action_type = from.action_type;
+        }
+        merge_fields(&mut self.def.fields, from.fields, false, &mut self.dead);
+        for c in from.children {
+            match self.def.children.iter_mut().find(|x| x.name == c.name) {
+                // Same output name and the same element: their field sets are
+                // alternatives and merge under the rule above.
+                Some(existing) if existing.wire_tag == c.wire_tag => {
+                    let dead = self.dead_child_fields.entry(c.name.clone()).or_default();
+                    merge_fields(&mut existing.fields, c.fields, false, dead);
+                }
+                // Same name, different element. Leaving the first would tell a consumer
+                // every legal shape uses it.
+                Some(existing) => {
+                    self.dead_children.insert(existing.name.clone());
+                }
+                None => self.def.children.push(c),
             }
-            // Same output name, different wire TAG — two different elements under one
-            // name. Leaving the first in place would tell a consumer every legal shape
-            // uses it, so both go.
-            Some(existing) => dead_children.push(existing.name.clone()),
-            None => into.children.push(c),
         }
+        // A constant only some branches stamp is not a property of the action.
+        self.def
+            .constant_fields
+            .retain(|c| from.constant_fields.contains(c));
     }
-    into.children.retain(|c| !dead_children.contains(&c.name));
-    into.constant_fields
-        .retain(|c| from.constant_fields.contains(c));
+
+    /// Apply every tombstone. Run once, after the last branch.
+    fn finish(mut self) -> NotifActionDef {
+        apply_conflicts(&mut self.def.fields, &self.dead);
+        self.def
+            .children
+            .retain(|c| !self.dead_children.contains(&c.name));
+        for c in &mut self.def.children {
+            if let Some(dead) = self.dead_child_fields.get(&c.name) {
+                apply_conflicts(&mut c.fields, dead);
+            }
+        }
+        self.def
+    }
 }
 
 /// Every distinct result shape an arm can return: one per branch of a `cond ? A : B`
@@ -795,19 +829,19 @@ fn expand_helper(wire_tag: &str, fn_src: &str, ctx: &ArmCtx, depth: u8) -> Vec<N
     }) else {
         return Vec::new();
     };
-    let mut merged: Vec<(NotifActionDef, Conflicts)> = Vec::new();
+    let mut merged: Vec<BranchFold> = Vec::new();
     for (shape, scope) in fn_result_shapes(func, &Scope::new()) {
         for action in expand_shape(wire_tag, shape, &scope, ctx, depth) {
             match merged
                 .iter_mut()
-                .find(|(g, _)| g.action_type == action.action_type)
+                .find(|g| g.def.action_type == action.action_type)
             {
-                Some((existing, dead)) => merge_action(existing, action, dead),
-                None => merged.push((action, Conflicts::new())),
+                Some(fold) => fold.absorb(action),
+                None => merged.push(BranchFold::new(action)),
             }
         }
     }
-    merged.into_iter().map(|(g, _)| g).collect()
+    merged.into_iter().map(BranchFold::finish).collect()
 }
 
 /// Read one arm result shape into a [`NotifActionDef`].
@@ -899,19 +933,19 @@ fn inline_local(fn_src: &str, def: &mut NotifActionDef, ctx: &ArmCtx, depth: u8)
     // describes two legal shapes, and combining them would make the enclosing action
     // require both and reject either. `merge_action` weakens what only some branches
     // carry — the same rule the switch arms use.
-    let mut branches: Vec<(NotifActionDef, Conflicts)> = Vec::new();
+    let mut branches: Vec<BranchFold> = Vec::new();
     for (shape, scope) in fn_result_shapes(func, &Scope::new()) {
         let mut one = empty_action(String::new());
         fold_shape(shape, &scope, &mut one, ctx, depth + 1);
         match branches
             .iter_mut()
-            .find(|(b, _)| b.action_type == one.action_type)
+            .find(|b| b.def.action_type == one.action_type)
         {
-            Some((existing, dead)) => merge_action(existing, one, dead),
-            None => branches.push((one, Conflicts::new())),
+            Some(fold) => fold.absorb(one),
+            None => branches.push(BranchFold::new(one)),
         }
     }
-    let branches: Vec<NotifActionDef> = branches.into_iter().map(|(b, _)| b).collect();
+    let branches: Vec<NotifActionDef> = branches.into_iter().map(BranchFold::finish).collect();
     // Distinct action types cannot arise here (a value-position helper contributes
     // fields, it does not pick the action), so folding the merged branches in is safe.
     for b in branches {

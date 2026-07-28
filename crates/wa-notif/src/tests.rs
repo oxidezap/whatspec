@@ -598,7 +598,7 @@ __d("WAWebHandleDeviceNotification",["WADeprecatedWapParser"],(function(t,n,r,o,
 __d("WAWebHandleGroupNotificationConst",[],(function(t,n,r,o,a,i,l){
   var cache={};
   cache.GROUP_NOTIFICATION_TAG={ADD:"WRONG_add",SUBJECT:"WRONG_subject"};
-  var e=Object.freeze({ADD:"add",SUBJECT:"subject",EPHEMERAL:"ephemeral",NOT_EPHEMERAL:"not_ephemeral",MODIFY:"modify",GROWTH_LOCKED:"growth_locked",INVITE:"invite",LINK:"link",LOCKED:"locked",REVOKE_INVITE:"revoke",DESC:"description",UNLINK:"unlink"});
+  var e=Object.freeze({ADD:"add",SUBJECT:"subject",EPHEMERAL:"ephemeral",NOT_EPHEMERAL:"not_ephemeral",MODIFY:"modify",GROWTH_LOCKED:"growth_locked",INVITE:"invite",LINK:"link",ANNOUNCE:"announcement",LOCKED:"locked",REVOKE_INVITE:"revoke",DESC:"description",UNLINK:"unlink"});
   l.GROUP_NOTIFICATION_TAG=e;
 }), 1);
 __d("WAWebGroupApiConst",[],(function(t,n,r,o,a,i,l){
@@ -606,7 +606,7 @@ __d("WAWebGroupApiConst",[],(function(t,n,r,o,a,i,l){
   l.GROUP_PARTICIPANT_TYPES=g;
 }), 1);
 __d("WAWebGroupType",[],(function(t,n,r,o,a,i,l){
-  var d=Object.freeze({ADD:"add",SUBJECT:"subject",EPHEMERAL:"ephemeral",MODIFY:"modify",RESTRICT:"restrict",REVOKE_INVITE:"revoke_invite",DESC_ADD:"desc_add",DESC_REMOVE:"desc_remove"});
+  var d=Object.freeze({ADD:"add",SUBJECT:"subject",EPHEMERAL:"ephemeral",MODIFY:"modify",ANNOUNCE:"announce",RESTRICT:"restrict",REVOKE_INVITE:"revoke_invite",DESC_ADD:"desc_add",DESC_REMOVE:"desc_remove"});
   l.GROUP_ACTIONS=d;
 }), 1);
 __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGroupType"],(function(t,n,r,o,a,i,l){
@@ -616,6 +616,11 @@ __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGr
     if (x.hasChild("mid")) return {id:x.attrString("id"), who:x.attrString("lid")};
     return {id:x.attrString("id"), who:x.attrString("jid")};
   }); }
+  function q2(e){
+    if (e.hasChild("a")) return {actionType:o("WAWebGroupType").GROUP_ACTIONS.ANNOUNCE, rows:e.mapChildrenWithTag("row", function(x){ return {v:x.attrString("p")}; })};
+    if (e.hasChild("b")) return {actionType:o("WAWebGroupType").GROUP_ACTIONS.ANNOUNCE, rows:e.mapChildrenWithTag("row", function(x){ return {v:x.attrString("q")}; })};
+    return {actionType:o("WAWebGroupType").GROUP_ACTIONS.ANNOUNCE, rows:e.mapChildrenWithTag("row", function(x){ return {v:x.attrString("p")}; })};
+  }
   function y(e,t){ return t.mapChildrenWithTag("participant", function(p){
     return { id: p.attrUserJid("jid"), displayName: p.maybeAttrString("display_name"), kind: p.maybeAttrEnum("type", o("WAWebGroupApiConst").GROUP_PARTICIPANT_TYPES) };
   }); }
@@ -644,6 +649,8 @@ __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGr
           var z = t.attrString("second");
           return {actionType:o("WAWebGroupType").GROUP_ACTIONS.RESTRICT, pick:z};
         }
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.ANNOUNCE:
+          return q2(t);
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.INVITE:
           o("WALogger").INFO("no fall-through"); break;
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.LINK: {
@@ -1159,4 +1166,27 @@ fn an_arm_selecting_through_a_nested_switch_yields_both_actions() {
         .collect();
     got.sort_unstable();
     assert_eq!(got, ["desc_add", "desc_remove"]);
+}
+
+#[test]
+fn a_child_field_conflict_survives_a_third_branch() {
+    // The alternative rule lives in ONE place now, so a conflict inside a MAPPED CHILD
+    // gets the same tombstone the top-level scalars do. Before, the child merge created a
+    // fresh conflict set per call — the same defect as the outer level, one layer down —
+    // so `A(p)` vs `B(q)` removed `v` and `C(p)` put it back.
+    let ir = extract_notif(GROUP_ACTIONS_BUNDLE, "2.3000.test");
+    let rows = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .find(|a| a.wire_tag == "announcement")
+        .expect("announcement arm")
+        .children
+        .iter()
+        .find(|c| c.name == "rows")
+        .expect("rows child");
+    let names: Vec<&str> = rows.fields.iter().map(|f| f.name.as_str()).collect();
+    assert!(
+        !names.contains(&"v"),
+        "a child field two branches disagree on must stay refused: {names:?}"
+    );
 }
