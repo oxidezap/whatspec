@@ -1229,7 +1229,7 @@ __d("WAWebCommsHandleLoggedInStanza",["WAWebHandleGroupNotification"],function(g
   }); };
 }, 1);
 __d("WAWebHandleGroupNotificationConst",[],(function(t,n,r,o,a,i,l){
-  l.GROUP_NOTIFICATION_TAG=Object.freeze({EVICT:"evict",COND:"cond",REBIND:"rebind",PICK:"pick",BARE:"bare",HELPER:"helper",ESCAPE:"escape",TAIL:"tail",JOIN:"join",SEQ:"seq",SUFFIX:"suffix",AFTER:"after"});
+  l.GROUP_NOTIFICATION_TAG=Object.freeze({EVICT:"evict",COND:"cond",REBIND:"rebind",PICK:"pick",BARE:"bare",HELPER:"helper",ESCAPE:"escape",TAIL:"tail",JOIN:"join",SEQ:"seq",SUFFIX:"suffix",AFTER:"after",TRY:"try_tag",FIN:"fin"});
 }), 1);
 __d("WAWebGroupType",[],(function(t,n,r,o,a,i,l){
   l.GROUP_ACTIONS=Object.freeze({FIRST:"first",SECOND:"second",THIRD:"third"});
@@ -1266,6 +1266,12 @@ __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGr
           if (t.hasChild("alt")) j=t.attrString("lid");
           return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, id:j};
         }
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.TRY:
+          try { return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, ok:t.attrString("ok")}; }
+          catch (e) { return {actionType:o("WAWebGroupType").GROUP_ACTIONS.SECOND, err:t.attrString("err")}; }
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.FIN:
+          try { return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, a:t.attrString("a")}; }
+          finally { return {actionType:o("WAWebGroupType").GROUP_ACTIONS.THIRD, f:t.attrString("f")}; }
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.SUFFIX:
           switch (t.attrString("k")) {
             case "a": t.attrString("setup");
@@ -1461,4 +1467,34 @@ fn a_nested_case_exits_through_its_own_fall_through_suffix() {
         !got.contains(&"third"),
         "and it must not borrow the next case's: {got:?}"
     );
+}
+
+#[test]
+fn a_catch_block_return_is_a_legal_action() {
+    // WA wraps a parse in `try { … } catch (e) { … }` and the handler's return is as
+    // legal as the body's. Walking only the `try` body omitted the error path entirely.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let got: Vec<&str> = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .filter(|a| a.wire_tag == "try_tag")
+        .filter_map(|a| a.action_type.as_deref())
+        .collect();
+    assert!(got.contains(&"first"), "the try body's action: {got:?}");
+    assert!(got.contains(&"second"), "and the catch's: {got:?}");
+}
+
+#[test]
+fn a_returning_finally_overrides_the_try_body() {
+    // A `finally` that returns discards whatever `try`/`catch` produced — it is the only
+    // shape the statement can yield, so reporting the body's would be a shape no
+    // execution reaches.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let got: Vec<&str> = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .filter(|a| a.wire_tag == "fin")
+        .filter_map(|a| a.action_type.as_deref())
+        .collect();
+    assert_eq!(got, ["third"], "only the finalizer's shape: {got:?}");
 }

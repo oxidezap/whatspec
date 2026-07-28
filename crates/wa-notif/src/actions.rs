@@ -563,6 +563,21 @@ fn stmt_exits(s: &Statement, nested: bool) -> bool {
         // exit (accepting only an EMPTY fall-through label) called that switch
         // non-terminating, and the enclosing case then borrowed the next outer case's
         // action for a wire tag that never produces it.
+        // A `finally` that exits settles it on its own; otherwise the `try` body must
+        // exit and, if there is a handler, so must it. `try { return X } finally
+        // { return Y }` always returns, and treating it as fall-through let the arm
+        // borrow the next case's action.
+        Statement::TryStatement(t) => {
+            let finalizer_exits = t
+                .finalizer
+                .as_ref()
+                .is_some_and(|f| list_exits(&f.body, nested));
+            finalizer_exits
+                || (list_exits(&t.block.body, nested)
+                    && t.handler
+                        .as_ref()
+                        .is_none_or(|h| list_exits(&h.body.body, nested)))
+        }
         Statement::SwitchStatement(sw) => {
             sw.cases.iter().any(|c| c.test.is_none())
                 && (0..sw.cases.len()).all(|i| {
@@ -792,7 +807,26 @@ fn collect_returns<'b, 'a>(
                 tombstone_branch_writes(s, &mut scope);
             }
             Statement::TryStatement(t) => {
-                collect_returns(&as_refs(&t.block.body), &scope, out);
+                // The `try` body and its `catch` are alternative paths — WA wraps a
+                // parse in `try { … } catch (e) { … }` and the handler's return is as
+                // legal as the body's — and both see the pre-`try` scope, since nothing
+                // the body wrote is guaranteed to have run when the handler is entered.
+                let mut paths = Vec::new();
+                collect_returns(&as_refs(&t.block.body), &scope, &mut paths);
+                if let Some(h) = &t.handler {
+                    collect_returns(&as_refs(&h.body.body), &scope, &mut paths);
+                }
+                // A `finally` that returns discards whatever `try`/`catch` produced —
+                // it is the only shape the statement can yield.
+                let mut finalizer = Vec::new();
+                if let Some(f) = &t.finalizer {
+                    collect_returns(&as_refs(&f.body), &scope, &mut finalizer);
+                }
+                out.extend(if finalizer.is_empty() {
+                    paths
+                } else {
+                    finalizer
+                });
                 // A `try` body may have run in part; nothing it wrote is certain after it.
                 tombstone_branch_writes(s, &mut scope);
             }
@@ -884,7 +918,15 @@ fn assigned_names<'a>(s: &'a Statement, out: &mut Vec<&'a str>) {
                 assigned_names(a, out);
             }
         }
-        Statement::TryStatement(t) => t.block.body.iter().for_each(|s| assigned_names(s, out)),
+        Statement::TryStatement(t) => {
+            t.block.body.iter().for_each(|s| assigned_names(s, out));
+            if let Some(h) = &t.handler {
+                h.body.body.iter().for_each(|s| assigned_names(s, out));
+            }
+            if let Some(f) = &t.finalizer {
+                f.body.iter().for_each(|s| assigned_names(s, out));
+            }
+        }
         Statement::SwitchStatement(sw) => sw
             .cases
             .iter()
