@@ -467,6 +467,38 @@ impl NamedResolver {
         as_identifier(e).is_some_and(|n| self.factory_params.contains(n))
     }
 
+    /// Push a lexical scope for `stmts`' own `let`/`const`, if any collide with a local.
+    fn with_lexical<'a, R>(
+        &mut self,
+        stmts: &[oxc_ast::ast::Statement<'a>],
+        extra: &[&oxc_ast::ast::VariableDeclaration<'a>],
+        f: impl FnOnce(&mut Self) -> R,
+    ) -> R {
+        let mut lexical = HashSet::new();
+        for d in extra {
+            if !d.kind.is_var() {
+                collect_declared(d, &mut lexical);
+            }
+        }
+        for stmt in stmts {
+            if let oxc_ast::ast::Statement::VariableDeclaration(d) = stmt
+                && !d.kind.is_var()
+            {
+                collect_declared(d, &mut lexical);
+            }
+        }
+        lexical.retain(|n| self.locals.contains_key(n.as_str()));
+        let pushed = !lexical.is_empty();
+        if pushed {
+            self.param_scopes.push(lexical);
+        }
+        let out = f(self);
+        if pushed {
+            self.param_scopes.pop();
+        }
+        out
+    }
+
     /// Whether an enclosing function binds `name` as a parameter, so a read of it here
     /// is that parameter and not the module local this pass recorded.
     fn param_shadows(&self, name: &str) -> bool {
@@ -654,6 +686,24 @@ impl<'a> Visit<'a> for NamedResolver {
         // shadows, and poisoning `e` for the entire module would refuse a composition
         // written outside this body that never sees the inner binding at all.
         let mut hoisted = param_names(&f.params);
+        // A body's own top-level `let`/`const` binds for the WHOLE body — it does not
+        // hoist across blocks, but nothing in this body is outside it either. The
+        // block-scope visitor only sees nested blocks, so these needed collecting here.
+        if let Some(body) = &f.body {
+            let mut lexical = HashSet::new();
+            for stmt in &body.statements {
+                if let oxc_ast::ast::Statement::VariableDeclaration(d) = stmt
+                    && !d.kind.is_var()
+                {
+                    collect_declared(d, &mut lexical);
+                }
+            }
+            hoisted.extend(
+                lexical
+                    .into_iter()
+                    .filter(|n| self.locals.contains_key(n.as_str())),
+            );
+        }
         // A NAMED function expression binds its own name inside its body (`var g =
         // function e(){ … e … }` sees the function, not an outer `e`). That name lives on
         // `f.id`, not among the declarations collected from the enclosing body, so it was
@@ -686,12 +736,31 @@ impl<'a> Visit<'a> for NamedResolver {
         // prescan was right; leaving them untracked entirely was not — an unreadable
         // `let e = get()` inside a block still shadows the outer `e` for reads written in
         // that block. A scope active only while the block is visited says both at once.
+        self.with_lexical(&b.body, &[], |me| walk::walk_block_statement(me, b));
+    }
+
+    fn visit_for_in_statement(&mut self, f: &oxc_ast::ast::ForInStatement<'a>) {
+        let left = match &f.left {
+            oxc_ast::ast::ForStatementLeft::VariableDeclaration(d) => vec![&**d],
+            _ => vec![],
+        };
+        self.with_lexical(&[], &left, |me| walk::walk_for_in_statement(me, f));
+    }
+
+    fn visit_switch_statement(&mut self, sw: &oxc_ast::ast::SwitchStatement<'a>) {
+        // A `case` consequent is not a `BlockStatement`, so its `let` was invisible —
+        // the same untracked-lexical hole as the loop headers below. The binding is
+        // scoped to the whole switch body, which is what the runtime does too.
+        let stmts: Vec<oxc_ast::ast::Statement<'a>> = Vec::new();
+        let _ = &stmts;
         let mut lexical = HashSet::new();
-        for stmt in &b.body {
-            if let oxc_ast::ast::Statement::VariableDeclaration(d) = stmt
-                && !d.kind.is_var()
-            {
-                collect_declared(d, &mut lexical);
+        for case in &sw.cases {
+            for stmt in &case.consequent {
+                if let oxc_ast::ast::Statement::VariableDeclaration(d) = stmt
+                    && !d.kind.is_var()
+                {
+                    collect_declared(d, &mut lexical);
+                }
             }
         }
         lexical.retain(|n| self.locals.contains_key(n.as_str()));
@@ -699,12 +768,25 @@ impl<'a> Visit<'a> for NamedResolver {
         if pushed {
             self.param_scopes.push(lexical);
         }
-        walk::walk_block_statement(self, b);
+        walk::walk_switch_statement(self, sw);
         if pushed {
             self.param_scopes.pop();
         }
     }
-
+    fn visit_for_statement(&mut self, f: &oxc_ast::ast::ForStatement<'a>) {
+        let init = match &f.init {
+            Some(oxc_ast::ast::ForStatementInit::VariableDeclaration(d)) => vec![&**d],
+            _ => vec![],
+        };
+        self.with_lexical(&[], &init, |me| walk::walk_for_statement(me, f));
+    }
+    fn visit_for_of_statement(&mut self, f: &oxc_ast::ast::ForOfStatement<'a>) {
+        let left = match &f.left {
+            oxc_ast::ast::ForStatementLeft::VariableDeclaration(d) => vec![&**d],
+            _ => vec![],
+        };
+        self.with_lexical(&[], &left, |me| walk::walk_for_of_statement(me, f));
+    }
     fn visit_catch_clause(&mut self, c: &oxc_ast::ast::CatchClause<'a>) {
         // `catch (e)` binds `e` for the handler body exactly as a parameter binds it for
         // a function body — the third form of the same shadow, after parameters and
@@ -1328,6 +1410,33 @@ mod tests {
                 .len(),
             2
         );
+
+        // A lexical binding in a loop HEADER or a `switch` case shadows inside it too —
+        // neither is a `BlockStatement`, so both were invisible.
+        for shape in [
+            "for (let e = get(); ; ) { var x=babelHelpers.extends({},e,{B:\"b\"}); i.OUT=x }",
+            "for (const e of xs) { var x=babelHelpers.extends({},e,{B:\"b\"}); i.OUT=x }",
+            "switch (k) { case 1: let e=get(); var x=babelHelpers.extends({},e,{B:\"b\"}); i.OUT=x }",
+        ] {
+            let src = format!(
+                r#"__d("M",[],(function(t,n,r,o,a,i){{
+                    var e={{A:"a"}};
+                    function f(xs,k){{ {shape} }}
+                }}),1);"#
+            );
+            assert!(
+                resolve_named_enum(&src, "M", "OUT").is_none(),
+                "the lexical binding shadows inside its construct: {shape}"
+            );
+        }
+
+        // A body's own top-level `let` binds for the whole body, including a read written
+        // before it — no block encloses it, so the block visitor never sees it.
+        let body_let = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"};
+            function f(){ var x=babelHelpers.extends({},e,{B:"b"}); let e=get(); i.OUT=x }
+        }),1);"#;
+        assert!(resolve_named_enum(body_let, "M", "OUT").is_none());
 
         // A name rebound to the SAME body is not ambiguous — refusing it would throw away
         // a resolvable enum for nothing.

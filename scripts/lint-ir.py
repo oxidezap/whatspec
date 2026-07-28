@@ -369,6 +369,10 @@ def check_field(f, path, domain, errors, counts, proto_enums):
         if t == "bytes":
             if any(c not in "0123456789abcdef" for c in lv) or len(lv) % 2:
                 errors.append(f"{path}: literalValue {lv!r} is not lowercase hex")
+            elif "byteLength" in f and not (
+                isinstance(f["byteLength"], int) and not isinstance(f["byteLength"], bool)
+            ):
+                errors.append(f"{path}: byteLength is {f['byteLength']!r}, not an integer")
             elif "byteLength" in f and len(lv) != f["byteLength"] * 2:
                 errors.append(
                     f"{path}: literalValue is {len(lv) // 2} bytes, "
@@ -486,6 +490,10 @@ def check_const_bytes(node, path, errors):
         errors.append(f"{path}: constBytes on {kind!r} content, which is not bytes")
     if any(c not in "0123456789abcdef" for c in cb) or len(cb) % 2:
         errors.append(f"{path}: constBytes {cb!r} is not lowercase hex")
+    elif "byteLength" in node and not (
+        isinstance(node["byteLength"], int) and not isinstance(node["byteLength"], bool)
+    ):
+        errors.append(f"{path}: byteLength is {node['byteLength']!r}, not an integer")
     elif "byteLength" in node and len(cb) != node["byteLength"] * 2:
         errors.append(
             f"{path}: constBytes is {len(cb) // 2} bytes, "
@@ -597,6 +605,12 @@ def check_enum_catalog_refs(data, domain, errors):
         if node.get("kind") != "enum" or "module" not in node:
             return
         module = node["module"]
+        # Hashable check on the REFERENCE side too, not just where definitions are
+        # indexed: `by_module.get` on a list or dict raises, and this is a reference
+        # walker over arbitrary JSON.
+        if not isinstance(module, str):
+            errors.append(f"{domain}{path}: enum reference module is {module!r}, not a string")
+            return
         found = by_module.get(module, [])
         if not found:
             errors.append(f"{domain}{path}: enum reference {module!r} is in no definition")
@@ -774,7 +788,10 @@ def check_abprops(data, domain, errors):
             elif vt == "int":
                 ok = isinstance(v, int) and not isinstance(v, bool)
             elif vt == "float":
-                ok = isinstance(v, (int, float)) and not isinstance(v, bool)
+                # A bare integer is not a float literal: the generator emits the value as
+                # written, so `AbDefault::Float` would carry an int and a consumer reading
+                # the declared type gets a mismatch the schema cannot see.
+                ok = isinstance(v, float)
             elif vt == "string":
                 ok = isinstance(v, str)
             else:
@@ -887,14 +904,14 @@ def check_appstate_collections(data, domain, errors, proto_enums):
         # encoder identify the action by one name and build its index under another.
         parts = a.get("indexParts")
         first = parts[0] if isinstance(parts, list) and parts else None
-        if not isinstance(first, dict) or first.get("type") != "literal":
-            errors.append(
-                f"{domain}/actions/{name}: indexParts does not begin with a literal"
-            )
         # Each `valueEnumFields` value is a protobuf enum PATH, published unchanged for a
         # consumer to interpret. A typo or a removed enum leaves mutation tooling unable
         # to resolve what the IR claims — and the schema is only a string.
-        for field, path_ in sorted((a.get("valueEnumFields") or {}).items()):
+        vef = a.get("valueEnumFields")
+        if vef is not None and not isinstance(vef, dict):
+            errors.append(f"{domain}/actions/{name}: valueEnumFields is {vef!r}, not a map")
+            vef = None
+        for field, path_ in sorted((vef or {}).items()):
             if isinstance(path_, str) and path_ not in proto_enums:
                 errors.append(
                     f"{domain}/actions/{name}: valueEnumFields[{field!r}] names "
@@ -920,7 +937,9 @@ def check_appstate_collections(data, domain, errors, proto_enums):
                     f"{parts_list[cji].get('type') if isinstance(parts_list[cji], dict) else parts_list[cji]!r} part, not a jid"
                 )
         if not isinstance(first, dict) or first.get("type") != "literal":
-            pass
+            errors.append(
+                f"{domain}/actions/{name}: indexParts does not begin with a literal"
+            )
         elif first.get("value") != a.get("name"):
             errors.append(
                 f"{domain}/actions/{name}: index begins with {first.get('value')!r}, "
@@ -1025,7 +1044,14 @@ def main() -> int:
         sys.exit(f"no domain documents under {root}")
 
     for doc in docs:
-        data = json.loads(doc.read_text())
+        try:
+            data = json.loads(doc.read_text())
+        except (OSError, json.JSONDecodeError) as e:
+            # Reported, not raised: an unreadable document is exactly the malformed input
+            # this exists to report, and a traceback tells a CI reader far less than a
+            # line naming the file.
+            errors.append(f"{doc}: cannot be read as JSON ({e})")
+            continue
         domain = doc.parent.name
 
         def visit(node, path, domain=domain):
