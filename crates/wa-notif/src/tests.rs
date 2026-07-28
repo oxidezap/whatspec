@@ -1229,7 +1229,7 @@ __d("WAWebCommsHandleLoggedInStanza",["WAWebHandleGroupNotification"],function(g
   }); };
 }, 1);
 __d("WAWebHandleGroupNotificationConst",[],(function(t,n,r,o,a,i,l){
-  l.GROUP_NOTIFICATION_TAG=Object.freeze({EVICT:"evict",COND:"cond",REBIND:"rebind",PICK:"pick",BARE:"bare",HELPER:"helper",ESCAPE:"escape",TAIL:"tail",JOIN:"join",SEQ:"seq",SUFFIX:"suffix",AFTER:"after",TRY:"try_tag",FIN:"fin",FINCOND:"fincond",FINTHROW:"finthrow",MULTI:"multi",MULTI3:"multi3",DEAD:"dead",LIT:"lit",LOOP:"loop_tag",FINTRY:"fintry",PARAM:"param",BLK:"blk",EXH:"exh",NFT:"nft"});
+  l.GROUP_NOTIFICATION_TAG=Object.freeze({EVICT:"evict",COND:"cond",REBIND:"rebind",PICK:"pick",BARE:"bare",HELPER:"helper",ESCAPE:"escape",TAIL:"tail",JOIN:"join",SEQ:"seq",SUFFIX:"suffix",AFTER:"after",TRY:"try_tag",FIN:"fin",FINCOND:"fincond",FINTHROW:"finthrow",MULTI:"multi",MULTI3:"multi3",DEAD:"dead",LIT:"lit",LOOP:"loop_tag",FINTRY:"fintry",PARAM:"param",BLK:"blk",EXH:"exh",NFT:"nft",LATE:"late",DOW:"dow",SHADOW:"shadow"});
 }), 1);
 __d("WAWebGroupType",[],(function(t,n,r,o,a,i,l){
   l.GROUP_ACTIONS=Object.freeze({FIRST:"first",SECOND:"second",THIRD:"third"});
@@ -1312,6 +1312,21 @@ __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGr
             case "a": nx = t.attrString("jid");
             default: return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, id:nx};
           }
+        }
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.LATE: {
+          var lr;
+          lr = {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, id:t.attrString("jid")};
+          return lr;
+        }
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.DOW: {
+          var dw;
+          do { dw = t.attrString("lid"); } while (t.hasChild("again"));
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.SECOND, id:dw};
+        }
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.SHADOW: {
+          var sh = t.attrString("jid");
+          { let sh = t.attrString("lid"); }
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.THIRD, id:sh};
         }
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.SUFFIX:
           switch (t.attrString("k")) {
@@ -1790,5 +1805,54 @@ fn the_action_union_is_the_switch_on_a_child_tag_not_the_biggest_one() {
         tags,
         ["real"],
         "only the child-tag switch is the union: {tags:?}"
+    );
+}
+
+#[test]
+fn a_shape_assigned_after_its_declaration_is_still_static() {
+    // `var lr; lr = {actionType: A, id: attr("jid")}; return lr` is fully static, but the
+    // reassignment rule required the right-hand side to resolve to a wire ACCESSOR and
+    // dropped the binding for an object literal, publishing an empty action.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let a = edge_action(&ir, "late");
+    assert_eq!(a.action_type.as_deref(), Some("first"));
+    assert!(
+        a.fields
+            .iter()
+            .any(|f| f.name == "id" && f.wire_name == "jid"),
+        "the whole shape survives: {:?}",
+        a.fields
+    );
+}
+
+#[test]
+fn a_do_while_body_write_is_definite() {
+    // A `do…while` body runs at least once, so every path reaching the return has run it.
+    // Grouping it with the zero-or-more loops tombstoned the write and lost the field.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let a = edge_action(&ir, "dow");
+    assert!(
+        a.fields
+            .iter()
+            .any(|f| f.name == "id" && f.wire_name == "lid"),
+        "the body's write reaches the return: {:?}",
+        a.fields
+    );
+}
+
+#[test]
+fn a_block_scoped_shadow_does_not_escape_its_block() {
+    // `var sh = a("jid"); { let sh = a("lid"); } return {id: sh}` reads `jid` — `let` dies
+    // with its block. Propagating the block's scope wholesale (the `var` fix) leaked it.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let a = edge_action(&ir, "shadow");
+    let f = a
+        .fields
+        .iter()
+        .find(|f| f.name == "id")
+        .expect("the id field");
+    assert_eq!(
+        f.wire_name, "jid",
+        "the OUTER binding is what the return reads"
     );
 }

@@ -223,11 +223,18 @@ pub(crate) fn build_pass(defs: &[ModuleDefinition], source: &str) -> ResponseInd
     }
 
     // Keep the `WASmaxIn*` slices (owned) for the request-anchored fallback.
-    let in_slices: Vec<(String, String)> = slices
+    // SORTED. `slices` is a `HashMap`, so iterating it hands the fallback its candidates
+    // in a different order every run — and the fallback takes the first match. An op with
+    // two success-like `WASmaxIn<X>Response*` modules would therefore attach a different
+    // response parser, and commit different IR, from one run to the next. Byte
+    // reproducibility is this repo's contract; nothing that feeds the artifact may depend
+    // on hash order.
+    let mut in_slices: Vec<(String, String)> = slices
         .iter()
         .filter(|(n, _)| n.starts_with("WASmaxIn"))
         .map(|(n, s)| (n.to_string(), s.to_string()))
         .collect();
+    in_slices.sort_by(|a, b| a.0.cmp(&b.0));
 
     ResponseIndex {
         by_x,

@@ -877,12 +877,14 @@ fn collect_returns_into<'b, 'a>(
                 flatten_sequence(&e.expression, &mut ops);
                 for a in ops {
                     if let Some(name) = a.left.get_identifier_name() {
-                        let reads_wire = find_accessor(strip_guard(&a.right), scope).is_some();
-                        if reads_wire {
-                            scope.insert(name, &a.right);
-                        } else {
-                            scope.remove(name);
-                        }
+                        // The binding now holds the new right-hand side, whatever it is.
+                        // Requiring it to resolve to a wire accessor dropped the minifier's
+                        // `var x; x = {actionType: A, id: attr("jid")}; return x` — a fully
+                        // static shape — and published an empty action. Pointing the name at
+                        // what it now holds satisfies the "never report an overwritten
+                        // value" rule better than forgetting it: if the new value is not
+                        // interpretable, the field simply does not resolve.
+                        scope.insert(name, &a.right);
                     }
                 }
             }
@@ -898,7 +900,22 @@ fn collect_returns_into<'b, 'a>(
             // Analyzing it against a clone discarded that and published the pre-block
             // source. (A branch's block is different — it reaches here through the `if`
             // arm below, which clones deliberately.)
-            Statement::BlockStatement(b) => collect_returns_into(&as_refs(&b.body), scope, out),
+            Statement::BlockStatement(b) => {
+                // `var` writes escape a bare block (function scope); `let`/`const` do not.
+                // Propagating everything let an inner `let x` shadow the outer `x` for the
+                // rest of the function — the runtime reads the OUTER value after the block.
+                let shadowed: Vec<(&str, Option<&'b Expression<'a>>)> = block_scoped_names(&b.body)
+                    .into_iter()
+                    .map(|n| (n, scope.get(n).copied()))
+                    .collect();
+                collect_returns_into(&as_refs(&b.body), scope, out);
+                for (name, prior) in shadowed {
+                    match prior {
+                        Some(e) => scope.insert(name, e),
+                        None => scope.remove(name),
+                    };
+                }
+            }
             Statement::IfStatement(i) => {
                 collect_returns(&[&i.consequent], scope, out);
                 if let Some(alt) = &i.alternate {
@@ -976,11 +993,15 @@ fn collect_returns_into<'b, 'a>(
             // return B` legally produces both, and falling into the catch-all collected
             // only B. Its writes are tombstoned on exit for the same reason a branch's
             // are — the body may have run any number of times, including zero.
+            // A `do…while` body runs AT LEAST once, so its writes are definite — the
+            // ordinary loop merge tombstoned them and lost every field they bound.
+            Statement::DoWhileStatement(d) => {
+                collect_returns_into(&[&d.body], scope, out);
+            }
             Statement::ForStatement(_)
             | Statement::ForInStatement(_)
             | Statement::ForOfStatement(_)
-            | Statement::WhileStatement(_)
-            | Statement::DoWhileStatement(_) => {
+            | Statement::WhileStatement(_) => {
                 if let Some(body) = loop_body(s) {
                     collect_returns(&[body], scope, out);
                 }
@@ -995,6 +1016,26 @@ fn collect_returns_into<'b, 'a>(
             return;
         }
     }
+}
+
+/// The names a statement list declares with `let`/`const` — bindings that die with their
+/// block, unlike `var`.
+fn block_scoped_names<'b, 'a>(stmts: &'b [Statement<'a>]) -> Vec<&'b str> {
+    use oxc_ast::ast::VariableDeclarationKind as K;
+    let mut out = Vec::new();
+    for s in stmts {
+        if let Statement::VariableDeclaration(d) = s
+            && matches!(d.kind, K::Let | K::Const)
+        {
+            out.extend(
+                d.declarations
+                    .iter()
+                    .filter_map(|x| x.id.get_identifier_name())
+                    .map(|n| n.as_str()),
+            );
+        }
+    }
+    out
 }
 
 /// The body statement of any loop form, so one arm can handle them all.
