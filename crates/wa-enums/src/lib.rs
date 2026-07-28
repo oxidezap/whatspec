@@ -1116,12 +1116,24 @@ mod tests {
             2
         );
 
-        // A loop HEADER declares too, and `var` there hoists across the function.
-        let loop_header = r#"__d("M",[],(function(t,n,r,o,a,i){
-            var e={A:"a"};
-            function f(xs){ var x=babelHelpers.extends({},e,{B:"b"}); for (var e of xs) {} i.OUT=x }
-        }),1);"#;
-        assert!(resolve_named_enum(loop_header, "M", "OUT").is_none());
+        // A loop HEADER declares too, and `var` there hoists across the function. All
+        // three forms, because each takes a different arm of the prescan.
+        for header in [
+            "for (var e = 0; e < 1; e++) {}",
+            "for (var e in xs) {}",
+            "for (var e of xs) {}",
+        ] {
+            let src = format!(
+                r#"__d("M",[],(function(t,n,r,o,a,i){{
+                    var e={{A:"a"}};
+                    function f(xs){{ var x=babelHelpers.extends({{}},e,{{B:"b"}}); {header} i.OUT=x }}
+                }}),1);"#
+            );
+            assert!(
+                resolve_named_enum(&src, "M", "OUT").is_none(),
+                "the header's `var e` binds for the whole function: {header}"
+            );
+        }
 
         // A destructuring ASSIGNMENT rebinds without declaring, so no declarator runs.
         let destructure_assign = r#"__d("M",[],(function(t,n,r,o,a,i){
