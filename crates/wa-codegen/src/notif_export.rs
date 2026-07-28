@@ -360,6 +360,12 @@ fn emit_action_tables(notifications: &[NotificationDef]) -> String {
     l.push_str("    pub required: bool,\n");
     l.push_str("    /// The element body is read instead of an attribute.\n");
     l.push_str("    pub content: bool,\n");
+    l.push_str(
+        "    /// The wire enum the handler validates this value against, when the\n\
+         \x20   /// extractor could name it. A `field_type` of `Enum` says the value is\n\
+         \x20   /// constrained; this says to WHAT.\n",
+    );
+    l.push_str("    pub enum_values: &'static [&'static str],\n");
     l.push_str("}\n\n");
     l.push_str(
         "/// A value an arm stamps rather than reading. Typed, because `false` and the\n\
@@ -402,13 +408,19 @@ fn emit_action_tables(notifications: &[NotificationDef]) -> String {
         let items: Vec<String> = fields
             .iter()
             .map(|f| {
+                let values: Vec<String> = f
+                    .enum_ref
+                    .as_ref()
+                    .map(|e| e.variants.iter().map(|v| rust_lit(&v.value)).collect())
+                    .unwrap_or_default();
                 format!(
-                    "NotifActionField {{ name: {}, wire_name: {}, field_type: NotifFieldType::{}, required: {}, content: {} }}",
+                    "NotifActionField {{ name: {}, wire_name: {}, field_type: NotifFieldType::{}, required: {}, content: {}, enum_values: &[{}] }}",
                     rust_lit(&f.name),
                     rust_lit(&f.wire_name),
                     field_type_variant(f.field_type),
                     f.required,
-                    f.content
+                    f.content,
+                    values.join(", ")
                 )
             })
             .collect();

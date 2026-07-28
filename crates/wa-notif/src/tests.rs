@@ -1229,7 +1229,7 @@ __d("WAWebCommsHandleLoggedInStanza",["WAWebHandleGroupNotification"],function(g
   }); };
 }, 1);
 __d("WAWebHandleGroupNotificationConst",[],(function(t,n,r,o,a,i,l){
-  l.GROUP_NOTIFICATION_TAG=Object.freeze({EVICT:"evict",COND:"cond",REBIND:"rebind",PICK:"pick",BARE:"bare",HELPER:"helper",ESCAPE:"escape",TAIL:"tail",JOIN:"join",SEQ:"seq",SUFFIX:"suffix",AFTER:"after",TRY:"try_tag",FIN:"fin",FINCOND:"fincond",FINTHROW:"finthrow",MULTI:"multi",MULTI3:"multi3",DEAD:"dead",LIT:"lit",LOOP:"loop_tag",FINTRY:"fintry",PARAM:"param",BLK:"blk",EXH:"exh",NFT:"nft",LATE:"late",DOW:"dow",SHADOW:"shadow"});
+  l.GROUP_NOTIFICATION_TAG=Object.freeze({EVICT:"evict",COND:"cond",REBIND:"rebind",PICK:"pick",BARE:"bare",HELPER:"helper",ESCAPE:"escape",TAIL:"tail",JOIN:"join",SEQ:"seq",SUFFIX:"suffix",AFTER:"after",TRY:"try_tag",FIN:"fin",FINCOND:"fincond",FINTHROW:"finthrow",MULTI:"multi",MULTI3:"multi3",DEAD:"dead",LIT:"lit",LOOP:"loop_tag",FINTRY:"fintry",PARAM:"param",BLK:"blk",EXH:"exh",NFT:"nft",LATE:"late",DOW:"dow",SHADOW:"shadow",CATCHP:"catchp"});
 }), 1);
 __d("WAWebGroupType",[],(function(t,n,r,o,a,i,l){
   l.GROUP_ACTIONS=Object.freeze({FIRST:"first",SECOND:"second",THIRD:"third"});
@@ -1327,6 +1327,11 @@ __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGr
           var sh = t.attrString("jid");
           { let sh = t.attrString("lid"); }
           return {actionType:o("WAWebGroupType").GROUP_ACTIONS.THIRD, id:sh};
+        }
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.CATCHP: {
+          var e2 = t.attrString("jid");
+          try { return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, id:e2}; }
+          catch (e2) { return {actionType:o("WAWebGroupType").GROUP_ACTIONS.SECOND, id:e2}; }
         }
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.SUFFIX:
           switch (t.attrString("k")) {
@@ -1854,5 +1859,24 @@ fn a_block_scoped_shadow_does_not_escape_its_block() {
     assert_eq!(
         f.wire_name, "jid",
         "the OUTER binding is what the return reads"
+    );
+}
+
+#[test]
+fn a_catch_parameter_shadows_the_outer_binding() {
+    // The catch parameter IS the caught exception, not whatever the outer scope bound to
+    // that name. Analyzing the handler against the unmodified scope published the catch
+    // arm's `id` as a read of `jid`.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let second: Vec<_> = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .filter(|a| a.wire_tag == "catchp" && a.action_type.as_deref() == Some("second"))
+        .collect();
+    assert_eq!(second.len(), 1, "the catch arm is recovered");
+    assert!(
+        second[0].fields.is_empty(),
+        "but its `id` resolves to the exception, not to `jid`: {:?}",
+        second[0].fields
     );
 }

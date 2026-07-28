@@ -953,6 +953,12 @@ impl<'a> Visit<'a> for ModuleScopeBuilder<'_> {
                             .and_then(|c| arg_expr(&c.arguments[0]))
                             .and_then(wa_oxc::as_object)
                     });
+                    // `obj_props` silently skips a spread, a method and a computed key,
+                    // so an object containing one yields a SHORTER list that still
+                    // collects successfully — publishing a closed set that claims the
+                    // parser rejects whatever the skipped property contributed. A table
+                    // we cannot read whole is not a table.
+                    let obj = obj.filter(|o| o.properties.len() == wa_oxc::obj_props(o).count());
                     if let Some(obj) = obj {
                         let n = name.as_str().to_string();
                         // Keys and values are both allowed-value sets, for *different*
@@ -1769,6 +1775,29 @@ mod tests {
                 "and the loss is counted for {src}"
             );
         }
+    }
+
+    #[test]
+    fn a_table_with_a_spread_is_not_a_complete_table() {
+        // `obj_props` silently skips a spread, so the surviving literals collected
+        // successfully and were published as a CLOSED set — claiming the parser rejects
+        // whatever the spread contributed. An invented constraint, not a lost one.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            var u=n("$InternalEnum")({A:"a", ...base});
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("message");
+                e.attrEnumValues("k", u.members());
+                return {};
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let f = p.fields.iter().find(|f| f.name == "k").expect("field");
+        assert!(
+            f.enum_keys.is_none(),
+            "an unreadable table is not a value set"
+        );
+        assert_eq!(f.pending_enum_ref, Some(wa_ir::PendingEnum::Unresolvable));
     }
 
     #[test]

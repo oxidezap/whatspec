@@ -936,7 +936,18 @@ fn collect_returns_into<'b, 'a>(
                 let mut paths = Vec::new();
                 collect_returns(&as_refs(&t.block.body), scope, &mut paths);
                 if let Some(h) = &t.handler {
-                    collect_returns(&as_refs(&h.body.body), scope, &mut paths);
+                    // The catch PARAMETER is the caught exception, not whatever the outer
+                    // scope bound to that name. `var e = attrString("jid"); try {…}
+                    // catch (e) { return {id: e} }` published `id` as a read of `jid`;
+                    // masking it makes the handler's `e` resolve to nothing, which is the
+                    // truth.
+                    let mut catch_scope = scope.clone();
+                    if let Some(param) = h.param.as_ref()
+                        && let Some(name) = param.pattern.get_identifier_name()
+                    {
+                        catch_scope.remove(name.as_str());
+                    }
+                    collect_returns(&as_refs(&h.body.body), &catch_scope, &mut paths);
                 }
                 // What the finalizer does to the earlier shapes is a control-flow
                 // question, not a "did it yield anything" one. Emptiness gets both ends

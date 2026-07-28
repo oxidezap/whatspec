@@ -13,12 +13,20 @@ use wa_ir::{
 /// to DIFFERENT literal values (`type:"result"` vs `type:"error"`): a response
 /// satisfying one fails the other's guard, so neither can shadow the other.
 pub(crate) fn assertions_conflict(a: &ResponseVariant, b: &ResponseVariant) -> bool {
+    // BOTH sides must pin a literal, and to the same NAMED attribute. `Some("result")`
+    // against a presence-only assertion (`value: None`) is not a conflict: a parser that
+    // merely requires `type` to exist also accepts `type="result"`, so the variants are
+    // not disjoint and the earlier arm shadows the later one in a first-success cascade.
     a.assertions.iter().any(|x| {
         x.kind == AssertionKind::Attr
+            && x.name.is_some()
             && x.value.is_some()
-            && b.assertions
-                .iter()
-                .any(|y| y.kind == AssertionKind::Attr && y.name == x.name && y.value != x.value)
+            && b.assertions.iter().any(|y| {
+                y.kind == AssertionKind::Attr
+                    && y.name == x.name
+                    && y.value.is_some()
+                    && y.value != x.value
+            })
     })
 }
 
@@ -766,6 +774,37 @@ fn struct_init_bodies<'a>(code: &'a str, name: &str) -> Vec<&'a str> {
 mod tests {
     use super::*;
     use wa_ir::{IqRequestDef, ParsedResponse};
+
+    fn conflict_attr(name: &str, value: Option<&str>) -> wa_ir::ResponseAssertion {
+        wa_ir::ResponseAssertion {
+            kind: AssertionKind::Attr,
+            name: Some(name.to_string()),
+            value: value.map(str::to_string),
+            reference_path: None,
+        }
+    }
+
+    fn conflict_variant(assertions: Vec<wa_ir::ResponseAssertion>) -> wa_ir::ResponseVariant {
+        wa_ir::ResponseVariant {
+            assertions,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_presence_only_assertion_does_not_conflict_with_a_pin() {
+        // A parser that merely requires `type` to EXIST also accepts `type="result"`, so
+        // the two variants are not disjoint. Treating `Some("result") != None` as a
+        // conflict let the separability gate emit a first-success cascade whose earlier
+        // arm shadows the later one.
+        let pinned = conflict_variant(vec![conflict_attr("type", Some("result"))]);
+        let present = conflict_variant(vec![conflict_attr("type", None)]);
+        assert!(!assertions_conflict(&pinned, &present));
+        assert!(!assertions_conflict(&present, &pinned));
+        // Two different pins on the same attribute still conflict.
+        let other = conflict_variant(vec![conflict_attr("type", Some("error"))]);
+        assert!(assertions_conflict(&pinned, &other));
+    }
 
     fn stanza(module: &str, exported: Option<&str>) -> IqStanzaDef {
         IqStanzaDef {

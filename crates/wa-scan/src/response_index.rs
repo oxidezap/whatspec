@@ -84,17 +84,28 @@ impl ResponseIndex {
             // A parser with no fields is still a response: `makeResult({})` guarded by
             // `type="result"` is a confirmation, and its assertions are the whole
             // contract. Requiring a payload dropped those to a degraded `unknown`.
-            let exports: Vec<ParsedResponse> = analyze_module_exports(slice, &resolver)
-                .into_iter()
-                .map(|(_, pr)| pr)
-                .collect();
-            // A parser carrying fields still wins — this only adds a fallback, so which
-            // export is chosen does not change for any module that has a payload.
+            let exports = analyze_module_exports(slice, &resolver);
+            // The ROOT export, structurally: a child/helper parser's export name extends
+            // another export's at a word boundary (`parseFooResponseSuccess` vs
+            // `…SuccessPayload`), and its fields already nest in the root's tree. The
+            // same rule the incoming ack scan uses.
+            //
+            // Preferring "whichever has fields" picked the payload helper whenever the
+            // root was a fieldless confirmation — losing the root's assertions, which for
+            // a `makeResult({})` response ARE the whole contract.
+            let is_child = |name: &String| {
+                exports.iter().any(|(other, _)| {
+                    other != name
+                        && name
+                            .strip_prefix(other.as_str())
+                            .is_some_and(|suffix| suffix.starts_with(char::is_uppercase))
+                })
+            };
             if let Some(pr) = exports
                 .iter()
-                .find(|pr| !pr.fields.is_empty())
+                .find(|(name, _)| !is_child(name))
                 .or_else(|| exports.first())
-                .cloned()
+                .map(|(_, pr)| pr.clone())
             {
                 // The name gate above is a cheap pre-filter; this is the decision. WA's
                 // names contradict the wire discriminator often enough that
