@@ -598,7 +598,7 @@ __d("WAWebHandleDeviceNotification",["WADeprecatedWapParser"],(function(t,n,r,o,
 __d("WAWebHandleGroupNotificationConst",[],(function(t,n,r,o,a,i,l){
   var cache={};
   cache.GROUP_NOTIFICATION_TAG={ADD:"WRONG_add",SUBJECT:"WRONG_subject"};
-  var e=Object.freeze({ADD:"add",SUBJECT:"subject",EPHEMERAL:"ephemeral",NOT_EPHEMERAL:"not_ephemeral",MODIFY:"modify",GROWTH_LOCKED:"growth_locked",INVITE:"invite",LINK:"link",ANNOUNCE:"announcement",LOCKED:"locked",REVOKE_INVITE:"revoke",DESC:"description",UNLINK:"unlink"});
+  var e=Object.freeze({ADD:"add",SUBJECT:"subject",EPHEMERAL:"ephemeral",NOT_EPHEMERAL:"not_ephemeral",MODIFY:"modify",GROWTH_LOCKED:"growth_locked",INVITE:"invite",LINK:"link",ANNOUNCE:"announcement",LOCKED:"locked",REVOKE_INVITE:"revoke",DESC:"description",UNLINK:"unlink",MEMBERSHIP:"membership"});
   l.GROUP_NOTIFICATION_TAG=e;
 }), 1);
 __d("WAWebGroupApiConst",[],(function(t,n,r,o,a,i,l){
@@ -606,7 +606,7 @@ __d("WAWebGroupApiConst",[],(function(t,n,r,o,a,i,l){
   l.GROUP_PARTICIPANT_TYPES=g;
 }), 1);
 __d("WAWebGroupType",[],(function(t,n,r,o,a,i,l){
-  var d=Object.freeze({ADD:"add",SUBJECT:"subject",EPHEMERAL:"ephemeral",MODIFY:"modify",ANNOUNCE:"announce",RESTRICT:"restrict",REVOKE_INVITE:"revoke_invite",DESC_ADD:"desc_add",DESC_REMOVE:"desc_remove"});
+  var d=Object.freeze({ADD:"add",SUBJECT:"subject",EPHEMERAL:"ephemeral",MODIFY:"modify",ANNOUNCE:"announce",RESTRICT:"restrict",REVOKE_INVITE:"revoke_invite",DESC_ADD:"desc_add",DESC_REMOVE:"desc_remove",MEMBERSHIP:"membership"});
   l.GROUP_ACTIONS=d;
 }), 1);
 __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGroupType"],(function(t,n,r,o,a,i,l){
@@ -669,6 +669,11 @@ __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGr
         }
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.UNLINK:
           return I(t);
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.MEMBERSHIP:
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.MEMBERSHIP,
+            picked: t.hasChildren() ? t.mapChildrenWithTag("picked_user", function(x){ return {id:x.attrUserJid("jid")}; }) : [{id:"fallback"}],
+            nulled: t.hasChild("opt") ? t.mapChildrenWithTag("nulled_user", function(x){ return {id:x.attrUserJid("jid")}; }) : null,
+            anded: t.hasChild("flag") && t.mapChildrenWithTag("anded_user", function(x){ return {id:x.attrUserJid("jid")}; })};
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.REVOKE_INVITE:
           return {actionType:o("WAWebGroupType").GROUP_ACTIONS.REVOKE_INVITE, participants:t.mapChildrenWithTag("participant", function(p){ return {id:p.attrUserJid("jid"), expiration:p.attrInt("expiration")}; }), owners:t.mapChildrenWithTag("owner", p=>o("WAWebJidToWid").userJidToUserWid(p.maybeAttrPhoneUserJid("phone_number")))};
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.DESC:
@@ -789,6 +794,40 @@ fn group_action_arms_recover_fields_children_and_branches() {
         .expect("desc");
     assert!(body.content);
     assert_eq!(body.wire_name, "body");
+}
+
+#[test]
+fn a_mapped_child_is_optional_only_when_the_guard_admits_absence() {
+    // `strip_guard` reaches through a guard to find the map call, so all three arrive.
+    // Whether the collection can be MISSING is a different question from whether a guard
+    // is present, and answering it with `is_guarded` alone gets the first case wrong:
+    // WA's live `created_membership_requests` reads
+    // `t.hasChildren() ? t.mapChildrenWithTag(…) : [{wid: …}]`, which always yields a
+    // collection. Only a literal absence on the far side — or `&&`, whose falsy path
+    // yields no value at all — makes it optional.
+    let ir = extract_notif(GROUP_ACTIONS_BUNDLE, "2.3000.test");
+    let arm = group_actions(&ir)
+        .into_iter()
+        .find(|a| a.wire_tag == "membership")
+        .expect("membership arm");
+    let child = |name: &str| {
+        arm.children
+            .iter()
+            .find(|c| c.name == name)
+            .unwrap_or_else(|| panic!("no child {name}"))
+    };
+    assert!(
+        child("picked").required,
+        "a ternary between two real values always yields a collection"
+    );
+    assert!(
+        !child("nulled").required,
+        "`cond ? map(…) : null` may be absent"
+    );
+    assert!(!child("anded").required, "`cond && map(…)` may be absent");
+    // The guard must not cost the child's contents.
+    assert_eq!(child("anded").wire_tag, "anded_user");
+    assert_eq!(child("anded").fields.len(), 1);
 }
 
 #[test]

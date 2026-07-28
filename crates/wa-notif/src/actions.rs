@@ -1861,7 +1861,19 @@ fn mapped_child<'b, 'a>(
         }
     }
     Some(NotifActionChild {
-        required: true,
+        // `strip_guard` above deliberately reaches THROUGH a guard to find the map call,
+        // so `participants: enabled && node.mapChildrenWithTag(…)` is recovered — and on
+        // that path there is a legal execution with no collection at all. Reporting it
+        // required regardless promised a consumer a collection that may never arrive,
+        // and `BranchFold` cannot correct it: the guard sits inside one object shape
+        // rather than splitting the arm into branches it could merge.
+        //
+        // What it is NOT is `!is_guarded(e)`. `read_field` runs `value_selection` before
+        // consulting the guard precisely because a ternary between two REAL values is a
+        // choice of source, not an absence — and the one live case here is exactly that:
+        // `requests: t.hasChildren() ? t.mapChildrenWithTag(…) : [{wid: …}]` always
+        // yields a collection. Only a literal absence on the far side makes it optional.
+        required: !guard_admits_absence(e),
         name: key.to_string(),
         wire_tag: wire_tag.to_string(),
         fields,
@@ -1959,6 +1971,25 @@ fn value_selection<'b, 'a>(
             }
         }
         _ => None,
+    }
+}
+
+/// Whether a guard around a value has an execution path that produces NO value.
+///
+/// Stricter than [`is_guarded`], which asks only whether a guard is present. A ternary
+/// selecting between two real values (`cond ? mapChildren(…) : [fallback]`) is guarded
+/// yet always yields something, so treating every guard as optionality would publish
+/// `required: false` for a collection that is in fact always there. `a && value` is the
+/// opposite: the falsy path yields no value at all.
+fn guard_admits_absence(e: &Expression) -> bool {
+    match e {
+        Expression::ConditionalExpression(c) => {
+            is_nullish(strip_guard(&c.consequent)) || is_nullish(strip_guard(&c.alternate))
+        }
+        Expression::LogicalExpression(l) => {
+            l.operator == oxc_syntax::operator::LogicalOperator::And
+        }
+        _ => false,
     }
 }
 

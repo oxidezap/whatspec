@@ -6,7 +6,7 @@
 //! and keep only enums whose values are all-integer or all-string literals.
 #![cfg(not(target_arch = "wasm32"))]
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
@@ -105,6 +105,12 @@ fn extract_from_module(slice: &str, module: &str) -> Vec<InternalEnumDef> {
 /// catalog pass so the two resolution sites can't drift.
 fn resolve_pending(r: &mut NamedResolver) {
     for (export, local) in &r.pending {
+        // Same refusal as `NamedResolver::local`, spelled out because the method borrows
+        // all of `r` while `exports` below needs a disjoint mutable borrow. An export
+        // bound to a name the module rebinds is exactly as unsafe to publish here.
+        if r.shadowed.contains(local) {
+            continue;
+        }
         if let Some(data) = r.locals.get(local) {
             r.exports
                 .entry(export.clone())
@@ -127,11 +133,7 @@ pub fn resolve_named_enum(module_slice: &str, module: &str, name: &str) -> Optio
     if ret.panicked {
         return None;
     }
-    let mut r = NamedResolver {
-        locals: HashMap::new(),
-        exports: HashMap::new(),
-        pending: Vec::new(),
-    };
+    let mut r = NamedResolver::new();
     r.visit_program(&ret.program);
     resolve_pending(&mut r);
     let (value_kind, variants) = r.exports.get(name)?.clone();
@@ -179,11 +181,7 @@ fn extract_plain_object_enums(slice: &str, module: &str) -> Vec<InternalEnumDef>
     if ret.panicked {
         return Vec::new();
     }
-    let mut r = NamedResolver {
-        locals: HashMap::new(),
-        exports: HashMap::new(),
-        pending: Vec::new(),
-    };
+    let mut r = NamedResolver::new();
     r.visit_program(&ret.program);
     resolve_pending(&mut r);
     let mut out: Vec<InternalEnumDef> = Vec::new();
@@ -203,8 +201,50 @@ fn extract_plain_object_enums(slice: &str, module: &str) -> Vec<InternalEnumDef>
 
 struct NamedResolver {
     locals: HashMap<String, EnumData>,
+    /// Names bound to two DIFFERENT enum bodies somewhere in the module.
+    ///
+    /// `locals` is flat while JavaScript is lexically scoped, so a minified module that
+    /// reuses a short name inside a nested function — `var e={A:"a"}` at the top, then
+    /// `function f(){var e={X:"x"}}` — overwrites the outer binding that a later
+    /// `extends({}, e, …)` still refers to at runtime. Publishing `X` there would be a
+    /// closed value set naming members the runtime never accepts, which is the one thing
+    /// this crate must not do; both readers of `locals` refuse such a name instead.
+    ///
+    /// Tracking real scopes would be the complete answer. Refusal is the cheap one that
+    /// cannot be wrong, and no bundle in the pinned set has a single collision — so the
+    /// choice costs nothing today and stays correct if that changes.
+    shadowed: HashSet<String>,
     exports: HashMap<String, EnumData>,
     pending: Vec<(String, String)>,
+}
+
+impl NamedResolver {
+    fn new() -> Self {
+        Self {
+            locals: HashMap::new(),
+            shadowed: HashSet::new(),
+            exports: HashMap::new(),
+            pending: Vec::new(),
+        }
+    }
+
+    /// The body bound to `name`, unless the module rebinds it to a different one.
+    fn local(&self, name: &str) -> Option<&EnumData> {
+        if self.shadowed.contains(name) {
+            return None;
+        }
+        self.locals.get(name)
+    }
+
+    fn bind_local(&mut self, name: &str, data: EnumData) {
+        match self.locals.get(name) {
+            Some(prev) if *prev != data => {
+                self.shadowed.insert(name.to_string());
+            }
+            _ => {}
+        }
+        self.locals.insert(name.to_string(), data);
+    }
 }
 
 impl NamedResolver {
@@ -253,7 +293,7 @@ impl NamedResolver {
             let (k, variants) = match enum_object(operand).and_then(parse_enum) {
                 Some(data) => data,
                 // A bare identifier must already be bound by this pass.
-                None => self.locals.get(as_identifier(operand)?)?.clone(),
+                None => self.local(as_identifier(operand)?)?.clone(),
             };
             if !variants.is_empty() {
                 match kind {
@@ -291,7 +331,7 @@ impl<'a> Visit<'a> for NamedResolver {
                 // `dropsByReason`.
                 .or_else(|| d.init.as_ref().and_then(|e| self.merge_extends(e)));
             if let Some(data) = data {
-                self.locals.insert(local.to_string(), data);
+                self.bind_local(local.as_str(), data);
             }
         }
         walk::walk_variable_declarator(self, d);
@@ -533,6 +573,42 @@ mod tests {
         let base =
             resolve_named_enum(module, "M", "BASE").expect("the plain export still resolves");
         assert_eq!(base.variants.len(), 1);
+    }
+
+    #[test]
+    fn a_name_the_module_rebinds_is_refused_everywhere_it_is_read() {
+        // `locals` is flat; JavaScript is not. A minifier that reuses `e` inside a nested
+        // function overwrites the outer binding that the composition below still refers
+        // to at runtime, so a flat map would publish `X,B` — a closed set naming a member
+        // the runtime never accepts, and omitting one it does. Both readers refuse.
+        let module = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"};
+            function f(){var e={X:"x"};return e}
+            var l=babelHelpers.extends({},e,{B:"b"});
+            i.WITH=l,i.ALIAS=e
+        }),1);"#;
+        assert!(
+            resolve_named_enum(module, "M", "WITH").is_none(),
+            "the composition reads a rebound operand"
+        );
+        assert!(
+            resolve_named_enum(module, "M", "ALIAS").is_none(),
+            "`resolve_pending` reads the same rebound name"
+        );
+        // A name rebound to the SAME body is not ambiguous — refusing it would throw away
+        // a resolvable enum for nothing.
+        let same = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"};
+            function f(){var e={A:"a"};return e}
+            i.ALIAS=e
+        }),1);"#;
+        assert_eq!(
+            resolve_named_enum(same, "M", "ALIAS")
+                .expect("an identical rebinding is still resolvable")
+                .variants
+                .len(),
+            1
+        );
     }
 
     #[test]

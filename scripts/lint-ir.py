@@ -30,7 +30,9 @@ from pathlib import Path
 # one of these is a deliberate act: it means a constraint the extractor used to
 # recover is now being lost, and the number has to be updated with a reason.
 BASELINE = {
-    "enum field with no values": 157,
+    # 157 -> 155: appstate's two `protoEnum` fields were never unresolved, only
+    # unrecognised by the check below.
+    "enum field with no values": 155,
     "content integer with no byte width": 0,
 }
 
@@ -76,7 +78,18 @@ def check_field(f, path, errors, counts):
 
     # An enum that names no legal values is the "is this unconstrained, or did we
     # lose the constraint?" ambiguity the IR exists to remove.
-    if t == "enum" and not f.get("enumRef") and not f.get("enumKeys"):
+    #
+    # `protoEnum` names the values too, just by pointing at a protobuf enum instead of
+    # inlining them (appstate's `SettingsSync.settingPlatform`). Omitting it counted two
+    # fully-resolved constraints as lost — and since the baseline is a ratchet, a new
+    # proto-backed enum could then silently cancel out a genuine unresolved-enum fix
+    # while the total held still.
+    if (
+        t == "enum"
+        and not f.get("enumRef")
+        and not f.get("enumKeys")
+        and not f.get("protoEnum")
+    ):
         counts["enum field with no values"] += 1
 
     if method in WIDTH_BEARING and "byteLength" not in f:
@@ -111,6 +124,17 @@ def check_field(f, path, errors, counts):
     # then does not say what.
     if "referencePath" in f and not f["referencePath"]:
         errors.append(f"{path}: referencePath is empty")
+
+    # `ParsedField::reference_path` is documented as mutually exclusive with
+    # `literal_value`: one pins a constant, the other pins a value copied from the
+    # request. Carried together they are two different answers to "what is this
+    # field's value", and a consumer cannot honour both. Checking each key on its own
+    # let the pair through — no live case today, which is the point of adding it now.
+    if lv is not None and f.get("referencePath"):
+        errors.append(
+            f"{path}: carries both literalValue and referencePath, "
+            f"which pin the value to different things"
+        )
 
 
 def check_enum_ref(node, path, errors):

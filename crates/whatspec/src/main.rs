@@ -1225,23 +1225,6 @@ fn load_wasm(
     }
 
     let resolution = wa_fetch::resolve_wasm(discovered, &wa_fetch::WasmResolveOptions::default());
-    // Pinned alongside the payloads: the id→URI map is the ONLY thing that turns the
-    // numeric handle the JS asks for into something fetchable, and nothing recorded it.
-    //
-    // Built from the map ACCUMULATED for this version, not from this run's sample. The
-    // endpoint answers the same request with different subsets, so pinning the latest
-    // sample would let a later successful run DELETE ids a previous one resolved — while
-    // their payloads stay in the set — and the supposedly diffable map would differ
-    // between two runs of an unchanged release.
-    let pin_from = |handles: &BTreeMap<String, String>| lock::BootloaderPins {
-        handles_from_page: resolution.from_page,
-        wasm_handles: handles
-            .iter()
-            .map(|(url, id)| (id.clone(), url.clone()))
-            .collect(),
-        requests: resolution.requests,
-        failed_requests: resolution.failed_requests,
-    };
     eprintln!(
         "resolved {} wasm payload(s): {} from the page, {} handle(s) after {} bootloader \
          round(s) ({} request(s))",
@@ -1339,7 +1322,7 @@ fn load_wasm(
         handles.extend(cache.wasm_handles());
     }
     handles.extend(resolution.handle_by_url());
-    let pins = pin_from(&handles);
+    let pins = bootloader_pins(&resolution, &handles);
 
     if payloads.is_empty() {
         // Still sweep: an explicit `--wasm-out` that produced nothing must not leave the
@@ -1443,6 +1426,39 @@ fn truncate_on_char_boundary(s: &str, max_bytes: usize) -> &str {
         .last()
         .unwrap_or(0);
     &s[..end]
+}
+
+/// The bootloader section of the wasm lock: what this run learned about turning a numeric
+/// `bx` handle into something fetchable, which nothing else records.
+///
+/// `handles` is the map ACCUMULATED for this version (page + cache + this run), not this
+/// run's sample. The endpoint answers the same request with different subsets, so pinning
+/// the latest sample would let a later successful run DELETE ids a previous one resolved —
+/// while their payloads stay in the set — and the supposedly diffable map would differ
+/// between two runs of an unchanged release.
+///
+/// Only the wasm entries are pinned, as the field name promises. `handles` starts from the
+/// page's `bxData`, the bootloader's map of EVERY resource — images and the rest — while
+/// the other two contributors are already wasm-filtered (`by_id` keeps only wasm URLs, and
+/// the cache filters against stored wasm payloads). Pinning the lot broke the field's
+/// contract and swamped the diff signal it exists for, since unrelated resources churn far
+/// more often than the wasm set does. `handles` itself is left whole: `store_wasm` and
+/// `wasm_entries` look it up by a payload's own URL, where a non-wasm entry never matches.
+#[cfg(feature = "fetch")]
+fn bootloader_pins(
+    resolution: &wa_fetch::WasmResolution,
+    handles: &BTreeMap<String, String>,
+) -> lock::BootloaderPins {
+    lock::BootloaderPins {
+        handles_from_page: resolution.from_page,
+        wasm_handles: handles
+            .iter()
+            .filter(|(url, _)| wa_fetch::is_wasm_url(url))
+            .map(|(url, id)| (id.clone(), url.clone()))
+            .collect(),
+        requests: resolution.requests,
+        failed_requests: resolution.failed_requests,
+    }
 }
 
 /// `bx` id → URI inverted into URI → `bx` id, lowest id winning on a shared URI (the
@@ -2101,10 +2117,25 @@ struct NotifCounts {
 /// is the diagnostic worth keeping. A missing or unreadable lock is left alone — there is
 /// no payload set to preserve, and inventing one from an empty run is what the guard
 /// forbids.
+///
+/// The handle map ACCUMULATES over the lock's own previous value; only the request
+/// diagnostics are replaced. Everywhere else the accumulation comes from the cache, but
+/// the update workflow runs `--wasm-out` with no `--cache`, so on that path the lock is
+/// the only surviving record of what earlier runs resolved from the endpoint — and
+/// replacing the section wholesale would delete those ids while deliberately keeping the
+/// payloads they resolved. That is precisely the "a later run must not shrink the map"
+/// rule the pins were introduced to honour.
 #[cfg(feature = "fetch")]
 fn update_lock_bootloader(lock_path: &Path, pins: &lock::BootloaderPins) -> Result<()> {
     let raw = fs::read_to_string(lock_path)?;
     let mut lock: WasmLock = serde_json::from_str(&raw)?;
+    let mut pins = pins.clone();
+    if let Some(prev) = &lock.bootloader {
+        for (id, url) in &prev.wasm_handles {
+            pins.wasm_handles.entry(id.clone()).or_insert(url.clone());
+        }
+    }
+    let pins = &pins;
     if lock.bootloader.as_ref() == Some(pins) {
         return Ok(());
     }
@@ -2998,6 +3029,83 @@ mod tests {
             "all distinct even when the fallback was taken: {names:?}"
         );
         assert!(names.iter().all(|n| n.ends_with(".wasm") && n.len() <= 128));
+    }
+
+    #[cfg(feature = "fetch")]
+    #[test]
+    fn an_empty_run_accumulates_the_bootloader_map_instead_of_replacing_it() {
+        // The update workflow runs `--wasm-out` with NO `--cache`, so on that path the
+        // lock is the only record of what earlier runs resolved from the endpoint. A
+        // wholesale replace would drop those ids while keeping the payloads they
+        // resolved — the exact shrink the pins exist to prevent. Diagnostics are the
+        // opposite: they describe THIS run, so they must not accumulate.
+        let dir = std::env::temp_dir().join(format!("ws-boot-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("scratch dir");
+        let path = dir.join("wasm.lock.json");
+        let pins = |handles: &[(&str, &str)], requests, failed| lock::BootloaderPins {
+            handles_from_page: 1,
+            wasm_handles: handles
+                .iter()
+                .map(|(a, b)| (a.to_string(), b.to_string()))
+                .collect(),
+            requests,
+            failed_requests: failed,
+        };
+
+        let before = lock::WasmLock::with_bootloader(
+            "2.3000.test",
+            vec![],
+            Some(pins(&[("11", "https://x/a.wasm")], 4, 0)),
+        );
+        fs::write(&path, before.to_pretty_json()).expect("seed the lock");
+
+        // An unproductive run that saw only the page's own handle.
+        update_lock_bootloader(&path, &pins(&[("22", "https://x/b.wasm")], 1, 1))
+            .expect("rewrite the section");
+
+        let after: lock::WasmLock =
+            serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        let boot = after.bootloader.expect("bootloader section");
+        assert_eq!(
+            boot.wasm_handles.keys().collect::<Vec<_>>(),
+            ["11", "22"],
+            "the earlier endpoint-resolved id survives"
+        );
+        assert_eq!(boot.requests, 1, "diagnostics describe THIS run");
+        assert_eq!(boot.failed_requests, 1);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[cfg(feature = "fetch")]
+    #[test]
+    fn only_wasm_handles_are_pinned() {
+        // The page's `bxData` maps EVERY resource, not just wasm, and it is one of the
+        // three sources folded into `handles`. Pinning the lot broke the field's own
+        // contract and swamped its diff signal with images that change far more often
+        // than the wasm set does.
+        let handles: BTreeMap<String, String> = [
+            ("https://x/a.wasm", "11"),
+            ("https://x/logo.png", "22"),
+            ("https://x/b.wasm?v=3", "33"),
+        ]
+        .iter()
+        .map(|(u, i)| (u.to_string(), i.to_string()))
+        .collect();
+        let resolution = wa_fetch::WasmResolution {
+            from_page: 1,
+            requests: 2,
+            failed_requests: 0,
+            ..Default::default()
+        };
+        let pins = bootloader_pins(&resolution, &handles);
+        assert_eq!(
+            pins.wasm_handles.keys().collect::<Vec<_>>(),
+            ["11", "33"],
+            "the image is dropped and a query string does not hide a .wasm"
+        );
+        // The diagnostics still come from the resolution, untouched by the filter.
+        assert_eq!((pins.handles_from_page, pins.requests), (1, 2));
     }
 
     #[test]
