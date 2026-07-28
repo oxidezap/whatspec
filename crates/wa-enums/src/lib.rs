@@ -207,13 +207,81 @@ struct NamedResolver {
     pending: Vec<(String, String)>,
 }
 
+impl NamedResolver {
+    /// Evaluate `babelHelpers.extends(a, b, …)` into one enum, left to right.
+    ///
+    /// Each operand must be something already understood — an object literal, an
+    /// `$InternalEnum(…)`, or a local this pass has already bound. Anything else refuses
+    /// the whole thing rather than publishing the operands it could read: a partial
+    /// merge is a closed value set that omits members the runtime accepts, which is
+    /// worse than recording the loss.
+    ///
+    /// Later operands override earlier keys, as the runtime does. A single value kind is
+    /// required, so a string enum merged with an int one resolves to nothing.
+    fn merge_extends(&self, e: &Expression) -> Option<EnumData> {
+        let call = as_call(e)?;
+        let callee = wa_oxc::as_member(&call.callee)?;
+        if callee.1 != "extends" || as_identifier(callee.0) != Some("babelHelpers") {
+            return None;
+        }
+        let mut kind: Option<EnumValueKind> = None;
+        let mut merged: Vec<EnumVariant> = Vec::new();
+        for arg in &call.arguments {
+            let operand = arg_expr(arg)?;
+            // An empty `{}` is the conventional first operand and contributes nothing —
+            // and `parse_enum` rejects it (no variants), so it has to be recognised
+            // before the refusal path or it kills every merge.
+            if let Some(o) = as_object(operand)
+                && o.properties.is_empty()
+            {
+                continue;
+            }
+            let (k, variants) = match enum_object(operand).and_then(parse_enum) {
+                Some(data) => data,
+                // A bare identifier must already be bound by this pass.
+                None => match as_identifier(operand) {
+                    Some(name) => self.locals.get(name)?.clone(),
+                    None => return None,
+                },
+            };
+            if !variants.is_empty() {
+                match kind {
+                    Some(prev) if prev != k => return None,
+                    _ => kind = Some(k),
+                }
+            }
+            for v in variants {
+                match merged.iter_mut().find(|x| x.name == v.name) {
+                    Some(existing) => *existing = v,
+                    None => merged.push(v),
+                }
+            }
+        }
+        if merged.is_empty() {
+            return None;
+        }
+        Some((kind?, merged))
+    }
+}
+
 impl<'a> Visit<'a> for NamedResolver {
     fn visit_variable_declarator(&mut self, d: &VariableDeclarator<'a>) {
-        if let Some(local) = d.id.get_identifier_name()
-            && let Some(obj) = d.init.as_ref().and_then(enum_object)
-            && let Some(data) = parse_enum(obj)
-        {
-            self.locals.insert(local.to_string(), data);
+        if let Some(local) = d.id.get_identifier_name() {
+            let data = d
+                .init
+                .as_ref()
+                .and_then(enum_object)
+                .and_then(parse_enum)
+                // WA composes enums as well as declaring them:
+                // `VISIBILITY_WITH_ERROR = extends({}, VISIBILITY, {error: "error"})`.
+                // Recognising only literals left every composed one unresolvable, and the
+                // fields validating against them shipped as `"type": "enum"` with no
+                // values — 41 lost constraints, the largest single entry in
+                // `dropsByReason`.
+                .or_else(|| d.init.as_ref().and_then(|e| self.merge_extends(e)));
+            if let Some(data) = data {
+                self.locals.insert(local.to_string(), data);
+            }
         }
         walk::walk_variable_declarator(self, d);
     }
@@ -407,6 +475,48 @@ fn parse_enum(obj: &ObjectExpression) -> Option<EnumData> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_composed_enum_merges_its_operands() {
+        // WA composes enums as well as declaring them, and the composed ones are the
+        // interesting ones: `VISIBILITY_WITH_ERROR` is `VISIBILITY` plus the `error`
+        // sentinel the parser checks for. Recognising only literals left 41 constraints
+        // unresolvable — the largest single entry in `dropsByReason`.
+        let module = r#"__d("WAWebPrivacySettings",[],(function(t,n,r,o,a,i){
+            var e={all:"all",contacts:"contacts",none:"none"},
+                l=babelHelpers.extends({},e,{error:"error"});
+            i.VISIBILITY=e,i.VISIBILITY_WITH_ERROR=l
+        }),66);"#;
+        let def = resolve_named_enum(module, "WAWebPrivacySettings", "VISIBILITY_WITH_ERROR")
+            .expect("the composed export resolves");
+        let values: Vec<&str> = def
+            .variants
+            .iter()
+            .map(|v| match &v.value {
+                Scalar::Str(s) => s.as_str(),
+                _ => "<non-string>",
+            })
+            .collect();
+        assert_eq!(
+            values,
+            ["all", "contacts", "none", "error"],
+            "in merge order"
+        );
+        // The base is still resolvable on its own, and does NOT gain the sentinel.
+        let base = resolve_named_enum(module, "WAWebPrivacySettings", "VISIBILITY").unwrap();
+        assert_eq!(base.variants.len(), 3);
+    }
+
+    #[test]
+    fn a_composition_over_something_unreadable_is_refused() {
+        // A partial merge is a CLOSED value set missing members the runtime accepts —
+        // worse than recording the loss, so an unresolvable operand refuses the whole.
+        let module = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={all:"all"},l=babelHelpers.extends({},e,computed());
+            i.WITH=l
+        }),1);"#;
+        assert!(resolve_named_enum(module, "M", "WITH").is_none());
+    }
 
     fn run(src: &str) -> Vec<InternalEnumDef> {
         let defs = wa_transform::extract_module_definitions(src);

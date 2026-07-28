@@ -34905,43 +34905,205 @@
                     "method": "attrEnum",
                     "name": "value",
                     "type": "enum",
-                    "required": true
+                    "required": true,
+                    "enumRef": {
+                      "name": "ALL_NONE_WITH_ERROR",
+                      "module": "WAWebPrivacySettings",
+                      "variants": [
+                        {
+                          "name": "all",
+                          "value": "all"
+                        },
+                        {
+                          "name": "none",
+                          "value": "none"
+                        },
+                        {
+                          "name": "error",
+                          "value": "error"
+                        }
+                      ]
+                    }
                   },
                   {
                     "method": "attrEnum",
                     "name": "value",
                     "type": "enum",
-                    "required": true
+                    "required": true,
+                    "enumRef": {
+                      "name": "VISIBILITY_WITH_ERROR",
+                      "module": "WAWebPrivacySettings",
+                      "variants": [
+                        {
+                          "name": "all",
+                          "value": "all"
+                        },
+                        {
+                          "name": "contacts",
+                          "value": "contacts"
+                        },
+                        {
+                          "name": "contact_blacklist",
+                          "value": "contact_blacklist"
+                        },
+                        {
+                          "name": "none",
+                          "value": "none"
+                        },
+                        {
+                          "name": "error",
+                          "value": "error"
+                        }
+                      ]
+                    }
                   },
                   {
                     "method": "attrEnum",
                     "name": "value",
                     "type": "enum",
-                    "required": true
+                    "required": true,
+                    "enumRef": {
+                      "name": "ONLINE_VISIBILITY_WITH_ERROR",
+                      "module": "WAWebPrivacySettings",
+                      "variants": [
+                        {
+                          "name": "all",
+                          "value": "all"
+                        },
+                        {
+                          "name": "match_last_seen",
+                          "value": "match_last_seen"
+                        },
+                        {
+                          "name": "error",
+                          "value": "error"
+                        }
+                      ]
+                    }
                   },
                   {
                     "method": "attrEnum",
                     "name": "value",
                     "type": "enum",
-                    "required": true
+                    "required": true,
+                    "enumRef": {
+                      "name": "VISIBILITY_WITH_ERROR",
+                      "module": "WAWebPrivacySettings",
+                      "variants": [
+                        {
+                          "name": "all",
+                          "value": "all"
+                        },
+                        {
+                          "name": "contacts",
+                          "value": "contacts"
+                        },
+                        {
+                          "name": "contact_blacklist",
+                          "value": "contact_blacklist"
+                        },
+                        {
+                          "name": "none",
+                          "value": "none"
+                        },
+                        {
+                          "name": "error",
+                          "value": "error"
+                        }
+                      ]
+                    }
                   },
                   {
                     "method": "attrEnum",
                     "name": "value",
                     "type": "enum",
-                    "required": true
+                    "required": true,
+                    "enumRef": {
+                      "name": "VISIBILITY_WITH_ERROR",
+                      "module": "WAWebPrivacySettings",
+                      "variants": [
+                        {
+                          "name": "all",
+                          "value": "all"
+                        },
+                        {
+                          "name": "contacts",
+                          "value": "contacts"
+                        },
+                        {
+                          "name": "contact_blacklist",
+                          "value": "contact_blacklist"
+                        },
+                        {
+                          "name": "none",
+                          "value": "none"
+                        },
+                        {
+                          "name": "error",
+                          "value": "error"
+                        }
+                      ]
+                    }
                   },
                   {
                     "method": "attrEnum",
                     "name": "value",
                     "type": "enum",
-                    "required": true
+                    "required": true,
+                    "enumRef": {
+                      "name": "VISIBILITY_WITH_ERROR",
+                      "module": "WAWebPrivacySettings",
+                      "variants": [
+                        {
+                          "name": "all",
+                          "value": "all"
+                        },
+                        {
+                          "name": "contacts",
+                          "value": "contacts"
+                        },
+                        {
+                          "name": "contact_blacklist",
+                          "value": "contact_blacklist"
+                        },
+                        {
+                          "name": "none",
+                          "value": "none"
+                        },
+                        {
+                          "name": "error",
+                          "value": "error"
+                        }
+                      ]
+                    }
                   },
                   {
                     "method": "attrEnum",
                     "name": "value",
                     "type": "enum",
-                    "required": true
+                    "required": true,
+                    "enumRef": {
+                      "name": "CALL_ADD_WITH_ERROR",
+                      "module": "WAWebPrivacySettings",
+                      "variants": [
+                        {
+                          "name": "all",
+                          "value": "all"
+                        },
+                        {
+                          "name": "known",
+                          "value": "known"
+                        },
+                        {
+                          "name": "contacts",
+                          "value": "contacts"
+                        },
+                        {
+                          "name": "error",
+                          "value": "error"
+                        }
+                      ]
+                    }
                   },
                   {
                     "method": "attrEnum",
@@ -34987,7 +35149,33 @@
                     "method": "attrEnum",
                     "name": "value",
                     "type": "enum",
-                    "required": true
+                    "required": true,
+                    "enumRef": {
+                      "name": "VISIBILITY_WITH_ERROR",
+                      "module": "WAWebPrivacySettings",
+                      "variants": [
+                        {
+                          "name": "all",
+                          "value": "all"
+                        },
+                        {
+                          "name": "contacts",
+                          "value": "contacts"
+                        },
+                        {
+                          "name": "contact_blacklist",
+                          "value": "contact_blacklist"
+                        },
+                        {
+                          "name": "none",
+                          "value": "none"
+                        },
+                        {
+                          "name": "error",
+                          "value": "error"
+                        }
+                      ]
+                    }
                   }
                 ],
                 "repeats": true
@@ -35004,43 +35192,205 @@
             "method": "attrEnum",
             "name": "value",
             "type": "enum",
-            "required": true
+            "required": true,
+            "enumRef": {
+              "name": "ALL_NONE_WITH_ERROR",
+              "module": "WAWebPrivacySettings",
+              "variants": [
+                {
+                  "name": "all",
+                  "value": "all"
+                },
+                {
+                  "name": "none",
+                  "value": "none"
+                },
+                {
+                  "name": "error",
+                  "value": "error"
+                }
+              ]
+            }
           },
           {
             "method": "attrEnum",
             "name": "value",
             "type": "enum",
-            "required": true
+            "required": true,
+            "enumRef": {
+              "name": "VISIBILITY_WITH_ERROR",
+              "module": "WAWebPrivacySettings",
+              "variants": [
+                {
+                  "name": "all",
+                  "value": "all"
+                },
+                {
+                  "name": "contacts",
+                  "value": "contacts"
+                },
+                {
+                  "name": "contact_blacklist",
+                  "value": "contact_blacklist"
+                },
+                {
+                  "name": "none",
+                  "value": "none"
+                },
+                {
+                  "name": "error",
+                  "value": "error"
+                }
+              ]
+            }
           },
           {
             "method": "attrEnum",
             "name": "value",
             "type": "enum",
-            "required": true
+            "required": true,
+            "enumRef": {
+              "name": "ONLINE_VISIBILITY_WITH_ERROR",
+              "module": "WAWebPrivacySettings",
+              "variants": [
+                {
+                  "name": "all",
+                  "value": "all"
+                },
+                {
+                  "name": "match_last_seen",
+                  "value": "match_last_seen"
+                },
+                {
+                  "name": "error",
+                  "value": "error"
+                }
+              ]
+            }
           },
           {
             "method": "attrEnum",
             "name": "value",
             "type": "enum",
-            "required": true
+            "required": true,
+            "enumRef": {
+              "name": "VISIBILITY_WITH_ERROR",
+              "module": "WAWebPrivacySettings",
+              "variants": [
+                {
+                  "name": "all",
+                  "value": "all"
+                },
+                {
+                  "name": "contacts",
+                  "value": "contacts"
+                },
+                {
+                  "name": "contact_blacklist",
+                  "value": "contact_blacklist"
+                },
+                {
+                  "name": "none",
+                  "value": "none"
+                },
+                {
+                  "name": "error",
+                  "value": "error"
+                }
+              ]
+            }
           },
           {
             "method": "attrEnum",
             "name": "value",
             "type": "enum",
-            "required": true
+            "required": true,
+            "enumRef": {
+              "name": "VISIBILITY_WITH_ERROR",
+              "module": "WAWebPrivacySettings",
+              "variants": [
+                {
+                  "name": "all",
+                  "value": "all"
+                },
+                {
+                  "name": "contacts",
+                  "value": "contacts"
+                },
+                {
+                  "name": "contact_blacklist",
+                  "value": "contact_blacklist"
+                },
+                {
+                  "name": "none",
+                  "value": "none"
+                },
+                {
+                  "name": "error",
+                  "value": "error"
+                }
+              ]
+            }
           },
           {
             "method": "attrEnum",
             "name": "value",
             "type": "enum",
-            "required": true
+            "required": true,
+            "enumRef": {
+              "name": "VISIBILITY_WITH_ERROR",
+              "module": "WAWebPrivacySettings",
+              "variants": [
+                {
+                  "name": "all",
+                  "value": "all"
+                },
+                {
+                  "name": "contacts",
+                  "value": "contacts"
+                },
+                {
+                  "name": "contact_blacklist",
+                  "value": "contact_blacklist"
+                },
+                {
+                  "name": "none",
+                  "value": "none"
+                },
+                {
+                  "name": "error",
+                  "value": "error"
+                }
+              ]
+            }
           },
           {
             "method": "attrEnum",
             "name": "value",
             "type": "enum",
-            "required": true
+            "required": true,
+            "enumRef": {
+              "name": "CALL_ADD_WITH_ERROR",
+              "module": "WAWebPrivacySettings",
+              "variants": [
+                {
+                  "name": "all",
+                  "value": "all"
+                },
+                {
+                  "name": "known",
+                  "value": "known"
+                },
+                {
+                  "name": "contacts",
+                  "value": "contacts"
+                },
+                {
+                  "name": "error",
+                  "value": "error"
+                }
+              ]
+            }
           },
           {
             "method": "attrEnum",
@@ -35086,7 +35436,33 @@
             "method": "attrEnum",
             "name": "value",
             "type": "enum",
-            "required": true
+            "required": true,
+            "enumRef": {
+              "name": "VISIBILITY_WITH_ERROR",
+              "module": "WAWebPrivacySettings",
+              "variants": [
+                {
+                  "name": "all",
+                  "value": "all"
+                },
+                {
+                  "name": "contacts",
+                  "value": "contacts"
+                },
+                {
+                  "name": "contact_blacklist",
+                  "value": "contact_blacklist"
+                },
+                {
+                  "name": "none",
+                  "value": "none"
+                },
+                {
+                  "name": "error",
+                  "value": "error"
+                }
+              ]
+            }
           }
         ]
       }

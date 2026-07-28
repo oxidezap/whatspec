@@ -30,7 +30,7 @@ from pathlib import Path
 # one of these is a deliberate act: it means a constraint the extractor used to
 # recover is now being lost, and the number has to be updated with a reason.
 BASELINE = {
-    "enum field with no values": 173,
+    "enum field with no values": 157,
     "content integer with no byte width": 0,
 }
 
