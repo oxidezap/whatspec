@@ -1229,7 +1229,7 @@ __d("WAWebCommsHandleLoggedInStanza",["WAWebHandleGroupNotification"],function(g
   }); };
 }, 1);
 __d("WAWebHandleGroupNotificationConst",[],(function(t,n,r,o,a,i,l){
-  l.GROUP_NOTIFICATION_TAG=Object.freeze({EVICT:"evict",COND:"cond",REBIND:"rebind",PICK:"pick",BARE:"bare",HELPER:"helper",ESCAPE:"escape",TAIL:"tail",JOIN:"join",SEQ:"seq",SUFFIX:"suffix",AFTER:"after",TRY:"try_tag",FIN:"fin",FINCOND:"fincond",FINTHROW:"finthrow",MULTI:"multi",MULTI3:"multi3",DEAD:"dead",LIT:"lit",LOOP:"loop_tag",FINTRY:"fintry",PARAM:"param",BLK:"blk",EXH:"exh"});
+  l.GROUP_NOTIFICATION_TAG=Object.freeze({EVICT:"evict",COND:"cond",REBIND:"rebind",PICK:"pick",BARE:"bare",HELPER:"helper",ESCAPE:"escape",TAIL:"tail",JOIN:"join",SEQ:"seq",SUFFIX:"suffix",AFTER:"after",TRY:"try_tag",FIN:"fin",FINCOND:"fincond",FINTHROW:"finthrow",MULTI:"multi",MULTI3:"multi3",DEAD:"dead",LIT:"lit",LOOP:"loop_tag",FINTRY:"fintry",PARAM:"param",BLK:"blk",EXH:"exh",NFT:"nft"});
 }), 1);
 __d("WAWebGroupType",[],(function(t,n,r,o,a,i,l){
   l.GROUP_ACTIONS=Object.freeze({FIRST:"first",SECOND:"second",THIRD:"third"});
@@ -1306,6 +1306,13 @@ __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGr
           if (t.hasChild("q")) return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, a:t.attrString("a")};
           else return {actionType:o("WAWebGroupType").GROUP_ACTIONS.SECOND, b:t.attrString("b")};
           return {actionType:o("WAWebGroupType").GROUP_ACTIONS.THIRD, c:t.attrString("c")};
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.NFT: {
+          var nx;
+          switch (t.attrString("k")) {
+            case "a": nx = t.attrString("jid");
+            default: return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, id:nx};
+          }
+        }
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.SUFFIX:
           switch (t.attrString("k")) {
             case "a": t.attrString("setup");
@@ -1704,5 +1711,84 @@ fn nothing_after_an_exhaustive_if_is_reachable() {
         got,
         ["first", "second"],
         "the trailing return is dead: {got:?}"
+    );
+}
+
+#[test]
+fn a_nested_case_carries_its_setup_to_the_case_it_falls_into() {
+    // `case "a": nx = t.attrString("jid"); default: return {id: nx}` — the `a` path runs
+    // the assignment and falls into the default's return. Analyzing each consequent
+    // against the same incoming scope lost `id` on that path.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let a = edge_action(&ir, "nft");
+    assert!(
+        a.fields
+            .iter()
+            .any(|f| f.name == "id" && f.wire_name == "jid"),
+        "the fall-through setup reaches the return: {:?}",
+        a.fields
+    );
+}
+
+/// A handler whose payload union is SMALLER than an unrelated const-keyed switch beside
+/// it. Picking by arm count would publish the wrong one.
+const DECOY_SWITCH_BUNDLE: &str = r#"
+__d("WAWebCommsHandleLoggedInStanza",["WAWebHandleGroupNotification"],function(g,r,d,o,e,i,l){
+  l.handle = function(){ return (function*(e,t){
+    var n = e.attrs;
+    switch (e.tag) {
+      case "notification":
+        switch (n.type) {
+          case "w:gp2": return yield r("WAWebHandleGroupNotification")(e);
+        }
+    }
+  }); };
+}, 1);
+__d("WAWebHandleGroupNotificationConst",[],(function(t,n,r,o,a,i,l){
+  l.GROUP_NOTIFICATION_TAG=Object.freeze({REAL:"real"});
+  l.OTHER=Object.freeze({A:"a",B:"b",C:"c",D:"d"});
+}), 1);
+__d("WAWebGroupType",[],(function(t,n,r,o,a,i,l){
+  l.GROUP_ACTIONS=Object.freeze({FIRST:"first"});
+}), 1);
+__d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGroupType"],(function(t,n,r,o,a,i,l){
+  function h(e){
+    var mode = e.attrString("mode");
+    switch (mode) {
+      case o("WAWebHandleGroupNotificationConst").OTHER.A: return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, x:e.attrString("x")};
+      case o("WAWebHandleGroupNotificationConst").OTHER.B: return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, y:e.attrString("y")};
+      case o("WAWebHandleGroupNotificationConst").OTHER.C: return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, z:e.attrString("z")};
+      case o("WAWebHandleGroupNotificationConst").OTHER.D: return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, w:e.attrString("w")};
+    }
+  }
+  function top(e){
+    var x=e.mapChildren(function(t){
+      var tg = t.tag();
+      switch (tg) {
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.REAL:
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, real:t.attrString("real")};
+      }
+    });
+    return {actions:x};
+  }
+  l.handleGroupNotification=top;
+}), 1);
+"#;
+
+#[test]
+fn the_action_union_is_the_switch_on_a_child_tag_not_the_biggest_one() {
+    // A module can hold several const-keyed switches. Choosing by arm count let an
+    // unrelated one — four returning arms against the union's one — publish its
+    // constants as wire tags. The union is identified by dispatching on a child's TAG.
+    let ir = extract_notif(DECOY_SWITCH_BUNDLE, "2.3000.test");
+    let tags: Vec<&str> = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .map(|a| a.wire_tag.as_str())
+        .collect();
+    assert_eq!(
+        tags,
+        ["real"],
+        "only the child-tag switch is the union: {tags:?}"
     );
 }

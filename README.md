@@ -31,11 +31,12 @@ Field shapes tell you how to *read* a stanza. They are not enough to *produce* o
 - **The accessor's decoded type**, kept faithful: every `attr*` / `content*` spelling WA's parsers use is classified (a `maybeAttrX` derives from `attrX`, so a flavour cannot be covered for one spelling and missed for the other), and the JID flavours stay distinct — a PN user JID and a LID user JID are different identities for the same person and must never collapse into one `string`.
 - **Notification action unions** (`notifications[].actions`) — the payload inside the envelope. The `wireTag → actionType` mapping is **many-to-one** (`not_ephemeral` normalises into `ephemeral` with `duration: 0`, so branching on `not_ephemeral` is dead code) and field names are rebound (the disappearing-message timer arrives in `expiration`, but the action field is `duration`). Neither is derivable from the wire.
 
-Note the contract version: this raised `schemaVersion` to **2.0.0**, and it is a real major bump rather than a cautious one. Three changes need action from a 1.x consumer:
+Note the contract version: this raised `schemaVersion` to **2.0.0**, and it is a real major bump rather than a cautious one. Four changes need action from a 1.x consumer:
 
 - `AssertionKind` gained a `reference` variant, widening the value space of an existing field — a closed-enum consumer rejects the document rather than ignoring it (validating the current `iq/index.json` against the 1.0 schema fails 579 times).
 - `ResponseVariantKind` gained `client_error` and `server_error`; a variant that was `error` may now be either. Match on all three, or use the `is_error()` grouping.
 - A response variant's `errorCodes` / `errorTexts` / `errorCodeMin` / `errorCodeMax` / `errorClass` are **gone**, replaced by `errorArms` (+ `errorEnvelope`). The flat lists were removed rather than kept alongside because they were unsound: two independent lists cannot say which code goes with which text, and 117 variants admitted combinations the parser rejects.
+- `ContentType` gained `integer`, the same closed-enum widening as the first item: a `<registration>` whose body is a number used to be reported as `string`. Live in the response children that read a big-endian integer content (`contentUint`).
 
 Anything the extractor sees but cannot resolve structurally is counted under `manifest.diagnostics.iq.dropsByReason` rather than omitted, so "no constraint here" and "a constraint we failed to extract" never look alike. `manifest.diagnostics.iq.constraints` and `diagnostics.notif.actions` are floor-guarded: a WA refactor that hides one of these constructs fails the update instead of silently emptying a field.
 

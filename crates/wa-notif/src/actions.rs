@@ -374,6 +374,7 @@ pub(crate) fn extract_actions(
     let mut finder = SwitchFinder {
         ctx: &ctx,
         best: None,
+        tag_locals: Default::default(),
     };
     finder.visit_program(&ret.program);
     finder.best.filter(|v| !v.is_empty())
@@ -426,10 +427,52 @@ struct SwitchFinder<'c, 'a> {
     /// The richest action union seen so far (a module can hold more than one
     /// const-keyed switch; the payload union is the one with the most arms).
     best: Option<Vec<NotifActionDef>>,
+    /// Locals bound to a child's TAG in the function currently being walked
+    /// (`var a = t.tag()`), so a switch can be identified by what it dispatches ON
+    /// rather than by how many arms it happens to have.
+    tag_locals: std::collections::HashSet<String>,
+}
+
+/// Whether `e` reads a node's tag — `t.tag()` or `t.tag`.
+fn is_tag_read(e: &Expression) -> bool {
+    if let Some(call) = as_call(e) {
+        return callee_method(call) == Some("tag") && call.arguments.is_empty();
+    }
+    as_member(e).is_some_and(|(_, name)| name == "tag")
 }
 
 impl<'a> Visit<'a> for SwitchFinder<'_, 'a> {
+    /// Record this function's `var x = child.tag()` bindings before walking its body,
+    /// so a switch inside it can be checked against them.
+    fn visit_function_body(&mut self, body: &oxc_ast::ast::FunctionBody<'a>) {
+        let outer = std::mem::take(&mut self.tag_locals);
+        for st in &body.statements {
+            if let Statement::VariableDeclaration(d) = st {
+                for decl in &d.declarations {
+                    if let (Some(n), Some(init)) =
+                        (decl.id.get_identifier_name(), decl.init.as_ref())
+                        && is_tag_read(init)
+                    {
+                        self.tag_locals.insert(n.as_str().to_string());
+                    }
+                }
+            }
+        }
+        walk::walk_function_body(self, body);
+        self.tag_locals = outer;
+    }
+
     fn visit_switch_statement(&mut self, switch: &SwitchStatement<'a>) {
+        // Identified by what it dispatches ON, not by size. The payload union switches on
+        // a mapped child's TAG (`var a = t.tag(); switch (a)`); an unrelated const-keyed
+        // switch in the same module — with more returning arms — would otherwise win the
+        // "most arms" tie-break and publish non-wire constants as `wireTag`s.
+        let on_tag = is_tag_read(&switch.discriminant)
+            || as_identifier(&switch.discriminant).is_some_and(|n| self.tag_locals.contains(n));
+        if !on_tag {
+            walk::walk_switch_statement(self, switch);
+            return;
+        }
         let actions = extract_switch(switch, self.ctx);
         // A const-keyed switch whose arms only cause side effects is not a payload action
         // union — it is an ordinary child dispatch, already described by the
@@ -913,8 +956,19 @@ fn collect_returns_into<'b, 'a>(
             // which is what keeps the top-level child-tag dispatch out of a helper's
             // returns.
             Statement::SwitchStatement(sw) => {
-                for c in &sw.cases {
-                    collect_returns(&as_refs(&c.consequent), scope, out);
+                // Each case is analyzed with its own FALL-THROUGH SUFFIX, the same rule
+                // the outer action switch follows: `case "a": x = attrString("jid");
+                // case "b": return {id: x}` runs the assignment on the `a` path, and
+                // analyzing the consequents independently lost `id` there.
+                for i in 0..sw.cases.len() {
+                    let mut run: Vec<&Statement> = Vec::new();
+                    for c in &sw.cases[i..] {
+                        run.extend(c.consequent.iter());
+                        if list_exits(&c.consequent, true) {
+                            break;
+                        }
+                    }
+                    collect_returns(&run, scope, out);
                 }
                 tombstone_branch_writes(s, scope);
             }

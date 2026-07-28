@@ -81,10 +81,20 @@ impl ResponseIndex {
             {
                 continue;
             }
-            if let Some(pr) = analyze_module_exports(slice, &resolver)
+            // A parser with no fields is still a response: `makeResult({})` guarded by
+            // `type="result"` is a confirmation, and its assertions are the whole
+            // contract. Requiring a payload dropped those to a degraded `unknown`.
+            let exports: Vec<ParsedResponse> = analyze_module_exports(slice, &resolver)
                 .into_iter()
-                .find(|(_, pr)| !pr.fields.is_empty())
                 .map(|(_, pr)| pr)
+                .collect();
+            // A parser carrying fields still wins — this only adds a fallback, so which
+            // export is chosen does not change for any module that has a payload.
+            if let Some(pr) = exports
+                .iter()
+                .find(|pr| !pr.fields.is_empty())
+                .or_else(|| exports.first())
+                .cloned()
             {
                 // The name gate above is a cheap pre-filter; this is the decision. WA's
                 // names contradict the wire discriminator often enough that
@@ -135,6 +145,7 @@ pub(crate) fn build_pass(defs: &[ModuleDefinition], source: &str) -> ResponseInd
         }
         let mut variants = Vec::new();
         let mut primary: Vec<ParsedField> = Vec::new();
+        let mut primary_selected = false;
         for (tag, module, func) in variant_refs {
             // Resolve the exact parser the RPC calls (`o(module).<func>`); a
             // `ResponseSuccess` module exports several `parse…` fns, so match by name.
@@ -144,8 +155,13 @@ pub(crate) fn build_pass(defs: &[ModuleDefinition], source: &str) -> ResponseInd
                 _ => Vec::new(),
             };
             let kind = variant_kind(&tag, &resolver.assertions(&module, &func));
-            if kind == ResponseVariantKind::Success && primary.is_empty() {
+            // Selection state, not payload emptiness. A first success variant with NO
+            // fields (a `makeResult({})` confirmation) left `primary` empty, so a later
+            // success variant overwrote it and `ParsedResponse.fields` contradicted the
+            // documented first-success rule.
+            if kind == ResponseVariantKind::Success && !primary_selected {
                 primary = fields.clone();
+                primary_selected = true;
             }
             // The variant's same-node discriminators (e.g. `type:"result"` / `type:"error"`),
             // recovered separately since the JS keeps them as parser asserts, not fields.
