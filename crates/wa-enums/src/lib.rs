@@ -239,10 +239,7 @@ impl NamedResolver {
             let (k, variants) = match enum_object(operand).and_then(parse_enum) {
                 Some(data) => data,
                 // A bare identifier must already be bound by this pass.
-                None => match as_identifier(operand) {
-                    Some(name) => self.locals.get(name)?.clone(),
-                    None => return None,
-                },
+                None => self.locals.get(as_identifier(operand)?)?.clone(),
             };
             if !variants.is_empty() {
                 match kind {
