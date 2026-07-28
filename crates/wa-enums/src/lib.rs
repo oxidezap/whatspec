@@ -354,6 +354,18 @@ impl NamedResolver {
 
 impl<'a> Visit<'a> for NamedResolver {
     fn visit_variable_declarator(&mut self, d: &VariableDeclarator<'a>) {
+        if d.id.get_identifier_name().is_none() {
+            // A DESTRUCTURED declaration (`const {e} = obj`) binds `e` just as much as
+            // `var e = …` does, and `get_identifier_name` sees none of it — so the whole
+            // branch below was skipped and the outer body stayed usable. Refused on
+            // collision only, the same rule an unreadable initializer follows: a
+            // destructuring that shadows nothing costs nothing to ignore.
+            for ident in d.id.get_binding_identifiers() {
+                if self.locals.contains_key(ident.name.as_str()) {
+                    self.shadowed.insert(ident.name.to_string());
+                }
+            }
+        }
         if let Some(local) = d.id.get_identifier_name() {
             let data = d
                 .init
@@ -413,7 +425,13 @@ impl<'a> Visit<'a> for NamedResolver {
                 for (key, value) in wa_oxc::obj_props(o) {
                     if let Some(data) = enum_object(value).and_then(parse_enum) {
                         self.exports.entry(key.to_string()).or_insert(data);
-                    } else if let Some(id) = as_identifier(value) {
+                    } else if let Some(id) = as_identifier(value)
+                        // The same deferred-alias guard as the single-property branch
+                        // below: `pending` resolves after the walk, when the parameter
+                        // stack is unwound, so a parameter-shadowed name has to be
+                        // refused HERE or it silently resolves to the module local.
+                        && !self.param_shadows(id)
+                    {
                         self.pending.push((key.to_string(), id.to_string()));
                     }
                 }
@@ -431,6 +449,13 @@ impl<'a> Visit<'a> for NamedResolver {
             // that reassigns an operand before composing it still published the stale
             // body — the same wrong closed set the shadow guard was added to prevent,
             // reached through the one form it did not watch.
+            // Deliberately does NOT fall back to `merge_extends` the way the `var` form
+            // does. A self-referential rebind (`e = extends({}, e, {B:"b"})`) is only
+            // resolvable if you know whether a given read of `e` happens before or after
+            // it, and this pass has no ordering model for reads — so publishing the
+            // merged set would over-claim for every read that precedes the composition.
+            // Refusing costs nothing here: the merge yields a body different from the one
+            // already bound, so `bind_local` would mark the name shadowed anyway.
             match enum_object(&a.right).and_then(parse_enum) {
                 Some(data) => self.bind_local(name, data),
                 // Rebound to something this pass cannot read: whatever `locals` still
@@ -749,6 +774,33 @@ mod tests {
             function f(q, ...e){ var x=babelHelpers.extends({},e,{B:"b"}); i.OUT=x }
         }),1);"#;
         assert!(resolve_named_enum(rest, "M", "OUT").is_none());
+
+        // The exports BAG defers aliases the same way the single-property form does, so
+        // it needs the same parameter guard.
+        let bag = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"};
+            function f(e){ i.exports={OUT:e} }
+            f({X:"x"})
+        }),1);"#;
+        assert!(resolve_named_enum(bag, "M", "OUT").is_none());
+
+        // A bare rebind to a composition is REFUSED, not resolved: which body a read of
+        // `e` sees depends on whether it precedes the rebind, and nothing here models
+        // that order. See the note at the assignment branch.
+        let composed = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"};
+            e=babelHelpers.extends({},e,{B:"b"});
+            i.OUT=e
+        }),1);"#;
+        assert!(resolve_named_enum(composed, "M", "OUT").is_none());
+
+        // A DESTRUCTURED declaration binds its names too, and `get_identifier_name` sees
+        // none of them.
+        let destructured_var = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"};
+            function f(obj){ var {e}=obj; var x=babelHelpers.extends({},e,{B:"b"}); i.OUT=x }
+        }),1);"#;
+        assert!(resolve_named_enum(destructured_var, "M", "OUT").is_none());
 
         // A name rebound to the SAME body is not ambiguous — refusing it would throw away
         // a resolvable enum for nothing.

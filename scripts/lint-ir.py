@@ -121,12 +121,17 @@ def check_field(f, path, errors, counts):
             # Two entries are not two ALTERNATIVES if they answer to the same name. The
             # name is the documented discriminator and the Rust codegen emits it as the
             # variant identifier, so a repeat is either ambiguous or uncompilable.
-            names = [v.get("name") for v in variants if isinstance(v, dict)]
-            if len(set(names)) < len(names):
-                errors.append(
-                    f"{path}: union alternatives repeat a name "
-                    f"({sorted(n for n in set(names) if names.count(n) > 1)})"
-                )
+            # Only real names: a missing one is `None`, and two of those would both
+            # count as a duplicate AND make the report `sorted()` a `None` against a
+            # `str`. Absence is not a repeat.
+            names = [
+                v.get("name")
+                for v in variants
+                if isinstance(v, dict) and isinstance(v.get("name"), str)
+            ]
+            repeated = sorted({n for n in names if names.count(n) > 1})
+            if repeated:
+                errors.append(f"{path}: union alternatives repeat a name ({repeated})")
 
     # Each pair is the two bounds of ONE range accessor. Inverted is a contradiction;
     # so is half of one — the schema permits either key alone, but a consumer handed
@@ -220,10 +225,34 @@ def check_enum_catalog_refs(data, domain, errors):
         # permits any `Scalar` per variant, so it cannot check the two agree. A variant
         # that disagrees would have the consumer pick an incompatible representation.
         # `bool` is excluded explicitly — in Python it IS an int.
+        # One member name, one value. JS keeps only the last duplicate property, so a
+        # definition carrying both gives a consumer two contradictory answers for the same
+        # member — and `uniqueItems` cannot see it, because the objects differ in `value`.
+        members = [
+            v.get("name") or v.get("key")
+            for v in e.get("variants") or []
+            if isinstance(v, dict) and isinstance(v.get("name") or v.get("key"), str)
+        ]
+        repeated = sorted({m for m in members if members.count(m) > 1})
+        if repeated:
+            errors.append(
+                f"{domain}/enums/{i}: enum {e.get('name')!r} defines "
+                f"{repeated} more than once"
+            )
+
         expected = {"int": int, "string": str}.get(e.get("valueKind"))
         if expected is not None:
-            for v in e.get("variants") or []:
-                val = v.get("value") if isinstance(v, dict) else None
+            for j, v in enumerate(e.get("variants") or []):
+                # A non-dict entry is malformed IR — exactly what this exists to catch —
+                # so it must be REPORTED, not crash the run on `.get`. The value guard
+                # below was written defensively; the message beside it was not.
+                if not isinstance(v, dict):
+                    errors.append(
+                        f"{domain}/enums/{i}: enum {e.get('name')!r} variant {j} "
+                        f"is {type(v).__name__}, not an object"
+                    )
+                    continue
+                val = v.get("value")
                 if not isinstance(val, expected) or isinstance(val, bool):
                     errors.append(
                         f"{domain}/enums/{i}: enum {e.get('name')!r} is valueKind "

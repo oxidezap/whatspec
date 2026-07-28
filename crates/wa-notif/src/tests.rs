@@ -626,6 +626,7 @@ __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGr
   function callsShadowed(e,hh){ return hh(e); }
   function mk(v){ return {chained:v}; }
   function mk2(v){ return mk(v); }
+  function mixedKids(e){ return {plainField:e.attrString("plain"), kids:e.mapChildrenWithTag("mixed_user", function(x){ return {id:x.attrUserJid("jid")}; })}; }
   function helperKids(e){ return e.mapChildrenWithTag("helper_user", function(x){ return {id:x.attrUserJid("jid")}; }); }
   function withShadow(e,shadowedCb){ return e.mapChildrenWithTag("shadow_user", shadowedCb); }
   function y(e,t){ return t.mapChildrenWithTag("participant", function(p){
@@ -687,7 +688,8 @@ __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGr
             viaHelper: t.hasChild("h") && helperKids(t),
             cyclic: t.mapChildrenWithTag("cyclic_user", cycA),
             twoDeep: mk2(t.attrString("deep_jid")),
-            viaShadowedCallee: callsShadowed(t, function(z){ return {rightHelper:z.attrString("ok")}; })};
+            viaShadowedCallee: callsShadowed(t, function(z){ return {rightHelper:z.attrString("ok")}; }),
+            mixed: t.hasChild("mx") && mixedKids(t)};
         }
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.REVOKE_INVITE:
           return {actionType:o("WAWebGroupType").GROUP_ACTIONS.REVOKE_INVITE, participants:t.mapChildrenWithTag("participant", function(p){ return {id:p.attrUserJid("jid"), expiration:p.attrInt("expiration")}; }), owners:t.mapChildrenWithTag("owner", p=>o("WAWebJidToWid").userJidToUserWid(p.maybeAttrPhoneUserJid("phone_number")))};
@@ -891,6 +893,18 @@ fn a_mapped_child_is_optional_only_when_the_guard_admits_absence() {
     assert!(
         !names.contains(&"wrongHelper"),
         "the module-level `hh` must not be inlined over the bound one: {names:?}"
+    );
+
+    // A guarded value-position helper whose branches yield BOTH a collection and a flat
+    // field must weaken both. Only the collection was being weakened.
+    let plain = arm
+        .fields
+        .iter()
+        .find(|f| f.name == "plainField")
+        .expect("the helper's flat branch contributes a field");
+    assert!(
+        !plain.required,
+        "`cond && helper(node)` makes the helper's fields optional too, not only its children"
     );
 
     // The guard must not cost the child's contents.

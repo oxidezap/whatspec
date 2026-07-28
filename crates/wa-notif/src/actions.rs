@@ -1849,7 +1849,12 @@ fn fold_object<'b, 'a>(
                 c.required &= !outer_absent;
                 write_key(def, key, KeyValue::Child(c));
             }
-            for f in nested.fields {
+            // Fields carry the same guard as children above. A helper whose branches
+            // yield a mapped collection in one and a flat object in the other contributes
+            // both kinds under `cond && helper(node)`, and only the collection was being
+            // weakened — leaving a genuinely optional field marked required.
+            for mut f in nested.fields {
+                f.required &= !outer_absent;
                 let fkey = f.name.clone();
                 write_key(def, &fkey, KeyValue::Field(f));
             }
