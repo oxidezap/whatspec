@@ -256,10 +256,11 @@ pub struct NotifActionChild {
     /// legal shapes for one action, and only one of them has `participants`. Without this
     /// the metadata claimed the list is always present — the same over-assertion that
     /// `required` on a scalar field exists to prevent, one level up.
-    #[serde(
-        default = "crate::default_true",
-        skip_serializing_if = "crate::is_true"
-    )]
+    ///
+    /// Always serialized. Skipping the `true` case would leave a non-Rust consumer —
+    /// which is who the IR is for — unable to tell "required by default" from
+    /// "unspecified", and the JSON Schema cannot carry the default either.
+    #[serde(default = "crate::default_true")]
     pub required: bool,
 }
 

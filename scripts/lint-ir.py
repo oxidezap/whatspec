@@ -79,12 +79,6 @@ def check_field(f, path, errors, counts):
     if t == "enum" and not f.get("enumRef") and not f.get("enumKeys"):
         counts["enum field with no values"] += 1
 
-    # The pending marker must never reach the artifact: an empty variant list
-    # tells a consumer the field admits NO value.
-    ref = f.get("enumRef")
-    if isinstance(ref, dict) and not ref.get("variants"):
-        errors.append(f"{path}: enumRef {ref.get('name')!r} has no variants")
-
     if method in WIDTH_BEARING and "byteLength" not in f:
         counts["content integer with no byte width"] += 1
 
@@ -117,6 +111,35 @@ def check_field(f, path, errors, counts):
     # then does not say what.
     if "referencePath" in f and not f["referencePath"]:
         errors.append(f"{path}: referencePath is empty")
+
+
+def check_enum_ref(node, path, errors):
+    """An `enumRef` anywhere, not only on a `ParsedField`.
+
+    Request-side and stanza attributes carry one too, keyed by `kind` rather than `type`,
+    so gating this on the field-type vocabulary let the pending marker — an empty
+    `variants`, which tells a consumer the attribute admits NO value — ship on those
+    surfaces unchecked.
+    """
+    ref = node.get("enumRef")
+    if isinstance(ref, dict) and not ref.get("variants"):
+        errors.append(f"{path}: enumRef {ref.get('name')!r} has no variants")
+
+
+def check_const_bytes(node, path, errors):
+    """A request-side `constBytes` pin: the same invariant as a response `literalValue`
+    on a bytes field, written differently. Both say "these exact bytes"; only one was
+    checked."""
+    cb = node.get("constBytes")
+    if not isinstance(cb, str):
+        return
+    if any(c not in "0123456789abcdef" for c in cb) or len(cb) % 2:
+        errors.append(f"{path}: constBytes {cb!r} is not lowercase hex")
+    elif "byteLength" in node and len(cb) != node["byteLength"] * 2:
+        errors.append(
+            f"{path}: constBytes is {len(cb) // 2} bytes, "
+            f"byteLength says {node['byteLength']}"
+        )
 
 
 def check_assertion(a, path, errors):
@@ -159,6 +182,9 @@ def main() -> int:
                 check_field(node, f"{domain}{path}", errors, counts)
             if "kind" in node and "reference_path" not in node:
                 check_assertion(node, f"{domain}{path}", errors)
+            # Independent of the field gate — see each function's note.
+            check_enum_ref(node, f"{domain}{path}", errors)
+            check_const_bytes(node, f"{domain}{path}", errors)
 
         walk(data, visit)
 
@@ -168,9 +194,15 @@ def main() -> int:
         if observed > allowed:
             print(f"REGRESSION  {name}: {observed} (baseline {allowed})")
             ok = False
+        elif observed < allowed:
+            # A RATCHET, not an upper bound. Accepting a decrease silently banks the
+            # difference as slack: 157 -> 150 followed by seven newly unresolved enums is
+            # back at 157 and passes, which is exactly the drift this is supposed to catch.
+            # An improvement is real work and updating the number with it costs one line.
+            print(f"IMPROVED    {name}: {observed} (baseline {allowed}) — lower the baseline")
+            ok = False
         else:
-            mark = "ok  " if observed == allowed else "ok ↓"
-            print(f"{mark}        {name}: {observed} (baseline {allowed})")
+            print(f"ok          {name}: {observed} (baseline {allowed})")
 
     for e in errors:
         print(f"ERROR       {e}")
@@ -179,7 +211,10 @@ def main() -> int:
         print(f"\n{len(errors)} internal contradiction(s) in the IR")
         return 1
     if not ok:
-        print("\na counted state rose above its baseline — a constraint is being lost")
+        print(
+            "\na counted state left its baseline — raise means a constraint is being lost, "
+            "fall means the baseline owes an update"
+        )
         return 1
     print(f"\n{len(docs)} document(s) internally consistent")
     return 0

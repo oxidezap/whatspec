@@ -1834,7 +1834,8 @@
                   "type": "string",
                   "required": false
                 }
-              ]
+              ],
+              "required": true
             }
           ]
         },
@@ -1908,7 +1909,8 @@
                   "type": "string",
                   "required": false
                 }
-              ]
+              ],
+              "required": true
             }
           ]
         },
@@ -1962,7 +1964,8 @@
                   "type": "string",
                   "required": false
                 }
-              ]
+              ],
+              "required": true
             }
           ]
         },
@@ -2016,7 +2019,8 @@
                   "type": "string",
                   "required": false
                 }
-              ]
+              ],
+              "required": true
             }
           ]
         },
@@ -2078,7 +2082,8 @@
                   "type": "string",
                   "required": false
                 }
-              ]
+              ],
+              "required": true
             }
           ]
         },
@@ -2140,7 +2145,8 @@
                   "type": "string",
                   "required": false
                 }
-              ]
+              ],
+              "required": true
             }
           ]
         },
@@ -2194,7 +2200,8 @@
                   "type": "string",
                   "required": false
                 }
-              ]
+              ],
+              "required": true
             }
           ]
         },
@@ -2413,7 +2420,8 @@
                   "type": "integer",
                   "required": true
                 }
-              ]
+              ],
+              "required": true
             }
           ]
         },
@@ -2464,7 +2472,8 @@
                   "type": "integer",
                   "required": true
                 }
-              ]
+              ],
+              "required": true
             }
           ]
         },
@@ -2494,7 +2503,8 @@
                   "type": "integer",
                   "required": true
                 }
-              ]
+              ],
+              "required": true
             }
           ]
         },
@@ -2524,7 +2534,8 @@
                   "type": "integer",
                   "required": true
                 }
-              ]
+              ],
+              "required": true
             }
           ]
         },
@@ -2554,7 +2565,8 @@
                   "type": "integer",
                   "required": true
                 }
-              ]
+              ],
+              "required": true
             }
           ]
         },
@@ -2583,7 +2595,8 @@
                   "type": "integer",
                   "required": true
                 }
-              ]
+              ],
+              "required": true
             }
           ]
         },
@@ -2699,7 +2712,8 @@
                   "type": "user_jid",
                   "required": false
                 }
-              ]
+              ],
+              "required": true
             }
           ]
         },
@@ -2717,7 +2731,8 @@
                   "type": "user_jid",
                   "required": true
                 }
-              ]
+              ],
+              "required": true
             }
           ]
         },
@@ -2792,7 +2807,8 @@
                   "type": "user_jid",
                   "required": true
                 }
-              ]
+              ],
+              "required": true
             }
           ]
         },
@@ -2824,7 +2840,8 @@
                   "type": "group_jid",
                   "required": true
                 }
-              ]
+              ],
+              "required": true
             }
           ]
         },

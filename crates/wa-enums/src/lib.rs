@@ -224,6 +224,20 @@ impl NamedResolver {
         if callee.1 != "extends" || as_identifier(callee.0) != Some("babelHelpers") {
             return None;
         }
+        // The first operand is the TARGET, and `extends` mutates it. WA's convention is
+        // `extends({}, …)`, which mutates a throwaway; `extends(base, {B:"b"})` would also
+        // add `B` to `base` itself, so recovering only the result would publish a `BASE`
+        // export that is missing a member the runtime has. Recovering the composition is
+        // not worth modelling the mutation, so a non-empty target refuses the whole thing.
+        match call
+            .arguments
+            .first()
+            .and_then(arg_expr)
+            .and_then(as_object)
+        {
+            Some(o) if o.properties.is_empty() => {}
+            _ => return None,
+        }
         let mut kind: Option<EnumValueKind> = None;
         let mut merged: Vec<EnumVariant> = Vec::new();
         for arg in &call.arguments {
@@ -502,6 +516,23 @@ mod tests {
         // The base is still resolvable on its own, and does NOT gain the sentinel.
         let base = resolve_named_enum(module, "WAWebPrivacySettings", "VISIBILITY").unwrap();
         assert_eq!(base.variants.len(), 3);
+    }
+
+    #[test]
+    fn a_composition_that_mutates_its_target_is_refused() {
+        // `extends(base, {B:"b"})` adds `B` to `base` ITSELF at runtime. Recovering only
+        // the result would publish a `BASE` export missing a member the runtime has —
+        // an enum that claims to reject a value it accepts. WA's convention is an empty
+        // target, so requiring one costs nothing and rules the mutation out.
+        let module = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"},l=babelHelpers.extends(e,{B:"b"});
+            i.BASE=e,i.WITH=l
+        }),1);"#;
+        assert!(resolve_named_enum(module, "M", "WITH").is_none());
+        // And the target keeps exactly what it was written with.
+        let base =
+            resolve_named_enum(module, "M", "BASE").expect("the plain export still resolves");
+        assert_eq!(base.variants.len(), 1);
     }
 
     #[test]

@@ -184,8 +184,9 @@
           "type": "string"
         },
         "required": {
-          "description": "Whether EVERY branch producing this action carries the collection.\n\n`if (c) return {actionType: A, participants: …}; return {actionType: A}` yields two\nlegal shapes for one action, and only one of them has `participants`. Without this\nthe metadata claimed the list is always present — the same over-assertion that\n`required` on a scalar field exists to prevent, one level up.",
-          "type": "boolean"
+          "description": "Whether EVERY branch producing this action carries the collection.\n\n`if (c) return {actionType: A, participants: …}; return {actionType: A}` yields two\nlegal shapes for one action, and only one of them has `participants`. Without this\nthe metadata claimed the list is always present — the same over-assertion that\n`required` on a scalar field exists to prevent, one level up.\n\nAlways serialized. Skipping the `true` case would leave a non-Rust consumer —\nwhich is who the IR is for — unable to tell \"required by default\" from\n\"unspecified\", and the JSON Schema cannot carry the default either.",
+          "type": "boolean",
+          "default": true
         },
         "wireTag": {
           "description": "The repeated element's wire tag (`\"participant\"`).",

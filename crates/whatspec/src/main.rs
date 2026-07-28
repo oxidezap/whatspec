@@ -1219,11 +1219,20 @@ fn load_wasm(
     let resolution = wa_fetch::resolve_wasm(discovered, &wa_fetch::WasmResolveOptions::default());
     // Pinned alongside the payloads: the id→URI map is the ONLY thing that turns the
     // numeric handle the JS asks for into something fetchable, and nothing recorded it.
-    let pins = lock::BootloaderPins {
+    //
+    // Built from the map ACCUMULATED for this version, not from this run's sample. The
+    // endpoint answers the same request with different subsets, so pinning the latest
+    // sample would let a later successful run DELETE ids a previous one resolved — while
+    // their payloads stay in the set — and the supposedly diffable map would differ
+    // between two runs of an unchanged release.
+    let pin_from = |handles: &BTreeMap<String, String>| lock::BootloaderPins {
         handles_from_page: resolution.from_page,
-        wasm_handles: resolution.by_id.clone(),
+        wasm_handles: handles
+            .iter()
+            .map(|(url, id)| (id.clone(), url.clone()))
+            .collect(),
         requests: resolution.requests,
-        failed_requests: resolution.failures.len(),
+        failed_requests: resolution.failed_requests,
     };
     eprintln!(
         "resolved {} wasm payload(s): {} from the page, {} handle(s) after {} bootloader \
@@ -1313,6 +1322,17 @@ fn load_wasm(
             String::new()
         }
     );
+    // Handles: what this run resolved, plus what the cache recorded for payloads it is
+    // carrying over (their `bx` ids were learned in the run that downloaded them).
+    // Built before the empty-payload exit so the pins describe the accumulated map even
+    // when this particular run resolved nothing.
+    let mut handles = invert(&discovered.bx_data);
+    if let Some(cache) = &cache {
+        handles.extend(cache.wasm_handles());
+    }
+    handles.extend(resolution.handle_by_url());
+    let pins = pin_from(&handles);
+
     if payloads.is_empty() {
         // Still sweep: an explicit `--wasm-out` that produced nothing must not leave the
         // previous run's payloads behind, or a runner would consume a set no lock
@@ -1320,14 +1340,6 @@ fn load_wasm(
         maybe_save_wasm(opts, &payloads)?;
         return Ok((Vec::new(), Some(pins)));
     }
-
-    // Handles: what this run resolved, plus what the cache recorded for payloads it is
-    // carrying over (their `bx` ids were learned in the run that downloaded them).
-    let mut handles = invert(&discovered.bx_data);
-    if let Some(cache) = &cache {
-        handles.extend(cache.wasm_handles());
-    }
-    handles.extend(resolution.handle_by_url());
 
     // The wasm cache attaches to the JS cache for the same version; if that isn't there
     // (e.g. the JS came straight from a download with no `--cache`), skip caching rather

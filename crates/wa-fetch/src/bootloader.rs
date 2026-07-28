@@ -87,9 +87,15 @@ pub struct WasmResolution {
     pub rounds: usize,
     /// Requests actually sent.
     pub requests: usize,
-    /// Requests that failed or returned a non-2xx / unparseable body, as diagnostics.
-    /// Non-fatal: resolution degrades to whatever the other requests returned.
+    /// Everything that degraded resolution, as diagnostics — a failed request, but also
+    /// a page that shipped no endpoint parameters or deferred no components. Non-fatal:
+    /// resolution degrades to whatever the other requests returned.
     pub failures: Vec<String>,
+    /// Of those, the ones that were an actual request failing. Counted separately because
+    /// "requests that failed" and "reasons resolution was degraded" are different
+    /// questions, and a pinned request-health number that includes a pre-request
+    /// diagnostic contradicts its own name.
+    pub failed_requests: usize,
 }
 
 impl WasmResolution {
@@ -154,7 +160,10 @@ pub fn resolve_wasm_with(
                 out.requests += 1;
                 match fetch_payload(client, &url) {
                     Ok(payload) => collect_bx_data(&payload, &mut bx),
-                    Err(why) => out.failures.push(format!("{param} round {round}: {why}")),
+                    Err(why) => {
+                        out.failures.push(format!("{param} round {round}: {why}"));
+                        out.failed_requests += 1;
+                    }
                 }
             }
             out.rounds += 1;
