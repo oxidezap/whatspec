@@ -201,11 +201,17 @@ impl BundleCache {
         (payloads, skipped)
     }
 
-    /// The recorded wasm URL → `bx` handle pairing, empty when nothing is cached (or the
-    /// cache predates the field). Read separately from [`Self::wasm_payloads`] because the
-    /// pairing is provenance metadata, not part of the payload integrity contract.
-    pub fn wasm_handles(&self) -> BTreeMap<String, String> {
+    /// The recorded wasm URL → `bx` handle pairing for `wa_version`, empty when nothing is
+    /// cached, the cache predates the field, or the cache belongs to another release.
+    ///
+    /// Read separately from [`Self::wasm_payloads`] because the pairing is provenance
+    /// metadata, not part of the payload integrity contract — but it is still provenance
+    /// FOR ONE RELEASE. Reading the manifest unversioned let a cache left over from the
+    /// previous version contribute its ids to the new version's pins, which is the same
+    /// cross-release mixing the lock path already refuses, reached by another route.
+    pub fn wasm_handles(&self, wa_version: &str) -> BTreeMap<String, String> {
         self.read_manifest()
+            .filter(|m| m.wa_version == wa_version)
             .map(|m| m.wasm_handles)
             .unwrap_or_default()
     }
@@ -762,7 +768,7 @@ mod tests {
             .store_wasm("v", &[bundle("https://h/e.wasm", "e.wasm", b"p")], &handles)
             .unwrap();
 
-        let read = cache.wasm_handles();
+        let read = cache.wasm_handles("v");
         assert_eq!(read.len(), 1, "only stored payloads: {read:?}");
         assert_eq!(
             read.get("https://h/e.wasm").map(String::as_str),
@@ -777,7 +783,36 @@ mod tests {
                 &BTreeMap::new(),
             )
             .unwrap();
-        assert!(cache.wasm_handles().is_empty());
+        assert!(cache.wasm_handles("v").is_empty());
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn handles_from_another_release_are_not_read() {
+        // The payload path already refuses a stale manifest via `usable_manifest`; the
+        // handle path bypassed it, so a cache left from the previous version could feed
+        // its ids into the new version's bootloader pins.
+        let dir = tmp_dir("wasm-handles-version");
+        let cache = BundleCache::new(&dir);
+        cache
+            .store("old", &[bundle("https://h/a.js", "a.js", b"x")])
+            .unwrap();
+        let handles: BTreeMap<String, String> =
+            [("https://h/e.wasm".to_string(), "32180".to_string())]
+                .into_iter()
+                .collect();
+        cache
+            .store_wasm(
+                "old",
+                &[bundle("https://h/e.wasm", "e.wasm", b"p")],
+                &handles,
+            )
+            .unwrap();
+        assert_eq!(cache.wasm_handles("old").len(), 1, "its own release");
+        assert!(
+            cache.wasm_handles("new").is_empty(),
+            "another release contributes nothing"
+        );
         fs::remove_dir_all(&dir).ok();
     }
 
@@ -792,7 +827,7 @@ mod tests {
             r#"{"wa_version":"v","complete":true,"bundles":[]}"#,
         )
         .unwrap();
-        assert!(cache.wasm_handles().is_empty());
+        assert!(cache.wasm_handles("v").is_empty());
         assert!(
             cache.read_manifest().is_some(),
             "legacy manifest still parses"

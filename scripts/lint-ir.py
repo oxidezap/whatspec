@@ -113,8 +113,20 @@ def check_field(f, path, errors, counts):
 
     # A union whose alternatives are absent is not a union — a consumer has
     # nothing to switch on.
-    if t == "union" and len(f.get("unionVariants") or []) < 2:
-        errors.append(f"{path}: union carries fewer than two variants")
+    if t == "union":
+        variants = f.get("unionVariants") or []
+        if len(variants) < 2:
+            errors.append(f"{path}: union carries fewer than two variants")
+        else:
+            # Two entries are not two ALTERNATIVES if they answer to the same name. The
+            # name is the documented discriminator and the Rust codegen emits it as the
+            # variant identifier, so a repeat is either ambiguous or uncompilable.
+            names = [v.get("name") for v in variants if isinstance(v, dict)]
+            if len(set(names)) < len(names):
+                errors.append(
+                    f"{path}: union alternatives repeat a name "
+                    f"({sorted(n for n in set(names) if names.count(n) > 1)})"
+                )
 
     # Each pair is the two bounds of ONE range accessor. Inverted is a contradiction;
     # so is half of one — the schema permits either key alone, but a consumer handed
@@ -204,6 +216,20 @@ def check_enum_catalog_refs(data, domain, errors):
             errors.append(
                 f"{domain}/enums/{i}: enum {e.get('name')!r} is defined with no values"
             )
+        # `valueKind` is what tells a consumer how to represent these values; the schema
+        # permits any `Scalar` per variant, so it cannot check the two agree. A variant
+        # that disagrees would have the consumer pick an incompatible representation.
+        # `bool` is excluded explicitly — in Python it IS an int.
+        expected = {"int": int, "string": str}.get(e.get("valueKind"))
+        if expected is not None:
+            for v in e.get("variants") or []:
+                val = v.get("value") if isinstance(v, dict) else None
+                if not isinstance(val, expected) or isinstance(val, bool):
+                    errors.append(
+                        f"{domain}/enums/{i}: enum {e.get('name')!r} is valueKind "
+                        f"{e.get('valueKind')!r} but variant "
+                        f"{(v.get('name') or v.get('key'))!r} carries {val!r}"
+                    )
         if "module" in e:
             by_module.setdefault(e["module"], []).append(e)
 
@@ -263,6 +289,11 @@ def check_assertion(a, path, errors):
     # today), so rejecting `value` on non-const kinds would flag correct documents.
     if a.get("kind") == "const" and a.get("value") is None:
         errors.append(f"{path}: const attribute with no value")
+    # A `content` assertion IS the fixed text a marker union variant matches on. Without
+    # the value a consumer cannot tell when the variant applies. Narrow on purpose: an
+    # `attr` assertion may legitimately assert only presence.
+    if a.get("kind") == "content" and a.get("value") is None:
+        errors.append(f"{path}: content assertion with no value to match")
 
 
 def main() -> int:

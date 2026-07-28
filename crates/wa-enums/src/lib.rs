@@ -353,8 +353,17 @@ impl<'a> Visit<'a> for NamedResolver {
                 // values — 41 lost constraints, the largest single entry in
                 // `dropsByReason`.
                 .or_else(|| d.init.as_ref().and_then(|e| self.merge_extends(e)));
-            if let Some(data) = data {
-                self.bind_local(local.as_str(), data);
+            match data {
+                Some(data) => self.bind_local(local.as_str(), data),
+                // A redeclaration this pass cannot READ is as much a shadow as one it
+                // can: `var e = getEnum()` in a nested scope leaves the outer body in
+                // `locals`, and a later composition would publish values the runtime
+                // never has. Only when the name is already bound — an unparseable `var`
+                // that shadows nothing costs nothing to ignore.
+                None if self.locals.contains_key(local.as_str()) => {
+                    self.shadowed.insert(local.to_string());
+                }
+                None => {}
             }
         }
         walk::walk_variable_declarator(self, d);
@@ -394,7 +403,12 @@ impl<'a> Visit<'a> for NamedResolver {
                         self.pending.push((key.to_string(), id.to_string()));
                     }
                 }
-            } else if let Some(id) = as_identifier(&a.right) {
+            } else if let Some(id) = as_identifier(&a.right)
+                // `pending` is resolved AFTER the walk, when the parameter stack is
+                // already unwound, so the scope has to be recorded now: `function f(e){
+                // i.OUT = e }` would otherwise export the module-local `e`.
+                && !self.param_shadows(id)
+            {
                 self.pending.push((prop.to_string(), id.to_string()));
             }
         } else if let Some(name) = a.left.get_identifier_name() {
@@ -690,6 +704,22 @@ mod tests {
         }),1);"#;
         let def = resolve_named_enum(outside, "M", "WITH").expect("resolves outside the body");
         assert_eq!(def.variants.len(), 2);
+
+        // A redeclaration this pass cannot READ shadows just as much as one it can.
+        let unreadable = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"};
+            function f(){ var e=getEnum(); var l=babelHelpers.extends({},e,{B:"b"}); i.OUT=l }
+        }),1);"#;
+        assert!(resolve_named_enum(unreadable, "M", "OUT").is_none());
+
+        // A deferred alias (`i.OUT = e`) is resolved after the walk, when the parameter
+        // stack is already unwound — so the shadow has to be recorded at the assignment.
+        let deferred = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"};
+            function f(e){ i.OUT=e }
+            f({X:"x"})
+        }),1);"#;
+        assert!(resolve_named_enum(deferred, "M", "OUT").is_none());
 
         // A name rebound to the SAME body is not ambiguous — refusing it would throw away
         // a resolvable enum for nothing.

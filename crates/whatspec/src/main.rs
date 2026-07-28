@@ -1324,7 +1324,10 @@ fn load_wasm(
     // when this particular run resolved nothing.
     let mut handles = invert(&discovered.bx_data);
     if let Some(cache) = &cache {
-        handles.extend(cache.wasm_handles());
+        // Version-scoped: a cache for the previous release must not contribute its ids
+        // to this one's pins. `wasm_payloads` below already refuses such a manifest, so
+        // reading the handles unversioned mixed releases through the one door left open.
+        handles.extend(cache.wasm_handles(remote_version.unwrap_or_default()));
     }
     handles.extend(resolution.handle_by_url());
     let pins = bootloader_pins(&resolution, &handles);
