@@ -132,27 +132,6 @@ impl<'a> Resolver<'a> {
             .collect()
     }
 
-    /// A snapshot of the collector, so a caller that may REJECT the shape it just
-    /// analyzed can undo the drops that analysis recorded.
-    ///
-    /// A pass that parses more modules than it keeps (the incoming ack scan parses every
-    /// `WASmaxIn*Response*` and keeps only the ones asserting `<ack>`) would otherwise
-    /// charge the rejected modules' losses to a domain whose artifact never contains
-    /// them — a diagnostic that does not describe the file beside it.
-    pub(crate) fn drops_snapshot(&self) -> BTreeMap<String, std::collections::BTreeSet<String>> {
-        self.drops.borrow().clone()
-    }
-
-    /// Restore a [`drops_snapshot`], discarding everything recorded since.
-    ///
-    /// [`drops_snapshot`]: Resolver::drops_snapshot
-    pub(crate) fn restore_drops(
-        &self,
-        snapshot: BTreeMap<String, std::collections::BTreeSet<String>>,
-    ) {
-        *self.drops.borrow_mut() = snapshot;
-    }
-
     /// A resolver that reports its drops into an existing collector.
     pub(crate) fn with_drops(slices: &'a HashMap<&'a str, &'a str>, drops: Drops) -> Self {
         Self {
@@ -1280,7 +1259,11 @@ fn normalize_accessor(m: &str) -> Option<(String, ParsedFieldType, Option<u32>)>
     let canonical = match m {
         "attrStanzaId" | "attrCallId" | "attrStringFromReference" => wap::ATTR_STRING,
         "attrIntRange" => wap::ATTR_INT,
-        "attrStringEnum" | "contentStringEnum" => wap::ATTR_ENUM,
+        "attrStringEnum" => wap::ATTR_ENUM,
+        // A content enum must keep a CONTENT spelling: codegen switches on the method to
+        // decide whether to read an attribute or the element body, so rewriting this to
+        // `attrEnum` made the generated parser look for an attribute that does not exist.
+        "contentStringEnum" => "contentEnum",
         "contentBytesRange" => wap::CONTENT_BYTES,
         "attrPhoneUserJid" => wap::ATTR_USER_JID,
         "attrPhoneDeviceJid" => wap::ATTR_DEVICE_JID,
@@ -2088,6 +2071,11 @@ impl Resolver<'_> {
 ///
 /// Shared with the legacy scanner, which reaches `contentLiteralBytes` by a different
 /// route and must pin the same value from the same spelling.
+/// Upper bound on a `new Uint8Array(N)` zero-fill we will materialize as a literal. A
+/// pin longer than this is not a wire constant anyone writes; the cap keeps a bogus or
+/// hostile length from allocating.
+const MAX_ZERO_FILL: i64 = 4096;
+
 pub(crate) fn static_byte_literal(e: &Expression) -> Option<Vec<u8>> {
     // `Uint8Array.of(1, 2)` — the bytes are the ARGUMENTS, not an array operand. It was
     // documented as supported here and was not: every call expression fell through to
@@ -2108,17 +2096,22 @@ pub(crate) fn static_byte_literal(e: &Expression) -> Option<Vec<u8>> {
     let elements = match e {
         Expression::ArrayExpression(a) => a,
         Expression::NewExpression(n) => {
-            // `new Uint8Array([...])` — the sequence is the sole argument. `new
-            // Uint8Array(4)` (a LENGTH, not a value) deliberately does not match: it pins
-            // no bytes, and reading `4` as the byte 0x04 would invent a constraint. The
-            // constructor is checked for the same reason the `.of` receiver is: `new
-            // Whatever([1,2])` need not produce those bytes.
+            // The constructor is checked for the same reason the `.of` receiver is:
+            // `new Whatever([1,2])` need not produce those bytes.
             if as_identifier(&n.callee) != Some("Uint8Array") {
                 return None;
             }
             match arg_expr(n.arguments.first()?)? {
                 Expression::ArrayExpression(a) => a,
-                _ => return None,
+                // `new Uint8Array(4)` is a LENGTH — and therefore exactly four ZERO
+                // bytes, which is as much a compile-time constant as a literal array.
+                // Refusing it lost a recoverable pin; reading the `4` as the byte 0x04
+                // would have invented a different one. The request side's constant index
+                // already models this form the same way.
+                e => {
+                    let n = as_int(e).filter(|n| (0..=MAX_ZERO_FILL).contains(n))?;
+                    return Some(vec![0u8; n as usize]);
+                }
             }
         }
         _ => return None,
@@ -2159,6 +2152,19 @@ mod tests {
         let slices = HashMap::new();
         let resolver = Resolver::new(&slices);
         analyze_module_exports(module, &resolver)
+    }
+
+    #[test]
+    fn a_content_enum_keeps_a_content_spelling() {
+        // `contentStringEnum(node, TABLE)` reads the ELEMENT BODY. Normalizing it to
+        // `attrEnum` made codegen emit an attribute read for a value that is not an
+        // attribute, so the generated parser looked for something that never exists.
+        assert_eq!(
+            normalize_accessor("contentStringEnum").map(|(m, t, _)| (m, t)),
+            Some(("contentEnum".to_string(), wa_ir::ParsedFieldType::Enum)),
+            "content spelling preserved, enum type kept"
+        );
+        assert!(wa_ir::wap::is_content_method("contentEnum"));
     }
 
     #[test]

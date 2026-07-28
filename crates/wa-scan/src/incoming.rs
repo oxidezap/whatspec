@@ -144,19 +144,24 @@ fn scan_incoming_smax_acks(
             .entry(m.name.as_str())
             .or_insert(&source[m.start..m.end]);
     }
-    let resolver = Resolver::new(&slices);
-
     let mut out = Vec::new();
     let mut seen = HashSet::new();
+    let mut drops: std::collections::BTreeMap<String, usize> = Default::default();
     for m in defs {
         if !is_smax_ack_response_module(&m.name) || !seen.insert(m.name.as_str()) {
             continue;
         }
-        // This pass parses every `WASmaxIn*Response*` module and keeps only the roots
-        // asserting `<ack>` — the rest are IQ responses. Their losses must not be charged
-        // to this domain, so the collector is rewound when a module contributes nothing,
-        // the same rule the legacy pass follows by gating on the tag first.
-        let before = resolver.drops_snapshot();
+        // A resolver PER CANDIDATE, because this pass parses every `WASmaxIn*Response*`
+        // (88 of them) and keeps only the roots asserting `<ack>` (8). The rest are IQ
+        // responses whose losses must not be charged to this domain.
+        //
+        // Rewinding a shared collector was not enough: the resolver also memoizes the
+        // helpers it resolved, so a rejected module could record a loss on a shared
+        // helper, have it rewound, and then a later accepted ack would hit the cache and
+        // never record it again — an unconstrained field with an empty diagnostic. A
+        // discarded resolver takes its cache with it, so no rejected work can be
+        // observed at all.
+        let resolver = Resolver::new(&slices);
         let exports = analyze_module_exports(&source[m.start..m.end], &resolver);
         let mut kept_any = false;
         for (name, shape) in &exports {
@@ -198,11 +203,13 @@ fn scan_incoming_smax_acks(
                 shape,
             });
         }
-        if !kept_any {
-            resolver.restore_drops(before);
+        if kept_any {
+            for (reason, n) in resolver.drop_counts() {
+                *drops.entry(reason).or_default() += n;
+            }
         }
     }
-    (out, resolver.drop_counts())
+    (out, drops)
 }
 
 #[cfg(test)]

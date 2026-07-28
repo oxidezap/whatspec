@@ -62,6 +62,12 @@ pub(crate) fn emit_field_parse(f: &ParsedField, node_var: &str, indent: &str) ->
             format!("{indent}    .as_str()"),
             format!("{indent}    .parse()?;"),
         ],
+        // An OPTIONAL JID must come first: `rust_field_type` declares `Option<Jid>` for a
+        // `maybeAttr…Jid`, and falling into the branch below both mis-typed the
+        // initializer and rejected the absence the accessor exists to permit.
+        t if t.is_jid() && optional => vec![format!(
+            "{indent}let {name} = {node_var}.get_attr({flit}).and_then(|v| v.to_jid());"
+        )],
         // Every JID flavor materializes as one `Jid`; switch on `is_jid()` so a newly
         // preserved flavor (UserJid/LidUserJid/…) is parsed as a JID, not a String.
         t if t.is_jid() => vec![format!(

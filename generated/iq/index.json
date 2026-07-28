@@ -9139,7 +9139,7 @@
             "tag": "token_type",
             "children": [
               {
-                "method": "attrEnum",
+                "method": "contentEnum",
                 "name": "elementValue",
                 "type": "enum",
                 "required": true,
@@ -9244,7 +9244,7 @@
                 "tag": "token_type",
                 "children": [
                   {
-                    "method": "attrEnum",
+                    "method": "contentEnum",
                     "name": "elementValue",
                     "type": "enum",
                     "required": true,
@@ -10222,7 +10222,7 @@
                 "required": false,
                 "children": [
                   {
-                    "method": "attrEnum",
+                    "method": "contentEnum",
                     "name": "showOnProfileElementValue",
                     "type": "enum",
                     "required": true,
@@ -10399,7 +10399,7 @@
                 "required": false,
                 "children": [
                   {
-                    "method": "attrEnum",
+                    "method": "contentEnum",
                     "name": "showOnProfileElementValue",
                     "type": "enum",
                     "required": true,
@@ -10716,7 +10716,7 @@
                     "required": false,
                     "children": [
                       {
-                        "method": "attrEnum",
+                        "method": "contentEnum",
                         "name": "showOnProfileElementValue",
                         "type": "enum",
                         "required": true,
@@ -10893,7 +10893,7 @@
                     "required": false,
                     "children": [
                       {
-                        "method": "attrEnum",
+                        "method": "contentEnum",
                         "name": "showOnProfileElementValue",
                         "type": "enum",
                         "required": true,
@@ -11588,7 +11588,7 @@
             "tag": "Result",
             "children": [
               {
-                "method": "attrEnum",
+                "method": "contentEnum",
                 "name": "statusElementValue",
                 "type": "enum",
                 "required": true,
@@ -11668,7 +11668,7 @@
                 "tag": "Result",
                 "children": [
                   {
-                    "method": "attrEnum",
+                    "method": "contentEnum",
                     "name": "statusElementValue",
                     "type": "enum",
                     "required": true,
@@ -96619,7 +96619,7 @@
             "tag": "wf_deleted",
             "children": [
               {
-                "method": "attrEnum",
+                "method": "contentEnum",
                 "name": "elementValue",
                 "type": "enum",
                 "required": true,
@@ -96759,7 +96759,7 @@
                 "tag": "wf_deleted",
                 "children": [
                   {
-                    "method": "attrEnum",
+                    "method": "contentEnum",
                     "name": "elementValue",
                     "type": "enum",
                     "required": true,
@@ -97805,7 +97805,7 @@
         "assertions": [],
         "fields": [
           {
-            "method": "attrEnum",
+            "method": "contentEnum",
             "name": "nprElementValue",
             "type": "enum",
             "required": true,
@@ -97868,7 +97868,7 @@
             ],
             "fields": [
               {
-                "method": "attrEnum",
+                "method": "contentEnum",
                 "name": "nprElementValue",
                 "type": "enum",
                 "required": true,

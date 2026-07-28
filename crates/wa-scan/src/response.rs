@@ -1646,6 +1646,21 @@ mod tests {
     }
 
     #[test]
+    fn a_zero_filled_uint8array_is_a_recoverable_pin() {
+        // `new Uint8Array(4)` is a LENGTH — and therefore exactly four zero bytes, as much
+        // a compile-time constant as a literal array. Refusing it lost a recoverable pin;
+        // reading the `4` as the byte 0x04 would have invented a different one.
+        let r = analyze_parser_ast(
+            r#"{ e.child("nonce").contentLiteralBytes(new Uint8Array(4)); }"#,
+            "e",
+        );
+        let leaf = r.fields[0].children.as_ref().unwrap()[0].clone();
+        assert_eq!(leaf.literal_value.as_deref(), Some("00000000"));
+        assert_eq!(leaf.byte_length, Some(4));
+        assert!(r.unresolved.is_empty(), "and nothing is reported lost");
+    }
+
+    #[test]
     fn an_unresolvable_byte_pin_is_reported_not_published_as_free_bytes() {
         let r = analyze_parser_ast(r#"{ e.child("t").contentLiteralBytes(computed()); }"#, "e");
         assert!(

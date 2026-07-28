@@ -376,6 +376,55 @@ mod tests {
     }
 
     #[test]
+    fn an_optional_jid_parses_optionally() {
+        // `rust_field_type` declares `Option<Jid>` for a `maybeAttr…Jid`, but every JID
+        // went through the unconditional branch — a `Jid` initializer for an
+        // `Option<Jid>` field, which also rejects the absence the accessor permits.
+        let ir = IqIr {
+            wa_version: "0.0.0".into(),
+            stanzas: vec![IqStanzaDef {
+                module_name: "WAWebPn".into(),
+                namespace: "w:g2".into(),
+                iq_type: IqType::Get,
+                target: IqTarget::Server,
+                parser_name: "p".into(),
+                exported_function: Some("pn".into()),
+                all_exports: vec!["pn".into()],
+                request: IqRequestDef {
+                    namespace: "w:g2".into(),
+                    iq_type: IqType::Get,
+                    target: IqTarget::Server,
+                    children: vec![],
+                },
+                response: ParsedResponse {
+                    parser_name: "p".into(),
+                    assertions: vec![],
+                    fields: vec![parsed(
+                        "maybeAttrPhoneUserJid",
+                        "participant_pn",
+                        ParsedFieldType::UserJid,
+                    )],
+                    ..Default::default()
+                },
+            }],
+            unparseable: vec![],
+        };
+        let c = &generate_iq(&ir);
+        assert!(
+            c.contains("pub participant_pn: Option<Jid>,"),
+            "declared optional:\n{c}"
+        );
+        assert!(
+            !c.contains("missing participant_pn"),
+            "and never required in the parser:\n{c}"
+        );
+        assert!(
+            c.contains(".and_then(|v| v.to_jid());"),
+            "parsed as an optional Jid:\n{c}"
+        );
+    }
+
+    #[test]
     fn a_ranged_byte_content_child_is_still_bytes() {
         // `child("blob").contentBytesRange(1, 128)` decodes to bytes. Asking the
         // classifier for the integer branch while testing the exact name `contentBytes`
