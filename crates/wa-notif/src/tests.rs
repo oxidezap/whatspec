@@ -701,7 +701,9 @@ __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGr
             mixed: t.hasChild("mx") && mixedKids(t),
             aliasedCb: t.mapChildrenWithTag("alias_user", cbAlias),
             nestedGuard: t.hasChild("ng") ? (t.hasChild("en") && t.mapChildrenWithTag("nested_user", function(x){ return {id:x.attrUserJid("jid")}; })) : [{id:"fb"}],
-            fromFormal: outerH(t, realCb)};
+            fromFormal: outerH(t, realCb),
+            falsyFallback: t.hasChild("ff") ? t.mapChildrenWithTag("falsy_user", function(x){ return {id:x.attrUserJid("jid")}; }) : !1,
+            bareFalse: t.hasChild("bf") ? t.mapChildrenWithTag("bare_user", function(x){ return {id:x.attrUserJid("jid")}; }) : false};
         }
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.REVOKE_INVITE:
           return {actionType:o("WAWebGroupType").GROUP_ACTIONS.REVOKE_INVITE, participants:t.mapChildrenWithTag("participant", function(p){ return {id:p.attrUserJid("jid"), expiration:p.attrInt("expiration")}; }), owners:t.mapChildrenWithTag("owner", p=>o("WAWebJidToWid").userJidToUserWid(p.maybeAttrPhoneUserJid("phone_number")))};
@@ -953,6 +955,19 @@ fn a_mapped_child_is_optional_only_when_the_guard_admits_absence() {
     assert!(
         !names2.contains(&"wrongFormal"),
         "the module-level `hx` must not win over the formal: {names2:?}"
+    );
+
+    // `: !1` is how the minifier writes `false`, and a boolean is no more a collection
+    // than `null` is — the `&&` form of the same falsy path was already handled.
+    assert!(
+        !child("falsyFallback").required,
+        "a falsy literal fallback is an absent collection"
+    );
+    // Both spellings: `!1` is a unary expression, `false` a boolean literal, and they are
+    // recognised by different arms — a test hitting only one leaves the other unguarded.
+    assert!(
+        !child("bareFalse").required,
+        "the unminified `false` is the same absence"
     );
 
     // The guard must not cost the child's contents.

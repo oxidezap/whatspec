@@ -100,6 +100,59 @@ fn extract_from_module(slice: &str, module: &str) -> Vec<InternalEnumDef> {
     out
 }
 
+/// Every name a function body hoists: its `var` declarations and its nested function
+/// declarations, wherever in the body they are written.
+///
+/// `var` is FUNCTION-scoped, so one inside an `if` or a loop binds for the whole body too;
+/// nested functions are not descended into, because their own `var`s belong to them.
+fn collect_hoisted(stmts: &[oxc_ast::ast::Statement], out: &mut HashSet<String>) {
+    use oxc_ast::ast::Statement as S;
+    for stmt in stmts {
+        match stmt {
+            S::FunctionDeclaration(d) => {
+                if let Some(id) = &d.id {
+                    out.insert(id.name.to_string());
+                }
+            }
+            S::VariableDeclaration(d) => {
+                for decl in &d.declarations {
+                    for id in decl.id.get_binding_identifiers() {
+                        out.insert(id.name.to_string());
+                    }
+                }
+            }
+            S::BlockStatement(b) => collect_hoisted(&b.body, out),
+            S::IfStatement(i) => {
+                collect_hoisted(std::slice::from_ref(&i.consequent), out);
+                if let Some(alt) = &i.alternate {
+                    collect_hoisted(std::slice::from_ref(alt), out);
+                }
+            }
+            S::ForStatement(f) => collect_hoisted(std::slice::from_ref(&f.body), out),
+            S::ForInStatement(f) => collect_hoisted(std::slice::from_ref(&f.body), out),
+            S::ForOfStatement(f) => collect_hoisted(std::slice::from_ref(&f.body), out),
+            S::WhileStatement(w) => collect_hoisted(std::slice::from_ref(&w.body), out),
+            S::DoWhileStatement(w) => collect_hoisted(std::slice::from_ref(&w.body), out),
+            S::TryStatement(t) => {
+                collect_hoisted(&t.block.body, out);
+                if let Some(h) = &t.handler {
+                    collect_hoisted(&h.body.body, out);
+                }
+                if let Some(fin) = &t.finalizer {
+                    collect_hoisted(&fin.body, out);
+                }
+            }
+            S::SwitchStatement(sw) => {
+                for case in &sw.cases {
+                    collect_hoisted(&case.consequent, out);
+                }
+            }
+            S::LabeledStatement(l) => collect_hoisted(std::slice::from_ref(&l.body), out),
+            _ => {}
+        }
+    }
+}
+
 /// The identifier names a parameter list binds.
 fn param_names(params: &oxc_ast::ast::FormalParameters) -> HashSet<String> {
     // EVERY identifier a parameter list binds, not just the plainly-named ones. A
@@ -400,28 +453,27 @@ impl<'a> Visit<'a> for NamedResolver {
         f: &oxc_ast::ast::Function<'a>,
         flags: oxc_syntax::scope::ScopeFlags,
     ) {
-        // A nested `function e(){}` HOISTS a binding named `e` over the enclosing body, so
-        // an operand read there is the function, not the module local — the fourth form of
-        // the same shadow, after parameters, destructured declarations and catch bindings.
-        // Only on collision, the rule every other unreadable shadow follows.
-        if let Some(id) = &f.id
-            && self.locals.contains_key(id.name.as_str())
-        {
-            self.shadowed.insert(id.name.to_string());
-        }
-        // The declarations INSIDE this body are hoisted over all of it, so one written
+        // Everything this body binds is HOISTED over all of it, so a declaration written
         // AFTER a composition still binds the operand that composition reads. Recording
-        // them only as the walk reaches them was source-ordered, and reversing the two
-        // lines slipped straight past — so they are pre-registered before descending.
+        // them as the walk reached them was source-ordered and reversing the two lines
+        // slipped straight past, so the whole body is pre-scanned before descending.
+        //
+        // Lexical, not module-wide: the enclosing scope is what a nested `function e(){}`
+        // shadows, and poisoning `e` for the entire module would refuse a composition
+        // written outside this body that never sees the inner binding at all.
         let mut hoisted = param_names(&f.params);
         if let Some(body) = &f.body {
-            for stmt in &body.statements {
-                if let oxc_ast::ast::Statement::FunctionDeclaration(d) = stmt
-                    && let Some(id) = &d.id
-                {
-                    hoisted.insert(id.name.to_string());
-                }
-            }
+            let mut declared = HashSet::new();
+            collect_hoisted(&body.statements, &mut declared);
+            // Only the ones that SHADOW something already bound. The module body is itself
+            // a function, so an unconditional sweep made its own `var e = {…}` shadow the
+            // local it declares — every enum in the catalog refused itself. Parameters
+            // stay unconditional: they can never BE the module local.
+            hoisted.extend(
+                declared
+                    .into_iter()
+                    .filter(|n| self.locals.contains_key(n.as_str())),
+            );
         }
         self.param_scopes.push(hoisted);
         walk::walk_function(self, f, flags);
@@ -879,6 +931,21 @@ mod tests {
             function g(){ var x=babelHelpers.extends({},e,{B:"b"}); function e(){} i.OUT=x }
         }),1);"#;
         assert!(resolve_named_enum(hoisted_after, "M", "OUT").is_none());
+
+        // `var` is hoisted over the whole function too, so one written AFTER the
+        // composition still binds the operand it reads.
+        let var_after = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"};
+            function g(){ var x=babelHelpers.extends({},e,{B:"b"}); var e={X:"x"}; i.OUT=x }
+        }),1);"#;
+        assert!(resolve_named_enum(var_after, "M", "OUT").is_none());
+
+        // ...and a `var` nested in a block is function-scoped all the same.
+        let var_in_block = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"};
+            function g(){ var x=babelHelpers.extends({},e,{B:"b"}); if (c) { var e={X:"x"} } i.OUT=x }
+        }),1);"#;
+        assert!(resolve_named_enum(var_in_block, "M", "OUT").is_none());
 
         // A name rebound to the SAME body is not ambiguous — refusing it would throw away
         // a resolvable enum for nothing.

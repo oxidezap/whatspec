@@ -2102,12 +2102,23 @@ fn guard_admits_absence(e: &Expression) -> bool {
 }
 
 /// Whether the expression is a literal absence — the far side of a presence guard.
+///
+/// `false` counts. `enabled ? map(…) : !1` yields a boolean rather than a collection on
+/// the disabled path, exactly as `enabled && map(…)` does, and only the `&&` form was
+/// recognised. `!1` is how the minifier writes it.
 fn is_nullish(e: &Expression) -> bool {
     match e {
         Expression::NullLiteral(_) => true,
+        Expression::BooleanLiteral(b) => !b.value,
         Expression::Identifier(i) => i.name == "undefined",
-        // The minifier writes `undefined` as `void 0`.
-        Expression::UnaryExpression(u) => u.operator == oxc_ast::ast::UnaryOperator::Void,
+        Expression::UnaryExpression(u) => match u.operator {
+            // The minifier writes `undefined` as `void 0`.
+            oxc_ast::ast::UnaryOperator::Void => true,
+            // ...and  as .
+            oxc_ast::ast::UnaryOperator::LogicalNot => as_int(&u.argument) == Some(1),
+            // ...and `false` as `!1`.
+            _ => false,
+        },
         _ => false,
     }
 }
