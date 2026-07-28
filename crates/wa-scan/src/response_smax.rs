@@ -33,17 +33,27 @@
 //! to avoid any regression to its 33 stanzas / tests.
 
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{Argument, CallExpression, Expression, Function, Statement};
 use oxc_span::GetSpan;
 use wa_ir::wap;
 use wa_ir::{
-    AssertionKind, ParsedField, ParsedFieldType, ParsedResponse, ResponseAssertion, UnionVariant,
+    AssertionKind, AttrEnumRef, AttrEnumVariant, ParsedField, ParsedFieldType, ParsedResponse,
+    ResponseAssertion, Scalar, UnionVariant,
 };
 
-use wa_oxc::{arg_expr, as_call, as_identifier, as_int, as_string_lit, callee_method};
+use wa_oxc::{
+    arg_expr, as_call, as_identifier, as_int, as_string_lit, callee_method, callee_object,
+};
+
+/// Drop reason for an enum accessor whose enum could not be resolved to its variants.
+pub(crate) const ENUM_DROP: &str = "response enum argument not structurally resolvable";
+
+/// The `dropsByReason` key for a `contentLiteralBytes` pin whose sequence is not a
+/// compile-time constant.
+const BYTES_DROP: &str = "contentLiteralBytes sequence not statically resolvable";
 
 /// A module's local parser functions, keyed by name → re-parsable source. Child
 /// accessors reference these by identifier (`optionalChildWithTag(n, "x", parseX)`).
@@ -73,7 +83,27 @@ pub(crate) struct Resolver<'a> {
     /// holds fields/unions); see [`Resolver::assertions`].
     assert_cache: RefCell<HashMap<String, Vec<ResponseAssertion>>>,
     assert_in_progress: RefCell<HashSet<String>>,
+    /// Memoized `(module, enum)` → resolved wire enum, for the enum argument of an
+    /// `attrStringEnum`/`contentStringEnum` accessor; see [`Resolver::resolve_enum`].
+    enum_cache: RefCell<HashMap<(String, String), Option<AttrEnumRef>>>,
+    /// Constraints seen but **not** structurally resolvable: reason → the set of
+    /// distinct constraints lost under it. Surfaced (as set sizes) under
+    /// `manifest.diagnostics.iq.dropsByReason` so a consumer can tell "this field carries
+    /// no constraint" from "a constraint was there and we failed to extract it".
+    ///
+    /// Keyed rather than counted because the same parser source is analyzed more than
+    /// once — `resolve` walks it for fields and `assertions` walks it again for
+    /// discriminators, and a module can be reached from several RPCs. A raw counter would
+    /// therefore report one lost enum several times, which says nothing about how much
+    /// data is actually missing. The unit is **distinct constraints**.
+    drops: Drops,
 }
+
+/// The shared drop collector: reason → the distinct constraints lost under it. Shared
+/// (rather than owned) so a resolver built later — the request-anchored fallback in
+/// [`crate::response_index`] — reports into the same place instead of dropping its
+/// findings on the floor.
+pub(crate) type Drops = std::rc::Rc<RefCell<BTreeMap<String, std::collections::BTreeSet<String>>>>;
 
 impl<'a> Resolver<'a> {
     pub(crate) fn new(slices: &'a HashMap<&'a str, &'a str>) -> Self {
@@ -83,7 +113,93 @@ impl<'a> Resolver<'a> {
             in_progress: RefCell::new(HashSet::new()),
             assert_cache: RefCell::new(HashMap::new()),
             assert_in_progress: RefCell::new(HashSet::new()),
+            enum_cache: RefCell::new(HashMap::new()),
+            drops: Drops::default(),
         }
+    }
+
+    /// The drops this resolver alone recorded, as counts.
+    ///
+    /// The IQ path reads the shared collector through
+    /// [`crate::response_index::ResponseIndex`] instead, since its fallback resolver
+    /// reports into the same place. The incoming ack pass owns its resolver outright and
+    /// reads it here — those drops were simply discarded before.
+    pub(crate) fn drop_counts(&self) -> BTreeMap<String, usize> {
+        self.drops
+            .borrow()
+            .iter()
+            .map(|(reason, keys)| (reason.clone(), keys.len()))
+            .collect()
+    }
+
+    /// A resolver that reports its drops into an existing collector.
+    pub(crate) fn with_drops(slices: &'a HashMap<&'a str, &'a str>, drops: Drops) -> Self {
+        Self {
+            drops,
+            ..Self::new(slices)
+        }
+    }
+
+    /// The shared collector, for a caller that needs to read it after further scanning.
+    pub(crate) fn drops(&self) -> Drops {
+        self.drops.clone()
+    }
+
+    /// Record one unresolvable constraint under `reason`, identified by `key` so the
+    /// same loss seen again on a second analysis pass is not counted twice.
+    fn drop_note_keyed(&self, reason: &str, key: String) {
+        self.drops
+            .borrow_mut()
+            .entry(reason.to_string())
+            .or_default()
+            .insert(key);
+    }
+
+    /// Resolve the enum argument of an enum accessor (`o("WASmaxInFooEnums").ENUM_OFF_ON`)
+    /// to its full `(name, module, variants)`. Reuses [`wa_enums::resolve_named_enum`], the
+    /// same resolver the request side uses, so both halves of the protocol type an enum
+    /// attribute identically. `None` — never a guess — when the module isn't in the bundle,
+    /// the export isn't a resolvable enum, or any variant value isn't a string (every
+    /// stanza-attr enum is a wire-token enum).
+    fn resolve_enum(&self, module: &str, name: &str, occurrence: &str) -> Option<AttrEnumRef> {
+        let key = (module.to_string(), name.to_string());
+        // Count per OCCURRENCE, not per distinct enum: `dropsByReason` measures how much
+        // constraint data was lost, and every other reason here is per-occurrence. A
+        // memoized miss must therefore still be counted, so N fields validating against
+        // the same unresolvable enum report N losses rather than one.
+        if let Some(hit) = self.enum_cache.borrow().get(&key) {
+            if hit.is_none() {
+                self.drop_note_keyed(ENUM_DROP, format!("{module}.{name}@{occurrence}"));
+            }
+            return hit.clone();
+        }
+        let resolved = self
+            .slices
+            .get(module)
+            .and_then(|slice| wa_enums::resolve_named_enum(slice, module, name))
+            .and_then(|def| {
+                let variants: Vec<AttrEnumVariant> = def
+                    .variants
+                    .into_iter()
+                    .map(|v| match v.value {
+                        Scalar::Str(s) => Some(AttrEnumVariant {
+                            name: v.name,
+                            value: s,
+                        }),
+                        _ => None,
+                    })
+                    .collect::<Option<Vec<_>>>()?;
+                (!variants.is_empty()).then(|| AttrEnumRef {
+                    name: name.to_string(),
+                    module: module.to_string(),
+                    variants,
+                })
+            });
+        if resolved.is_none() {
+            self.drop_note_keyed(ENUM_DROP, format!("{module}.{name}@{occurrence}"));
+        }
+        self.enum_cache.borrow_mut().insert(key, resolved.clone());
+        resolved
     }
 
     /// Resolve `o(module).func(…)` to its fields or union, or `None` if the module
@@ -205,6 +321,28 @@ enum Binding {
         /// `flattenedChildWithTag` descent (`attrString(n.value, "id")` reads off the
         /// `<report>` child `n`, not the parent node).
         source_path: Option<Vec<String>>,
+        /// The fixed value a `literal`/`optionalLiteral` wrapper pins this accessor to
+        /// (`literal(attrString, e, "type", "admin")` → `"admin"`), stringified.
+        literal_value: Option<String>,
+        /// The wire enum the accessor validates the value against, for
+        /// `attrStringEnum`/`contentStringEnum`.
+        enum_ref: Option<AttrEnumRef>,
+        /// The request path an `optionalLiteral(…, ref.value)` echo pins the value to.
+        /// Its required twin is recorded as a `Reference` assertion instead (an optional
+        /// pin guards nothing, so it is not an assertion).
+        reference_path: Option<Vec<String>>,
+    },
+    /// A value read off the **request** rather than the response node —
+    /// `o("WASmaxParseReference").attrStringFromReference(request, ["to"])`. `path` is
+    /// the helper's path argument (wrappers to descend, then the attribute name). The
+    /// binding doubles as a [`Binding::Field`]: a reference var is usually consumed only
+    /// by a `literal(…, ref.value)` echo guard, but when the tail names it, it is a real
+    /// output field whose value happens to come from the request.
+    Reference {
+        path: Vec<String>,
+        method: String,
+        field_type: ParsedFieldType,
+        required: bool,
     },
     /// A cross-module parser call (`o(mod).parse<Fn>(node)`) that resolved to a
     /// flat field list: a same-node payload mixin or a plain sub-parser.
@@ -286,7 +424,22 @@ fn analyze_fn_source(
         Statement::FunctionDeclaration(f) => Some(&**f),
         _ => None,
     })?;
-    analyze_function(func, locals, resolver, visited)
+    analyze_function(func, locals, resolver, visited, &parser_site(fn_source))
+}
+
+/// A stable identity for one parser body, for keying diagnostics per SITE.
+///
+/// The source itself, hashed: two parsers validating the same attribute against the same
+/// unresolvable enum are two lost constraints, and keying on `(enum, attribute)` alone
+/// collapsed them — so removing one moved no counter. Hashing the body rather than
+/// threading a module/function name keeps the key stable across the two analysis passes
+/// (`resolve` for fields, `assertions` for discriminators re-walk the identical source)
+/// without carrying context through every frame.
+fn parser_site(fn_source: &str) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    fn_source.hash(&mut h);
+    format!("{:016x}", h.finish())
 }
 
 fn analyze_function(
@@ -294,8 +447,24 @@ fn analyze_function(
     locals: &LocalFns,
     resolver: &Resolver,
     visited: &mut HashSet<String>,
+    site: &str,
 ) -> Option<(Vec<ResponseAssertion>, Vec<ParsedField>)> {
     let body = func.body.as_ref()?;
+    // A response parser's signature is `parse…(node, reference)`: the second parameter
+    // is the REQUEST the answer is correlated against. Every echo rule is relative to
+    // it, so it is threaded down and a `…FromReference` call on any other node is
+    // rejected rather than silently reported as "the request" (see [`classify_reference`]).
+    let reference_param = func
+        .params
+        .items
+        .get(1)
+        .and_then(|p| p.pattern.get_identifier_name());
+    let ctx = FnCtx {
+        locals,
+        resolver,
+        reference_param: reference_param.as_deref(),
+        site,
+    };
     // Same-node cross-module mixins bubble their discriminators up by default (so an
     // error variant inherits the `type:"error"` its mixin asserts). But a mixin whose
     // result the tail consumes *optionally* (`X.success ? X.value : null`) does not
@@ -326,8 +495,7 @@ fn analyze_function(
                         let b = classify_call(
                             init,
                             &mut assertions,
-                            locals,
-                            resolver,
+                            &ctx,
                             visited,
                             &bindings,
                             suppressed.contains(name.as_str()),
@@ -349,19 +517,37 @@ fn analyze_function(
     Some((assertions, fields))
 }
 
+/// The immutable context one parse function is analyzed under: its module's local
+/// parsers, the cross-module resolver, and the name of its `reference` parameter.
+/// Grouped so the per-binding classifier keeps a readable signature.
+struct FnCtx<'c> {
+    locals: &'c LocalFns,
+    resolver: &'c Resolver<'c>,
+    /// The parser's `reference` parameter — the request an echo rule is relative to.
+    reference_param: Option<&'c str>,
+    /// This parser body's identity, so a dropped constraint is counted per site rather
+    /// than per constraint name — see [`parser_site`].
+    site: &'c str,
+}
+
 /// Classify the RHS of a railway binding into a [`Binding`], recording any
 /// assertion it implies (assertTag/assertAttr/literal…).
 fn classify_call(
     init: &Expression,
     assertions: &mut Vec<ResponseAssertion>,
-    locals: &LocalFns,
-    resolver: &Resolver,
+    ctx: &FnCtx,
     visited: &mut HashSet<String>,
     bindings: &HashMap<String, Binding>,
     // Whether this binding's var is consumed optionally by the tail, so a same-node
     // mixin it binds must not bubble its discriminators (see `analyze_function`).
     suppress_bubble: bool,
 ) -> Binding {
+    let FnCtx {
+        resolver,
+        reference_param,
+        site,
+        ..
+    } = *ctx;
     let Some(call) = as_call(init) else {
         return Binding::None;
     };
@@ -425,6 +611,7 @@ fn classify_call(
                     kind: AssertionKind::Tag,
                     name: Some(tag.to_string()),
                     value: None,
+                    reference_path: None,
                 });
             }
             Binding::None
@@ -436,6 +623,7 @@ fn classify_call(
                 kind: AssertionKind::Attr,
                 name: name.map(str::to_string),
                 value: value.map(str::to_string),
+                reference_path: None,
             });
             Binding::None
         }
@@ -445,19 +633,51 @@ fn classify_call(
         // wrapped accessor; when it's only an assertion (unreferenced) it emits
         // nothing. `literalContent` pins a constant string (no makeResult value).
         "literal" => {
-            // `literal(ACC, node, "attr", "fixedValue")` pins the attr to a constant —
-            // a hard discriminator when the value is a string literal on the SAME node
-            // (`type:"result"`). A reference value (`literal(…, "id", r.value)`) is
-            // request-relative, not a fixed discriminator, so skip it.
-            if source_path.is_none()
-                && let Some(attr) = args.get(2).and_then(arg_expr).and_then(as_string_lit)
-                && let Some(value) = args.get(3).and_then(arg_expr).and_then(as_string_lit)
-            {
-                assertions.push(ResponseAssertion {
-                    kind: AssertionKind::Attr,
-                    name: Some(attr.to_string()),
-                    value: Some(value.to_string()),
-                });
+            // The pinned value is one of three things:
+            //  - a compile-time literal (`"result"`, `429`) → a hard discriminator, and
+            //    the value the field carries;
+            //  - a value read from the REQUEST (`r.value` where `r` came from
+            //    `attrStringFromReference(request, ["to"])`) → an *echo* rule: the attr
+            //    must equal that request field, which is not a constant but is every bit
+            //    as binding on an emitter;
+            //  - anything else → not statically resolvable; counted, never guessed.
+            let attr = args.get(2).and_then(arg_expr).and_then(as_string_lit);
+            let literal_value = args.get(3).and_then(arg_expr).and_then(static_literal);
+            let reference_path = args
+                .get(3)
+                .and_then(arg_expr)
+                .and_then(|e| reference_path_of(e, bindings));
+            // The ASSERTION is root-relative, so it is only emitted for a pin on the
+            // parser's own node. The DROP is not: a nested pin we could not resolve is a
+            // constraint lost just the same, and suppressing its report along with the
+            // assertion would leave the field with no pin while `dropsByReason`
+            // simultaneously claimed nothing had gone missing.
+            if let Some(attr) = attr {
+                match (&literal_value, &reference_path) {
+                    (Some(value), _) if source_path.is_none() => {
+                        assertions.push(ResponseAssertion {
+                            kind: AssertionKind::Attr,
+                            name: Some(attr.to_string()),
+                            value: Some(value.clone()),
+                            reference_path: None,
+                        })
+                    }
+                    (None, Some(path)) if source_path.is_none() => {
+                        assertions.push(ResponseAssertion {
+                            kind: AssertionKind::Reference,
+                            name: Some(attr.to_string()),
+                            value: None,
+                            reference_path: Some(path.clone()),
+                        })
+                    }
+                    (None, None) => resolver.drop_note_keyed(
+                        "literal attr value not statically resolvable",
+                        format!("{site}:{attr}"),
+                    ),
+                    // A resolved pin on a descended node: carried on the field below,
+                    // where it belongs, rather than as a root assertion.
+                    _ => {}
+                }
             }
             let inner = args
                 .first()
@@ -473,6 +693,13 @@ fn classify_call(
                     int_range: None,
                     wire_name,
                     source_path,
+                    literal_value,
+                    enum_ref: None,
+                    // A `literal` on a DESCENDED node records no root assertion (the
+                    // assertion vocabulary is root-relative), so without carrying the
+                    // echo here a nested attribute that must mirror the request would
+                    // land in the IR with no constraint at all.
+                    reference_path,
                 },
                 None => Binding::None,
             }
@@ -482,40 +709,123 @@ fn classify_call(
         // `all_member_add`). Not an output field (the value is fixed); record it as a
         // Content assertion when on the same node.
         "literalContent" => {
-            if source_path.is_none()
-                && let Some(value) = args.get(2).and_then(arg_expr).and_then(as_string_lit)
-            {
-                assertions.push(ResponseAssertion {
+            let value = args.get(2).and_then(arg_expr).and_then(as_string_lit);
+            match value {
+                Some(value) if source_path.is_none() => assertions.push(ResponseAssertion {
                     kind: AssertionKind::Content,
                     name: None,
                     value: Some(value.to_string()),
-                });
+                    reference_path: None,
+                }),
+                // A marker value supplied through a local constant or a computed
+                // expression. The disjunction still discriminates on it, so emitting no
+                // assertion AND no drop published fieldless variants with no usable
+                // discriminator while the diagnostics claimed nothing was lost.
+                None => resolver.drop_note_keyed(
+                    "literalContent marker value not statically resolvable",
+                    format!(
+                        "{site}:{}",
+                        source_path
+                            .as_ref()
+                            .map(|p| p.join("/"))
+                            .unwrap_or_else(|| "<same-node>".to_string())
+                    ),
+                ),
+                Some(_) => {}
             }
             Binding::None
         }
-        // `contentLiteralBytes(node, [..])` pins the node's content to a fixed byte
-        // sequence and returns it — a real bytes field when named in `makeResult`.
-        "contentLiteralBytes" => Binding::Field {
-            method: wap::CONTENT_BYTES.to_string(),
-            field_type: ParsedFieldType::Bytes,
-            required: true,
-            byte_length: None,
-            byte_range: None,
-            int_range: None,
-            wire_name: None,
-            source_path,
-        },
-        // Optional literal → a present-or-absent marker; treat as optional string.
-        "optionalLiteral" => Binding::Field {
-            method: wap::MAYBE_ATTR_STRING.to_string(),
-            field_type: ParsedFieldType::String,
-            required: false,
-            byte_length: None,
-            byte_range: None,
-            int_range: None,
-            wire_name,
-            source_path,
-        },
+        // `contentLiteralBytes(node, new Uint8Array([5]))` pins the node's content to a
+        // fixed byte sequence and returns it — a real bytes field when named in
+        // `makeResult`, but one where exactly one value is legal. Dropping the sequence
+        // published an unconstrained `bytes` field, telling an emitter any payload would
+        // do. The value rides as hex on `literalValue`, the same encoding the request
+        // side's `WapContent::const_bytes` uses, with its length on `byteLength`.
+        "contentLiteralBytes" => {
+            let bytes = args.get(1).and_then(arg_expr).and_then(static_byte_literal);
+            if bytes.is_none() {
+                // Keyed per OCCURRENCE, like every other reason here: a parser with two
+                // unresolvable byte pins has lost two constraints, and `site` alone
+                // folded them into one. The node path is what tells them apart.
+                let occurrence = source_path
+                    .as_ref()
+                    .map(|p| p.join("/"))
+                    .unwrap_or_else(|| "<same-node>".to_string());
+                resolver.drop_note_keyed(BYTES_DROP, format!("{site}:{occurrence}"));
+            }
+            Binding::Field {
+                method: wap::CONTENT_BYTES.to_string(),
+                field_type: ParsedFieldType::Bytes,
+                required: true,
+                byte_length: bytes.as_ref().map(|b| b.len() as u32),
+                byte_range: None,
+                int_range: None,
+                wire_name: None,
+                source_path,
+                literal_value: bytes
+                    .as_ref()
+                    .map(|b| b.iter().map(|x| format!("{x:02x}")).collect::<String>()),
+                enum_ref: None,
+                reference_path: None,
+            }
+        }
+        // `optionalLiteral(ACC, node, "attr", "value")` pins the attr *when present* —
+        // a present-or-absent marker, so it is NOT a variant discriminator (absence
+        // satisfies every sibling) and deliberately records no assertion. The pinned
+        // value still rides on the field: an emitter may omit `type` on a successful
+        // promote, but if it sends one it must be `"admin"` — sending a status code
+        // there is exactly the bug this carries the value to prevent.
+        "optionalLiteral" => {
+            let literal_value = args.get(3).and_then(arg_expr).and_then(static_literal);
+            let reference_path = args
+                .get(3)
+                .and_then(arg_expr)
+                .and_then(|e| reference_path_of(e, bindings));
+            if literal_value.is_none() && reference_path.is_none() {
+                resolver.drop_note_keyed(
+                    "optionalLiteral attr value not statically resolvable",
+                    format!("{site}:{}", wire_name.clone().unwrap_or_default()),
+                );
+            }
+            // The wrapped accessor decides the type, exactly as in the `literal` arm.
+            // `field_type` is what tells a consumer how to read `literalValue` back, so
+            // hardcoding `String` would actively mis-type an
+            // `optionalLiteral(attrInt, node, "code", 429)` pin. Falls back to a string
+            // when the accessor isn't resolvable (the overwhelmingly common `attrString`).
+            let (method, field_type, byte_length) = args
+                .first()
+                .and_then(arg_expr)
+                .and_then(inner_accessor_name)
+                .and_then(normalize_accessor)
+                .map(|(m, ft, bl)| (optional_variant(&m), ft, bl))
+                .unwrap_or((
+                    wap::MAYBE_ATTR_STRING.to_string(),
+                    ParsedFieldType::String,
+                    None,
+                ));
+            Binding::Field {
+                method,
+                field_type,
+                required: false,
+                byte_length,
+                byte_range: None,
+                int_range: None,
+                wire_name,
+                source_path,
+                literal_value,
+                enum_ref: None,
+                reference_path,
+            }
+        }
+        // The `WASmaxParseReference` helpers read a value off the REQUEST, not the
+        // response node — the source of the `from`/`id` echo rules.
+        "attrStringFromReference"
+        | "optionalAttrStringFromReference"
+        | "attrFromReference"
+        | "optionalAttrFromReference"
+        | "contentStringFromReference" => {
+            classify_reference(method, args, resolver, reference_param, site)
+        }
         // `optional(ACCESSOR, node, …)` → the wrapped accessor decides the type;
         // required = false.
         "optional" => {
@@ -526,7 +836,9 @@ fn classify_call(
             match inner.and_then(normalize_accessor) {
                 Some((m, ft, bl)) => {
                     let (field_type, int_range) = int_range_and_type(inner, args, ft);
-                    let (cbl, byte_range) = content_byte_length(inner, args);
+                    let (cbl, byte_range) = content_byte_length(inner, args, resolver, site);
+                    let enum_ref =
+                        enum_arg_ref(inner, args, resolver, site, source_path.as_deref());
                     Binding::Field {
                         method: optional_variant(&m),
                         field_type,
@@ -536,6 +848,9 @@ fn classify_call(
                         int_range,
                         wire_name,
                         source_path,
+                        literal_value: None,
+                        enum_ref,
+                        reference_path: None,
                     }
                 }
                 None => Binding::None,
@@ -550,11 +865,13 @@ fn classify_call(
         | "optionalChild"
         | "optionalChildWithTag"
         | "flattenedChildWithTag"
-        | "mapChildrenWithTag" => classify_child(method, args, locals, resolver, visited, bindings),
+        | "mapChildrenWithTag" => classify_child(method, args, ctx, visited, bindings),
         other => match normalize_accessor(other) {
             Some((m, ft, bl)) => {
                 let (field_type, int_range) = int_range_and_type(Some(other), args, ft);
-                let (cbl, byte_range) = content_byte_length(Some(other), args);
+                let (cbl, byte_range) = content_byte_length(Some(other), args, resolver, site);
+                let enum_ref =
+                    enum_arg_ref(Some(other), args, resolver, site, source_path.as_deref());
                 Binding::Field {
                     method: m,
                     field_type,
@@ -564,11 +881,190 @@ fn classify_call(
                     int_range,
                     wire_name,
                     source_path,
+                    literal_value: None,
+                    enum_ref,
+                    reference_path: None,
                 }
             }
             None => Binding::None,
         },
     }
+}
+
+/// A compile-time literal pinned as an assertion's expected value, stringified:
+/// `"result"` → `"result"`, `429` → `"429"`, `!0`/`true` → `"true"`. The field's
+/// declared type says how to read it back, so one string form covers every accessor
+/// (an `attrInt` field's `"429"` is the integer 429 on the wire).
+fn static_literal(e: &Expression) -> Option<String> {
+    if let Some(s) = as_string_lit(e) {
+        return Some(s.to_string());
+    }
+    if let Some(n) = as_int(e) {
+        return Some(n.to_string());
+    }
+    match e {
+        Expression::BooleanLiteral(b) => Some(b.value.to_string()),
+        // The minifier writes booleans as `!0` / `!1`.
+        Expression::UnaryExpression(u) if u.operator == oxc_ast::ast::UnaryOperator::LogicalNot => {
+            as_int(&u.argument).map(|n| (n == 0).to_string())
+        }
+        _ => None,
+    }
+}
+
+/// The request path a `literal(…, V.value)` echo guard compares against, when `V` is
+/// bound to a `WASmaxParseReference` helper. `None` for any other value expression —
+/// this never infers an echo rule from a name coincidence.
+fn reference_path_of(e: &Expression, bindings: &HashMap<String, Binding>) -> Option<Vec<String>> {
+    let (var, "value") = value_member(e)? else {
+        return None;
+    };
+    match bindings.get(var) {
+        Some(Binding::Reference { path, .. }) => Some(path.clone()),
+        _ => None,
+    }
+}
+
+/// Classify a `WASmaxParseReference` helper call into a [`Binding::Reference`].
+///
+/// The two shapes differ only in whether the accessor is passed explicitly:
+///   `attrStringFromReference(request, ["to"])`                       — implicitly attrString
+///   `attrFromReference(o("WASmaxParseJid").attrJidEnum, request, ["from"], ENUM)`
+///
+/// The path argument is the helper's own contract: every element but the last is a
+/// child tag to descend in the request, the last is the attribute read there.
+fn classify_reference(
+    method: &str,
+    args: &[Argument],
+    resolver: &Resolver,
+    reference_param: Option<&str>,
+    site: &str,
+) -> Binding {
+    let Some(path_idx) = args
+        .iter()
+        .position(|a| arg_expr(a).is_some_and(|e| string_array(e).is_some()))
+    else {
+        resolver.drop_note_keyed(
+            "reference path argument not statically resolvable",
+            format!("{site}:{method}"),
+        );
+        return Binding::None;
+    };
+    let path = arg_expr(&args[path_idx])
+        .and_then(string_array)
+        .expect("position matched");
+    // The node the path is walked from is the identifier argument just before it. It
+    // MUST be the parser's reference parameter: `referencePath` is documented as
+    // "relative to the request", and a consumer acting on it would be silently wrong if
+    // WA ever pointed a `…FromReference` helper at some other node. Enforce the
+    // invariant instead of trusting it — and count the rejection rather than dropping
+    // it silently, so the day it happens is visible.
+    let node = args[..path_idx]
+        .iter()
+        .rev()
+        .find_map(|a| arg_expr(a).and_then(as_identifier));
+    if node.is_none() || node != reference_param {
+        resolver.drop_note_keyed(
+            "reference read from a node other than the request",
+            format!("{site}:{method}:{}", path.join("/")),
+        );
+        return Binding::None;
+    }
+    // An explicit accessor (the `attrFromReference` family) decides the type; the
+    // `attrString…` spelling is fixed to a string.
+    let (base_method, field_type) = match method {
+        "contentStringFromReference" => (wap::CONTENT_STRING.to_string(), ParsedFieldType::String),
+        "attrStringFromReference" | "optionalAttrStringFromReference" => {
+            (wap::ATTR_STRING.to_string(), ParsedFieldType::String)
+        }
+        _ => args
+            .first()
+            .and_then(arg_expr)
+            .and_then(inner_accessor_name)
+            .and_then(normalize_accessor)
+            .map(|(m, ft, _)| (m, ft))
+            .unwrap_or((wap::ATTR_STRING.to_string(), ParsedFieldType::String)),
+    };
+    let optional = method.starts_with("optional");
+    Binding::Reference {
+        path,
+        method: if optional {
+            optional_variant(&base_method)
+        } else {
+            base_method
+        },
+        field_type,
+        required: !optional,
+    }
+}
+
+/// An array literal of string literals (`["account","action"]`), or `None` if any
+/// element isn't one.
+fn string_array(e: &Expression) -> Option<Vec<String>> {
+    let Expression::ArrayExpression(arr) = e else {
+        return None;
+    };
+    arr.elements
+        .iter()
+        .map(|el| {
+            el.as_expression()
+                .and_then(as_string_lit)
+                .map(str::to_string)
+        })
+        .collect::<Option<Vec<_>>>()
+        .filter(|v| !v.is_empty())
+}
+
+/// The wire enum an enum accessor validates against: the `o("Mod").ENUM_NAME` argument
+/// of `attrStringEnum(node, "state", ENUM)` / `contentStringEnum(node, ENUM)`, resolved
+/// to its variants. `None` for a non-enum accessor.
+fn enum_arg_ref(
+    accessor: Option<&str>,
+    args: &[Argument],
+    resolver: &Resolver,
+    site: &str,
+    source_path: Option<&[String]>,
+) -> Option<AttrEnumRef> {
+    // Gated on the CLASSIFIER, not a local list of spellings. Whitelisting
+    // `attrStringEnum`/`contentStringEnum` left `attrEnum`, `maybeAttrEnum`, `contentEnum`
+    // and `attrEnumOrNullIfUnknown` typed `enum` with no `enumRef` and no drop recorded —
+    // 77 fields whose validation constraint looked absent rather than lost.
+    if !accessor.is_some_and(|m| wap::method_field_type(m) == ParsedFieldType::Enum) {
+        return None;
+    }
+    // The enum is the only `o("Mod").NAME` member *reference* among the args (the node
+    // is an identifier / `X.value`, the attr a string, and — in the `optional(ACC, …)`
+    // form — the leading accessor ref is itself `o("WASmaxParseUtils").attrStringEnum`,
+    // excluded by requiring a non-`WASmaxParse*` owner module).
+    // The occurrence discriminator is the node PATH plus the attribute name: two fields
+    // validating against the same unresolvable enum are two lost constraints, and one
+    // parser reading `state` off both `<current>` and `<previous>` is two of them. The
+    // attribute alone collapsed those into one.
+    let occurrence = format!(
+        "{site}:{}:{}",
+        source_path.map(|p| p.join("/")).unwrap_or_default(),
+        args.iter()
+            .filter_map(arg_expr)
+            .find_map(as_string_lit)
+            .unwrap_or("<content>")
+    );
+    let Some((module, name)) = args.iter().filter_map(arg_expr).find_map(module_member_ref) else {
+        // An inline enum object, a local alias, or a `WASmaxParse*`-owned reference: the
+        // accessor validates against SOMETHING we could not name. That is the exact
+        // "a constraint existed and we lost it" case the counter exists for.
+        resolver.drop_note_keyed(ENUM_DROP, format!("<unnamed>@{occurrence}"));
+        return None;
+    };
+    resolver.resolve_enum(&module, &name, &occurrence)
+}
+
+/// `o("Mod").NAME` (a member reference, not a call) → `(Mod, NAME)`, excluding the
+/// `WASmaxParse*` helper namespaces (those are accessor references, not enums).
+fn module_member_ref(e: &Expression) -> Option<(String, String)> {
+    let (obj, prop) = wa_oxc::as_member(e)?;
+    let inner = as_call(obj)?;
+    let owner = as_string_lit(arg_expr(inner.arguments.first()?)?)?;
+    (!owner.starts_with("WASmaxParse")).then(|| (owner.to_string(), prop.to_string()))
 }
 
 /// The wrapper tags descended to reach an accessor's node argument: the full
@@ -604,11 +1100,13 @@ fn node_descend_path(
 fn classify_child(
     method: &str,
     args: &oxc_allocator::Vec<oxc_ast::ast::Argument>,
-    locals: &LocalFns,
-    resolver: &Resolver,
+    ctx: &FnCtx,
     visited: &mut HashSet<String>,
     bindings: &HashMap<String, Binding>,
 ) -> Binding {
+    let FnCtx {
+        locals, resolver, ..
+    } = *ctx;
     // The wire tag is the first string-literal arg.
     let Some(tag_idx) = args
         .iter()
@@ -732,7 +1230,28 @@ fn int_range_and_type(
 fn content_byte_length(
     accessor: Option<&str>,
     args: &[Argument],
+    resolver: &Resolver,
+    site: &str,
 ) -> (Option<u32>, Option<(u32, u32)>) {
+    // `contentUint(N)` reads N big-endian bytes, so N is a fixed length like
+    // `contentBytes(N)`'s — not a bound.
+    if accessor == Some("contentUint") {
+        let n = args
+            .iter()
+            .filter_map(|a| arg_expr(a).and_then(as_int))
+            .next();
+        let width = n.and_then(|n| u32::try_from(n).ok());
+        if width.is_none() {
+            // Recognizing the accessor PROVES an exact byte width exists — a hoisted
+            // constant hides the number, not the constraint. Returning nothing published
+            // an unrestricted integer with no signal that the width was lost.
+            resolver.drop_note_keyed(
+                "contentUint width not statically resolvable",
+                site.to_string(),
+            );
+        }
+        return (width, None);
+    }
     if accessor != Some("contentBytesRange") {
         return (None, None);
     }
@@ -747,44 +1266,51 @@ fn content_byte_length(
     }
 }
 
-/// Map a smax accessor name → (canonical wap method, field type, byte_length).
+/// Map a smax accessor name → its canonical wap method and the type that method decodes
+/// to.
+///
+/// This table decides **only the name**. The type comes from [`wap::method_field_type`],
+/// so there is exactly one classifier in the codebase and the two cannot drift — they
+/// already had, twice: `attrJidWithType` carried `jid` here and `jid_typed` there for the
+/// same wire contract, and the enum accessors were `enum` on one side and `string` on the
+/// other. A local table that repeats the type is a second source of truth waiting to go
+/// stale, so this one does not have one.
+///
+/// Aliasing is what remains: `attrStanzaId` and `attrCallId` are `attrString` reads under
+/// another name, `attrPhoneUserJid` is the explicit-PN spelling of `attrUserJid`, and
+/// `contentBytesRange` is `contentBytes` with a length rule. Anything not aliased keeps
+/// its own name, which is how the JID flavour — protocol-safety-critical, since a LID and
+/// a PN user JID are different identities for the same person — survives.
 fn normalize_accessor(m: &str) -> Option<(String, ParsedFieldType, Option<u32>)> {
-    let s = |c: &str, t: ParsedFieldType| Some((c.to_string(), t, None));
-    match m {
-        "attrString" | "attrStanzaId" | "attrCallId" | "attrStringFromReference" => {
-            s(wap::ATTR_STRING, ParsedFieldType::String)
-        }
-        "attrInt" | "attrIntRange" => s(wap::ATTR_INT, ParsedFieldType::Integer),
-        "attrStringEnum" => s(wap::ATTR_ENUM, ParsedFieldType::Enum),
-        "contentString" => s(wap::CONTENT_STRING, ParsedFieldType::String),
-        "contentInt" => s(wap::CONTENT_INT, ParsedFieldType::Integer),
-        "contentStringEnum" => s(wap::ATTR_ENUM, ParsedFieldType::Enum),
-        "contentBytes" => s(wap::CONTENT_BYTES, ParsedFieldType::Bytes),
-        "contentBytesRange" => s(wap::CONTENT_BYTES, ParsedFieldType::Bytes),
-        // Keep the JID flavor each accessor validates rather than collapsing every JID
-        // to one type. The flavor is protocol-safety-critical: a LID user JID and a PN
-        // user JID are different identities for the same person. The `phone*` variants
-        // are the explicit-PN spelling of the plain user/device accessors.
-        "attrUserJid" | "attrPhoneUserJid" => s(wap::ATTR_USER_JID, ParsedFieldType::UserJid),
-        "attrLidUserJid" => s(wap::ATTR_LID_USER_JID, ParsedFieldType::LidUserJid),
-        "attrDeviceJid" | "attrPhoneDeviceJid" => {
-            s(wap::ATTR_DEVICE_JID, ParsedFieldType::DeviceJid)
-        }
-        "attrLidDeviceJid" => s(wap::ATTR_LID_DEVICE_JID, ParsedFieldType::LidDeviceJid),
-        "attrGroupJid" => s(wap::ATTR_GROUP_JID, ParsedFieldType::GroupJid),
-        "attrNewsletterJid" => s(wap::ATTR_NEWSLETTER_JID, ParsedFieldType::NewsletterJid),
-        "attrCallJid" => s(wap::ATTR_CALL_JID, ParsedFieldType::CallJid),
-        "attrBroadcastJid" => s(wap::ATTR_BROADCAST_JID, ParsedFieldType::BroadcastJid),
-        "attrStatusJid" => s(wap::ATTR_STATUS_JID, ParsedFieldType::StatusJid),
-        // Generic / multi-flavor accessors stay a bare Jid: `attrChatJid` is a user OR
-        // a group, `attrJid`/`attrDomainJid` accept any, `attrJidEnum` pins the server
-        // kind via a runtime enum arg (no single static flavor).
-        "attrJid" | "attrDomainJid" | "attrChatJid" | "attrPhoneChatJid" | "attrWapJid"
-        | "attrFromJid" | "attrFromPhoneJid" | "attrLidJid" | "attrJidEnum" | "literalJid" => {
-            s(wap::ATTR_JID_WITH_TYPE, ParsedFieldType::Jid)
-        }
-        _ => None,
-    }
+    let canonical = match m {
+        "attrStanzaId" | "attrCallId" | "attrStringFromReference" => wap::ATTR_STRING,
+        "attrIntRange" => wap::ATTR_INT,
+        "attrStringEnum" => wap::ATTR_ENUM,
+        // A content enum must keep a CONTENT spelling: codegen switches on the method to
+        // decide whether to read an attribute or the element body, so rewriting this to
+        // `attrEnum` made the generated parser look for an attribute that does not exist.
+        "contentStringEnum" => "contentEnum",
+        "contentBytesRange" => wap::CONTENT_BYTES,
+        "attrPhoneUserJid" => wap::ATTR_USER_JID,
+        "attrPhoneDeviceJid" => wap::ATTR_DEVICE_JID,
+        // Not aliased: the accessor names itself, and the classifier types it.
+        other if is_known_accessor(other) => other,
+        _ => return None,
+    };
+    Some((
+        canonical.to_string(),
+        wap::method_field_type(canonical),
+        None,
+    ))
+}
+
+/// Whether the classifier recognises this accessor as a value read at all.
+///
+/// A smax parser calls plenty of helpers that are not field accessors (`assertTag`,
+/// `optional`, the child descents), so an unknown name must yield no field rather than a
+/// defaulted string — the callers rely on `None` to skip.
+fn is_known_accessor(m: &str) -> bool {
+    wap::is_attr_method(m) || wap::is_content_method(m)
 }
 
 /// The optional (`maybe…`) variant of a canonical method, where one exists.
@@ -1042,12 +1568,26 @@ fn collect_object_fields(
         // A boolean presence flag: `{hasX: V.success}` or `{hasX: V.value != null}`
         // — the key records whether a sub-node/attr was present, not its value. The
         // wire name (when known) is the underlying accessor's attr.
+        //
+        // The *pin* underneath survives too. The blocklist shapes bind
+        // `optionalLiteral(attrString, list, "c_dhash", ref.item.dhash)` and then expose
+        // only `{hasListCDhash: m.value != null}`: the attribute is optional, but if it
+        // is present the parser requires it to equal the request's `<item dhash>`.
+        // Dropping the pin here would lose that rule entirely — the flag would say
+        // "c_dhash may appear" and nothing would say what it must contain.
         if let Some(flag_var) = bool_flag_var(&p.value) {
+            let underlying = bindings.get(flag_var);
             out.push(ParsedField {
                 name: key.to_string(),
                 field_type: ParsedFieldType::Bool,
-                wire_name: bindings.get(flag_var).and_then(binding_wire_name),
+                wire_name: underlying.and_then(binding_wire_name),
                 required: true,
+                literal_value: underlying.and_then(binding_literal_value),
+                reference_path: underlying.and_then(binding_reference_path),
+                // The flag reports on an attribute of whatever node the underlying
+                // accessor read — `<list c_dhash>`, not the `<iq>` root. Dropping the
+                // path sends a consumer to apply the echo one level too high.
+                source_path: underlying.and_then(binding_source_path),
                 ..Default::default()
             });
             continue;
@@ -1073,6 +1613,9 @@ fn collect_object_fields(
                 int_range,
                 wire_name,
                 source_path,
+                literal_value,
+                enum_ref,
+                reference_path,
             }) => {
                 let (int_min, int_max) = match int_range {
                     Some((min, max)) => (Some(*min), Some(*max)),
@@ -1094,6 +1637,31 @@ fn collect_object_fields(
                     int_min,
                     int_max,
                     source_path: source_path.clone(),
+                    literal_value: literal_value.clone(),
+                    enum_ref: enum_ref.clone(),
+                    reference_path: reference_path.clone(),
+                    ..Default::default()
+                });
+            }
+            // A value the parser lifts from the REQUEST and the tail names as an output
+            // field. Its wire name is the last path element (the attribute read there);
+            // the wrappers above it, when any, are the request-side descent.
+            Some(Binding::Reference {
+                path,
+                method,
+                field_type,
+                required,
+            }) => {
+                out.push(ParsedField {
+                    method: method.clone(),
+                    name: key.to_string(),
+                    wire_name: path.last().cloned(),
+                    field_type: *field_type,
+                    required: *required && !optional,
+                    // The value IS the request's. Keeping the path makes that machine-
+                    // visible; without it the field is indistinguishable from one read
+                    // off the response node.
+                    reference_path: Some(path.clone()),
                     ..Default::default()
                 });
             }
@@ -1344,6 +1912,33 @@ fn is_nullish(e: &Expression) -> bool {
 fn binding_wire_name(b: &Binding) -> Option<String> {
     match b {
         Binding::Field { wire_name, .. } => wire_name.clone(),
+        Binding::Reference { path, .. } => path.last().cloned(),
+        _ => None,
+    }
+}
+
+/// The wrapper tags a binding descends before reading, when it reads off a child node.
+fn binding_source_path(b: &Binding) -> Option<Vec<String>> {
+    match b {
+        Binding::Field { source_path, .. } => source_path.clone(),
+        _ => None,
+    }
+}
+
+/// The constant a binding pins its value to, when it is a `literal`/`optionalLiteral`.
+fn binding_literal_value(b: &Binding) -> Option<String> {
+    match b {
+        Binding::Field { literal_value, .. } => literal_value.clone(),
+        _ => None,
+    }
+}
+
+/// The request path a binding echoes, whether it is the echo itself
+/// (`attrStringFromReference`) or an `optionalLiteral` pinned to one.
+fn binding_reference_path(b: &Binding) -> Option<Vec<String>> {
+    match b {
+        Binding::Field { reference_path, .. } => reference_path.clone(),
+        Binding::Reference { path, .. } => Some(path.clone()),
         _ => None,
     }
 }
@@ -1496,6 +2091,77 @@ impl Resolver<'_> {
     }
 }
 
+/// A compile-time byte sequence: `new Uint8Array([5])`, `Uint8Array.of(1, 2)`, or a bare
+/// `[0, 1]`. `None` for anything computed — the caller counts that as a dropped
+/// constraint rather than publishing the field as unconstrained.
+///
+/// Shared with the legacy scanner, which reaches `contentLiteralBytes` by a different
+/// route and must pin the same value from the same spelling.
+/// Upper bound on a `new Uint8Array(N)` zero-fill we will materialize as a literal. A
+/// pin longer than this is not a wire constant anyone writes; the cap keeps a bogus or
+/// hostile length from allocating.
+const MAX_ZERO_FILL: i64 = 4096;
+
+pub(crate) fn static_byte_literal(e: &Expression) -> Option<Vec<u8>> {
+    // `Uint8Array.of(1, 2)` — the bytes are the ARGUMENTS, not an array operand. It was
+    // documented as supported here and was not: every call expression fell through to
+    // `None` and the pin was reported as an unresolved constraint.
+    // The receiver must be `Uint8Array`: `factory.of(1, 2)` is an ordinary call that may
+    // return anything, and reading its arguments as the pinned bytes would invent a
+    // `literalValue` rather than record an unresolved one.
+    if let Some(call) = wa_oxc::as_call(e)
+        && callee_method(call) == Some("of")
+        && callee_object(call).and_then(as_identifier) == Some("Uint8Array")
+    {
+        return call
+            .arguments
+            .iter()
+            .map(|a| arg_expr(a).and_then(byte_literal))
+            .collect();
+    }
+    let elements = match e {
+        Expression::ArrayExpression(a) => a,
+        Expression::NewExpression(n) => {
+            // The constructor is checked for the same reason the `.of` receiver is:
+            // `new Whatever([1,2])` need not produce those bytes.
+            if as_identifier(&n.callee) != Some("Uint8Array") {
+                return None;
+            }
+            match arg_expr(n.arguments.first()?)? {
+                Expression::ArrayExpression(a) => a,
+                // `new Uint8Array(4)` is a LENGTH — and therefore exactly four ZERO
+                // bytes, which is as much a compile-time constant as a literal array.
+                // Refusing it lost a recoverable pin; reading the `4` as the byte 0x04
+                // would have invented a different one. The request side's constant index
+                // already models this form the same way.
+                e => {
+                    let n = as_int(e).filter(|n| (0..=MAX_ZERO_FILL).contains(n))?;
+                    return Some(vec![0u8; n as usize]);
+                }
+            }
+        }
+        _ => return None,
+    };
+    elements
+        .elements
+        .iter()
+        .map(|el| byte_literal(el.as_expression()?))
+        .collect()
+}
+
+/// One numeric literal that is exactly a byte. Fractions are rejected rather than
+/// truncated: `1.5 as u8` is `1`, a pinned value the source never states.
+fn byte_literal(e: &Expression) -> Option<u8> {
+    match e {
+        Expression::NumericLiteral(n)
+            if n.value.fract() == 0.0 && (0.0..=255.0).contains(&n.value) =>
+        {
+            Some(n.value as u8)
+        }
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1512,6 +2178,51 @@ mod tests {
         let slices = HashMap::new();
         let resolver = Resolver::new(&slices);
         analyze_module_exports(module, &resolver)
+    }
+
+    #[test]
+    fn an_unresolvable_literal_content_marker_is_counted() {
+        // A disjunction discriminates on `literalContent`. When the marker value arrives
+        // through a local constant rather than an inline string, emitting neither an
+        // assertion nor a drop published a fieldless variant with no usable
+        // discriminator while the diagnostics claimed nothing was lost.
+        let slices = HashMap::new();
+        let resolver = Resolver::new(&slices);
+        let (asserts, _) = analyze_fn_source(
+            r#"function p(node){
+                 var v = MARKER;
+                 var a = o("WASmaxParseUtils").literalContent(node, "x", v);
+                 return o("WAResultOrError").makeResult({});
+               }"#,
+            &LocalFns::new(),
+            &resolver,
+            &mut HashSet::new(),
+        )
+        .expect("analyzed");
+        assert!(
+            !asserts.iter().any(|a| a.kind == AssertionKind::Content),
+            "no discriminator is invented"
+        );
+        assert_eq!(
+            resolver
+                .drop_counts()
+                .get("literalContent marker value not statically resolvable"),
+            Some(&1),
+            "but the loss is reported"
+        );
+    }
+
+    #[test]
+    fn a_content_enum_keeps_a_content_spelling() {
+        // `contentStringEnum(node, TABLE)` reads the ELEMENT BODY. Normalizing it to
+        // `attrEnum` made codegen emit an attribute read for a value that is not an
+        // attribute, so the generated parser looked for something that never exists.
+        assert_eq!(
+            normalize_accessor("contentStringEnum").map(|(m, t, _)| (m, t)),
+            Some(("contentEnum".to_string(), wa_ir::ParsedFieldType::Enum)),
+            "content spelling preserved, enum type kept"
+        );
+        assert!(wa_ir::wap::is_content_method("contentEnum"));
     }
 
     #[test]
@@ -1617,6 +2328,290 @@ mod tests {
         let names: Vec<&str> = fields.iter().map(|f| f.name.as_str()).collect();
         assert!(names.contains(&"countryCodeIso"));
         assert!(names.contains(&"type"), "mixin fields spread in");
+    }
+
+    #[test]
+    fn reference_echo_becomes_a_reference_assertion() {
+        // The rule 17 of the 26 namespace error mixins enforce (and every success
+        // parser): `from` must equal the REQUEST's `to`, `id` the request's `id`. Both
+        // must land as `reference` assertions carrying where the value comes from —
+        // an emitter that hardcodes `from="s.whatsapp.net"` breaks every `g.us` answer.
+        let body = r#"function e(node, ref){
+            var n = o("WASmaxParseUtils").assertTag(node, "iq"); if(!n.success) return n;
+            var r = o("WASmaxParseReference").attrStringFromReference(ref, ["id"]); if(!r.success) return r;
+            var a = o("WASmaxParseUtils").literal(o("WASmaxParseUtils").attrString, node, "id", r.value); if(!a.success) return a;
+            var i = o("WASmaxParseReference").attrStringFromReference(ref, ["to"]); if(!i.success) return i;
+            var l = o("WASmaxParseUtils").literal(o("WASmaxParseUtils").attrString, node, "from", i.value); if(!l.success) return l;
+            var s = o("WASmaxParseUtils").literal(o("WASmaxParseUtils").attrString, node, "type", "error");
+            return s.success ? o("WAResultOrError").makeResult({ type: s.value }) : s;
+        }"#;
+        let (asserts, fields) = analyze_one(body).expect("analyzed");
+        let by = |name: &str| {
+            asserts
+                .iter()
+                .find(|a| a.name.as_deref() == Some(name))
+                .unwrap_or_else(|| panic!("no assertion for {name}"))
+        };
+        assert_eq!(by("from").kind, AssertionKind::Reference);
+        assert_eq!(
+            by("from").reference_path.as_deref(),
+            Some(&["to".to_string()][..])
+        );
+        assert_eq!(by("from").value, None, "a reference has no constant value");
+        assert_eq!(by("id").kind, AssertionKind::Reference);
+        assert_eq!(
+            by("id").reference_path.as_deref(),
+            Some(&["id".to_string()][..])
+        );
+        // A constant literal is still a plain attr assertion, with its value.
+        assert_eq!(by("type").kind, AssertionKind::Attr);
+        assert_eq!(by("type").value.as_deref(), Some("error"));
+        // …and it is also the `type` output field, now carrying its pinned value.
+        let ty = fields
+            .iter()
+            .find(|f| f.name == "type")
+            .expect("type field");
+        assert_eq!(ty.literal_value.as_deref(), Some("error"));
+    }
+
+    #[test]
+    fn a_reference_off_a_node_other_than_the_request_is_rejected() {
+        // `referencePath` is documented as relative to the REQUEST, and a consumer acts
+        // on that. If WA ever pointed a `…FromReference` helper at some other node, an
+        // echo rule read as "the request's" would be silently wrong — so the invariant
+        // is enforced, and the rejection is counted rather than dropped in silence.
+        let slices = HashMap::new();
+        let resolver = Resolver::new(&slices);
+        // `node` is the FIRST parameter (the response), not the reference.
+        let body = r#"function e(node, ref){
+            var r = o("WASmaxParseReference").attrStringFromReference(node, ["id"]); if(!r.success) return r;
+            var a = o("WASmaxParseUtils").literal(o("WASmaxParseUtils").attrString, node, "id", r.value);
+            return o("WAResultOrError").makeResult({ id: a.value });
+        }"#;
+        let (asserts, _f) =
+            analyze_fn_source(body, &LocalFns::new(), &resolver, &mut HashSet::new())
+                .expect("analyzed");
+        assert!(
+            !asserts.iter().any(|a| a.kind == AssertionKind::Reference),
+            "an echo off a non-request node must not be reported as a request echo"
+        );
+        assert_eq!(
+            resolver
+                .drop_counts()
+                .get("reference read from a node other than the request"),
+            Some(&1)
+        );
+    }
+
+    #[test]
+    fn a_required_echo_on_a_descended_node_survives() {
+        // A `literal` on a node reached through `flattenedChildWithTag` records no root
+        // assertion — the assertion vocabulary is root-relative — so the echo has to ride
+        // on the field, or the nested attribute reaches the IR with no constraint at all
+        // and an emitter can put anything there.
+        let body = r#"function e(node, ref){
+            var t = o("WASmaxParseUtils").flattenedChildWithTag(node, "list"); if(!t.success) return t;
+            var r = o("WASmaxParseReference").attrStringFromReference(ref, ["id"]); if(!r.success) return r;
+            var a = o("WASmaxParseUtils").literal(o("WASmaxParseUtils").attrString, t.value, "id", r.value);
+            return o("WAResultOrError").makeResult({ listId: a.value });
+        }"#;
+        let (asserts, fields) = analyze_one(body).expect("analyzed");
+        assert!(
+            !asserts.iter().any(|a| a.kind == AssertionKind::Reference),
+            "the guard is on <list>, not the root, so it must not become a root assertion"
+        );
+        let f = fields.iter().find(|f| f.name == "listId").expect("listId");
+        assert_eq!(f.source_path.as_deref(), Some(&["list".to_string()][..]));
+        assert_eq!(f.reference_path.as_deref(), Some(&["id".to_string()][..]));
+    }
+
+    #[test]
+    fn multi_hop_reference_path_is_kept_whole() {
+        // `attrStringFromReference(request, ["account","action"])` reads the `action`
+        // attr of the request's `<account>` CHILD — the descent must survive.
+        let body = r#"function e(node, ref){
+            var r = o("WASmaxParseReference").attrStringFromReference(ref, ["account","action"]); if(!r.success) return r;
+            var a = o("WASmaxParseUtils").literal(o("WASmaxParseUtils").attrString, node, "action", r.value);
+            return o("WAResultOrError").makeResult({ action: a.value });
+        }"#;
+        let (asserts, _f) = analyze_one(body).expect("analyzed");
+        let a = asserts
+            .iter()
+            .find(|a| a.kind == AssertionKind::Reference)
+            .expect("reference assertion");
+        assert_eq!(
+            a.reference_path.as_deref(),
+            Some(&["account".to_string(), "action".to_string()][..])
+        );
+    }
+
+    #[test]
+    fn numeric_literal_pins_both_the_assertion_and_the_field() {
+        // The error mixins pin `code` with an INT literal; dropping it would leave the
+        // per-RPC error vocabulary with texts but no codes.
+        let body = r#"function e(node){
+            var t = o("WASmaxParseUtils").assertTag(node, "error"); if(!t.success) return t;
+            var n = o("WASmaxParseUtils").literal(o("WASmaxParseUtils").attrString, node, "text", "rate-overlimit"); if(!n.success) return n;
+            var r = o("WASmaxParseUtils").literal(o("WASmaxParseUtils").attrInt, node, "code", 429);
+            return r.success ? o("WAResultOrError").makeResult({ text: n.value, code: r.value }) : r;
+        }"#;
+        let (asserts, fields) = analyze_one(body).expect("analyzed");
+        let code_assert = asserts
+            .iter()
+            .find(|a| a.name.as_deref() == Some("code"))
+            .expect("code assertion");
+        assert_eq!(code_assert.value.as_deref(), Some("429"));
+        let code = fields
+            .iter()
+            .find(|f| f.name == "code")
+            .expect("code field");
+        assert_eq!(code.literal_value.as_deref(), Some("429"));
+        assert_eq!(code.field_type, ParsedFieldType::Integer);
+    }
+
+    #[test]
+    fn optional_literal_pins_a_value_without_asserting_it() {
+        // `optionalLiteral(attrString, participant, "type", "admin")` — a successful
+        // promote answers `<participant type="admin">`. The value must ride on the
+        // field (barback sent a status code there), but it must NOT become an
+        // assertion: absence is legal, so it discriminates nothing.
+        let body = r#"function e(node){
+            var s = o("WASmaxParseUtils").optionalLiteral(o("WASmaxParseUtils").attrString, node, "type", "admin");
+            return o("WAResultOrError").makeResult({ type: s.value });
+        }"#;
+        let (asserts, fields) = analyze_one(body).expect("analyzed");
+        assert!(
+            !asserts.iter().any(|a| a.name.as_deref() == Some("type")),
+            "an optional literal is not a discriminator"
+        );
+        let ty = fields
+            .iter()
+            .find(|f| f.name == "type")
+            .expect("type field");
+        assert_eq!(ty.literal_value.as_deref(), Some("admin"));
+        assert!(!ty.required, "optionalLiteral → the attr may be absent");
+    }
+
+    #[test]
+    fn optional_literal_can_pin_to_a_request_value() {
+        // `optionalLiteral(attrString, list, "c_dhash", ref.item.dhash)` — an echo that
+        // is NOT a guard (the attr may be absent), so it rides on the field rather than
+        // becoming an assertion. Without it the rule would only be countable as a drop.
+        let body = r#"function e(node, ref){
+            var m = o("WASmaxParseReference").optionalAttrStringFromReference(ref, ["item","dhash"]);
+            var s = o("WASmaxParseUtils").optionalLiteral(o("WASmaxParseUtils").attrString, node, "c_dhash", m.value);
+            return o("WAResultOrError").makeResult({ cDhash: s.value });
+        }"#;
+        let (asserts, fields) = analyze_one(body).expect("analyzed");
+        assert!(
+            !asserts.iter().any(|a| a.kind == AssertionKind::Reference),
+            "an optional echo guards nothing, so it is not an assertion"
+        );
+        let f = fields.iter().find(|f| f.name == "cDhash").expect("field");
+        assert_eq!(
+            f.reference_path.as_deref(),
+            Some(&["item".to_string(), "dhash".to_string()][..])
+        );
+        assert_eq!(f.literal_value, None, "an echo is not a constant");
+        assert!(!f.required);
+    }
+
+    #[test]
+    fn enum_accessor_resolves_its_variants() {
+        // A response enum field must carry the legal values, not just `type: "enum"`.
+        let enums = r#"__d("WASmaxInFooEnums",[],(function(t,n,r,o,a,i){
+            var e={off:"off",on:"on"}; i.ENUM_OFF_ON=e;
+        }),66);"#;
+        let mut slices = HashMap::new();
+        slices.insert("WASmaxInFooEnums", enums);
+        let resolver = Resolver::new(&slices);
+        let body = r#"function e(node){
+            var s = o("WASmaxParseUtils").attrStringEnum(node, "state", o("WASmaxInFooEnums").ENUM_OFF_ON); if(!s.success) return s;
+            var t = o("WASmaxParseUtils").optional(o("WASmaxParseUtils").attrStringEnum, node, "mode", o("WASmaxInFooEnums").ENUM_OFF_ON);
+            return o("WAResultOrError").makeResult({ state: s.value, mode: t.value });
+        }"#;
+        let (_a, fields) =
+            analyze_fn_source(body, &LocalFns::new(), &resolver, &mut HashSet::new())
+                .expect("analyzed");
+        for name in ["state", "mode"] {
+            let f = fields.iter().find(|f| f.name == name).expect(name);
+            let er = f.enum_ref.as_ref().unwrap_or_else(|| panic!("{name} enum"));
+            assert_eq!(er.name, "ENUM_OFF_ON");
+            assert_eq!(er.module, "WASmaxInFooEnums");
+            let values: Vec<&str> = er.variants.iter().map(|v| v.value.as_str()).collect();
+            assert_eq!(values, ["off", "on"]);
+        }
+    }
+
+    #[test]
+    fn two_parsers_losing_the_same_enum_are_two_lost_constraints() {
+        // The counter's unit is distinct LOST CONSTRAINTS, so keying on the enum — or on
+        // the enum plus the attribute — collapses separate parsers reading the same thing
+        // and lets constraints disappear without moving the number. The parser body is
+        // part of the key; the two analysis passes over one body still count once.
+        let slices = HashMap::new();
+        let resolver = Resolver::new(&slices);
+        let one = r#"function e(node){
+            var s = o("WASmaxParseUtils").attrStringEnum(node, "state", o("Missing").ENUM_X); if(!s.success) return s;
+            return o("WAResultOrError").makeResult({ state: s.value });
+        }"#;
+        let two = r#"function e(node){
+            var t = o("WASmaxParseUtils").assertTag(node, "iq"); if(!t.success) return t;
+            var s = o("WASmaxParseUtils").attrStringEnum(node, "state", o("Missing").ENUM_X); if(!s.success) return s;
+            return o("WAResultOrError").makeResult({ state: s.value });
+        }"#;
+        let count = || {
+            resolver
+                .drop_counts()
+                .get("response enum argument not structurally resolvable")
+                .copied()
+                .unwrap_or(0)
+        };
+        analyze_fn_source(one, &LocalFns::new(), &resolver, &mut HashSet::new());
+        assert_eq!(count(), 1);
+        // Re-analyzing the SAME body (as the assertion pass does) must not double-count.
+        analyze_fn_source(one, &LocalFns::new(), &resolver, &mut HashSet::new());
+        assert_eq!(count(), 1, "the same site analyzed twice is one loss");
+        // A DIFFERENT parser losing the same enum on the same attribute is a second loss.
+        analyze_fn_source(two, &LocalFns::new(), &resolver, &mut HashSet::new());
+        assert_eq!(count(), 2, "distinct parser sites are distinct losses");
+    }
+
+    #[test]
+    fn unresolvable_enum_is_recorded_not_guessed() {
+        // The enum module isn't in the bundle: no link, and a drop reason so a consumer
+        // can tell "no enum here" from "there was one and we lost it".
+        let slices = HashMap::new();
+        let resolver = Resolver::new(&slices);
+        let body = r#"function e(node){
+            var s = o("WASmaxParseUtils").attrStringEnum(node, "state", o("Missing").ENUM_OFF_ON); if(!s.success) return s;
+            return o("WAResultOrError").makeResult({ state: s.value });
+        }"#;
+        let (_a, fields) =
+            analyze_fn_source(body, &LocalFns::new(), &resolver, &mut HashSet::new())
+                .expect("analyzed");
+        assert!(fields[0].enum_ref.is_none());
+        assert_eq!(
+            resolver
+                .drop_counts()
+                .get("response enum argument not structurally resolvable"),
+            Some(&1)
+        );
+    }
+
+    #[test]
+    fn reference_value_named_in_make_result_is_still_a_field() {
+        // A reference binding usually only feeds an echo guard, but when the tail names
+        // it, it is a real output field — it must not vanish just because it reads off
+        // the request.
+        let body = r#"function e(node, ref){
+            var r = o("WASmaxParseReference").attrStringFromReference(ref, ["id"]); if(!r.success) return r;
+            return o("WAResultOrError").makeResult({ id: r.value });
+        }"#;
+        let (_a, fields) = analyze_one(body).expect("analyzed");
+        let id = fields.iter().find(|f| f.name == "id").expect("id field");
+        assert_eq!(id.wire_name.as_deref(), Some("id"));
+        assert!(id.required);
     }
 
     #[test]

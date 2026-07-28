@@ -88,6 +88,99 @@ impl<'a> EnumResolver<'a> {
         }
     }
 
+    /// Fill in (or drop) the pending enum links on a response field tree.
+    ///
+    /// Same contract as the request side: a link whose enum resolves to a string-variant
+    /// set is kept, anything else is dropped rather than half-filled. The legacy scanner
+    /// records the reference without variants because it reads one module at a time; this
+    /// runs once the whole bundle index is available.
+    /// Returns the constraints it had to drop, keyed `site\x01module.ENUM@attr`, for
+    /// `dropsByReason` — an enum WA composes at runtime (`babelHelpers.extends({}, base,
+    /// {error: "error"})`, as the privacy settings do) has no literal value set to
+    /// recover, and that is worth reporting rather than leaving the field looking
+    /// unconstrained.
+    ///
+    /// `site` identifies the parser the loss belongs to, so two parsers losing the same
+    /// enum on the same attribute count as two — the smax counter learned this and this
+    /// pass repeated the site-less key. It must stay stable across the mirrored
+    /// `response.fields` / `response.variants` traversal of one parser, which is how the
+    /// same loss seen twice still counts once.
+    pub(crate) fn resolve_fields(
+        &mut self,
+        site: &str,
+        fields: &mut [wa_ir::ParsedField],
+        dropped: &mut std::collections::BTreeSet<String>,
+    ) {
+        self.resolve_fields_at(site, "", fields, dropped)
+    }
+
+    /// [`resolve_fields`], carrying the traversal `path` so two losses of the same table
+    /// on the same attribute under different children count as two.
+    ///
+    /// [`resolve_fields`]: EnumResolver::resolve_fields
+    fn resolve_fields_at(
+        &mut self,
+        site: &str,
+        path: &str,
+        fields: &mut [wa_ir::ParsedField],
+        dropped: &mut std::collections::BTreeSet<String>,
+    ) {
+        for f in fields {
+            // Taken, not read: the pending reference is consumed here whether or not it
+            // resolves, so a second traversal of the same tree cannot count the same loss
+            // twice and nothing is left half-promoted.
+            if let Some(pending) = f.pending_enum_ref.take() {
+                let attr = f.wire_name.clone().unwrap_or_else(|| f.name.clone());
+                // Both halves of the pending state are losses when they don't land: a
+                // link whose module export won't resolve, and a table that was never a
+                // resolvable reference at all. Counting only the first left the second
+                // looking like an enum with no constraint.
+                let lost = match pending {
+                    wa_ir::PendingEnum::Link(er) => {
+                        f.enum_ref = self.lookup(&er.module, &er.name);
+                        f.enum_ref
+                            .is_none()
+                            .then(|| format!("{}.{}", er.module, er.name))
+                    }
+                    wa_ir::PendingEnum::Unresolvable => Some("<unresolvable table>".to_string()),
+                };
+                if let Some(what) = lost {
+                    // The node PATH is part of the identity: one parser reading `state`
+                    // off both `<current>` and `<previous>` loses two constraints, and
+                    // `site + table + attr` collapsed them into one.
+                    dropped.insert(format!("{site}\u{1}{path}/{what}@{attr}"));
+                }
+            }
+            let here = format!("{path}/{}", f.tag.as_deref().unwrap_or(&f.name));
+            if let Some(children) = &mut f.children {
+                self.resolve_fields_at(site, &here, children, dropped);
+            }
+            for uv in f.union_variants.iter_mut().flatten() {
+                self.resolve_fields_at(site, &here, &mut uv.fields, dropped);
+            }
+        }
+    }
+
+    /// The resolved variants of `module::name`, memoized. `None` when the module is
+    /// absent, the export is not an enum, or a value is not a string.
+    fn lookup(&mut self, module: &str, name: &str) -> Option<AttrEnumRef> {
+        let module_slice = &self.module_slice;
+        let variants = self
+            .cache
+            .entry((module.to_string(), name.to_string()))
+            .or_insert_with(|| {
+                module_slice.get(module).and_then(|slice| {
+                    wa_enums::resolve_named_enum(slice, module, name).and_then(variants_of)
+                })
+            })
+            .clone()?;
+        Some(AttrEnumRef {
+            name: name.to_string(),
+            module: module.to_string(),
+            variants,
+        })
+    }
+
     /// Resolve a flat list of attributes (a stanza root's own attrs).
     pub(crate) fn resolve_attrs(&mut self, attrs: &mut [WapAttrDef]) {
         for a in attrs {
@@ -114,6 +207,81 @@ fn variants_of(def: wa_ir::InternalEnumDef) -> Option<Vec<AttrEnumVariant>> {
         })
         .collect::<Option<Vec<_>>>()?;
     (!variants.is_empty()).then_some(variants)
+}
+
+/// Cross-module resolution of the pending enum links a legacy parser leaves on a
+/// response shape — the one public entry point for it.
+///
+/// A parser records `o("Mod").ENUM` without variants because it reads a single module;
+/// only a caller holding the whole bundle can finish the job. Every domain that runs
+/// [`crate::parse_module_wap_parsers`] needs this, and the traversal it needs (the
+/// shape's own fields *and* each variant's, under one site key) is written here once
+/// instead of at each call site — the IQ scan had it, incoming and notif did not, and
+/// their artifacts shipped links that resolved to nothing.
+pub struct ResponseEnumLinker<'a> {
+    inner: EnumResolver<'a>,
+    /// Enum-link losses keyed `site\x01module.ENUM@attr`; see
+    /// [`EnumResolver::resolve_fields`].
+    dropped: std::collections::BTreeSet<String>,
+    /// Everything else the legacy scanner could not resolve, keyed the same way so two
+    /// occurrences in one parser count twice and the same one seen twice counts once.
+    other: std::collections::BTreeSet<String>,
+}
+
+impl<'a> ResponseEnumLinker<'a> {
+    pub fn new(defs: &'a [ModuleDefinition], source: &'a str) -> Self {
+        Self {
+            inner: EnumResolver::new(defs, source),
+            dropped: Default::default(),
+            other: Default::default(),
+        }
+    }
+
+    /// Resolve every pending link in `shape`, attributing losses to `site`.
+    pub fn resolve(&mut self, site: &str, shape: &mut wa_ir::iq::ParsedResponse) {
+        self.inner
+            .resolve_fields(site, &mut shape.fields, &mut self.dropped);
+        for v in &mut shape.variants {
+            self.inner
+                .resolve_fields(site, &mut v.fields, &mut self.dropped);
+        }
+        // The legacy scanner parks its other unresolved constraints (a byte pin, a
+        // length band) on the shape because it has no diagnostics channel of its own.
+        // This is the one pass every domain runs, so it is where they get collected.
+        for d in shape.pending_drops.drain(..) {
+            self.other.insert(format!("{site}\u{1}{d}"));
+        }
+    }
+
+    /// The enum links seen but not resolvable, for `dropsByReason`.
+    pub fn into_drops(self) -> std::collections::BTreeSet<String> {
+        self.dropped
+    }
+
+    /// Every loss this pass collected, grouped by `dropsByReason` key: the enum links
+    /// under [`crate::response_smax::ENUM_DROP`], plus whatever the legacy scanner
+    /// parked on the shapes, each already de-duplicated per site.
+    pub fn into_drop_counts(self) -> std::collections::BTreeMap<String, usize> {
+        let mut out: std::collections::BTreeMap<String, usize> = Default::default();
+        if !self.dropped.is_empty() {
+            out.insert(
+                crate::response_smax::ENUM_DROP.to_string(),
+                self.dropped.len(),
+            );
+        }
+        for key in self.other {
+            // `site\x01reason@detail` → the reason is what a reader groups by.
+            let reason = key
+                .split_once('\u{1}')
+                .map_or(key.as_str(), |(_, r)| r)
+                .split('@')
+                .next()
+                .unwrap_or("")
+                .to_string();
+            *out.entry(reason).or_default() += 1;
+        }
+        out
+    }
 }
 
 #[cfg(test)]

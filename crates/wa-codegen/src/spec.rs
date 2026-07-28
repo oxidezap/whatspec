@@ -13,12 +13,20 @@ use wa_ir::{
 /// to DIFFERENT literal values (`type:"result"` vs `type:"error"`): a response
 /// satisfying one fails the other's guard, so neither can shadow the other.
 pub(crate) fn assertions_conflict(a: &ResponseVariant, b: &ResponseVariant) -> bool {
+    // BOTH sides must pin a literal, and to the same NAMED attribute. `Some("result")`
+    // against a presence-only assertion (`value: None`) is not a conflict: a parser that
+    // merely requires `type` to exist also accepts `type="result"`, so the variants are
+    // not disjoint and the earlier arm shadows the later one in a first-success cascade.
     a.assertions.iter().any(|x| {
         x.kind == AssertionKind::Attr
+            && x.name.is_some()
             && x.value.is_some()
-            && b.assertions
-                .iter()
-                .any(|y| y.kind == AssertionKind::Attr && y.name == x.name && y.value != x.value)
+            && b.assertions.iter().any(|y| {
+                y.kind == AssertionKind::Attr
+                    && y.name == x.name
+                    && y.value.is_some()
+                    && y.value != x.value
+            })
     })
 }
 
@@ -339,7 +347,10 @@ fn emit_success_guards(op: &IqStanzaDef, indent: &str) -> Vec<String> {
                 }
             }
             // Tag (the `<iq>` root) / FromServer are not success-vs-error discriminators.
-            AssertionKind::Tag | AssertionKind::FromServer => {}
+            // Neither is a Reference echo (`from` == the request's `to`): every outcome
+            // of the same request satisfies it identically, so it separates nothing —
+            // it is a request-correlation rule, enforced by whoever holds the request.
+            AssertionKind::Tag | AssertionKind::FromServer | AssertionKind::Reference => {}
         }
     }
     lines
@@ -764,6 +775,37 @@ mod tests {
     use super::*;
     use wa_ir::{IqRequestDef, ParsedResponse};
 
+    fn conflict_attr(name: &str, value: Option<&str>) -> wa_ir::ResponseAssertion {
+        wa_ir::ResponseAssertion {
+            kind: AssertionKind::Attr,
+            name: Some(name.to_string()),
+            value: value.map(str::to_string),
+            reference_path: None,
+        }
+    }
+
+    fn conflict_variant(assertions: Vec<wa_ir::ResponseAssertion>) -> wa_ir::ResponseVariant {
+        wa_ir::ResponseVariant {
+            assertions,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_presence_only_assertion_does_not_conflict_with_a_pin() {
+        // A parser that merely requires `type` to EXIST also accepts `type="result"`, so
+        // the two variants are not disjoint. Treating `Some("result") != None` as a
+        // conflict let the separability gate emit a first-success cascade whose earlier
+        // arm shadows the later one.
+        let pinned = conflict_variant(vec![conflict_attr("type", Some("result"))]);
+        let present = conflict_variant(vec![conflict_attr("type", None)]);
+        assert!(!assertions_conflict(&pinned, &present));
+        assert!(!assertions_conflict(&present, &pinned));
+        // Two different pins on the same attribute still conflict.
+        let other = conflict_variant(vec![conflict_attr("type", Some("error"))]);
+        assert!(assertions_conflict(&pinned, &other));
+    }
+
     fn stanza(module: &str, exported: Option<&str>) -> IqStanzaDef {
         IqStanzaDef {
             module_name: module.into(),
@@ -836,8 +878,10 @@ mod tests {
                 kind: AssertionKind::Attr,
                 name: Some("type".into()),
                 value: Some("result".into()),
+                reference_path: None,
             }],
             fields: vec![],
+            ..Default::default()
         }];
         let guards = emit_success_guards(&s, "    ");
         assert_eq!(guards.len(), 1);
@@ -874,6 +918,7 @@ mod tests {
                     kind: ResponseVariantKind::Success,
                     assertions: vec![],
                     fields: vec![attr("token")],
+                    ..Default::default()
                 },
                 ResponseVariant {
                     tag: "GetThingResponseError".into(),
@@ -881,6 +926,7 @@ mod tests {
                     kind: ResponseVariantKind::Error,
                     assertions: vec![],
                     fields: vec![attr("code")],
+                    ..Default::default()
                 },
             ],
             ..Default::default()
@@ -930,6 +976,7 @@ mod tests {
                 kind: AssertionKind::Attr,
                 name: Some("type".into()),
                 value: Some(value.into()),
+                reference_path: None,
             }
         }
         // Success and error read the same field (`type`) — a bare subset that WOULD be
@@ -945,6 +992,7 @@ mod tests {
                     kind: ResponseVariantKind::Success,
                     assertions: vec![type_assert("result")],
                     fields: vec![attr("type")],
+                    ..Default::default()
                 },
                 ResponseVariant {
                     tag: "GetThingResponseError".into(),
@@ -952,6 +1000,7 @@ mod tests {
                     kind: ResponseVariantKind::Error,
                     assertions: vec![type_assert("error")],
                     fields: vec![attr("type")],
+                    ..Default::default()
                 },
             ],
             ..Default::default()
@@ -1000,6 +1049,7 @@ mod tests {
                     kind: ResponseVariantKind::Success,
                     assertions: vec![],
                     fields: vec![attr("type")],
+                    ..Default::default()
                 },
                 ResponseVariant {
                     tag: "GetThingResponseError".into(),
@@ -1007,6 +1057,7 @@ mod tests {
                     kind: ResponseVariantKind::Error,
                     assertions: vec![],
                     fields: vec![attr("type")],
+                    ..Default::default()
                 },
             ],
             ..Default::default()

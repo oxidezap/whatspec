@@ -38,26 +38,23 @@ pub(crate) fn emit_field_parse(f: &ParsedField, node_var: &str, indent: &str) ->
     let fmsg = rust_lit_inner(wire);
     let method = f.method.as_str();
 
-    if method == wap::CONTENT_BYTES {
+    // Every remaining content spelling reads the node body and is typed by the canonical
+    // classifier, so a newly-recognized one (`contentUint`, `contentEnum`,
+    // `contentBytesRange`, `contentLiteralBytes`) is parsed rather than silently skipped.
+    if wap::is_content_method(method) {
         return vec![format!(
-            "{indent}let {name} = {node_var}.content_bytes().map(|b| b.to_vec()).unwrap_or_default();"
-        )];
-    }
-    if method == wap::CONTENT_STRING {
-        return vec![format!(
-            "{indent}let {name} = {node_var}.content_str().unwrap_or_default().to_string();"
-        )];
-    }
-    if method == wap::CONTENT_INT {
-        return vec![format!(
-            "{indent}let {name} = {node_var}.content_str().and_then(|s| s.parse().ok()).unwrap_or_default();"
+            "{indent}let {name} = {node_var}.{};",
+            content_decoder(method)
         )];
     }
     if !wap::is_attr_method(method) {
         return Vec::new();
     }
 
-    let optional = wap::is_optional_method(method);
+    // See `rust_field_type`: the accessor spelling and the IR's `required` are both
+    // sources of optionality, and the two must agree or the initializer will not match the
+    // declared field type.
+    let optional = wap::is_optional_method(method) || !f.required;
     match wap::method_field_type(method) {
         ParsedFieldType::Integer if optional => vec![format!(
             "{indent}let {name} = {node_var}.get_attr({flit}).and_then(|v| v.as_str().parse().ok());"
@@ -68,6 +65,12 @@ pub(crate) fn emit_field_parse(f: &ParsedField, node_var: &str, indent: &str) ->
             format!("{indent}    .as_str()"),
             format!("{indent}    .parse()?;"),
         ],
+        // An OPTIONAL JID must come first: `rust_field_type` declares `Option<Jid>` for a
+        // `maybeAttr…Jid`, and falling into the branch below both mis-typed the
+        // initializer and rejected the absence the accessor exists to permit.
+        t if t.is_jid() && optional => vec![format!(
+            "{indent}let {name} = {node_var}.get_attr({flit}).and_then(|v| v.to_jid());"
+        )],
         // Every JID flavor materializes as one `Jid`; switch on `is_jid()` so a newly
         // preserved flavor (UserJid/LidUserJid/…) is parsed as a JID, not a String.
         t if t.is_jid() => vec![format!(
@@ -82,6 +85,26 @@ pub(crate) fn emit_field_parse(f: &ParsedField, node_var: &str, indent: &str) ->
             format!("{indent}    .as_str()"),
             format!("{indent}    .to_string();"),
         ],
+    }
+}
+
+/// How to read a content leaf off a node, as a full expression yielding the field's type.
+///
+/// `contentInt()` and `contentUint(N)` are BOTH integers and are decoded completely
+/// differently: `contentInt` is decimal text (a follower count), while `contentUint(N)`
+/// is N big-endian bytes (a 3-byte prekey id, a 4-byte registration id). Reading the
+/// latter as text makes every one of them silently `0`, which is what grouping them by
+/// `method_field_type` alone did.
+pub(crate) fn content_decoder(method: &str) -> &'static str {
+    if method == "contentUint" {
+        return "content_bytes()\n        .map(|b| b.iter().fold(0u64, |acc, &x| (acc << 8) | x as u64))\n        .unwrap_or_default()";
+    }
+    match wap::method_field_type(method) {
+        ParsedFieldType::Bytes => "content_bytes().map(|b| b.to_vec()).unwrap_or_default()",
+        ParsedFieldType::Integer => {
+            "content_str().and_then(|s| s.parse().ok()).unwrap_or_default()"
+        }
+        _ => "content_str().unwrap_or_default().to_string()",
     }
 }
 
@@ -269,16 +292,43 @@ fn emit_struct_reads(
                 indent,
             );
             let lit = rust_lit(tag);
-            let bytes = ct == wa_ir::ContentType::Bytes;
+            // Two spellings per kind: one that yields an `Option` for the `maybeChild`
+            // chain, one that unwraps for the required branch. Kept as literal text per
+            // kind so adding the integer reading leaves the existing bytes/string output
+            // byte-for-byte unchanged.
+            //
+            // The child's OWN accessor decides when it has one, because `ContentType`
+            // cannot tell decimal text from big-endian bytes: `contentInt` and
+            // `contentUint` are both `Integer` and decode oppositely.
+            let leaf_method = children_of(f)
+                .iter()
+                .map(|c| c.method.as_str())
+                .find(|m| wap::is_content_method(m));
+            let (opt_read, req_read) = match leaf_method {
+                Some("contentUint") => (
+                    "content_bytes().map(|b| b.iter().fold(0u64, |acc, &x| (acc << 8) | x as u64))",
+                    "content_bytes()\n        .map(|b| b.iter().fold(0u64, |acc, &x| (acc << 8) | x as u64))\n        .unwrap_or_default()",
+                ),
+                _ => match ct {
+                    wa_ir::ContentType::Bytes => (
+                        "content_bytes().map(|b| b.to_vec())",
+                        "content_bytes().map(|b| b.to_vec()).unwrap_or_default()",
+                    ),
+                    wa_ir::ContentType::Integer => (
+                        "content_str().and_then(|s| s.parse().ok())",
+                        "content_str().and_then(|s| s.parse().ok()).unwrap_or_default()",
+                    ),
+                    _ => (
+                        "content_str().map(|s| s.to_string())",
+                        "content_str().unwrap_or_default().to_string()",
+                    ),
+                },
+            };
             if f.method == "maybeChild" {
                 lines.push(format!(
                     "{indent}let {id} = {base}.get_optional_child({lit})"
                 ));
-                lines.push(if bytes {
-                    format!("{indent}    .and_then(|n| n.content_bytes().map(|b| b.to_vec()));")
-                } else {
-                    format!("{indent}    .and_then(|n| n.content_str().map(|s| s.to_string()));")
-                });
+                lines.push(format!("{indent}    .and_then(|n| n.{opt_read});"));
             } else {
                 lines.push(format!(
                     "{indent}let {id}_node = {base}.get_optional_child({lit})"
@@ -287,11 +337,7 @@ fn emit_struct_reads(
                     "{indent}    .ok_or_else(|| anyhow::anyhow!(\"missing <{}>\"))?;",
                     rust_lit_inner(tag)
                 ));
-                lines.push(if bytes {
-                    format!("{indent}let {id} = {id}_node.content_bytes().map(|b| b.to_vec()).unwrap_or_default();")
-                } else {
-                    format!("{indent}let {id} = {id}_node.content_str().unwrap_or_default().to_string();")
-                });
+                lines.push(format!("{indent}let {id} = {id}_node.{req_read};"));
             }
             inits.push(format!("{indent}    {id},"));
             continue;

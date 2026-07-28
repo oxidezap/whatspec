@@ -23,7 +23,8 @@ mod send_parser_index;
 mod srvreq;
 mod stanza;
 
-pub use incoming::scan_incoming_from_modules;
+pub use enum_link::ResponseEnumLinker;
+pub use incoming::{scan_incoming_from_modules, scan_incoming_with_diagnostics};
 pub use mixin_index::MixinIndex;
 pub use module::{CrossModuleStat, DropReason, scan_module_outcome, scan_module_source};
 pub use response::parse_module_wap_parsers;
@@ -65,6 +66,21 @@ fn single_namespace_content_tags(stanzas: &[IqStanzaDef]) -> HashSet<String> {
         .filter(|(_, namespaces)| namespaces.len() == 1)
         .map(|(tag, _)| tag)
         .collect()
+}
+
+/// Extraction-quality counters the IQ scan hands back alongside the IR.
+///
+/// Split from [`IqIr`] on purpose: these are *about* the extraction, not part of the
+/// contract, and they exist so a silent regression (a WA refactor that hides a
+/// construct we key on) shows up as a number rather than as a quietly emptier field.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct IqScanStats {
+    /// Phase-2 fragment-merge recovery — see [`CrossModuleStats`].
+    pub cross_module: CrossModuleStats,
+    /// Constraints seen in a response parser but not structurally resolvable, by reason
+    /// (an un-pinnable literal value, a computed reference path, an unresolvable enum
+    /// argument). Folded into `manifest.diagnostics.iq.dropsByReason`.
+    pub constraint_drops: std::collections::BTreeMap<String, usize>,
 }
 
 /// Cross-module (`mergeStanzas`, Phase 2) recovery counters for the IQ domain,
@@ -120,12 +136,12 @@ pub fn scan_iq_stanzas_from_modules(
     scan_iq_with_diagnostics(source, module_defs).0
 }
 
-/// Like [`scan_iq_stanzas_from_modules`], but also returns the cross-module
-/// (Phase 2) recovery counters for `manifest.diagnostics.iq.crossModule`.
+/// Like [`scan_iq_stanzas_from_modules`], but also returns the extraction-quality
+/// counters for `manifest.diagnostics.iq`.
 pub fn scan_iq_with_diagnostics(
     source: &str,
     module_defs: &[ModuleDefinition],
-) -> (IqScanResult, CrossModuleStats) {
+) -> (IqScanResult, IqScanStats) {
     // Build the cross-module helper index first. It resolves wap-returning helpers
     // (`xmppSignedPreKey`, `xmppPreKey`, …) so a child built via `o("Module").fn(...)`
     // / `.map(o("Module").fn)` recovers its subtree instead of leaving a bare node
@@ -164,7 +180,8 @@ pub fn scan_iq_with_diagnostics(
 
     let mut stanzas = Vec::new();
     let mut unparseable = Vec::new();
-    let mut cross = CrossModuleStats::default();
+    let mut stats = IqScanStats::default();
+    let cross = &mut stats.cross_module;
     // The same module is often defined in several bundle shards (FB_PKG_DELIM);
     // scan each module name once so identical stanzas aren't emitted per shard
     // (and we don't redo the work).
@@ -249,9 +266,21 @@ pub fn scan_iq_with_diagnostics(
     // filled in cross-module after the scan. (IQ attrs are namespace/type only, so
     // links here come from the request children.)
     let mut enum_resolver = enum_link::EnumResolver::new(module_defs, source);
+    let mut enum_linker = ResponseEnumLinker::new(module_defs, source);
     for s in &mut stanzas {
         enum_resolver.resolve_tree(&mut s.request.children);
+        // The response side needs the same pass, and gets it from the shared linker so
+        // the fields/variants traversal is not re-derived here. The parser, not the enum,
+        // is the unit of loss: two parsers that both fail to resolve `ENUM_OFF_ON` on
+        // `state` are two unrecovered constraints.
+        let site = format!("{}::{}", s.module_name, s.response.parser_name);
+        enum_linker.resolve(&site, &mut s.response);
     }
+    // Every reason the linker collected, not just the enum one: it also drains the
+    // legacy scanner's other unresolved constraints (a byte pin, a length band) off the
+    // shapes, and reading only `into_drops()` here discarded them — IQ reported no loss
+    // for exactly the constraints the previous round taught it to see.
+    let legacy_drops = enum_linker.into_drop_counts();
 
     // Normalize ordering by an intrinsic key so the output (index.json + the
     // grouped codegen) is independent of bundle/source order, matching every
@@ -274,7 +303,20 @@ pub fn scan_iq_with_diagnostics(
             stanzas,
             unparseable,
         },
-        cross,
+        IqScanStats {
+            // Snapshotted only now: the request-anchored fallback builds its own resolver
+            // during the scan loop above and reports into the same shared collector, so
+            // reading it right after `build_pass` would miss every drop from precisely the
+            // unusual response shapes that fallback exists to handle.
+            constraint_drops: {
+                let mut d = response_index.drop_counts();
+                for (reason, n) in legacy_drops {
+                    *d.entry(reason).or_default() += n;
+                }
+                d
+            },
+            ..stats
+        },
     )
 }
 
@@ -298,22 +340,21 @@ pub fn extract_iq_from_modules(
     extract_iq_from_modules_with_diagnostics(source, module_defs, wa_version).0
 }
 
-/// Like [`extract_iq_from_modules`], but also returns the cross-module (Phase 2)
-/// recovery counters so the pipeline can record them under
-/// `manifest.diagnostics.iq.crossModule`.
+/// Like [`extract_iq_from_modules`], but also returns the extraction-quality counters
+/// so the pipeline can record them under `manifest.diagnostics.iq`.
 pub fn extract_iq_from_modules_with_diagnostics(
     source: &str,
     module_defs: &[ModuleDefinition],
     wa_version: &str,
-) -> (IqIr, CrossModuleStats) {
-    let (scan, cross) = scan_iq_with_diagnostics(source, module_defs);
+) -> (IqIr, IqScanStats) {
+    let (scan, stats) = scan_iq_with_diagnostics(source, module_defs);
     (
         IqIr {
             wa_version: wa_version.to_string(),
             stanzas: scan.stanzas,
             unparseable: scan.unparseable,
         },
-        cross,
+        stats,
     )
 }
 
@@ -410,9 +451,9 @@ mod tests {
 
         // Diagnostics: exactly the Request folds in a mixin and is enriched by it;
         // only `spam_flow` is new (`jid` was already local), so one field recovered.
-        assert_eq!(cross.requests_with_mixins, 1);
-        assert_eq!(cross.requests_enriched, 1);
-        assert_eq!(cross.fields_recovered, 1);
+        assert_eq!(cross.cross_module.requests_with_mixins, 1);
+        assert_eq!(cross.cross_module.requests_enriched, 1);
+        assert_eq!(cross.cross_module.fields_recovered, 1);
     }
 
     #[test]

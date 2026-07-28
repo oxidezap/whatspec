@@ -89,7 +89,13 @@ pub(crate) fn rust_field_type(field: &ParsedField) -> &'static str {
         // String / Enum / (Bool/Union handled elsewhere) materialize as String.
         _ => "String",
     };
-    if wap::is_optional_method(&field.method) {
+    // Optionality has TWO sources. The accessor spelling is one; the IR's own `required`
+    // is the other, and it is the only one that sees a smax tail conditional making a
+    // field optional without changing its accessor. 108 JID fields in the committed
+    // artifact are `attrUserJid` with `required: false`, and deriving from the name alone
+    // declared them `Jid` and emitted `ok_or_else("missing …")` — rejecting responses the
+    // IR explicitly says may omit them.
+    if wap::is_optional_method(&field.method) || !field.required {
         match base {
             "u64" => "Option<u64>",
             "Vec<u8>" => "Option<Vec<u8>>",
@@ -123,14 +129,17 @@ pub(crate) fn is_child_field(f: &ParsedField) -> bool {
 }
 
 /// A field the codegen materializes as a top-level attr-style field: an attribute
-/// accessor (via [`wap::is_attr_method`]), a `contentBytes` leaf, or a `hasAttr`
-/// presence marker (the latter filtered out by callers before emission).
+/// accessor (via [`wap::is_attr_method`]), **any** content leaf (via
+/// [`wap::is_content_method`]), or a `hasAttr` presence marker (the latter filtered out
+/// by callers before emission).
+///
+/// The content half is derived, not enumerated. Naming three spellings here was the
+/// fourth site of that mistake in this change, and the most misleading: the scanners
+/// recovered live `contentUint` fields, the IR carried them, and the reference codegen
+/// dropped them on the floor — so the generated Rust came out byte-identical and the
+/// unchanged output read as "nothing broke" rather than "the new data is being ignored".
 pub(crate) fn is_attr_field(f: &ParsedField) -> bool {
-    wap::is_attr_method(&f.method)
-        || f.method == wap::CONTENT_BYTES
-        || f.method == wap::CONTENT_STRING
-        || f.method == wap::CONTENT_INT
-        || f.method == wap::HAS_ATTR
+    wap::is_attr_method(&f.method) || wap::is_content_method(&f.method) || f.method == wap::HAS_ATTR
 }
 
 /// If `f` is a `child`/`maybeChild` whose body is just a content accessor
@@ -145,15 +154,31 @@ pub(crate) fn child_content_type(f: &ParsedField) -> Option<ContentType> {
     if kids.is_empty() || !kids.iter().all(is_content_method) {
         return None;
     }
-    Some(if kids.iter().any(|c| c.method == wap::CONTENT_BYTES) {
-        ContentType::Bytes
-    } else {
-        ContentType::String
-    })
+    // Bytes wins a mixed group (the widest reading); otherwise the kids' own decoded
+    // type decides. Collapsing everything that was not bytes onto `String` is what made
+    // `<registration>`, `<type>` and `<id>` — three `contentUint` siblings — share a
+    // single generated `content` field, two of the three silently dropped.
+    //
+    // Both branches ask the classifier. Using it for integers and an exact `contentBytes`
+    // name test for bytes — in the same expression — would have typed a
+    // `contentBytesRange` child as `String` and read it with `content_str()`.
+    let decodes_to = |c: &ParsedField| wap::method_field_type(&c.method);
+    Some(
+        if kids.iter().any(|c| decodes_to(c) == ParsedFieldType::Bytes) {
+            ContentType::Bytes
+        } else if kids
+            .iter()
+            .all(|c| decodes_to(c) == ParsedFieldType::Integer)
+        {
+            ContentType::Integer
+        } else {
+            ContentType::String
+        },
+    )
 }
 
 fn is_content_method(f: &ParsedField) -> bool {
-    f.method == wap::CONTENT_STRING || f.method == wap::CONTENT_BYTES
+    wap::is_content_method(&f.method)
 }
 
 fn children_of(f: &ParsedField) -> &[ParsedField] {
@@ -253,10 +278,10 @@ pub(crate) fn collect_response_fields(
             // `child("x").contentString()` → a single `x: String` field (named by
             // the child tag), not a stray `content` attr that collapses siblings.
             if let Some(ct) = f.content_type.or_else(|| child_content_type(f)) {
-                let base = if ct == ContentType::Bytes {
-                    "Vec<u8>"
-                } else {
-                    "String"
+                let base = match ct {
+                    ContentType::Bytes => "Vec<u8>",
+                    ContentType::Integer => "u64",
+                    _ => "String",
                 };
                 let wrapped = if f.method == "maybeChild" {
                     format!("Option<{base}>")

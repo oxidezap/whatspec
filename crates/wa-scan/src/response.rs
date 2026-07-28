@@ -61,6 +61,7 @@ pub(crate) fn parsed_response_from_new_expr(
         parser_name: name,
         assertions: result.assertions,
         fields: result.fields,
+        pending_drops: result.unresolved,
         ..Default::default()
     })
 }
@@ -158,14 +159,23 @@ impl<'a> Visit<'a> for ParserCollector<'_> {
 pub(crate) struct ParserResult {
     pub assertions: Vec<ResponseAssertion>,
     pub fields: Vec<ParsedField>,
+    /// See [`ParsedResponse::pending_drops`].
+    pub unresolved: Vec<String>,
 }
 
-/// Accessors that read a value off a node, as the parser treats them: the shared
-/// attribute accessors ([`wap::is_attr_method`]) plus the `contentBytes` /
-/// `contentString` leaves. Broader than codegen's notion of an attr field — both
+/// Accessors that read a value off a node, as the parser treats them: every shared
+/// attribute accessor ([`wap::is_attr_method`]) plus every content leaf
+/// ([`wap::is_content_method`]). Broader than codegen's notion of an attr field — both
 /// draw method names from the shared [`wap`] vocabulary so they can't drift.
-fn is_attr_method(m: &str) -> bool {
-    wap::is_attr_method(m) || m == wap::CONTENT_BYTES || m == wap::CONTENT_STRING
+///
+/// Both halves are *derived*. Naming `contentBytes`/`contentString` here and nothing
+/// else was the enumerate-vs-derive bug a third time: `method_field_type` learned to
+/// decode `contentUint`, `contentEnum`, `contentBytesRange` and `contentLiteralBytes`,
+/// but this list did not, so on the legacy path those reads produced no typed field at
+/// all — only a coarse `contentType` on the parent, losing the integer, enum, range and
+/// literal constraints.
+fn is_value_method(m: &str) -> bool {
+    wap::is_attr_method(m) || wap::is_content_method(m)
 }
 
 fn is_assert_method(m: &str) -> bool {
@@ -202,19 +212,149 @@ fn mk_field(method: &str, name: &str, ftype: ParsedFieldType, required: bool) ->
 /// the field name (else `"content"`), and capturing the `contentBytes(N)` byte length
 /// when the first argument is a numeric literal — the length WA Web's parser pins the
 /// wire field to (`child("signature").contentBytes(64)` → 64).
-fn field_from_call(method: &str, call: &CallExpression) -> ParsedField {
+/// The `o("Mod").ENUM_NAME` table an enum-valued accessor validates against, as a
+/// **pending** [`wa_ir::AttrEnumRef`] — name and module filled, variants empty.
+///
+/// The legacy scanner sees one module at a time and cannot read another's exports, so it
+/// records the reference and [`crate::enum_link`] fills it in a post-pass, the same
+/// convention the request-attribute enums already use. Without this the field shipped as
+/// `"type": "enum"` with nothing saying which values are legal — 98 of them.
+fn pending_enum_ref(method: &str, call: &CallExpression, module_scope: &ModuleScope) -> EnumSource {
+    if wap::method_field_type(method) != ParsedFieldType::Enum {
+        return EnumSource::NotAnEnum;
+    }
+    // A content accessor takes its table as the FIRST argument (`contentEnum(TABLE)`);
+    // an attribute one names the attribute first (`attrStringEnum("state", TABLE)`).
+    // Reading past the name unconditionally found nothing on the content spellings.
+    let skip = usize::from(!wap::is_content_method(method));
+    let Some(arg) = call.arguments.iter().skip(skip).filter_map(arg_expr).next() else {
+        return EnumSource::Unresolved;
+    };
+    // `attrEnumValues("type", o("Mod").CiphertextType.members())` — the allowed set is
+    // the enum's `.members()`, so the table is the *callee's object*, not the call.
+    let stripped = strip_members_call(arg);
+    let via_members = !std::ptr::eq(stripped, arg);
+    let arg = stripped;
+    // FORM A: a cross-module export. Recorded as pending; `enum_link` finishes it.
+    if let Some((obj, name)) = wa_oxc::as_member(arg)
+        && let Some(module) = wa_oxc::as_call(obj)
+            .and_then(|c| c.arguments.first())
+            .and_then(arg_expr)
+            .and_then(as_string_lit)
+    {
+        return EnumSource::Pending(wa_ir::AttrEnumRef {
+            name: name.to_string(),
+            module: module.to_string(),
+            variants: Vec::new(),
+        });
+    }
+    // FORM B: a module-local table (`attrEnumValues("mediatype", u.members())`, where
+    // `u = n("$InternalEnum")({Image: "image", …})`). The allowed set is already in this
+    // module, so it becomes `enumKeys` directly — no cross-module post-pass, and no
+    // `enumRef` named after a minified local.
+    if let Some(name) = as_identifier(arg) {
+        let table = if via_members {
+            module_scope.members.get(name)
+        } else {
+            module_scope.maps.get(name)
+        };
+        if let Some(values) = table.filter(|v| !v.is_empty()) {
+            return EnumSource::Keys(values.clone());
+        }
+    }
+    EnumSource::Unresolved
+}
+
+/// Where an enum accessor's allowed-value set came from.
+///
+/// `Unresolved` exists so an enum whose table is not structurally recoverable is
+/// *counted* rather than published as an unconstrained `"type": "enum"` — the same
+/// "missing beats wrong, but never silent" rule the rest of the scan follows.
+enum EnumSource {
+    NotAnEnum,
+    Pending(wa_ir::AttrEnumRef),
+    Keys(Vec<String>),
+    Unresolved,
+}
+
+/// Unwrap a trailing `.members()` / `.getMembers()` accessor, which WA uses to spell
+/// "the allowed values of this enum"; anything else is returned unchanged.
+fn strip_members_call<'b, 'a>(e: &'b Expression<'a>) -> &'b Expression<'a> {
+    wa_oxc::as_call(e)
+        .filter(|c| c.arguments.is_empty())
+        .and_then(|c| match callee_method(c) {
+            Some("members" | "getMembers") => callee_object(c),
+            _ => None,
+        })
+        .unwrap_or(e)
+}
+
+fn field_from_call(
+    method: &str,
+    call: &CallExpression,
+    module_scope: &ModuleScope,
+    unresolved: &mut Vec<String>,
+) -> ParsedField {
     let arg0 = call.arguments.first().and_then(arg_expr);
-    let field_name = arg0.and_then(as_string_lit).unwrap_or("content");
+    // A content accessor reads the element's content and names no attribute, so its
+    // first argument is never the field name — `contentEnum(TABLE)` would otherwise be
+    // named after nothing at all.
+    let field_name = if wap::is_content_method(method) {
+        "content"
+    } else {
+        arg0.and_then(as_string_lit).unwrap_or("content")
+    };
     let mut f = mk_field(
         method,
         field_name,
         method_to_field_type(method),
         is_method_required(method),
     );
-    if method == wap::CONTENT_BYTES
-        && let Some(Expression::NumericLiteral(n)) = arg0
-    {
-        f.byte_length = Some(n.value as u32);
+    // Each byte accessor pins something different, and routing them all here without
+    // reading their arguments published unconstrained `bytes` — an emitter would think
+    // any payload passes where the parser accepts one sequence or one length band.
+    match method {
+        // `contentBytes(64)` and `contentUint(3)` both take a BYTE COUNT. `contentUint`
+        // is not a decimal string: WA packs a prekey id into 3 bytes and a registration
+        // id into 4, big-endian, so the length is part of the wire contract and dropping
+        // it left the field looking like unbounded text.
+        wap::CONTENT_BYTES | "contentUint" => {
+            if let Some(Expression::NumericLiteral(n)) = arg0 {
+                f.byte_length = Some(n.value as u32);
+            }
+        }
+        // `contentLiteralBytes(new Uint8Array([5]))` — the node is the receiver on this
+        // path, so the sequence is argument 0 (smax passes the node first).
+        "contentLiteralBytes" => match arg0.and_then(crate::response_smax::static_byte_literal) {
+            Some(bytes) => {
+                f.byte_length = Some(bytes.len() as u32);
+                f.literal_value = Some(bytes.iter().map(|b| format!("{b:02x}")).collect());
+            }
+            None => unresolved.push(format!("contentLiteralBytes@{field_name}")),
+        },
+        // `contentBytesRange(min, max)` — a payload-size band. `min == max` is a fixed
+        // length, which `byte_length` already expresses.
+        "contentBytesRange" => {
+            let bound = |i: usize| match call.arguments.get(i).and_then(arg_expr) {
+                Some(Expression::NumericLiteral(n)) => Some(n.value as u32),
+                _ => None,
+            };
+            match (bound(0), bound(1)) {
+                (Some(min), Some(max)) if min == max => f.byte_length = Some(min),
+                (Some(min), Some(max)) => {
+                    f.byte_min = Some(min);
+                    f.byte_max = Some(max);
+                }
+                _ => unresolved.push(format!("contentBytesRange@{field_name}")),
+            }
+        }
+        _ => {}
+    }
+    match pending_enum_ref(method, call, module_scope) {
+        EnumSource::Pending(er) => f.pending_enum_ref = Some(wa_ir::PendingEnum::Link(er)),
+        EnumSource::Keys(keys) => f.enum_keys = Some(keys),
+        EnumSource::Unresolved => f.pending_enum_ref = Some(wa_ir::PendingEnum::Unresolvable),
+        EnumSource::NotAnEnum => {}
     }
     f
 }
@@ -285,6 +425,8 @@ fn analyze_with_scope(code: &str, param: &str, module: &ModuleScope) -> ParserRe
         fields: Vec::new(),
         child_vars: HashMap::new(),
         pending_enum_keys: HashMap::new(),
+        unresolved_enum_attrs: Default::default(),
+        unresolved: Vec::new(),
         helper_depth: 0,
     };
     a.visit_program(&ret.program);
@@ -292,6 +434,7 @@ fn analyze_with_scope(code: &str, param: &str, module: &ModuleScope) -> ParserRe
     ParserResult {
         assertions: a.assertions,
         fields: a.fields,
+        unresolved: a.unresolved,
     }
 }
 
@@ -311,6 +454,14 @@ struct ParserAnalyzer<'src, 'ms> {
     /// (the map is module-scope, so it's resolved and stashed here, then attached to the
     /// matching field in a post-pass — order-independent of the plain read of the attr).
     pending_enum_keys: HashMap<String, Vec<String>>,
+    /// Wire attributes read by `attrEnumOrNullIfUnknown` whose allowed-value table could
+    /// not be named. Resolved in [`ParserAnalyzer::attach_pending_enum_keys`] alongside
+    /// the ones that did resolve.
+    unresolved_enum_attrs: std::collections::BTreeSet<String>,
+    /// Constraints seen on this parser but not statically resolvable, as
+    /// `dropsByReason` keys. Parked on the produced [`ParsedResponse`] for whoever
+    /// finishes it, since the legacy scanner has no diagnostics channel of its own.
+    unresolved: Vec<String>,
     /// Recursion guard for module-scope helper descent (`m(n,i)` → analyze `m`'s body).
     helper_depth: u32,
 }
@@ -372,6 +523,7 @@ impl ParserAnalyzer<'_, '_> {
                             kind: AssertionKind::Tag,
                             name: Some(v.to_string()),
                             value: None,
+                            reference_path: None,
                         });
                     }
                 }
@@ -381,6 +533,7 @@ impl ParserAnalyzer<'_, '_> {
                             kind: AssertionKind::Attr,
                             name: Some(name.to_string()),
                             value: arg_str(call, 1).map(str::to_string),
+                            reference_path: None,
                         });
                     }
                 }
@@ -388,6 +541,7 @@ impl ParserAnalyzer<'_, '_> {
                     kind: AssertionKind::FromServer,
                     name: None,
                     value: None,
+                    reference_path: None,
                 }),
                 _ => {}
             }
@@ -402,28 +556,43 @@ impl ParserAnalyzer<'_, '_> {
             && obj_is_param
             && let Some(wire) = arg_str(call, 0)
         {
-            if let Some(keys) = call
+            match call
                 .arguments
                 .get(1)
                 .and_then(arg_expr)
                 .and_then(as_identifier)
                 .and_then(|m| self.module.maps.get(m).cloned())
             {
-                self.pending_enum_keys
-                    .entry(wire.to_string())
-                    .or_insert(keys);
+                Some(keys) => {
+                    self.pending_enum_keys
+                        .entry(wire.to_string())
+                        .or_insert(keys);
+                }
+                // The table is not a module-scope identifier — `o("Mod").TABLE`, or a
+                // computed set. The parser still enforces an enum here, so returning
+                // silently produced neither a link nor a drop and the new diagnostics
+                // reported nothing lost. Recorded so it is counted, and so a field gets
+                // synthesized when no companion read created one.
+                None => {
+                    self.unresolved_enum_attrs.insert(wire.to_string());
+                }
             }
             return;
         }
 
         // ── Attr/content accessor on the param directly ──
-        if is_attr_method(method) && obj_is_param {
-            self.fields.push(field_from_call(method, call));
+        if is_value_method(method) && obj_is_param {
+            self.fields.push(field_from_call(
+                method,
+                call,
+                self.module,
+                &mut self.unresolved,
+            ));
             return;
         }
 
         // ── Attr method chained on a child() result: e.child("error").attrInt("code") ──
-        if is_attr_method(method)
+        if is_value_method(method)
             && let Some((parent_tag, inner_method)) = self.child_call_parent(obj)
         {
             let idx = find_or_create_field(
@@ -432,7 +601,11 @@ impl ParserAnalyzer<'_, '_> {
                 inner_method,
                 inner_method == "child",
             );
-            push_child_field(&mut self.fields, idx, field_from_call(method, call));
+            push_child_field(
+                &mut self.fields,
+                idx,
+                field_from_call(method, call, self.module, &mut self.unresolved),
+            );
             return;
         }
 
@@ -483,13 +656,17 @@ impl ParserAnalyzer<'_, '_> {
         }
 
         // ── Attr methods on a tracked child var: t.attrString("name") ──
-        if is_attr_method(method)
+        if is_value_method(method)
             && let Some(parent_tag) = as_identifier(obj)
                 .and_then(|n| self.child_vars.get(n))
                 .cloned()
         {
             let idx = find_or_create_field(&mut self.fields, &parent_tag, "child", true);
-            push_child_field(&mut self.fields, idx, field_from_call(method, call));
+            push_child_field(
+                &mut self.fields,
+                idx,
+                field_from_call(method, call, self.module, &mut self.unresolved),
+            );
         }
 
         // ── content methods on a tracked child var ──
@@ -590,6 +767,20 @@ impl ParserAnalyzer<'_, '_> {
             {
                 if f.enum_keys.is_none() {
                     f.enum_keys = Some(keys);
+                    // Retype the companion read. The plain `maybeAttrString("type")` beside
+                    // `attrEnumOrNullIfUnknown("type", map)` is the SAME wire attribute
+                    // validated against that key set, so leaving it `type: "string"` while
+                    // hanging nine `enumKeys` off it hid the constraint from every consumer
+                    // that selects enum fields by `type == "enum"` — the incoming receipt's
+                    // `type` shipped exactly that way.
+                    let optional = wap::is_optional_method(&f.method);
+                    f.method = if optional {
+                        wap::MAYBE_ATTR_ENUM.to_string()
+                    } else {
+                        wap::ATTR_ENUM.to_string()
+                    };
+                    f.field_type = ParsedFieldType::Enum;
+                    f.required = !optional;
                 }
             } else {
                 // No companion plain read created a field for this attr (doesn't occur in
@@ -598,9 +789,37 @@ impl ParserAnalyzer<'_, '_> {
                 // optional attr validated against an enum key set, which is exactly
                 // `maybeAttrEnum`. A raw "attrEnumOrNullIfUnknown" method would not be in
                 // `wap::is_attr_method`, leaving the field unclassified downstream.
-                let mut f = mk_field(wap::MAYBE_ATTR_ENUM, &wire, ParsedFieldType::String, false);
+                let mut f = mk_field(wap::MAYBE_ATTR_ENUM, &wire, ParsedFieldType::Enum, false);
                 f.enum_keys = Some(keys);
                 self.fields.push(f);
+            }
+        }
+        // The same two halves for a table that could NOT be named: mark the companion read
+        // as an enum with an unrecoverable value set, or synthesize the field, so the
+        // constraint is counted either way instead of vanishing.
+        for wire in std::mem::take(&mut self.unresolved_enum_attrs) {
+            match self
+                .fields
+                .iter_mut()
+                .find(|f| f.name == wire && f.tag.is_none())
+            {
+                Some(f) if f.enum_keys.is_none() && f.pending_enum_ref.is_none() => {
+                    let optional = wap::is_optional_method(&f.method);
+                    f.method = if optional {
+                        wap::MAYBE_ATTR_ENUM.to_string()
+                    } else {
+                        wap::ATTR_ENUM.to_string()
+                    };
+                    f.field_type = ParsedFieldType::Enum;
+                    f.required = !optional;
+                    f.pending_enum_ref = Some(wa_ir::PendingEnum::Unresolvable);
+                }
+                Some(_) => {}
+                None => {
+                    let mut f = mk_field(wap::MAYBE_ATTR_ENUM, &wire, ParsedFieldType::Enum, false);
+                    f.pending_enum_ref = Some(wa_ir::PendingEnum::Unresolvable);
+                    self.fields.push(f);
+                }
             }
         }
     }
@@ -619,6 +838,9 @@ struct ModuleScope {
     /// object-map name → its keys in source order — the allowed value set an enum accessor
     /// (`attrEnumOrNullIfUnknown("attr", map)`) validates a wire attr against.
     maps: HashMap<String, Vec<String>>,
+    /// The same maps by their string *values* — what `.members()` yields for a
+    /// module-local enum (`attrEnumValues("mediatype", u.members())`).
+    members: HashMap<String, Vec<String>>,
 }
 
 impl ModuleScope {
@@ -635,12 +857,14 @@ impl ModuleScope {
             module_source,
             functions: HashMap::new(),
             maps: HashMap::new(),
+            members: HashMap::new(),
             fn_depth: 0,
         };
         b.visit_program(&ret.program);
         Self {
             functions: b.functions,
             maps: b.maps,
+            members: b.members,
         }
     }
 }
@@ -649,6 +873,7 @@ struct ModuleScopeBuilder<'a> {
     module_source: &'a str,
     functions: HashMap<String, (Vec<String>, String)>,
     maps: HashMap<String, Vec<String>>,
+    members: HashMap<String, Vec<String>>,
     /// Number of function bodies we are currently inside. The bundle wraps every module
     /// in one factory (`__d("M",…,function(…){ <module body> })`), so a module-scope
     /// sibling helper — the only kind `try_helper_descent` may resolve a bare-identifier
@@ -709,14 +934,52 @@ impl<'a> Visit<'a> for ModuleScopeBuilder<'_> {
                         self.record_fn(name.as_str(), &f.params, body.span);
                     }
                 }
-                // `var name = { key: val, … }` — an enum value map.
+                // `var name = { key: val, … }` — an enum value map — or the same object
+                // wrapped in a one-argument factory, which is how WA declares a
+                // module-local enum: `var u = n("$InternalEnum")({Image: "image", …})`.
+                // Only a factory-body-level (depth 1) binding is module-scope, the same
+                // gate the helper branch above uses. Recording at ANY depth let two
+                // parsers reusing one minified name share a table: the second `u.members()`
+                // resolved to the first parser's values and published a closed `enumKeys`
+                // set that is simply wrong — an invented constraint, worse than a lost one.
                 _ => {
-                    if let Some(obj) = wa_oxc::as_object(init) {
-                        self.maps
-                            .entry(name.as_str().to_string())
-                            .or_insert_with(|| {
-                                wa_oxc::obj_props(obj).map(|(k, _)| k.to_string()).collect()
-                            });
+                    if self.fn_depth != 1 {
+                        walk::walk_variable_declarator(self, d);
+                        return;
+                    }
+                    let obj = wa_oxc::as_object(init).or_else(|| {
+                        wa_oxc::as_call(init)
+                            .filter(|c| c.arguments.len() == 1)
+                            .and_then(|c| arg_expr(&c.arguments[0]))
+                            .and_then(wa_oxc::as_object)
+                    });
+                    // `obj_props` silently skips a spread, a method and a computed key,
+                    // so an object containing one yields a SHORTER list that still
+                    // collects successfully — publishing a closed set that claims the
+                    // parser rejects whatever the skipped property contributed. A table
+                    // we cannot read whole is not a table.
+                    let obj = obj.filter(|o| o.properties.len() == wa_oxc::obj_props(o).count());
+                    if let Some(obj) = obj {
+                        let n = name.as_str().to_string();
+                        // Keys and values are both allowed-value sets, for *different*
+                        // accessors: `attrEnumOrNullIfUnknown("t", map)` validates against
+                        // the keys, while `attrEnumValues("t", enum.members())` validates
+                        // against the members — the wire values. Recording only the keys
+                        // left every `.members()` table unresolvable.
+                        self.maps.entry(n.clone()).or_insert_with(|| {
+                            wa_oxc::obj_props(obj).map(|(k, _)| k.to_string()).collect()
+                        });
+                        // All-or-nothing, like the cross-module resolver's `variants_of`:
+                        // `{A: "a", B: computed}` must not publish `["a"]` as the complete
+                        // set — that is an enum the IR says rejects `B` when the runtime
+                        // accepts it. An incomplete table is left absent and the accessor
+                        // is counted as unresolved instead.
+                        let members: Option<Vec<String>> = wa_oxc::obj_props(obj)
+                            .map(|(_, v)| as_string_lit(v).map(str::to_string))
+                            .collect();
+                        if let Some(members) = members.filter(|m| !m.is_empty()) {
+                            self.members.entry(n).or_insert(members);
+                        }
                     }
                 }
             }
@@ -750,6 +1013,8 @@ fn analyze_child_node(
         fields: Vec::new(),
         child_vars: HashMap::from([(node_param.to_string(), tag.to_string())]),
         pending_enum_keys: HashMap::new(),
+        unresolved_enum_attrs: Default::default(),
+        unresolved: Vec::new(),
         helper_depth: depth,
     };
     a.visit_program(&ret.program);
@@ -778,11 +1043,13 @@ fn merge_child_shape(fields: &mut [ParsedField], tag: &str, new_children: Vec<Pa
     }
 }
 
+/// The content kind an accessor decodes to, derived from the canonical classifier so a
+/// newly-recognized spelling is typed rather than defaulted to text.
 fn content_kind(method: &str) -> ContentType {
-    if method == "contentBytes" {
-        ContentType::Bytes
-    } else {
-        ContentType::String
+    match wap::method_field_type(method) {
+        ParsedFieldType::Bytes => ContentType::Bytes,
+        ParsedFieldType::Integer => ContentType::Integer,
+        _ => ContentType::String,
     }
 }
 
@@ -1298,5 +1565,257 @@ mod tests {
             type_fields[0].enum_keys.as_deref(),
             Some(["delivery", "read", "played"].map(String::from).as_slice())
         );
+    }
+
+    #[test]
+    fn an_unnameable_enum_table_is_still_counted() {
+        // `attrEnumOrNullIfUnknown("type", o("Mod").TABLE)` — the table is not a
+        // module-scope identifier, so the fast path missed and returned, producing no
+        // link, no drop and (with no companion read) no field. The parser enforces an
+        // enum there; a silent loss is the one outcome this change exists to prevent.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                var t=e.attrEnumOrNullIfUnknown("type", o("Other").TABLE);
+                return {};
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let f = p
+            .fields
+            .iter()
+            .find(|f| f.name == "type")
+            .expect("the field is synthesized rather than vanishing");
+        assert_eq!(f.field_type, ParsedFieldType::Enum);
+        assert_eq!(f.pending_enum_ref, Some(wa_ir::PendingEnum::Unresolvable));
+        assert!(f.enum_keys.is_none(), "and no invented value set");
+    }
+
+    #[test]
+    fn a_companion_read_is_retyped_when_it_gains_enum_keys() {
+        // `attrEnumOrNullIfUnknown("type", map)` beside a plain `maybeAttrString("type")`
+        // is the SAME attribute validated against that key set. Hanging `enumKeys` off the
+        // companion while leaving it `type: "string"` hid the constraint from every
+        // consumer that selects enum fields by `type == "enum"`.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            var u={delivery:1,read:2};
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                var t=e.hasAttr("type")?e.attrEnumOrNullIfUnknown("type",u):0;
+                e.maybeAttrString("type");
+                return {};
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let f = p
+            .fields
+            .iter()
+            .find(|f| f.name == "type" && f.tag.is_none())
+            .expect("the type field");
+        assert_eq!(
+            f.field_type,
+            ParsedFieldType::Enum,
+            "retyped, not just annotated"
+        );
+        assert_eq!(
+            f.method,
+            wap::MAYBE_ATTR_ENUM,
+            "and under the enum accessor"
+        );
+        assert!(!f.required, "the companion read was optional and stays so");
+        assert_eq!(
+            f.enum_keys.as_deref(),
+            Some(["delivery", "read"].map(String::from).as_slice())
+        );
+    }
+
+    #[test]
+    fn a_typed_content_accessor_becomes_a_typed_field() {
+        // `contentUint` was outside the local attr/content list, so a read of it produced
+        // no field at all — only a coarse `contentType` on the parent. Both halves of the
+        // predicate are derived from `wap` now, so every spelling `method_field_type`
+        // decodes reaches field extraction.
+        let r = analyze_parser_ast(r#"{ e.child("registration").contentUint(); }"#, "e");
+        let parent = r
+            .fields
+            .iter()
+            .find(|f| f.tag.as_deref() == Some("registration"))
+            .expect("the <registration> child is recovered");
+        let leaf = parent
+            .children
+            .as_ref()
+            .and_then(|c| c.first())
+            .expect("its content read is a field");
+        assert_eq!(leaf.method, "contentUint");
+        assert_eq!(leaf.field_type, ParsedFieldType::Integer);
+        assert_eq!(leaf.name, "content", "a content read names no attribute");
+    }
+
+    #[test]
+    fn attr_enum_values_recovers_a_module_local_enums_members() {
+        // `attrEnumValues("mediatype", u.members())` where `u` is a module-local
+        // `$InternalEnum`. The table is neither an `o("Mod").ENUM` member (so the
+        // cross-module post-pass cannot see it) nor a bare map identifier — it is the
+        // enum's VALUES. Reading past the `.members()` call and taking the values is what
+        // turns an apparently unconstrained `"type": "enum"` into the legal set.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            var u=n("$InternalEnum")({Image:"image",Video:"video"});
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("message");
+                e.child("media").attrEnumValues("mediatype", u.members());
+                return {};
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let media = p
+            .fields
+            .iter()
+            .find(|f| f.tag.as_deref() == Some("media"))
+            .expect("the <media> child");
+        let field = media
+            .children
+            .as_ref()
+            .and_then(|c| c.iter().find(|f| f.name == "mediatype"))
+            .expect("the mediatype attr");
+        assert_eq!(
+            field.enum_keys.as_deref(),
+            Some(["image", "video"].map(String::from).as_slice()),
+            "`.members()` yields the enum's VALUES, not its keys"
+        );
+    }
+
+    #[test]
+    fn an_unresolvable_enum_table_is_marked_pending_not_silently_dropped() {
+        // An enum accessor whose table is a computed expression must be distinguishable
+        // from a field that is not an enum at all — the first is a constraint we failed
+        // to extract and belongs in `dropsByReason`.
+        let r = analyze_parser_ast(r#"{ e.attrStringEnum("state", pick()); }"#, "e");
+        let f = r.fields.iter().find(|f| f.name == "state").expect("field");
+        assert_eq!(f.pending_enum_ref, Some(wa_ir::PendingEnum::Unresolvable));
+        assert!(f.enum_keys.is_none() && f.enum_ref.is_none());
+    }
+
+    #[test]
+    fn legacy_byte_accessors_keep_the_constraint_they_pin() {
+        // Routing the typed content accessors into field extraction is only half the job:
+        // `field_from_call` read the argument of plain `contentBytes` and nothing else, so
+        // these two published unconstrained bytes — an emitter would think any payload
+        // passes where the parser accepts one sequence, or one length band.
+        let r = analyze_parser_ast(
+            r#"{ e.child("t").contentLiteralBytes(Uint8Array.of(5, 255));
+                 e.child("blob").contentBytesRange(1, 128); }"#,
+            "e",
+        );
+        let leaf = |tag: &str| {
+            r.fields
+                .iter()
+                .find(|f| f.tag.as_deref() == Some(tag))
+                .and_then(|f| f.children.as_ref())
+                .and_then(|c| c.first())
+                .unwrap_or_else(|| panic!("no leaf under <{tag}>"))
+                .clone()
+        };
+        let pinned = leaf("t");
+        assert_eq!(pinned.literal_value.as_deref(), Some("05ff"));
+        assert_eq!(pinned.byte_length, Some(2));
+        let ranged = leaf("blob");
+        assert_eq!((ranged.byte_min, ranged.byte_max), (Some(1), Some(128)));
+        assert_eq!(
+            ranged.byte_length, None,
+            "a true range is not a fixed length"
+        );
+    }
+
+    #[test]
+    fn a_zero_filled_uint8array_is_a_recoverable_pin() {
+        // `new Uint8Array(4)` is a LENGTH — and therefore exactly four zero bytes, as much
+        // a compile-time constant as a literal array. Refusing it lost a recoverable pin;
+        // reading the `4` as the byte 0x04 would have invented a different one.
+        let r = analyze_parser_ast(
+            r#"{ e.child("nonce").contentLiteralBytes(new Uint8Array(4)); }"#,
+            "e",
+        );
+        let leaf = r.fields[0].children.as_ref().unwrap()[0].clone();
+        assert_eq!(leaf.literal_value.as_deref(), Some("00000000"));
+        assert_eq!(leaf.byte_length, Some(4));
+        assert!(r.unresolved.is_empty(), "and nothing is reported lost");
+    }
+
+    #[test]
+    fn an_unresolvable_byte_pin_is_reported_not_published_as_free_bytes() {
+        let r = analyze_parser_ast(r#"{ e.child("t").contentLiteralBytes(computed()); }"#, "e");
+        assert!(
+            r.unresolved
+                .iter()
+                .any(|d| d.starts_with("contentLiteralBytes@")),
+            "the loss is counted: {:?}",
+            r.unresolved
+        );
+    }
+
+    #[test]
+    fn a_byte_pin_from_a_foreign_factory_is_not_trusted() {
+        // `factory.of(1, 2)` is an ordinary call that may return anything; reading its
+        // arguments as the pinned bytes would invent a `literalValue` rather than record
+        // an unresolved one. Same for `new Whatever([1, 2])`.
+        for src in [
+            r#"{ e.child("t").contentLiteralBytes(factory.of(1, 2)); }"#,
+            r#"{ e.child("t").contentLiteralBytes(new Whatever([1, 2])); }"#,
+        ] {
+            let r = analyze_parser_ast(src, "e");
+            let leaf = r.fields[0].children.as_ref().unwrap()[0].clone();
+            assert_eq!(leaf.literal_value, None, "no invented pin for {src}");
+            assert!(
+                r.unresolved
+                    .iter()
+                    .any(|d| d.starts_with("contentLiteralBytes@")),
+                "and the loss is counted for {src}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_table_with_a_spread_is_not_a_complete_table() {
+        // `obj_props` silently skips a spread, so the surviving literals collected
+        // successfully and were published as a CLOSED set — claiming the parser rejects
+        // whatever the spread contributed. An invented constraint, not a lost one.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            var u=n("$InternalEnum")({A:"a", ...base});
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("message");
+                e.attrEnumValues("k", u.members());
+                return {};
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let f = p.fields.iter().find(|f| f.name == "k").expect("field");
+        assert!(
+            f.enum_keys.is_none(),
+            "an unreadable table is not a value set"
+        );
+        assert_eq!(f.pending_enum_ref, Some(wa_ir::PendingEnum::Unresolvable));
+    }
+
+    #[test]
+    fn a_partially_literal_enum_table_is_refused_whole() {
+        // `{A: "a", B: computed}` must not publish `["a"]` as the complete legal set —
+        // that is an enum the IR says rejects `B` while the runtime accepts it.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            var u=n("$InternalEnum")({A:"a",B:pick()});
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("message");
+                e.attrEnumValues("k", u.members());
+                return {};
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let f = p.fields.iter().find(|f| f.name == "k").expect("field");
+        assert!(f.enum_keys.is_none(), "an incomplete table is not the set");
+        assert_eq!(f.pending_enum_ref, Some(wa_ir::PendingEnum::Unresolvable));
     }
 }

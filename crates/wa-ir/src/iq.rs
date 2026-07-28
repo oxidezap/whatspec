@@ -255,6 +255,17 @@ pub enum AssertionKind {
     /// node, "admin_add")`) — a discriminator for marker union variants. The value is
     /// in [`ResponseAssertion::value`]; `name` is unused.
     Content,
+    /// The attribute named by [`ResponseAssertion::name`] must **echo a value taken
+    /// from the request** — `literal(attrString, node, "from",
+    /// attrStringFromReference(request, ["to"]))`. The expected value is not a
+    /// constant, so [`ResponseAssertion::value`] is absent; where it comes from is in
+    /// [`ResponseAssertion::reference_path`].
+    ///
+    /// This is the rule 17 of the 26 namespace `IQError…Mixin`s (and every success
+    /// parser) enforce: an answer's `id` must equal the request's `id` and its `from`
+    /// the request's `to`. An emitter that hardcodes `from="s.whatsapp.net"` produces
+    /// stanzas a real client cannot parse whenever the request went to `g.us`.
+    Reference,
 }
 
 /// A single guard a response parser applies.
@@ -267,6 +278,17 @@ pub struct ResponseAssertion {
     pub name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub value: Option<String>,
+    /// Where the expected value is read from **in the request**, for
+    /// [`AssertionKind::Reference`]. It is the argument list of WA's
+    /// `attrStringFromReference(request, path)` helper: every element but the last is a
+    /// child tag to descend into, and the last is the attribute name. So `["to"]` means
+    /// "the request's `to` attribute" and `["account", "action"]` means "the `action`
+    /// attribute of the request's `<account>` child".
+    ///
+    /// Carried structurally (rather than left to be inferred from `name`) so a consumer
+    /// never has to pattern-match attribute names to know an echo rule applies.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reference_path: Option<Vec<String>>,
 }
 
 /// Scalar type a parsed response field decodes to.
@@ -357,6 +379,13 @@ impl ParsedFieldType {
 pub enum ContentType {
     String,
     Bytes,
+    /// A decimal integer in the element body (`contentUint`, `contentInt`). Distinct
+    /// from [`String`] because a consumer that reads it as text has to re-parse, and
+    /// because collapsing it onto `String` is how three sibling integer contents ended
+    /// up sharing one generated field.
+    ///
+    /// [`String`]: ContentType::String
+    Integer,
     Nodes,
 }
 
@@ -374,6 +403,24 @@ pub struct UnionVariant {
     /// variant apart from its siblings. Empty when the parser carries no fixed guard.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub assertions: Vec<ResponseAssertion>,
+}
+
+/// Scanner-internal state for an enum accessor's allowed-value table, before the
+/// cross-module post-pass runs. Never serialized — see [`ParsedField::pending_enum_ref`].
+///
+/// The unresolvable case is a *variant*, not an absence, so it can be counted. An enum
+/// whose table the scan could not follow and a field that is simply not an enum must not
+/// look alike: the first is a constraint we failed to extract and belongs in
+/// `dropsByReason`, the second is nothing at all.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PendingEnum {
+    /// `o("Mod").ENUM` — a module export the bundle-wide index can finish resolving.
+    Link(AttrEnumRef),
+    /// A table that is not a structurally recoverable reference (a computed expression,
+    /// a runtime-composed set, an object literal with a non-literal member). A unit
+    /// variant: the reporting pass names the loss from the field's own `wireName`/`name`,
+    /// so there is nothing to carry here.
+    Unresolvable,
 }
 
 /// One field extracted from a response stanza by a parser.
@@ -423,6 +470,77 @@ pub struct ParsedField {
     pub int_max: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub enum_keys: Option<Vec<String>>,
+    /// The wire enum this field's value is drawn from, when the parser reads it with an
+    /// enum accessor (`attrStringEnum(node, "state", o("Mod").ENUM_OFF_ON)`). Resolved
+    /// the same way the request side resolves [`WapAttrDef::enum_ref`], so a consumer
+    /// can type the field as that enum instead of a bare string — and an emitter knows
+    /// which values are legal instead of guessing from the generated `ENUM_OFF_ON` name.
+    /// Absent when the enum argument is not a structurally resolvable module export, or
+    /// resolves to a non-string enum (never guessed).
+    ///
+    /// [`WapAttrDef::enum_ref`]: WapAttrDef::enum_ref
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enum_ref: Option<AttrEnumRef>,
+    /// Scanner-internal: an enum reference seen but not yet resolved.
+    ///
+    /// The legacy scanner reads one module at a time and cannot follow `o("Mod").ENUM`
+    /// to its definition, so it records the *reference* here and a cross-module post-pass
+    /// promotes it into [`enum_ref`] once the whole bundle index exists.
+    ///
+    /// It is a separate field, and never serialized, because the pending state must not
+    /// be expressible in the published IR. It previously lived in [`enum_ref`] with an
+    /// empty `variants`, and the two callers that skipped the post-pass shipped exactly
+    /// that: `incoming/index.json` told consumers `ALL_NONE` and `STANZA_MSG_TYPES` admit
+    /// **no** legal value. Now a caller that forgets can only lose the link, never
+    /// publish a false one.
+    ///
+    /// [`enum_ref`]: ParsedField::enum_ref
+    #[serde(skip)]
+    #[cfg_attr(feature = "schema", schemars(skip))]
+    pub pending_enum_ref: Option<PendingEnum>,
+    /// The fixed value the parser pins this field to — `literal(attrString, participant,
+    /// "type", "admin")` → `"admin"`, `literal(attrInt, error, "code", 429)` → `"429"`.
+    /// Always the string form of the literal; [`field_type`] says how to read it (a
+    /// `code` field with `literalValue: "429"` is the integer 429 on the wire). On a
+    /// [`ParsedFieldType::Bytes`] field it is **lowercase hex** — the encoding
+    /// [`WapContent::const_bytes`] already uses on the request side —
+    /// and [`byte_length`] is its length: `contentLiteralBytes(node, new Uint8Array([5]))`
+    /// → `literalValue: "05"`, `byteLength: 1`.
+    ///
+    /// [`byte_length`]: ParsedField::byte_length
+    ///
+    /// [`required`] tells the two pinning forms apart, and the difference matters to an
+    /// emitter: a **required** literal (`literal`) is a hard discriminator — the
+    /// attribute MUST be present and equal to this value or the variant does not match;
+    /// an **optional** one (`optionalLiteral`) is pinned only when present — the emitter
+    /// may omit the attribute, but must never send a contradicting value.
+    ///
+    /// **On a [`ParsedFieldType::Bool`] field the pin is always conditional.** Such a
+    /// field is a *presence flag* — `{hasListCDhash: m.value != null}` — so its
+    /// `required: true` describes the flag (the parser always produces it), never the
+    /// wire attribute named by [`wire_name`], which by construction may be absent. The
+    /// pin constrains that attribute when present, and never the boolean itself.
+    ///
+    /// [`field_type`]: ParsedField::field_type
+    /// [`required`]: ParsedField::required
+    /// [`wire_name`]: ParsedField::wire_name
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub literal_value: Option<String>,
+    /// The field is pinned not to a constant but to **a value taken from the request** —
+    /// the same echo rule [`AssertionKind::Reference`] carries, in the same
+    /// `attrStringFromReference` path form, but for a pin that is *not* a variant guard.
+    ///
+    /// A required echo (`literal(…, "from", ref.to)`) is recorded as an assertion, since
+    /// it must hold for the variant to match at all. An **optional** one
+    /// (`optionalLiteral(…, "c_dhash", ref.item.dhash)`) is not a guard — the attribute
+    /// may be absent — so it lives here instead: an emitter may omit it, but if it sends
+    /// it, the value must be the request's. Mutually exclusive with [`literal_value`],
+    /// and — like it — always conditional when carried on a [`ParsedFieldType::Bool`]
+    /// presence flag.
+    ///
+    /// [`literal_value`]: ParsedField::literal_value
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reference_path: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tag: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -445,15 +563,85 @@ pub struct ParsedField {
 }
 
 /// How a response-root union variant classifies (drives codegen `Ok`/`Err` arms).
+///
+/// The error side is split by **who is at fault**, because that decides what a caller
+/// should do: a 4xx will fail again if retried unchanged, a 5xx may not. WA models the
+/// two as separate parsers with disjoint code ranges (`bad-request` 400,
+/// `rate-overlimit` 429, fallback 400–499 / `internal-server-error` 500, fallback
+/// 500–599), so the split is the protocol's, not an interpretation.
+///
+/// The side is derived from the **codes** the variant accepts, never from its name: WA
+/// spells the arms inconsistently (`…ResponseServerError`, but also
+/// `…ResponseInternalServerError`, and `SetResponsePreKeySuccessVnameFailure` reads as a
+/// success while asserting `type="error"`). A variant whose codes are mixed or outside
+/// both families stays [`Error`] — an error whose side could not be determined, which is
+/// a fact worth stating rather than a coin flip.
+///
+/// [`Error`]: ResponseVariantKind::Error
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum ResponseVariantKind {
     #[default]
     Success,
+    /// The request was wrong (4xx) — retrying it unchanged will fail again.
+    ClientError,
+    /// The server failed (5xx) — the same request may succeed later.
+    ServerError,
+    /// An error whose side the accepted codes do not determine.
     Error,
     /// A structured non-happy outcome that still parses (Nack, Conflict, …).
     Alternative,
+}
+
+impl ResponseVariantKind {
+    /// Whether this is any error outcome, whichever side is at fault.
+    pub fn is_error(&self) -> bool {
+        matches!(
+            self,
+            ResponseVariantKind::Error
+                | ResponseVariantKind::ClientError
+                | ResponseVariantKind::ServerError
+        )
+    }
+}
+
+/// One accepted `<error>` shape of a response variant: the `code` and `text` that must
+/// occur **together**.
+///
+/// A variant accepting `400 bad-request` and `501 feature-not-implemented` cannot be
+/// described by two independent lists — nothing would then rule out `400
+/// feature-not-implemented`, a combination the parser rejects, so an emitter picking one
+/// value from each list produces an unparseable stanza. The pairing is the point.
+///
+/// Every field is optional because each is a genuine shape: an arm may pin an exact
+/// `(code, text)`, pin only the code and read the text freely
+/// (`IQErrorReportTokenValidationFail` accepts any text with 548), or pin neither and
+/// range-check the code (the `IQErrorFallback*` arms).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct ErrorArm {
+    /// The disjunction alternative this arm comes from (`IQErrorBadRequest`), when the
+    /// error is parsed as a `…Errors` union. `None` for an RPC that parses a single
+    /// `<error>` child directly, which has exactly one arm and no name for it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// The exact `code` this arm pins, when it pins one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<i64>,
+    /// The exact `text` this arm pins. Absent is a fact, not a gap — see the note above.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    /// Inclusive lower bound of the codes this arm accepts, when it range-checks instead
+    /// of pinning.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code_min: Option<i64>,
+    /// Inclusive upper bound of the same range (see [`code_min`]).
+    ///
+    /// [`code_min`]: ErrorArm::code_min
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code_max: Option<i64>,
 }
 
 /// One alternative of a response-root discriminated union (an `WASmaxIn<X>Response<V>`
@@ -467,6 +655,34 @@ pub struct ResponseVariant {
     pub tag: String,
     pub module_name: String,
     pub kind: ResponseVariantKind,
+    /// The accepted `<error>` shapes, in parser order — **which code goes with which
+    /// text**. See [`ErrorArm`]; this is the only representation of the vocabulary,
+    /// deliberately, because the flattened `errorCodes` / `errorTexts` lists it replaced
+    /// let an emitter combine one arm's code with another's text and produce a stanza no
+    /// branch accepts.
+    ///
+    /// An arm describes the *discriminating* `<error>` node. When the variant also pins
+    /// the node above it, those pins are in [`error_envelope`], and the full shape is
+    /// **arm + envelope**.
+    ///
+    /// To answer "does this RPC accept code N / text T?", scan the arms — the question
+    /// the flat lists used to answer is one `.iter().any(…)` away, and asking it that way
+    /// cannot produce an invalid pair.
+    ///
+    /// [`error_envelope`]: ResponseVariant::error_envelope
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub error_arms: Vec<ErrorArm>,
+    /// Pins on the `<error>` node **enclosing** the one the arms discriminate, for a
+    /// two-level error.
+    ///
+    /// `SetResponsePreKeySuccessVnameFailure` is the shape: `<error code="207">` — the
+    /// partial-failure envelope, shared by every arm — wrapping an inner `<error>` whose
+    /// text the disjunction pins and whose code is range-checked. Pins are partitioned by
+    /// the node they are read from, so the envelope holds only the enclosing node's and
+    /// the inner node's shared constraints stay on the arms; mixing them would tell a
+    /// consumer that code 207 must also fall in 400–599.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_envelope: Option<ErrorArm>,
     pub assertions: Vec<ResponseAssertion>,
     pub fields: Vec<ParsedField>,
 }
@@ -486,6 +702,18 @@ pub struct ParsedResponse {
     pub fields: Vec<ParsedField>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub variants: Vec<ResponseVariant>,
+    /// Scanner-internal: constraints this parser carried that could not be resolved
+    /// structurally, as `dropsByReason` keys. Never serialized.
+    ///
+    /// The legacy scanner reads one module at a time and has no diagnostics channel of
+    /// its own, so it parks the losses on the shape it produces and whoever finishes the
+    /// shape drains them ([`crate::wap`]'s consumers do this via the response enum
+    /// linker). It exists for the same reason [`ParsedField::pending_enum_ref`] does: a
+    /// constraint seen and not recovered must never be indistinguishable from no
+    /// constraint at all.
+    #[serde(skip)]
+    #[cfg_attr(feature = "schema", schemars(skip))]
+    pub pending_drops: Vec<String>,
 }
 
 // ─── IQ operation ────────────────────────────────────────────────────────────────

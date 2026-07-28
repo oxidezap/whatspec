@@ -14,11 +14,31 @@ WhatsApp Web ships its whole protocol (IQ stanzas, protobuf schemas, GraphQL ope
 | **appstate** | `appstate/index.json` (+ Rust) | app-state (syncd) action schemas + indexing |
 | **abprops** | `abprops/index.json` (+ Rust) | the A/B-props feature-flag registry (~1.7k flags: code, type, default) |
 | **enums** | `enums/index.json` (+ Rust) | the wire-enum catalog (nack codes, chat/receipt types, …) |
-| **notif** | `notif/index.json` (+ Rust) | the incoming stanza-dispatch catalog: `<notification type="…">` kinds + handlers + typed content shapes |
+| **notif** | `notif/index.json` (+ Rust) | the incoming stanza-dispatch catalog: `<notification type="…">` kinds + handlers + typed content shapes + the payload **action unions** (`w:gp2`'s 40+ group actions) |
 | **tokens** | `tokens/index.json` (+ `tokens.json`) | the binary-protocol token dictionaries (single-byte + 4 double-byte), wire-indexable |
 | **wasm** | `wasm/index.json` | the WebAssembly surface: emscripten payload names (`liboqs_wasm_wrapper.wasm`, …) + the bootloader (`bx`) handles the JS resolves their bytes through, with consuming modules |
 
 Every domain ships a JSON Schema under `generated/schema/`, and a top-level `generated/manifest.json` stamps the WhatsApp version, per-domain counts, content hashes, and extraction diagnostics.
+
+### Validation constraints, not just field shapes
+
+Field shapes tell you how to *read* a stanza. They are not enough to *produce* one, nor to explain why a real client rejected the one you produced. So the IR also carries the rules WA Web's own parsers enforce — symmetric by construction, so they serve a parser and an emitter equally:
+
+- **Echo rules** (`assertions[].kind == "reference"`, and `referencePath` on a field) — an answer's `from` must equal the **request's** `to`, its `id` the request's `id`. `referencePath` is the argument list of WA's `attrStringFromReference`, so `["to"]` means "the request's `to`" and `["account","action"]` means "the `action` attribute of the request's `<account>` child" — no name-matching required. An emitter that hardcodes `from="s.whatsapp.net"` makes every answer to a `g.us` request unparseable.
+- **Pinned values** (`literalValue` on a field) — `type="admin"` on a successful promote, `matched="true"`/`"false"` on a blocklist update, `code=429` on a rate-limit error. `required` separates the two forms: a required pin is a hard discriminator (must be present and exact); an optional one is pinned only when present (may be omitted, must never be contradicted).
+- **The per-RPC error vocabulary** (`errorArms`, plus `errorEnvelope` for a two-level error) — a **closed** set, and it differs per RPC: `BatchGetGroupInfo` accepts `400 bad-request` and `429 rate-overlimit` and **rejects `404 item-not-found`**, even though that mixin exists and other RPCs use it. Each arm pairs the `code` with the `text` that must accompany it, so an emitter cannot combine one arm's code with another's text and produce a stanza no branch accepts; an arm that range-checks instead of pinning carries `codeMin`/`codeMax`. The variant's `kind` says which side is at fault (`client_error` / `server_error`), derived from the codes rather than from the parser's name.
+- **Response enums** (`enumRef` on a field) — the legal values behind an `attrStringEnum`, resolved the same way the request side already resolves them, instead of a bare `"type": "enum"`.
+- **The accessor's decoded type**, kept faithful: every `attr*` / `content*` spelling WA's parsers use is classified (a `maybeAttrX` derives from `attrX`, so a flavour cannot be covered for one spelling and missed for the other), and the JID flavours stay distinct — a PN user JID and a LID user JID are different identities for the same person and must never collapse into one `string`.
+- **Notification action unions** (`notifications[].actions`) — the payload inside the envelope. The `wireTag → actionType` mapping is **many-to-one** (`not_ephemeral` normalises into `ephemeral` with `duration: 0`, so branching on `not_ephemeral` is dead code) and field names are rebound (the disappearing-message timer arrives in `expiration`, but the action field is `duration`). Neither is derivable from the wire.
+
+Note the contract version: this raised `schemaVersion` to **2.0.0**, and it is a real major bump rather than a cautious one. Four changes need action from a 1.x consumer:
+
+- `AssertionKind` gained a `reference` variant, widening the value space of an existing field — a closed-enum consumer rejects the document rather than ignoring it (validating the current `iq/index.json` against the 1.0 schema fails 579 times).
+- `ResponseVariantKind` gained `client_error` and `server_error`; a variant that was `error` may now be either. Match on all three, or use the `is_error()` grouping.
+- A response variant's `errorCodes` / `errorTexts` / `errorCodeMin` / `errorCodeMax` / `errorClass` are **gone**, replaced by `errorArms` (+ `errorEnvelope`). The flat lists were removed rather than kept alongside because they were unsound: two independent lists cannot say which code goes with which text, and 117 variants admitted combinations the parser rejects.
+- `ContentType` gained `integer`, the same closed-enum widening as the first item: a `<registration>` whose body is a number used to be reported as `string`. Live in the response children that read a big-endian integer content (`contentUint`).
+
+Anything the extractor sees but cannot resolve structurally is counted under `manifest.diagnostics.iq.dropsByReason` rather than omitted, so "no constraint here" and "a constraint we failed to extract" never look alike. `manifest.diagnostics.iq.constraints` and `diagnostics.notif.actions` are floor-guarded: a WA refactor that hides one of these constructs fails the update instead of silently emptying a field.
 
 ## Quick start
 
@@ -35,7 +55,8 @@ cargo run --release -p whatspec -- update --cache .wa-cache
 # Seed that same cache from the lock-pinned GitHub Release (no live bundle fetch):
 cargo run --release -p whatspec -- restore --from-lock generated/bundles.lock.json --cache .wa-cache
 
-# Also resolve, download and store the client's wasm payloads (~41 MB), as <url-hash>.wasm:
+# Also resolve, download and store the client's wasm payloads (~41 MB), as <url-hash>.wasm
+# (a cache filename is a location label, not a content address — see the note below):
 cargo run --release -p whatspec -- update --cache .wa-cache --wasm-out ./wasm
 
 # Restore a locked wasm set (its own lock + its own content-addressed release asset):
@@ -56,6 +77,7 @@ WhatsApp only serves the *current* bundle version — old bundle URLs 404 — so
 
 - **`generated/bundles.lock.json`** records the content SHA-256 (+ size, and origin URL when known) of every bundle that produced the committed `generated/`, plus a one-line, order-invariant `setHash` fingerprint of the whole set.
 - The **bytes** live in a durable, WhatsApp-independent store: a rolling **`bundle-store`** GitHub Release whose assets are **content-addressed** — `bundles-<version>-<setHash>.tar.xz` (pure-Rust xz, roughly half the size of gzip; legacy `.tar.gz` assets are still read) — so a set is never overwritten with different bytes and every past commit's lock keeps resolving the exact archive it pins. Published automatically by the update workflow.
+  Note the two different hashes: a **release asset** is named after its *contents* (`setHash`), while a **cache** filename is named after its *URL* (the JS last segment, or `sha256(url)` for wasm) — there, the content hash lives in the cache's `manifest.json` and is what integrity is verified against. A cache filename never proves what is inside the file.
 - **`whatspec restore --from-lock generated/bundles.lock.json --out <dir>`** pulls that archive, verifies every bundle's SHA-256 against the lock, and writes a directory ready for `update --bundles`. Use **`--cache <dir>`** instead to seed the exact version directly into the reusable `update --cache` layout; cache metadata and integrity files are written by the same `BundleCache` implementation as a live fetch. **`scripts/regen.sh`** wraps restore + `update --check` into a one-shot, offline determinism check — also run in CI, so every commit's committed IR (each `index.json` + `WAProto.proto`) is proven reproducible from its pinned inputs.
 
 > Bootstrap: the lock and the first archive are created by the first run of the update workflow (or a manual `update --save-bundles <dir>` followed by `scripts/publish-bundles.sh <dir>`). Until then the CI reproducibility gate stays dormant.

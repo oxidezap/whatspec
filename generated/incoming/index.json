@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "1.0.0",
+  "schemaVersion": "2.0.0",
   "waVersion": "2.3000.1043899084",
   "incoming": [
     {
@@ -25,8 +25,30 @@
           {
             "method": "attrEnumValues",
             "name": "type",
-            "type": "string",
-            "required": true
+            "type": "enum",
+            "required": true,
+            "enumRef": {
+              "name": "CiphertextType",
+              "module": "WAWebBackendJobs.flow",
+              "variants": [
+                {
+                  "name": "Skmsg",
+                  "value": "skmsg"
+                },
+                {
+                  "name": "Pkmsg",
+                  "value": "pkmsg"
+                },
+                {
+                  "name": "Msg",
+                  "value": "msg"
+                },
+                {
+                  "name": "Msmsg",
+                  "value": "msmsg"
+                }
+              ]
+            }
           },
           {
             "method": "maybeAttrString",
@@ -106,8 +128,42 @@
           {
             "method": "attrEnum",
             "name": "type",
-            "type": "string",
-            "required": true
+            "type": "enum",
+            "required": true,
+            "enumRef": {
+              "name": "STANZA_MSG_TYPES",
+              "module": "WAWebHandleMsgCommon",
+              "variants": [
+                {
+                  "name": "text",
+                  "value": "text"
+                },
+                {
+                  "name": "media",
+                  "value": "media"
+                },
+                {
+                  "name": "medianotify",
+                  "value": "medianotify"
+                },
+                {
+                  "name": "pay",
+                  "value": "pay"
+                },
+                {
+                  "name": "poll",
+                  "value": "poll"
+                },
+                {
+                  "name": "reaction",
+                  "value": "reaction"
+                },
+                {
+                  "name": "event",
+                  "value": "event"
+                }
+              ]
+            }
           },
           {
             "method": "attrString",
@@ -224,9 +280,9 @@
             "required": false
           },
           {
-            "method": "maybeAttrString",
+            "method": "maybeAttrEnum",
             "name": "type",
-            "type": "string",
+            "type": "enum",
             "required": false,
             "enumKeys": [
               "delivery",
@@ -296,8 +352,19 @@
                   {
                     "method": "maybeAttrEnum",
                     "name": "type",
-                    "type": "string",
-                    "required": false
+                    "type": "enum",
+                    "required": false,
+                    "enumKeys": [
+                      "delivery",
+                      "read",
+                      "played",
+                      "inactive",
+                      "server-error",
+                      "sender",
+                      "read-self",
+                      "played-self",
+                      "peer_msg"
+                    ]
                   },
                   {
                     "method": "attrUserJid",
@@ -420,6 +487,22 @@
           },
           {
             "method": "child",
+            "name": "id",
+            "type": "string",
+            "required": true,
+            "tag": "id",
+            "children": [
+              {
+                "method": "contentUint",
+                "name": "content",
+                "type": "integer",
+                "required": true,
+                "byteLength": 3
+              }
+            ]
+          },
+          {
+            "method": "child",
             "name": "value",
             "type": "string",
             "required": true,
@@ -468,7 +551,15 @@
             "type": "string",
             "required": true,
             "tag": "registration",
-            "children": []
+            "children": [
+              {
+                "method": "contentUint",
+                "name": "content",
+                "type": "integer",
+                "required": true,
+                "byteLength": 4
+              }
+            ]
           }
         ]
       }
@@ -721,9 +812,23 @@
             "name": "ack"
           },
           {
+            "kind": "reference",
+            "name": "from",
+            "referencePath": [
+              "to"
+            ]
+          },
+          {
             "kind": "attr",
             "name": "class",
             "value": "message"
+          },
+          {
+            "kind": "reference",
+            "name": "id",
+            "referencePath": [
+              "id"
+            ]
           }
         ],
         "fields": [
@@ -739,7 +844,8 @@
             "name": "class",
             "wireName": "class",
             "type": "string",
-            "required": true
+            "required": true,
+            "literalValue": "message"
           },
           {
             "method": "attrInt",
@@ -759,7 +865,8 @@
                 "name": "edit",
                 "wireName": "edit",
                 "type": "string",
-                "required": true
+                "required": true,
+                "literalValue": "1"
               }
             ],
             "sameNode": true
@@ -775,7 +882,8 @@
                 "name": "edit",
                 "wireName": "edit",
                 "type": "string",
-                "required": true
+                "required": true,
+                "literalValue": "3"
               }
             ],
             "sameNode": true
@@ -791,7 +899,8 @@
                 "name": "edit",
                 "wireName": "edit",
                 "type": "string",
-                "required": true
+                "required": true,
+                "literalValue": "2"
               }
             ],
             "sameNode": true
@@ -807,7 +916,8 @@
                 "name": "edit",
                 "wireName": "edit",
                 "type": "string",
-                "required": true
+                "required": true,
+                "literalValue": "8"
               }
             ],
             "sameNode": true
@@ -823,7 +933,8 @@
                 "name": "edit",
                 "wireName": "edit",
                 "type": "string",
-                "required": true
+                "required": true,
+                "literalValue": "7"
               }
             ],
             "sameNode": true
@@ -874,6 +985,24 @@
                     "wireName": "pricing_model",
                     "type": "enum",
                     "required": true,
+                    "enumRef": {
+                      "name": "ENUM_CBP_NBP_PMP",
+                      "module": "WASmaxInMessagePublishEnums",
+                      "variants": [
+                        {
+                          "name": "CBP",
+                          "value": "CBP"
+                        },
+                        {
+                          "name": "NBP",
+                          "value": "NBP"
+                        },
+                        {
+                          "name": "PMP",
+                          "value": "PMP"
+                        }
+                      ]
+                    },
                     "sourcePath": [
                       "biz"
                     ]
@@ -884,6 +1013,20 @@
                     "wireName": "billable",
                     "type": "enum",
                     "required": true,
+                    "enumRef": {
+                      "name": "ENUM_FALSE_TRUE",
+                      "module": "WASmaxInMessagePublishEnums",
+                      "variants": [
+                        {
+                          "name": "false",
+                          "value": "false"
+                        },
+                        {
+                          "name": "true",
+                          "value": "true"
+                        }
+                      ]
+                    },
                     "sourcePath": [
                       "biz"
                     ]
@@ -914,6 +1057,24 @@
                     "wireName": "pricing_type",
                     "type": "enum",
                     "required": false,
+                    "enumRef": {
+                      "name": "ENUM_FREECUSTOMERSERVICE_FREEENTRYPOINT_REGULAR",
+                      "module": "WASmaxInMessagePublishEnums",
+                      "variants": [
+                        {
+                          "name": "free_customer_service",
+                          "value": "free_customer_service"
+                        },
+                        {
+                          "name": "free_entry_point",
+                          "value": "free_entry_point"
+                        },
+                        {
+                          "name": "regular",
+                          "value": "regular"
+                        }
+                      ]
+                    },
                     "sourcePath": [
                       "biz"
                     ]
@@ -930,7 +1091,21 @@
                         "name": "optimizationGoal",
                         "wireName": "optimization_goal",
                         "type": "enum",
-                        "required": true
+                        "required": true,
+                        "enumRef": {
+                          "name": "ENUM_DELIVERY_NOOPTIMIZATION",
+                          "module": "WASmaxInMessagePublishEnums",
+                          "variants": [
+                            {
+                              "name": "delivery",
+                              "value": "delivery"
+                            },
+                            {
+                              "name": "no_optimization",
+                              "value": "no_optimization"
+                            }
+                          ]
+                        }
                       }
                     ],
                     "repeats": false,
@@ -1148,7 +1323,8 @@
                     "name": "class",
                     "wireName": "class",
                     "type": "string",
-                    "required": true
+                    "required": true,
+                    "literalValue": "message"
                   },
                   {
                     "method": "attrInt",
@@ -1168,7 +1344,8 @@
                         "name": "edit",
                         "wireName": "edit",
                         "type": "string",
-                        "required": true
+                        "required": true,
+                        "literalValue": "1"
                       }
                     ],
                     "sameNode": true
@@ -1184,7 +1361,8 @@
                         "name": "edit",
                         "wireName": "edit",
                         "type": "string",
-                        "required": true
+                        "required": true,
+                        "literalValue": "3"
                       }
                     ],
                     "sameNode": true
@@ -1200,7 +1378,8 @@
                         "name": "edit",
                         "wireName": "edit",
                         "type": "string",
-                        "required": true
+                        "required": true,
+                        "literalValue": "2"
                       }
                     ],
                     "sameNode": true
@@ -1216,7 +1395,8 @@
                         "name": "edit",
                         "wireName": "edit",
                         "type": "string",
-                        "required": true
+                        "required": true,
+                        "literalValue": "8"
                       }
                     ],
                     "sameNode": true
@@ -1232,7 +1412,8 @@
                         "name": "edit",
                         "wireName": "edit",
                         "type": "string",
-                        "required": true
+                        "required": true,
+                        "literalValue": "7"
                       }
                     ],
                     "sameNode": true
@@ -1283,6 +1464,24 @@
                             "wireName": "pricing_model",
                             "type": "enum",
                             "required": true,
+                            "enumRef": {
+                              "name": "ENUM_CBP_NBP_PMP",
+                              "module": "WASmaxInMessagePublishEnums",
+                              "variants": [
+                                {
+                                  "name": "CBP",
+                                  "value": "CBP"
+                                },
+                                {
+                                  "name": "NBP",
+                                  "value": "NBP"
+                                },
+                                {
+                                  "name": "PMP",
+                                  "value": "PMP"
+                                }
+                              ]
+                            },
                             "sourcePath": [
                               "biz"
                             ]
@@ -1293,6 +1492,20 @@
                             "wireName": "billable",
                             "type": "enum",
                             "required": true,
+                            "enumRef": {
+                              "name": "ENUM_FALSE_TRUE",
+                              "module": "WASmaxInMessagePublishEnums",
+                              "variants": [
+                                {
+                                  "name": "false",
+                                  "value": "false"
+                                },
+                                {
+                                  "name": "true",
+                                  "value": "true"
+                                }
+                              ]
+                            },
                             "sourcePath": [
                               "biz"
                             ]
@@ -1323,6 +1536,24 @@
                             "wireName": "pricing_type",
                             "type": "enum",
                             "required": false,
+                            "enumRef": {
+                              "name": "ENUM_FREECUSTOMERSERVICE_FREEENTRYPOINT_REGULAR",
+                              "module": "WASmaxInMessagePublishEnums",
+                              "variants": [
+                                {
+                                  "name": "free_customer_service",
+                                  "value": "free_customer_service"
+                                },
+                                {
+                                  "name": "free_entry_point",
+                                  "value": "free_entry_point"
+                                },
+                                {
+                                  "name": "regular",
+                                  "value": "regular"
+                                }
+                              ]
+                            },
                             "sourcePath": [
                               "biz"
                             ]
@@ -1339,7 +1570,21 @@
                                 "name": "optimizationGoal",
                                 "wireName": "optimization_goal",
                                 "type": "enum",
-                                "required": true
+                                "required": true,
+                                "enumRef": {
+                                  "name": "ENUM_DELIVERY_NOOPTIMIZATION",
+                                  "module": "WASmaxInMessagePublishEnums",
+                                  "variants": [
+                                    {
+                                      "name": "delivery",
+                                      "value": "delivery"
+                                    },
+                                    {
+                                      "name": "no_optimization",
+                                      "value": "no_optimization"
+                                    }
+                                  ]
+                                }
                               }
                             ],
                             "repeats": false,
@@ -1494,9 +1739,23 @@
                     "name": "ack"
                   },
                   {
+                    "kind": "reference",
+                    "name": "from",
+                    "referencePath": [
+                      "to"
+                    ]
+                  },
+                  {
                     "kind": "attr",
                     "name": "class",
                     "value": "message"
+                  },
+                  {
+                    "kind": "reference",
+                    "name": "id",
+                    "referencePath": [
+                      "id"
+                    ]
                   }
                 ]
               },
@@ -1517,7 +1776,8 @@
                     "name": "class",
                     "wireName": "class",
                     "type": "string",
-                    "required": true
+                    "required": true,
+                    "literalValue": "message"
                   },
                   {
                     "method": "attrInt",
@@ -1537,7 +1797,8 @@
                         "name": "edit",
                         "wireName": "edit",
                         "type": "string",
-                        "required": true
+                        "required": true,
+                        "literalValue": "1"
                       }
                     ],
                     "sameNode": true
@@ -1553,7 +1814,8 @@
                         "name": "edit",
                         "wireName": "edit",
                         "type": "string",
-                        "required": true
+                        "required": true,
+                        "literalValue": "3"
                       }
                     ],
                     "sameNode": true
@@ -1569,7 +1831,8 @@
                         "name": "edit",
                         "wireName": "edit",
                         "type": "string",
-                        "required": true
+                        "required": true,
+                        "literalValue": "2"
                       }
                     ],
                     "sameNode": true
@@ -1585,7 +1848,8 @@
                         "name": "edit",
                         "wireName": "edit",
                         "type": "string",
-                        "required": true
+                        "required": true,
+                        "literalValue": "8"
                       }
                     ],
                     "sameNode": true
@@ -1601,7 +1865,8 @@
                         "name": "edit",
                         "wireName": "edit",
                         "type": "string",
-                        "required": true
+                        "required": true,
+                        "literalValue": "7"
                       }
                     ],
                     "sameNode": true
@@ -1652,6 +1917,24 @@
                             "wireName": "pricing_model",
                             "type": "enum",
                             "required": true,
+                            "enumRef": {
+                              "name": "ENUM_CBP_NBP_PMP",
+                              "module": "WASmaxInMessagePublishEnums",
+                              "variants": [
+                                {
+                                  "name": "CBP",
+                                  "value": "CBP"
+                                },
+                                {
+                                  "name": "NBP",
+                                  "value": "NBP"
+                                },
+                                {
+                                  "name": "PMP",
+                                  "value": "PMP"
+                                }
+                              ]
+                            },
                             "sourcePath": [
                               "biz"
                             ]
@@ -1662,6 +1945,20 @@
                             "wireName": "billable",
                             "type": "enum",
                             "required": true,
+                            "enumRef": {
+                              "name": "ENUM_FALSE_TRUE",
+                              "module": "WASmaxInMessagePublishEnums",
+                              "variants": [
+                                {
+                                  "name": "false",
+                                  "value": "false"
+                                },
+                                {
+                                  "name": "true",
+                                  "value": "true"
+                                }
+                              ]
+                            },
                             "sourcePath": [
                               "biz"
                             ]
@@ -1692,6 +1989,24 @@
                             "wireName": "pricing_type",
                             "type": "enum",
                             "required": false,
+                            "enumRef": {
+                              "name": "ENUM_FREECUSTOMERSERVICE_FREEENTRYPOINT_REGULAR",
+                              "module": "WASmaxInMessagePublishEnums",
+                              "variants": [
+                                {
+                                  "name": "free_customer_service",
+                                  "value": "free_customer_service"
+                                },
+                                {
+                                  "name": "free_entry_point",
+                                  "value": "free_entry_point"
+                                },
+                                {
+                                  "name": "regular",
+                                  "value": "regular"
+                                }
+                              ]
+                            },
                             "sourcePath": [
                               "biz"
                             ]
@@ -1708,7 +2023,21 @@
                                 "name": "optimizationGoal",
                                 "wireName": "optimization_goal",
                                 "type": "enum",
-                                "required": true
+                                "required": true,
+                                "enumRef": {
+                                  "name": "ENUM_DELIVERY_NOOPTIMIZATION",
+                                  "module": "WASmaxInMessagePublishEnums",
+                                  "variants": [
+                                    {
+                                      "name": "delivery",
+                                      "value": "delivery"
+                                    },
+                                    {
+                                      "name": "no_optimization",
+                                      "value": "no_optimization"
+                                    }
+                                  ]
+                                }
                               }
                             ],
                             "repeats": false,
@@ -1881,9 +2210,23 @@
                     "name": "ack"
                   },
                   {
+                    "kind": "reference",
+                    "name": "from",
+                    "referencePath": [
+                      "to"
+                    ]
+                  },
+                  {
                     "kind": "attr",
                     "name": "class",
                     "value": "message"
+                  },
+                  {
+                    "kind": "reference",
+                    "name": "id",
+                    "referencePath": [
+                      "id"
+                    ]
                   }
                 ]
               }
@@ -1903,9 +2246,23 @@
             "name": "ack"
           },
           {
+            "kind": "reference",
+            "name": "from",
+            "referencePath": [
+              "to"
+            ]
+          },
+          {
             "kind": "attr",
             "name": "class",
             "value": "status"
+          },
+          {
+            "kind": "reference",
+            "name": "id",
+            "referencePath": [
+              "id"
+            ]
           }
         ],
         "fields": [
@@ -1921,7 +2278,8 @@
             "name": "class",
             "wireName": "class",
             "type": "string",
-            "required": true
+            "required": true,
+            "literalValue": "status"
           },
           {
             "method": "attrInt",
@@ -1944,7 +2302,8 @@
                     "name": "edit",
                     "wireName": "edit",
                     "type": "string",
-                    "required": true
+                    "required": true,
+                    "literalValue": "1"
                   }
                 ],
                 "assertions": [
@@ -1967,7 +2326,8 @@
                     "name": "edit",
                     "wireName": "edit",
                     "type": "string",
-                    "required": true
+                    "required": true,
+                    "literalValue": "7"
                   }
                 ],
                 "assertions": [
@@ -1990,7 +2350,8 @@
                     "name": "edit",
                     "wireName": "edit",
                     "type": "string",
-                    "required": true
+                    "required": true,
+                    "literalValue": "8"
                   }
                 ],
                 "assertions": [
@@ -2055,9 +2416,23 @@
             "name": "ack"
           },
           {
+            "kind": "reference",
+            "name": "from",
+            "referencePath": [
+              "to"
+            ]
+          },
+          {
             "kind": "attr",
             "name": "class",
             "value": "status"
+          },
+          {
+            "kind": "reference",
+            "name": "id",
+            "referencePath": [
+              "id"
+            ]
           }
         ],
         "fields": [
@@ -2075,7 +2450,8 @@
             "name": "class",
             "wireName": "class",
             "type": "string",
-            "required": true
+            "required": true,
+            "literalValue": "status"
           },
           {
             "method": "attrInt",
@@ -2098,7 +2474,8 @@
                     "name": "edit",
                     "wireName": "edit",
                     "type": "string",
-                    "required": true
+                    "required": true,
+                    "literalValue": "1"
                   }
                 ],
                 "assertions": [
@@ -2121,7 +2498,8 @@
                     "name": "edit",
                     "wireName": "edit",
                     "type": "string",
-                    "required": true
+                    "required": true,
+                    "literalValue": "7"
                   }
                 ],
                 "assertions": [
@@ -2144,7 +2522,8 @@
                     "name": "edit",
                     "wireName": "edit",
                     "type": "string",
-                    "required": true
+                    "required": true,
+                    "literalValue": "8"
                   }
                 ],
                 "assertions": [
@@ -2175,9 +2554,30 @@
             "name": "ack"
           },
           {
+            "kind": "reference",
+            "name": "id",
+            "referencePath": [
+              "id"
+            ]
+          },
+          {
             "kind": "attr",
             "name": "class",
             "value": "receipt"
+          },
+          {
+            "kind": "reference",
+            "name": "from",
+            "referencePath": [
+              "to"
+            ]
+          },
+          {
+            "kind": "reference",
+            "name": "type",
+            "referencePath": [
+              "type"
+            ]
           }
         ],
         "fields": [
@@ -2186,7 +2586,8 @@
             "name": "class",
             "wireName": "class",
             "type": "string",
-            "required": true
+            "required": true,
+            "literalValue": "receipt"
           },
           {
             "method": "maybeAttrInt",
@@ -2200,7 +2601,21 @@
             "name": "readreceipts",
             "wireName": "readreceipts",
             "type": "enum",
-            "required": false
+            "required": false,
+            "enumRef": {
+              "name": "ENUM_ALL_NONE",
+              "module": "WASmaxInReceiptEnums",
+              "variants": [
+                {
+                  "name": "all",
+                  "value": "all"
+                },
+                {
+                  "name": "none",
+                  "value": "none"
+                }
+              ]
+            }
           },
           {
             "method": "",
@@ -2236,8 +2651,22 @@
           {
             "method": "attrEnum",
             "name": "readreceipts",
-            "type": "string",
-            "required": true
+            "type": "enum",
+            "required": true,
+            "enumRef": {
+              "name": "ALL_NONE",
+              "module": "WAWebPrivacySettings",
+              "variants": [
+                {
+                  "name": "all",
+                  "value": "all"
+                },
+                {
+                  "name": "none",
+                  "value": "none"
+                }
+              ]
+            }
           }
         ]
       }

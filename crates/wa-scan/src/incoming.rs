@@ -20,6 +20,7 @@ use std::collections::{HashMap, HashSet};
 use wa_ir::{AssertionKind, IncomingDef, IncomingTag};
 use wa_transform::ModuleDefinition;
 
+use crate::enum_link::ResponseEnumLinker;
 use crate::response::parse_module_wap_parsers;
 use crate::response_smax::{Resolver, analyze_module_exports};
 
@@ -40,8 +41,26 @@ fn incoming_tag(tag: &str) -> Option<IncomingTag> {
 /// `new WADeprecatedWapParser("…", fn)` whose body asserts a content tag, with its
 /// field tree recovered.
 pub fn scan_incoming_from_modules(source: &str, defs: &[ModuleDefinition]) -> Vec<IncomingDef> {
+    scan_incoming_with_diagnostics(source, defs).0
+}
+
+/// Like [`scan_incoming_from_modules`], but also returns the constraints the legacy
+/// parsers carried and this domain could not resolve, by `dropsByReason` key.
+///
+/// The counts existed only for IQ, so an unresolvable enum table in a received-stanza
+/// parser produced a field with no legal values and no signal anywhere that a constraint
+/// had been lost — exactly the distinction the pending marker was introduced to keep.
+pub fn scan_incoming_with_diagnostics(
+    source: &str,
+    defs: &[ModuleDefinition],
+) -> (Vec<IncomingDef>, std::collections::BTreeMap<String, usize>) {
     let mut out = Vec::new();
     let mut seen = HashSet::new();
+    // The legacy parser records `o("Mod").ENUM` as a pending link because it reads one
+    // module at a time; this domain has the whole bundle, so it runs the same
+    // cross-module post-pass the IQ scan does. Without it the links were simply lost —
+    // `message.type`'s `STANZA_MSG_TYPES` and `ALL_NONE` among them.
+    let mut enums = ResponseEnumLinker::new(defs, source);
     for m in defs {
         let slice = &source[m.start..m.end];
         // Cheap pre-filter; the AST parse in `parse_module_wap_parsers` confirms the
@@ -49,7 +68,7 @@ pub fn scan_incoming_from_modules(source: &str, defs: &[ModuleDefinition]) -> Ve
         if !slice.contains("WADeprecatedWapParser") || !seen.insert(m.name.as_str()) {
             continue;
         }
-        for shape in parse_module_wap_parsers(slice) {
+        for mut shape in parse_module_wap_parsers(slice) {
             // The parser's `assertTag("…")` is the received stanza's tag.
             // `assertTag("receipt")` stores the tag in the assertion's `name`.
             let tag = shape
@@ -58,7 +77,13 @@ pub fn scan_incoming_from_modules(source: &str, defs: &[ModuleDefinition]) -> Ve
                 .find(|a| a.kind == AssertionKind::Tag)
                 .and_then(|a| a.name.as_deref())
                 .and_then(incoming_tag);
+            // The tag gate comes FIRST. This pass sees every legacy parser in the bundle,
+            // most of which belong to the IQ or notification domains; resolving before
+            // the gate charged their losses to `diagnostics.incoming`, which then
+            // described parsers absent from `incoming/index.json`. A diagnostic that does
+            // not describe the artifact beside it is worse than none.
             if let Some(tag) = tag {
+                enums.resolve(&format!("{}::{}", m.name, shape.parser_name), &mut shape);
                 out.push(IncomingDef {
                     tag,
                     module: m.name.clone(),
@@ -68,8 +93,12 @@ pub fn scan_incoming_from_modules(source: &str, defs: &[ModuleDefinition]) -> Ve
         }
     }
     // The smax-parsed `<ack>` read-shapes (a client publish's server ack) — a distinct
-    // mechanism the legacy pass above never sees. Merged into the same catalog.
-    out.extend(scan_incoming_smax_acks(source, defs));
+    // mechanism the legacy pass above never sees. Merged into the same catalog, and so
+    // are its losses: that pass runs its own smax `Resolver`, whose drops used to be
+    // discarded, so the ack's `deprecatedEditMixin.edit` shipped as an enum with no
+    // values while this domain's `dropsByReason` stayed empty.
+    let (acks, ack_drops) = scan_incoming_smax_acks(source, defs);
+    out.extend(acks);
     // Deterministic order, independent of bundle layout; then drop exact
     // (tag, parser, module) duplicates (a parser re-declared verbatim).
     out.sort_by(|a, b| {
@@ -81,7 +110,11 @@ pub fn scan_incoming_from_modules(source: &str, defs: &[ModuleDefinition]) -> Ve
     out.dedup_by(|a, b| {
         a.tag == b.tag && a.module == b.module && a.shape.parser_name == b.shape.parser_name
     });
-    out
+    let mut drops = enums.into_drop_counts();
+    for (reason, n) in ack_drops {
+        *drops.entry(reason).or_default() += n;
+    }
+    (out, drops)
 }
 
 /// A `WASmaxIn*Response{Success,Negative}` module whose root reads a top-level `<ack>` —
@@ -99,7 +132,10 @@ fn is_smax_ack_response_module(name: &str) -> bool {
 /// that asserts the top-level `ack`, with its field tree (ack envelope + edit/revoke/paid
 /// sub-mixins and disjunctions) resolved through the shared [`Resolver`]. Mirrors the
 /// srvreq root pass; only the tag gate (`ack`, not the server-request set) differs.
-fn scan_incoming_smax_acks(source: &str, defs: &[ModuleDefinition]) -> Vec<IncomingDef> {
+fn scan_incoming_smax_acks(
+    source: &str,
+    defs: &[ModuleDefinition],
+) -> (Vec<IncomingDef>, std::collections::BTreeMap<String, usize>) {
     // Every module name → slice (first occurrence wins; shard dedup) so the resolver can
     // chase the cross-module ack mixins these roots fold in.
     let mut slices: HashMap<&str, &str> = HashMap::new();
@@ -108,15 +144,26 @@ fn scan_incoming_smax_acks(source: &str, defs: &[ModuleDefinition]) -> Vec<Incom
             .entry(m.name.as_str())
             .or_insert(&source[m.start..m.end]);
     }
-    let resolver = Resolver::new(&slices);
-
     let mut out = Vec::new();
     let mut seen = HashSet::new();
+    let mut drops: std::collections::BTreeMap<String, usize> = Default::default();
     for m in defs {
         if !is_smax_ack_response_module(&m.name) || !seen.insert(m.name.as_str()) {
             continue;
         }
+        // A resolver PER CANDIDATE, because this pass parses every `WASmaxIn*Response*`
+        // (88 of them) and keeps only the roots asserting `<ack>` (8). The rest are IQ
+        // responses whose losses must not be charged to this domain.
+        //
+        // Rewinding a shared collector was not enough: the resolver also memoizes the
+        // helpers it resolved, so a rejected module could record a loss on a shared
+        // helper, have it rewound, and then a later accepted ack would hit the cache and
+        // never record it again — an unconstrained field with an empty diagnostic. A
+        // discarded resolver takes its cache with it, so no rejected work can be
+        // observed at all.
+        let resolver = Resolver::new(&slices);
         let exports = analyze_module_exports(&source[m.start..m.end], &resolver);
+        let mut kept_any = false;
         for (name, shape) in &exports {
             // Skip inner child parsers: their export name extends another export's at a
             // word boundary (`<root><ChildSuffix>`), and their fields already nest in the
@@ -149,14 +196,20 @@ fn scan_incoming_smax_acks(source: &str, defs: &[ModuleDefinition]) -> Vec<Incom
                 }
             }
             shape.assertions = deduped;
+            kept_any = true;
             out.push(IncomingDef {
                 tag: IncomingTag::Ack,
                 module: m.name.clone(),
                 shape,
             });
         }
+        if kept_any {
+            for (reason, n) in resolver.drop_counts() {
+                *drops.entry(reason).or_default() += n;
+            }
+        }
     }
-    out
+    (out, drops)
 }
 
 #[cfg(test)]

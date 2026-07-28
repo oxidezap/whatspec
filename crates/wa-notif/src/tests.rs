@@ -564,3 +564,1518 @@ __d("WASmaxInCoexistenceOffboardingNotificationRequest",["WAResultOrError","WASm
         "an ambiguous type (two read-shapes) must stay degraded"
     );
 }
+
+/// A miniature `w:gp2` handler: the const tag/action tables in their own modules, and a
+/// handler that maps over the notification's children and switches on each child's tag.
+/// Reproduces every shape the real one uses — a many-to-one normalisation, a rebound
+/// field name, a constant-only arm, a repeated sub-element, and a two-outcome ternary.
+const GROUP_ACTIONS_BUNDLE: &str = r#"
+__d("WAWebCommsHandleLoggedInStanza",["WAWebHandleGroupNotification","WAWebHandleDeviceNotification"],function(g,r,d,o,e,i,l){
+  l.handle = function(){ return (function*(e,t){
+    var n = e.attrs;
+    switch (e.tag) {
+      case "notification":
+        switch (n.type) {
+          case "w:gp2": return yield r("WAWebHandleGroupNotification")(e);
+          case "devices": return yield o("WAWebHandleDeviceNotification").handleDevicesNotification(e);
+        }
+    }
+  }); };
+}, 1);
+__d("WAWebHandleDeviceNotification",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+  var p = new (n("WADeprecatedWapParser"))("incomingDevicesNotification", function(e){
+    e.assertTag("notification"); e.assertAttr("type","devices");
+    return { id: e.attrString("id") };
+  });
+  function I(e){
+    var t=e.attrString("unlink_type");
+    if(t==="parent_group") return {actionType:o("WAWebGroupType").GROUP_ACTIONS.DESC_REMOVE, descId:e.attrString("id")};
+    return {actionType:o("WAWebGroupType").GROUP_ACTIONS.DESC_ADD, descId:e.attrString("id")};
+  }
+  function h(e){ return p.parse(e); }
+  l.handleDevicesNotification = h;
+}), 1);
+__d("WAWebHandleGroupNotificationConst",[],(function(t,n,r,o,a,i,l){
+  var cache={};
+  cache.GROUP_NOTIFICATION_TAG={ADD:"WRONG_add",SUBJECT:"WRONG_subject"};
+  var e=Object.freeze({ADD:"add",SUBJECT:"subject",EPHEMERAL:"ephemeral",NOT_EPHEMERAL:"not_ephemeral",MODIFY:"modify",GROWTH_LOCKED:"growth_locked",INVITE:"invite",LINK:"link",ANNOUNCE:"announcement",LOCKED:"locked",REVOKE_INVITE:"revoke",DESC:"description",UNLINK:"unlink"});
+  l.GROUP_NOTIFICATION_TAG=e;
+}), 1);
+__d("WAWebGroupApiConst",[],(function(t,n,r,o,a,i,l){
+  var g={admin:"admin",superadmin:"superadmin",participant:"participant"};
+  l.GROUP_PARTICIPANT_TYPES=g;
+}), 1);
+__d("WAWebGroupType",[],(function(t,n,r,o,a,i,l){
+  var d=Object.freeze({ADD:"add",SUBJECT:"subject",EPHEMERAL:"ephemeral",MODIFY:"modify",ANNOUNCE:"announce",RESTRICT:"restrict",REVOKE_INVITE:"revoke_invite",DESC_ADD:"desc_add",DESC_REMOVE:"desc_remove"});
+  l.GROUP_ACTIONS=d;
+}), 1);
+__d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGroupType"],(function(t,n,r,o,a,i,l){
+  function w(e){ if (e.hasChild("a")) return {alpha:e.attrString("alpha")}; return {beta:e.attrString("beta")}; }
+  function q(e){ return e.mapChildrenWithTag("entry", function(x){
+    if (x.hasChild("full")) return {id:x.attrString("id"), extra:x.attrString("extra"), who:x.attrString("jid")};
+    if (x.hasChild("mid")) return {id:x.attrString("id"), who:x.attrString("lid")};
+    return {id:x.attrString("id"), who:x.attrString("jid")};
+  }); }
+  function q2(e){
+    if (e.hasChild("a")) return {actionType:o("WAWebGroupType").GROUP_ACTIONS.ANNOUNCE, rows:e.mapChildrenWithTag("row", function(x){ return {v:x.attrString("p")}; })};
+    if (e.hasChild("b")) return {actionType:o("WAWebGroupType").GROUP_ACTIONS.ANNOUNCE, rows:e.mapChildrenWithTag("row", function(x){ return {v:x.attrString("q")}; })};
+    return {actionType:o("WAWebGroupType").GROUP_ACTIONS.ANNOUNCE, rows:e.mapChildrenWithTag("row", function(x){ return {v:x.attrString("p")}; })};
+  }
+  function y(e,t){ return t.mapChildrenWithTag("participant", function(p){
+    return { id: p.attrUserJid("jid"), displayName: p.maybeAttrString("display_name"), kind: p.maybeAttrEnum("type", o("WAWebGroupApiConst").GROUP_PARTICIPANT_TYPES) };
+  }); }
+  function I(e){
+    var t=e.attrString("unlink_type");
+    if(t==="parent_group") return {actionType:o("WAWebGroupType").GROUP_ACTIONS.DESC_REMOVE, descId:e.attrString("id")};
+    return {actionType:o("WAWebGroupType").GROUP_ACTIONS.DESC_ADD, descId:e.attrString("id")};
+  }
+  function h(e){
+    var x = e.mapChildren(function(t){
+      var a = t.tag();
+      switch(a){
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.ADD:
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.ADD, participants:y(e,t), reason:t.hasAttr("reason")?t.attrString("reason"):null};
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.SUBJECT:
+          if (t.hasChild("delete")) { var n = t.attrString("id"); return {actionType:o("WAWebGroupType").GROUP_ACTIONS.DESC_REMOVE, descId:n}; }
+          var n = t.attrString("subject");
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.SUBJECT, subject:n, note:t.hasAttr("note")&&t.attrString("note")};
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.EPHEMERAL:
+          return babelHelpers.extends({actionType:o("WAWebGroupType").GROUP_ACTIONS.EPHEMERAL, duration:t.attrInt("expiration"), code:t.attrString("code")||"none"}, w(t));
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.NOT_EPHEMERAL:
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.EPHEMERAL, duration:0};
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.MODIFY: {
+          var z = t.attrString("first");
+          if (t.hasChild("early")) return {actionType:o("WAWebGroupType").GROUP_ACTIONS.MODIFY, entries:q(t), pick:z};
+          var z = t.attrString("second");
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.RESTRICT, pick:z};
+        }
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.ANNOUNCE:
+          return q2(t);
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.INVITE:
+          o("WALogger").INFO("no fall-through"); break;
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.LINK: {
+          var lt = t.attrString("link_type");
+          switch (lt) {
+            case "parent": return {actionType:o("WAWebGroupType").GROUP_ACTIONS.DESC_ADD, parentId:t.attrString("pid")};
+            default: return {actionType:o("WAWebGroupType").GROUP_ACTIONS.DESC_REMOVE, subId:t.attrString("sid")};
+          }
+        }
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.GROWTH_LOCKED:
+          o("WALogger").INFO("setup");
+          var thr = t.attrString("threshold");
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.LOCKED: {
+          var n;
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.RESTRICT, value:!0, threshold:(n=t.maybeAttrString("threshold"))!=null?n:void 0, seeded:thr};
+        }
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.UNLINK:
+          return I(t);
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.REVOKE_INVITE:
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.REVOKE_INVITE, participants:t.mapChildrenWithTag("participant", function(p){ return {id:p.attrUserJid("jid"), expiration:p.attrInt("expiration")}; }), owners:t.mapChildrenWithTag("owner", p=>o("WAWebJidToWid").userJidToUserWid(p.maybeAttrPhoneUserJid("phone_number")))};
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.DESC:
+          return t.hasChild("delete") ? {actionType:o("WAWebGroupType").GROUP_ACTIONS.DESC_REMOVE, descId:t.attrString("id")}
+                                      : {actionType:o("WAWebGroupType").GROUP_ACTIONS.DESC_ADD, descId:t.attrString("id"), desc:t.child("body").contentString()};
+      }
+    });
+    return {actions:x};
+  }
+  l.handleGroupNotification=h;
+}), 1);
+"#;
+
+/// The `w:gp2` action union, keyed by the wire tag of each arm.
+fn group_actions(ir: &wa_ir::NotifIr) -> Vec<&wa_ir::NotifActionDef> {
+    notif(ir, "w:gp2").actions.iter().collect()
+}
+
+#[test]
+fn group_action_union_records_the_many_to_one_tag_mapping() {
+    let ir = extract_notif(GROUP_ACTIONS_BUNDLE, "2.3000.test");
+    let actions = group_actions(&ir);
+    let of = |tag: &str| {
+        actions
+            .iter()
+            .filter(|a| a.wire_tag == tag)
+            .collect::<Vec<_>>()
+    };
+    // Acceptance criterion: which wire tags map to `ephemeral`, and what each sets.
+    let eph = of("ephemeral");
+    assert_eq!(eph.len(), 1);
+    assert_eq!(eph[0].action_type.as_deref(), Some("ephemeral"));
+    let duration = eph[0]
+        .fields
+        .iter()
+        .find(|f| f.name == "duration")
+        .expect("duration field");
+    // The timer arrives in `expiration`, NOT under the output name — the whole point.
+    assert_eq!(duration.wire_name, "expiration");
+    assert_eq!(duration.field_type, wa_ir::ParsedFieldType::Integer);
+    assert!(duration.required);
+    // `not_ephemeral` normalises INTO `ephemeral` with a constant 0 — a consumer that
+    // branches on a `not_ephemeral` action type is writing dead code.
+    let not_eph = of("not_ephemeral");
+    assert_eq!(not_eph.len(), 1);
+    assert_eq!(not_eph[0].action_type.as_deref(), Some("ephemeral"));
+    assert!(not_eph[0].fields.is_empty());
+    assert_eq!(
+        not_eph[0].constant_fields,
+        vec![wa_ir::NotifActionConstant {
+            name: "duration".into(),
+            value: wa_ir::NotifConstValue::Int(0),
+        }]
+    );
+    // `locked` renames too, and stamps a boolean constant.
+    let locked = of("locked");
+    assert_eq!(locked[0].action_type.as_deref(), Some("restrict"));
+    assert_eq!(
+        locked[0].constant_fields[0].value,
+        wa_ir::NotifConstValue::Bool(true)
+    );
+}
+
+#[test]
+fn group_action_arms_recover_fields_children_and_branches() {
+    let ir = extract_notif(GROUP_ACTIONS_BUNDLE, "2.3000.test");
+    let actions = group_actions(&ir);
+    let one = |tag: &str| {
+        actions
+            .iter()
+            .find(|a| a.wire_tag == tag)
+            .unwrap_or_else(|| panic!("no arm for {tag}"))
+    };
+    // A presence-guarded attr is optional; an unguarded one is required.
+    let add = one("add");
+    let reason = add
+        .fields
+        .iter()
+        .find(|f| f.name == "reason")
+        .expect("reason");
+    assert!(!reason.required, "hasAttr(…) ? … : null → optional");
+    // The participant list lives behind a module-local helper; it must still be
+    // recovered, with the per-participant fields.
+    let participants = add
+        .children
+        .iter()
+        .find(|c| c.name == "participants")
+        .expect("participants child");
+    assert_eq!(participants.wire_tag, "participant");
+    let names: Vec<&str> = participants
+        .fields
+        .iter()
+        .map(|f| f.name.as_str())
+        .collect();
+    assert_eq!(names, ["id", "displayName", "kind"]);
+    assert_eq!(
+        participants.fields[0].field_type,
+        wa_ir::ParsedFieldType::UserJid
+    );
+    // An inline (non-helper) mapped child works the same way.
+    assert_eq!(one("revoke").children[0].wire_tag, "participant");
+    // An arm that branches into two DIFFERENT actions yields two arms of the union,
+    // sharing the wire tag — not one arm with the first branch's shape.
+    let desc: Vec<_> = actions
+        .iter()
+        .filter(|a| a.wire_tag == "description")
+        .collect();
+    let types: Vec<&str> = desc
+        .iter()
+        .filter_map(|a| a.action_type.as_deref())
+        .collect();
+    assert_eq!(types, ["desc_remove", "desc_add"]);
+    // The `<body>` content read is flagged as content, with the tag as its wire name.
+    let body = desc[1]
+        .fields
+        .iter()
+        .find(|f| f.name == "desc")
+        .expect("desc");
+    assert!(body.content);
+    assert_eq!(body.wire_name, "body");
+}
+
+#[test]
+fn handler_without_a_const_keyed_switch_has_no_actions() {
+    // Most handlers forward straight to a `WADeprecatedWapParser` and carry no action
+    // union; they must not sprout a phantom one. The fixture dispatches `devices`
+    // alongside `w:gp2` precisely so this assertion actually runs — with only `w:gp2` in
+    // the bundle the loop body would never execute and the property would go untested.
+    let ir = extract_notif(GROUP_ACTIONS_BUNDLE, "2.3000.test");
+    let others: Vec<&str> = ir
+        .notifications
+        .iter()
+        .filter(|n| n.notif_type != "w:gp2")
+        .map(|n| n.notif_type.as_str())
+        .collect();
+    assert!(
+        others.contains(&"devices"),
+        "fixture must dispatch a second, action-less type or this test is vacuous"
+    );
+    for n in &ir.notifications {
+        if n.notif_type != "w:gp2" {
+            assert!(n.actions.is_empty(), "{} grew actions", n.notif_type);
+        }
+    }
+}
+
+#[test]
+fn a_null_coalesced_field_keeps_its_wire_source() {
+    // The minifier hides the accessor in the ternary's TEST:
+    // `(n = child.maybeAttrString("threshold")) != null ? n : void 0`. Following the
+    // consequent alone finds a bare `n` that nothing binds, and the field vanishes —
+    // which is exactly how `locked`'s `threshold` was being lost.
+    let ir = extract_notif(GROUP_ACTIONS_BUNDLE, "2.3000.test");
+    let locked = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .find(|a| a.wire_tag == "locked")
+        .expect("locked arm");
+    let threshold = locked
+        .fields
+        .iter()
+        .find(|f| f.name == "threshold")
+        .expect("threshold field");
+    assert_eq!(threshold.wire_name, "threshold");
+    assert!(!threshold.required, "read behind a null-coalesce guard");
+}
+
+#[test]
+fn a_helper_returning_several_actions_yields_several_arms() {
+    // `case UNLINK: return I(child)` delegates wholesale to a helper that branches into
+    // DIFFERENT actions. Folding them into one definition keeps whichever `actionType`
+    // resolved first and silently drops the rest, so the branches must surface as
+    // sibling arms of the union — the same treatment an inline ternary gets.
+    let ir = extract_notif(GROUP_ACTIONS_BUNDLE, "2.3000.test");
+    let unlink: Vec<&str> = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .filter(|a| a.wire_tag == "unlink")
+        .filter_map(|a| a.action_type.as_deref())
+        .collect();
+    assert_eq!(unlink, ["desc_remove", "desc_add"]);
+}
+
+#[test]
+fn a_branch_local_binding_is_in_scope_for_its_return() {
+    // `var` is function-scoped, so a declaration inside an `if` block is in scope for the
+    // return inside it. Now that returns are collected from nested branches, their locals
+    // have to be too — otherwise `if (c) { var sid = child.attrString("id"); return
+    // {descId: sid} }` yields a return whose `sid` resolves to nothing and is dropped.
+    let ir = extract_notif(GROUP_ACTIONS_BUNDLE, "2.3000.test");
+    let arm = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .find(|a| a.wire_tag == "subject" && a.action_type.as_deref() == Some("desc_remove"))
+        .expect("the branch arm");
+    let f = arm
+        .fields
+        .iter()
+        .find(|f| f.name == "descId")
+        .expect("descId");
+    assert_eq!(f.wire_name, "id");
+}
+
+#[test]
+fn an_expression_bodied_arrow_callback_yields_its_field() {
+    // `p => wid(p.maybeAttrPhoneUserJid("phone_number"))` has no `return`: oxc stores the
+    // body as a lone expression, so a return-only scan reported the repeated child with an
+    // empty field list. The accessor also has to be typed as the PN user JID it is, not as
+    // a bare string.
+    let ir = extract_notif(GROUP_ACTIONS_BUNDLE, "2.3000.test");
+    let owners = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .find(|a| a.wire_tag == "revoke")
+        .expect("revoke arm")
+        .children
+        .iter()
+        .find(|c| c.name == "owners")
+        .expect("owners child");
+    assert_eq!(owners.wire_tag, "owner");
+    let f = owners.fields.first().expect("a field from the arrow body");
+    assert_eq!(f.wire_name, "phone_number");
+    assert_eq!(f.field_type, wa_ir::ParsedFieldType::UserJid);
+    assert!(!f.required, "maybeAttr* is optional");
+}
+
+#[test]
+fn sibling_branches_rebinding_a_name_each_keep_their_own_accessor() {
+    // The minifier reuses short names across mutually exclusive branches. A single
+    // flattened scope would make one branch's return read the OTHER branch's attribute —
+    // a wrong `wireName`, not a missing field, which is the failure mode this module
+    // refuses everywhere else. Each return therefore resolves in its own scope.
+    let ir = extract_notif(GROUP_ACTIONS_BUNDLE, "2.3000.test");
+    let arms: Vec<_> = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .filter(|a| a.wire_tag == "subject")
+        .collect();
+    let wire = |action: &str, field: &str| {
+        arms.iter()
+            .find(|a| a.action_type.as_deref() == Some(action))
+            .and_then(|a| a.fields.iter().find(|f| f.name == field))
+            .map(|f| f.wire_name.as_str())
+    };
+    // Both branches bind `n`, to different attributes.
+    assert_eq!(wire("desc_remove", "descId"), Some("id"));
+    assert_eq!(wire("subject", "subject"), Some("subject"));
+}
+
+#[test]
+fn a_logical_and_guard_reads_its_value_operand() {
+    // `child.hasAttr("note") && child.attrString("note")` carries the value on the RIGHT.
+    // Taking the left yields `hasAttr`, which is deliberately not a wire accessor, so the
+    // field disappeared.
+    let ir = extract_notif(GROUP_ACTIONS_BUNDLE, "2.3000.test");
+    let note = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .filter(|a| a.wire_tag == "subject")
+        .find_map(|a| a.fields.iter().find(|f| f.name == "note"))
+        .expect("note field");
+    assert_eq!(note.wire_name, "note");
+}
+
+#[test]
+fn an_action_enum_field_carries_its_variants() {
+    // `maybeAttrEnum("type", o("Mod").GROUP_PARTICIPANT_TYPES)` — a bare `"type": "enum"`
+    // says the value is constrained but not to what, leaving an emitter to guess.
+    let ir = extract_notif(GROUP_ACTIONS_BUNDLE, "2.3000.test");
+    let kind = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .find(|a| a.wire_tag == "add")
+        .expect("add arm")
+        .children
+        .iter()
+        .find(|c| c.name == "participants")
+        .expect("participants")
+        .fields
+        .iter()
+        .find(|f| f.name == "kind")
+        .expect("kind field");
+    // The accessor is an enum accessor, so the field is typed as one — the `enumRef`
+    // hangs off a field a consumer filtering on `type == "enum"` will actually reach.
+    assert_eq!(kind.field_type, wa_ir::ParsedFieldType::Enum);
+    let er = kind.enum_ref.as_ref().expect("resolved enum");
+    assert_eq!(er.name, "GROUP_PARTICIPANT_TYPES");
+    let values: Vec<&str> = er.variants.iter().map(|v| v.value.as_str()).collect();
+    assert_eq!(values, ["admin", "superadmin", "participant"]);
+}
+
+#[test]
+fn a_value_position_helper_weakens_its_branch_only_fields() {
+    // A helper used as an `extends` operand can return mutually exclusive shapes.
+    // Accumulating them makes the enclosing action require BOTH and reject either legal
+    // payload, so the branches are merged with the same optionality rule the switch arms
+    // use: a field only some branches carry is optional.
+    let ir = extract_notif(GROUP_ACTIONS_BUNDLE, "2.3000.test");
+    let eph = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .find(|a| a.wire_tag == "ephemeral")
+        .expect("ephemeral arm");
+    let f = |name: &str| eph.fields.iter().find(|f| f.name == name);
+    for name in ["alpha", "beta"] {
+        let field = f(name).unwrap_or_else(|| panic!("{name} recovered"));
+        assert!(!field.required, "{name} comes from only one branch");
+    }
+    // The arm's own unconditional read stays required.
+    assert!(f("duration").expect("duration").required);
+}
+
+#[test]
+fn a_defaulted_read_stays_required() {
+    // `child.attrString("code") || "none"` still calls `attrString`, which rejects an
+    // absent attribute — the right operand only defaults a value the parser already
+    // demanded. Classifying every logical expression as a presence guard marked it
+    // optional.
+    let ir = extract_notif(GROUP_ACTIONS_BUNDLE, "2.3000.test");
+    let code = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .find(|a| a.wire_tag == "ephemeral")
+        .expect("ephemeral arm")
+        .fields
+        .iter()
+        .find(|f| f.name == "code")
+        .expect("code field");
+    assert_eq!(code.wire_name, "code");
+    assert!(code.required, "`a || default` is not a presence guard");
+}
+
+#[test]
+fn a_const_table_on_a_non_export_receiver_is_ignored() {
+    // `cache.GROUP_NOTIFICATION_TAG = {…}` written before the real
+    // `exports.GROUP_NOTIFICATION_TAG = …` would otherwise be taken as the export and,
+    // being first, kept — resolving case labels through an unrelated table and minting
+    // wrong wire tags. Only the module factory's own parameters count as receivers.
+    let ir = extract_notif(GROUP_ACTIONS_BUNDLE, "2.3000.test");
+    let tags: Vec<&str> = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .map(|a| a.wire_tag.as_str())
+        .collect();
+    assert!(tags.contains(&"add"), "the real table must win: {tags:?}");
+    assert!(
+        !tags.iter().any(|t| t.starts_with("WRONG_")),
+        "decoy table leaked into the catalog: {tags:?}"
+    );
+}
+
+#[test]
+fn a_branching_mapped_child_callback_weakens_its_branch_only_fields() {
+    // A callback returning different objects from an `if` describes alternative element
+    // shapes. Flattening every property in the body into one list marks a field read in
+    // only one branch as required, so a consumer would reject a legal element.
+    let ir = extract_notif(GROUP_ACTIONS_BUNDLE, "2.3000.test");
+    let entries = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .find(|a| a.wire_tag == "modify")
+        .expect("modify arm")
+        .children
+        .iter()
+        .find(|c| c.name == "entries")
+        .expect("entries child");
+    let f = |name: &str| entries.fields.iter().find(|f| f.name == name);
+    assert!(f("id").expect("id").required, "read by every branch");
+    assert!(!f("extra").expect("extra").required, "read by one branch");
+}
+
+#[test]
+fn a_return_sees_only_the_bindings_that_ran_before_it() {
+    // `var z = attr("first"); if (c) return {pick:z}; var z = attr("second"); return
+    // {pick:z}` — hoisting moves the declaration, not the assignment, so the early return
+    // reads `first`. A scope built as a pre-pass over the whole statement list installs
+    // the later initializer first and reports both returns as reading `second`.
+    let ir = extract_notif(GROUP_ACTIONS_BUNDLE, "2.3000.test");
+    let pick = |action: &str| {
+        notif(&ir, "w:gp2")
+            .actions
+            .iter()
+            .filter(|a| a.wire_tag == "modify")
+            .find(|a| a.action_type.as_deref() == Some(action))
+            .and_then(|a| a.fields.iter().find(|f| f.name == "pick"))
+            .map(|f| f.wire_name.as_str())
+    };
+    assert_eq!(
+        pick("modify"),
+        Some("first"),
+        "the early return ran before the rebind"
+    );
+    assert_eq!(pick("restrict"), Some("second"));
+}
+
+#[test]
+fn a_key_bound_to_different_wire_reads_is_dropped_not_guessed() {
+    // Two branches binding `who` to different attributes (`jid` and `lid`) have no single
+    // answer — publishing the first branch'"'"'s attribute would describe the other branch'"'"'s
+    // payload wrongly, and this is the JID conflation the repo treats as
+    // protocol-safety-critical. The key is dropped instead.
+    let ir = extract_notif(GROUP_ACTIONS_BUNDLE, "2.3000.test");
+    let entries = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .find(|a| a.wire_tag == "modify")
+        .expect("modify arm")
+        .children
+        .iter()
+        .find(|c| c.name == "entries")
+        .expect("entries child");
+    let names: Vec<&str> = entries.fields.iter().map(|f| f.name.as_str()).collect();
+    assert!(
+        !names.contains(&"who"),
+        "a conflicting source must be refused, not resolved to the first branch: {names:?}"
+    );
+    // The unambiguous keys still merge normally.
+    let f = |n: &str| entries.fields.iter().find(|f| f.name == n);
+    assert!(f("id").expect("id").required, "read by every branch");
+    assert!(!f("extra").expect("extra").required, "read by one branch");
+}
+
+#[test]
+fn a_fall_through_label_with_setup_still_inherits_the_shared_action() {
+    // `case GROWTH_LOCKED: log(); case SUSPENDED: return {…}` — the first label has a
+    // non-empty body that produces no shape and falls through. Treating "non-empty" as
+    // "its own arm" lost the action type and every field of a legally dispatched tag.
+    let ir = extract_notif(GROUP_ACTIONS_BUNDLE, "2.3000.test");
+    let arm = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .find(|a| a.wire_tag == "growth_locked")
+        .expect("growth_locked arm");
+    assert_eq!(
+        arm.action_type.as_deref(),
+        Some("restrict"),
+        "must inherit the body it falls through into"
+    );
+    assert!(!arm.constant_fields.is_empty(), "including its constants");
+}
+
+#[test]
+fn a_third_branch_cannot_resurrect_a_conflicted_key() {
+    // A(jid) vs B(lid) tombstones `who`; without a tombstone that outlives the single
+    // merge, C(jid) sees nothing there and adds it back — and the union again advertises
+    // one source while another legal branch reads a different attribute.
+    let ir = extract_notif(GROUP_ACTIONS_BUNDLE, "2.3000.test");
+    let entries = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .find(|a| a.wire_tag == "modify")
+        .expect("modify arm")
+        .children
+        .iter()
+        .find(|c| c.name == "entries")
+        .expect("entries child");
+    let names: Vec<&str> = entries.fields.iter().map(|f| f.name.as_str()).collect();
+    assert!(
+        !names.contains(&"who"),
+        "the third branch must not resurrect the conflict: {names:?}"
+    );
+    assert!(names.contains(&"id"), "unambiguous keys survive: {names:?}");
+}
+
+#[test]
+fn a_terminating_case_does_not_borrow_the_next_action() {
+    // `case INVITE: log(); break;` does not fall through. Scanning past the `break` for
+    // "the next case that yields a shape" would publish that action under `invite`, a
+    // shape the tag never produces.
+    let ir = extract_notif(GROUP_ACTIONS_BUNDLE, "2.3000.test");
+    let invite: Vec<_> = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .filter(|a| a.wire_tag == "invite")
+        .collect();
+    assert_eq!(invite.len(), 1);
+    assert_eq!(
+        invite[0].action_type, None,
+        "a terminating arm produces no shape of its own, and must borrow none"
+    );
+    assert!(invite[0].fields.is_empty() && invite[0].children.is_empty());
+}
+
+#[test]
+fn an_arm_selecting_through_a_nested_switch_yields_both_actions() {
+    // `case UNLINK: switch (linkType) { case "parent": return {…}; default: return {…} }`
+    // describes two legal actions for one wire tag. Skipping nested switches — which the
+    // walk used to do, on the theory that they are a different dispatch level — left the
+    // arm empty.
+    let ir = extract_notif(GROUP_ACTIONS_BUNDLE, "2.3000.test");
+    let mut got: Vec<&str> = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .filter(|a| a.wire_tag == "link")
+        .filter_map(|a| a.action_type.as_deref())
+        .collect();
+    got.sort_unstable();
+    assert_eq!(got, ["desc_add", "desc_remove"]);
+}
+
+#[test]
+fn a_child_field_conflict_survives_a_third_branch() {
+    // The alternative rule lives in ONE place now, so a conflict inside a MAPPED CHILD
+    // gets the same tombstone the top-level scalars do. Before, the child merge created a
+    // fresh conflict set per call — the same defect as the outer level, one layer down —
+    // so `A(p)` vs `B(q)` removed `v` and `C(p)` put it back.
+    let ir = extract_notif(GROUP_ACTIONS_BUNDLE, "2.3000.test");
+    let rows = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .find(|a| a.wire_tag == "announcement")
+        .expect("announcement arm")
+        .children
+        .iter()
+        .find(|c| c.name == "rows")
+        .expect("rows child");
+    let names: Vec<&str> = rows.fields.iter().map(|f| f.name.as_str()).collect();
+    assert!(
+        !names.contains(&"v"),
+        "a child field two branches disagree on must stay refused: {names:?}"
+    );
+}
+
+#[test]
+fn a_fall_through_label_contributes_its_own_bindings() {
+    // `case A: var thr = child.attrString("threshold"); case B: return {…, seeded: thr}`
+    // — the A path binds before falling through, so handing the shape only B's body
+    // dropped the field. The chain now carries every statement it executes.
+    let ir = extract_notif(GROUP_ACTIONS_BUNDLE, "2.3000.test");
+    let seeded = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .find(|a| a.wire_tag == "growth_locked")
+        .expect("growth_locked arm")
+        .fields
+        .iter()
+        .find(|f| f.name == "seeded")
+        .expect("the binding from the fall-through label");
+    assert_eq!(seeded.wire_name, "threshold");
+}
+
+/// A second `w:gp2` handler covering the shapes the real bundle does not exercise today.
+///
+/// Every behaviour below is **latent** against the pinned bundle — the constructs are
+/// legal, WA writes some of them elsewhere, and the extractor got them wrong — so a
+/// fixture is the only thing that can hold the fix in place. Without it a later
+/// refactor would silently restore the old answer and `generated/` would not move.
+const GROUP_ACTIONS_EDGE_BUNDLE: &str = r#"
+__d("WAWebCommsHandleLoggedInStanza",["WAWebHandleGroupNotification"],function(g,r,d,o,e,i,l){
+  l.handle = function(){ return (function*(e,t){
+    var n = e.attrs;
+    switch (e.tag) {
+      case "notification":
+        switch (n.type) {
+          case "w:gp2": return yield r("WAWebHandleGroupNotification")(e);
+        }
+    }
+  }); };
+}, 1);
+__d("WAWebHandleGroupNotificationConst",[],(function(t,n,r,o,a,i,l){
+  l.GROUP_NOTIFICATION_TAG=Object.freeze({EVICT:"evict",COND:"cond",REBIND:"rebind",PICK:"pick",BARE:"bare",HELPER:"helper",ESCAPE:"escape",TAIL:"tail",JOIN:"join",SEQ:"seq",SUFFIX:"suffix",AFTER:"after",TRY:"try_tag",FIN:"fin",FINCOND:"fincond",FINTHROW:"finthrow",MULTI:"multi",MULTI3:"multi3",DEAD:"dead",LIT:"lit",LOOP:"loop_tag",FINTRY:"fintry",PARAM:"param",BLK:"blk",EXH:"exh",NFT:"nft",LATE:"late",DOW:"dow",SHADOW:"shadow",CATCHP:"catchp",DOWX:"dowx",SAME:"same",NEST:"nest",DOWB:"dowb",PVAL:"pval",SPREAD:"spread",DOWBRK:"dowbrk",FINW:"finw",FORI:"fori",CONDW:"condw",SPRD:"sprd"});
+}), 1);
+__d("WAWebGroupType",[],(function(t,n,r,o,a,i,l){
+  l.GROUP_ACTIONS=Object.freeze({FIRST:"first",SECOND:"second",THIRD:"third"});
+}), 1);
+__d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGroupType"],(function(t,n,r,o,a,i,l){
+  function hlp(e){ return {actionType:o("WAWebGroupType").GROUP_ACTIONS.SECOND, extra:e.attrString("extra")}; }
+  function norm(v){ return v == null ? null : v; }
+  function mk(v){ return {actionType:o("WAWebGroupType").GROUP_ACTIONS.THIRD, id:v}; }
+  function h(e){
+    var x=e.mapChildrenWithTag("child", function(t){
+      switch (t.tag) {
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.EVICT:
+          return babelHelpers.extends({actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, id:t.attrString("jid")}, {id:0});
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.COND:
+          if (t.hasChild("early")) return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, a:t.attrString("a")};
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.PICK:
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.SECOND, b:t.attrString("b")};
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.REBIND: {
+          var v=t.attrString("jid");
+          v=t.attrString("lid");
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.THIRD, id:v};
+        }
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.BARE:
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.THIRD, who:t.mapChildrenWithTag("p", function(p){ return p.hasChild("z") ? p.attrString("jid") : p.attrString("lid"); })};
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.HELPER:
+          return babelHelpers.extends({actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST}, hlp(t));
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.ESCAPE:
+          switch (t.attrString("k")) {
+            case "a": if (t.hasChild("q")) break; return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, e1:t.attrString("e1")};
+            default: return {actionType:o("WAWebGroupType").GROUP_ACTIONS.SECOND, e2:t.attrString("e2")};
+          }
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.TAIL:
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.THIRD, t1:t.attrString("t1")};
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.JOIN: {
+          var j=t.attrString("jid");
+          if (t.hasChild("alt")) j=t.attrString("lid");
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, id:j};
+        }
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.TRY:
+          try { return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, ok:t.attrString("ok")}; }
+          catch (e) { return {actionType:o("WAWebGroupType").GROUP_ACTIONS.SECOND, err:t.attrString("err")}; }
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.FIN:
+          try { return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, a:t.attrString("a")}; }
+          finally { return {actionType:o("WAWebGroupType").GROUP_ACTIONS.THIRD, f:t.attrString("f")}; }
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.FINCOND:
+          try { return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, a:t.attrString("a")}; }
+          finally { if (t.hasChild("z")) return {actionType:o("WAWebGroupType").GROUP_ACTIONS.SECOND, b:t.attrString("b")}; }
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.FINTHROW:
+          try { return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, a:t.attrString("a")}; }
+          finally { throw new Error("x"); }
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.MULTI:
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.SECOND, id:combine(t.attrString("jid"), t.attrString("lid")), plain:t.attrString("plain")};
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.MULTI3:
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, id:combine(t.attrString("jid"), t.attrString("jid"), t.attrString("lid")), plain:t.attrString("plain")};
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.DEAD:
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, a:t.attrString("a")};
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.SECOND, b:t.attrString("b")};
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.LIT:
+          return {actionType:"create", who:t.attrString("who")};
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.LOOP:
+          while (t.hasChild("more")) { return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, l:t.attrString("l")}; }
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.SECOND, m:t.attrString("m")};
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.FINTRY: {
+          var fx = t.attrString("jid");
+          try { fx = t.attrString("lid"); } finally { return {actionType:o("WAWebGroupType").GROUP_ACTIONS.THIRD, id:fx}; }
+        }
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.PARAM:
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, reason:t.hasAttr("reason")?norm(t.attrString("reason")):null};
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.BLK: {
+          var bx = t.attrString("jid");
+          { bx = t.attrString("lid"); }
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, id:bx};
+        }
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.EXH:
+          if (t.hasChild("q")) return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, a:t.attrString("a")};
+          else return {actionType:o("WAWebGroupType").GROUP_ACTIONS.SECOND, b:t.attrString("b")};
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.THIRD, c:t.attrString("c")};
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.NFT: {
+          var nx;
+          switch (t.attrString("k")) {
+            case "a": nx = t.attrString("jid");
+            default: return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, id:nx};
+          }
+        }
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.LATE: {
+          var lr;
+          lr = {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, id:t.attrString("jid")};
+          return lr;
+        }
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.DOW: {
+          var dw;
+          do { dw = t.attrString("lid"); } while (t.hasChild("again"));
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.SECOND, id:dw};
+        }
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.SHADOW: {
+          var sh = t.attrString("jid");
+          { let sh = t.attrString("lid"); }
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.THIRD, id:sh};
+        }
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.CATCHP: {
+          var e2 = t.attrString("jid");
+          try { return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, id:e2}; }
+          catch (e2) { return {actionType:o("WAWebGroupType").GROUP_ACTIONS.SECOND, id:e2}; }
+        }
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.DOWX:
+          do { return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, a:t.attrString("a")}; } while (t.hasChild("again"));
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.SECOND, b:t.attrString("b")};
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.SAME:
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, id:t.hasChild("q") ? t.attrString("jid") : t.attrString("jid")};
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.NEST:
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.SECOND, who:t.mapChildrenWithTag("p", function(p){ return {meta:{id:p.attrString("id")}, top:p.attrString("top")}; })};
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.DOWB: {
+          var db;
+          do { if (t.hasChild("skip")) break; db = t.attrString("lid"); } while (t.hasChild("again"));
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, id:db};
+        }
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.PVAL:
+          return mk(t.attrString("jid"));
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.DOWBRK:
+          do { break; } while (t.hasChild("x"));
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.SECOND, b:t.attrString("b")};
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.FINW: {
+          var fw;
+          try { fw = t.attrString("jid"); } finally { fw = t.attrString("lid"); }
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, id:fw};
+        }
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.FORI: {
+          var fi = t.attrString("jid");
+          for (fi = t.attrString("lid"); t.hasChild("y"); ) return {actionType:o("WAWebGroupType").GROUP_ACTIONS.SECOND, id:fi};
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.THIRD, z:t.attrString("z")};
+        }
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.CONDW: {
+          var cw = t.attrString("jid");
+          t.hasChild("c") && (cw = t.attrString("lid"));
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, id:cw};
+        }
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.SPRD:
+          return babelHelpers.extends({actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST}, {id:t.attrString("jid"), ...base});
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.SUFFIX:
+          switch (t.attrString("k")) {
+            case "a": t.attrString("setup");
+            default: return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, s:t.attrString("s")};
+          }
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.AFTER:
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.THIRD, a1:t.attrString("a1")};
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.SEQ: {
+          var s1, s2;
+          s1=t.attrString("jid"), s2=t.attrInt("n");
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.SECOND, id:s1, n:s2};
+        }
+      }
+    });
+    return {actions:x};
+  }
+  l.handleGroupNotification=h;
+}), 1);
+"#;
+
+/// The single action arm for `tag` in the edge-case bundle.
+fn edge_action<'a>(ir: &'a wa_ir::NotifIr, tag: &str) -> &'a wa_ir::NotifActionDef {
+    let mut found = notif(ir, "w:gp2")
+        .actions
+        .iter()
+        .filter(|a| a.wire_tag == tag);
+    let a = found
+        .next()
+        .unwrap_or_else(|| panic!("no action arm for wire tag {tag:?}"));
+    assert!(found.next().is_none(), "expected one arm for {tag:?}");
+    a
+}
+
+#[test]
+fn a_later_write_evicts_the_key_from_every_collection() {
+    // `extends({id: attrString("jid")}, {id: 0})` yields only `id: 0` at runtime.
+    // Replacing within each collection separately published BOTH a wire-read field and a
+    // constant named `id` — a shape no execution produces.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let a = edge_action(&ir, "evict");
+    assert!(
+        !a.fields.iter().any(|f| f.name == "id"),
+        "the constant must evict the earlier wire read: {:?}",
+        a.fields
+    );
+    assert_eq!(
+        a.constant_fields.iter().filter(|c| c.name == "id").count(),
+        1,
+        "exactly one `id`, and it is the constant"
+    );
+}
+
+#[test]
+fn a_conditionally_returning_case_still_falls_through() {
+    // `case COND: if (cond) return FIRST; case PICK: return SECOND;` — tag `cond` can
+    // legally produce either. Stopping at the first shape published only FIRST.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let cond: Vec<&str> = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .filter(|a| a.wire_tag == "cond")
+        .filter_map(|a| a.action_type.as_deref())
+        .collect();
+    assert!(
+        cond.contains(&"second"),
+        "the fall-through target must be reachable from `cond`: {cond:?}"
+    );
+}
+
+#[test]
+fn a_reassignment_replaces_the_declared_binding() {
+    // `var v = attrString("jid"); v = attrString("lid"); return {id: v}` reads `lid`.
+    // Tracking declarations only left the initializer installed.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let a = edge_action(&ir, "rebind");
+    let id = a
+        .fields
+        .iter()
+        .find(|f| f.name == "id")
+        .expect("the `id` field survives the reassignment");
+    assert_eq!(
+        id.wire_name, "lid",
+        "the value at the return is the reassigned one"
+    );
+}
+
+#[test]
+fn a_bare_callback_read_is_optional_when_only_one_branch_takes_it() {
+    // `p => cond ? p.attrString("jid") : p.attrString("lid")` reads exactly one per
+    // element. The bare-value fallback bypassed the branch fold and marked both required.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let a = edge_action(&ir, "bare");
+    let child = a
+        .children
+        .iter()
+        .find(|c| c.name == "who")
+        .expect("the mapped child is recovered");
+    // Asserted before the requiredness check: `all` on an empty list is vacuously true,
+    // and this is exactly the path that could regress to recovering no fields at all.
+    let names: Vec<&str> = child.fields.iter().map(|f| f.wire_name.as_str()).collect();
+    assert!(
+        names.contains(&"jid") && names.contains(&"lid"),
+        "both alternative reads survive the fold: {names:?}"
+    );
+    assert!(
+        child.fields.iter().all(|f| !f.required),
+        "a read taken on only one branch is not required: {:?}",
+        child.fields
+    );
+}
+
+#[test]
+fn a_helper_operand_replaces_the_earlier_action_type() {
+    // `extends({actionType: FIRST}, hlp(t))` where the helper returns SECOND yields
+    // SECOND at runtime. Copying the helper's `actionType` only into an empty slot
+    // dispatched the shape as FIRST.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let a = edge_action(&ir, "helper");
+    assert_eq!(
+        a.action_type.as_deref(),
+        Some("second"),
+        "the later operand wins, `actionType` included"
+    );
+}
+
+#[test]
+fn a_nested_break_path_keeps_the_outer_fall_through() {
+    // `case "a": if (cond) break; return FIRST;` inside a nested switch: the `break`
+    // leaves only the INNER switch, so control resumes in the outer `escape` case and
+    // falls through to `tail`. Treating the later `return` as proof that every path
+    // exited hid that action.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let got: Vec<&str> = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .filter(|a| a.wire_tag == "escape")
+        .filter_map(|a| a.action_type.as_deref())
+        .collect();
+    assert!(
+        got.contains(&"third"),
+        "the break path falls through to the next outer case: {got:?}"
+    );
+}
+
+#[test]
+fn a_binding_reassigned_in_one_branch_is_not_reported_as_certain() {
+    // `var j = attrString("jid"); if (c) j = attrString("lid"); return {id: j}` reads
+    // `lid` on one legal path. Keeping the pre-branch binding published `jid` as fact.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let a = edge_action(&ir, "join");
+    assert!(
+        !a.fields
+            .iter()
+            .any(|f| f.name == "id" && f.wire_name == "jid"),
+        "the branch write must not leave `jid` asserted: {:?}",
+        a.fields
+    );
+}
+
+#[test]
+fn a_comma_sequence_of_assignments_binds_every_operand() {
+    // The minifier writes runs of assignments as one `SequenceExpression`
+    // (`s1 = t.attrString("jid"), s2 = t.attrInt("n")`); matching only a bare assignment
+    // statement skipped them all.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let a = edge_action(&ir, "seq");
+    let wire = |name: &str| {
+        a.fields
+            .iter()
+            .find(|f| f.name == name)
+            .map(|f| f.wire_name.as_str())
+    };
+    assert_eq!(wire("id"), Some("jid"));
+    assert_eq!(wire("n"), Some("n"));
+}
+
+#[test]
+fn a_nested_case_exits_through_its_own_fall_through_suffix() {
+    // `case "a": setup(); default: return X` — the `a` path runs `setup()` and falls into
+    // the default's return, so the switch DOES leave the enclosing case on every path.
+    // Requiring each nested case body to exit on its own (accepting only an empty
+    // fall-through label) called it non-terminating, and `suffix` then borrowed the
+    // following outer case's action for a wire tag that never produces it.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let got: Vec<&str> = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .filter(|a| a.wire_tag == "suffix")
+        .filter_map(|a| a.action_type.as_deref())
+        .collect();
+    assert!(got.contains(&"first"), "its own action survives: {got:?}");
+    assert!(
+        !got.contains(&"third"),
+        "and it must not borrow the next case's: {got:?}"
+    );
+}
+
+#[test]
+fn a_catch_block_return_is_a_legal_action() {
+    // WA wraps a parse in `try { … } catch (e) { … }` and the handler's return is as
+    // legal as the body's. Walking only the `try` body omitted the error path entirely.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let got: Vec<&str> = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .filter(|a| a.wire_tag == "try_tag")
+        .filter_map(|a| a.action_type.as_deref())
+        .collect();
+    assert!(got.contains(&"first"), "the try body's action: {got:?}");
+    assert!(got.contains(&"second"), "and the catch's: {got:?}");
+}
+
+#[test]
+fn a_returning_finally_overrides_the_try_body() {
+    // A `finally` that returns discards whatever `try`/`catch` produced — it is the only
+    // shape the statement can yield, so reporting the body's would be a shape no
+    // execution reaches.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let got: Vec<&str> = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .filter(|a| a.wire_tag == "fin")
+        .filter_map(|a| a.action_type.as_deref())
+        .collect();
+    assert_eq!(got, ["third"], "only the finalizer's shape: {got:?}");
+}
+
+#[test]
+fn a_conditional_finally_leaves_the_try_result_legal() {
+    // `try { return A } finally { if (c) return B }` returns A when `c` is false. Deciding
+    // the override by "did the finalizer yield any shape" reported only B.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let mut got: Vec<&str> = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .filter(|a| a.wire_tag == "fincond")
+        .filter_map(|a| a.action_type.as_deref())
+        .collect();
+    got.sort_unstable();
+    assert_eq!(got, ["first", "second"], "both paths are legal: {got:?}");
+}
+
+#[test]
+fn a_throwing_finally_yields_no_shape_at_all() {
+    // The mirror case: `finally { throw }` collects no returns, so emptiness read as
+    // "no override" and the try body's shape was published although it never escapes.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let got: Vec<&str> = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .filter(|a| a.wire_tag == "finthrow")
+        .filter_map(|a| a.action_type.as_deref())
+        .collect();
+    assert!(got.is_empty(), "nothing is returned from this arm: {got:?}");
+}
+
+#[test]
+fn a_wrapper_over_two_accessors_refuses_the_field() {
+    // `combine(t.attrString("jid"), t.attrString("lid"))` derives its value from both, and
+    // a field names ONE `wireName`. Taking the first stated as fact something the IR
+    // cannot express; the sibling read on the same arm must still survive.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let a = edge_action(&ir, "multi");
+    assert!(
+        !a.fields.iter().any(|f| f.name == "id"),
+        "the ambiguous key is refused: {:?}",
+        a.fields
+    );
+    assert!(
+        a.fields.iter().any(|f| f.name == "plain"),
+        "and the unambiguous sibling is kept: {:?}",
+        a.fields
+    );
+}
+
+#[test]
+fn a_conflict_past_the_second_wrapper_argument_still_refuses() {
+    // `combine(a("jid"), a("jid"), a("lid"))` — the second read matches the first, so
+    // comparing only those two accepted `jid` and never looked at the conflicting third.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let a = edge_action(&ir, "multi3");
+    assert!(
+        !a.fields.iter().any(|f| f.name == "id"),
+        "every argument is inspected: {:?}",
+        a.fields
+    );
+    assert!(
+        a.fields.iter().any(|f| f.name == "plain"),
+        "and the unambiguous sibling survives: {:?}",
+        a.fields
+    );
+}
+
+#[test]
+fn a_return_after_an_unconditional_return_is_unreachable() {
+    // `return A; return B;` — B never runs. Treating every syntactic return as reachable
+    // published it as a second legal action for the tag, and let statements below the
+    // return contribute fields too.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let got: Vec<&str> = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .filter(|a| a.wire_tag == "dead")
+        .filter_map(|a| a.action_type.as_deref())
+        .collect();
+    assert_eq!(got, ["first"], "only the reachable shape: {got:?}");
+}
+
+#[test]
+fn a_literal_action_type_is_kept() {
+    // `{actionType: "create"}` is fully static. Resolving only `o("Mod").OBJECT.MEMBER`
+    // left the arm with no `actionType`, indistinguishable from one the arm computes.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let a = edge_action(&ir, "lit");
+    assert_eq!(a.action_type.as_deref(), Some("create"));
+}
+
+#[test]
+fn a_loop_body_return_is_collected() {
+    // `while (c) { return A } return B` legally produces both. Loops fell into the
+    // catch-all, so only B was emitted.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let mut got: Vec<&str> = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .filter(|a| a.wire_tag == "loop_tag")
+        .filter_map(|a| a.action_type.as_deref())
+        .collect();
+    got.sort_unstable();
+    assert_eq!(got, ["first", "second"], "both paths: {got:?}");
+}
+
+#[test]
+fn a_finalizer_does_not_read_a_binding_the_try_overwrote() {
+    // `var x = a("jid"); try { x = a("lid") } finally { return {id: x} }` returns `lid`.
+    // Analyzing the finalizer against the pre-`try` scope published `jid` as fact; the
+    // body may also have thrown part-way, so neither source is certain and the name is
+    // tombstoned rather than guessed.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let a = edge_action(&ir, "fintry");
+    assert!(
+        !a.fields.iter().any(|f| f.wire_name == "jid"),
+        "the stale pre-try source must not be published: {:?}",
+        a.fields
+    );
+}
+
+#[test]
+fn a_helper_that_only_normalises_its_argument_keeps_the_wire_read() {
+    // `reason: hasAttr("reason") ? norm(t.attrString("reason")) : null` — `norm` is a
+    // module-local helper, so the inliner claimed the key, produced an empty shape
+    // (the helper reads no attribute of its own) and dropped the field. Live for
+    // `add`/`remove`/`delete`'s `reason` before the fallback to `read_field`.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let a = edge_action(&ir, "param");
+    let f = a
+        .fields
+        .iter()
+        .find(|f| f.name == "reason")
+        .expect("the field survives the helper");
+    assert_eq!(f.wire_name, "reason");
+    assert!(!f.required, "it sits behind a presence guard");
+}
+
+#[test]
+fn a_bare_block_hands_its_writes_back() {
+    // A bare block always runs and `var` is function-scoped, so
+    // `var x = a("jid"); { x = a("lid"); } return {id: x}` reads `lid`. Analyzing the
+    // block against a clone discarded the write and published the pre-block source.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let a = edge_action(&ir, "blk");
+    let f = a
+        .fields
+        .iter()
+        .find(|f| f.name == "id")
+        .expect("the id field");
+    assert_eq!(
+        f.wire_name, "lid",
+        "the block's write is what reaches the return"
+    );
+}
+
+#[test]
+fn nothing_after_an_exhaustive_if_is_reachable() {
+    // `if (c) return A; else return B; return C;` — C never runs. The direct-return stop
+    // did not cover a statement that exits through both of its branches.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let mut got: Vec<&str> = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .filter(|a| a.wire_tag == "exh")
+        .filter_map(|a| a.action_type.as_deref())
+        .collect();
+    got.sort_unstable();
+    assert_eq!(
+        got,
+        ["first", "second"],
+        "the trailing return is dead: {got:?}"
+    );
+}
+
+#[test]
+fn a_nested_case_carries_its_setup_to_the_case_it_falls_into() {
+    // `case "a": nx = t.attrString("jid"); default: return {id: nx}` — the `a` path runs
+    // the assignment and falls into the default's return. Analyzing each consequent
+    // against the same incoming scope lost `id` on that path.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let a = edge_action(&ir, "nft");
+    assert!(
+        a.fields
+            .iter()
+            .any(|f| f.name == "id" && f.wire_name == "jid"),
+        "the fall-through setup reaches the return: {:?}",
+        a.fields
+    );
+}
+
+/// A handler whose payload union is SMALLER than an unrelated const-keyed switch beside
+/// it. Picking by arm count would publish the wrong one.
+const DECOY_SWITCH_BUNDLE: &str = r#"
+__d("WAWebCommsHandleLoggedInStanza",["WAWebHandleGroupNotification"],function(g,r,d,o,e,i,l){
+  l.handle = function(){ return (function*(e,t){
+    var n = e.attrs;
+    switch (e.tag) {
+      case "notification":
+        switch (n.type) {
+          case "w:gp2": return yield r("WAWebHandleGroupNotification")(e);
+        }
+    }
+  }); };
+}, 1);
+__d("WAWebHandleGroupNotificationConst",[],(function(t,n,r,o,a,i,l){
+  l.GROUP_NOTIFICATION_TAG=Object.freeze({REAL:"real"});
+  l.OTHER=Object.freeze({A:"a",B:"b",C:"c",D:"d"});
+}), 1);
+__d("WAWebGroupType",[],(function(t,n,r,o,a,i,l){
+  l.GROUP_ACTIONS=Object.freeze({FIRST:"first"});
+}), 1);
+__d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGroupType"],(function(t,n,r,o,a,i,l){
+  function h(e){
+    var mode = e.attrString("mode");
+    switch (mode) {
+      case o("WAWebHandleGroupNotificationConst").OTHER.A: return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, x:e.attrString("x")};
+      case o("WAWebHandleGroupNotificationConst").OTHER.B: return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, y:e.attrString("y")};
+      case o("WAWebHandleGroupNotificationConst").OTHER.C: return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, z:e.attrString("z")};
+      case o("WAWebHandleGroupNotificationConst").OTHER.D: return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, w:e.attrString("w")};
+    }
+  }
+  function top(e){
+    var x=e.mapChildren(function(t){
+      var tg = t.tag();
+      switch (tg) {
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.REAL:
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, real:t.attrString("real")};
+      }
+    });
+    return {actions:x};
+  }
+  l.handleGroupNotification=top;
+}), 1);
+"#;
+
+#[test]
+fn the_action_union_is_the_switch_on_a_child_tag_not_the_biggest_one() {
+    // A module can hold several const-keyed switches. Choosing by arm count let an
+    // unrelated one — four returning arms against the union's one — publish its
+    // constants as wire tags. The union is identified by dispatching on a child's TAG.
+    let ir = extract_notif(DECOY_SWITCH_BUNDLE, "2.3000.test");
+    let tags: Vec<&str> = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .map(|a| a.wire_tag.as_str())
+        .collect();
+    assert_eq!(
+        tags,
+        ["real"],
+        "only the child-tag switch is the union: {tags:?}"
+    );
+}
+
+#[test]
+fn a_shape_assigned_after_its_declaration_is_still_static() {
+    // `var lr; lr = {actionType: A, id: attr("jid")}; return lr` is fully static, but the
+    // reassignment rule required the right-hand side to resolve to a wire ACCESSOR and
+    // dropped the binding for an object literal, publishing an empty action.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let a = edge_action(&ir, "late");
+    assert_eq!(a.action_type.as_deref(), Some("first"));
+    assert!(
+        a.fields
+            .iter()
+            .any(|f| f.name == "id" && f.wire_name == "jid"),
+        "the whole shape survives: {:?}",
+        a.fields
+    );
+}
+
+#[test]
+fn a_do_while_body_write_is_definite() {
+    // A `do…while` body runs at least once, so every path reaching the return has run it.
+    // Grouping it with the zero-or-more loops tombstoned the write and lost the field.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let a = edge_action(&ir, "dow");
+    assert!(
+        a.fields
+            .iter()
+            .any(|f| f.name == "id" && f.wire_name == "lid"),
+        "the body's write reaches the return: {:?}",
+        a.fields
+    );
+}
+
+#[test]
+fn a_block_scoped_shadow_does_not_escape_its_block() {
+    // `var sh = a("jid"); { let sh = a("lid"); } return {id: sh}` reads `jid` — `let` dies
+    // with its block. Propagating the block's scope wholesale (the `var` fix) leaked it.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let a = edge_action(&ir, "shadow");
+    let f = a
+        .fields
+        .iter()
+        .find(|f| f.name == "id")
+        .expect("the id field");
+    assert_eq!(
+        f.wire_name, "jid",
+        "the OUTER binding is what the return reads"
+    );
+}
+
+#[test]
+fn a_catch_parameter_shadows_the_outer_binding() {
+    // The catch parameter IS the caught exception, not whatever the outer scope bound to
+    // that name. Analyzing the handler against the unmodified scope published the catch
+    // arm's `id` as a read of `jid`.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let second: Vec<_> = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .filter(|a| a.wire_tag == "catchp" && a.action_type.as_deref() == Some("second"))
+        .collect();
+    assert_eq!(second.len(), 1, "the catch arm is recovered");
+    assert!(
+        second[0].fields.is_empty(),
+        "but its `id` resolves to the exception, not to `jid`: {:?}",
+        second[0].fields
+    );
+}
+
+#[test]
+fn nothing_after_an_exiting_do_while_is_reachable() {
+    // `do { return A } while (c); return B` — the body runs at least once and returns, so
+    // B is dead. `stmt_exits` had no `do…while` arm, so traversal walked on and published
+    // it as a second legal action.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let got: Vec<&str> = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .filter(|a| a.wire_tag == "dowx")
+        .filter_map(|a| a.action_type.as_deref())
+        .collect();
+    assert_eq!(got, ["first"], "only the reachable shape: {got:?}");
+}
+
+#[test]
+fn an_identical_read_on_both_ternary_branches_stays_required() {
+    // `c ? attrString("jid") : attrString("jid")` runs on every path and still rejects an
+    // absent `jid`. Falling through to the plain path made `read_field` see a conditional,
+    // call it a presence guard, and publish `required: false`.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let a = edge_action(&ir, "same");
+    let f = a
+        .fields
+        .iter()
+        .find(|f| f.name == "id")
+        .expect("the id field");
+    assert_eq!(f.wire_name, "jid");
+    assert!(f.required, "the accessor is required on every path: {f:?}");
+}
+
+#[test]
+fn a_nested_callback_object_is_not_flattened_into_the_child() {
+    // `{meta: {id: p.attrString("id")}, top: …}` — the element has `meta.id`, NOT a
+    // top-level `id`. Walking every property value reached the inner one and claimed it.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let a = edge_action(&ir, "nest");
+    let child = a
+        .children
+        .iter()
+        .find(|c| c.name == "who")
+        .expect("the child");
+    let names: Vec<&str> = child.fields.iter().map(|f| f.name.as_str()).collect();
+    assert!(
+        names.contains(&"top"),
+        "the real flat field survives: {names:?}"
+    );
+    assert!(
+        !names.contains(&"id"),
+        "the nested one is not hoisted: {names:?}"
+    );
+}
+
+#[test]
+fn a_do_while_that_can_break_early_is_not_a_definite_write() {
+    // `do { if (c) break; x = a("lid"); } while (…)` reaches the return without assigning
+    // `x` on the break path, so `lid` is not its one certain source.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let a = edge_action(&ir, "dowb");
+    assert!(
+        !a.fields.iter().any(|f| f.name == "id"),
+        "the early-exit path leaves it unbound: {:?}",
+        a.fields
+    );
+}
+
+#[test]
+fn a_helper_given_a_wire_read_binds_its_parameter() {
+    // `function mk(v){ return {actionType: THIRD, id: v} }` called as
+    // `mk(t.attrString("jid"))`. The helper reads no attribute of its own, so expanding it
+    // with an empty scope resolved `v` to nothing and lost `id`.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let a = edge_action(&ir, "pval");
+    assert_eq!(a.action_type.as_deref(), Some("third"));
+    let f = a
+        .fields
+        .iter()
+        .find(|f| f.name == "id")
+        .expect("the id field");
+    assert_eq!(f.wire_name, "jid");
+}
+
+#[test]
+fn a_break_consumed_by_a_do_while_does_not_end_the_case() {
+    // `do { break; } while (c); return B` reaches B — the `break` leaves the LOOP, not the
+    // case. Passing the enclosing `nested` down made `stmt_exits` treat it as an exit.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let got: Vec<&str> = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .filter(|a| a.wire_tag == "dowbrk")
+        .filter_map(|a| a.action_type.as_deref())
+        .collect();
+    assert_eq!(
+        got,
+        ["second"],
+        "the statement after the loop is reachable: {got:?}"
+    );
+}
+
+#[test]
+fn a_finalizer_write_is_definite() {
+    // A `finally` runs on every path, so what it assigns is certain at the return.
+    // Tombstoning the whole `try` statement removed the finalizer's own writes too.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let a = edge_action(&ir, "finw");
+    let f = a
+        .fields
+        .iter()
+        .find(|f| f.name == "id")
+        .expect("the id field");
+    assert_eq!(
+        f.wire_name, "lid",
+        "the finalizer's write is what reaches the return"
+    );
+}
+
+#[test]
+fn a_for_initializer_runs_before_the_body() {
+    // `for (x = a("lid"); c; ) return {id: x}` always reads `lid`; analyzing the body
+    // against the pre-loop scope published the stale `jid`.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let second: Vec<_> = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .filter(|a| a.wire_tag == "fori" && a.action_type.as_deref() == Some("second"))
+        .collect();
+    assert_eq!(second.len(), 1);
+    let f = second[0]
+        .fields
+        .iter()
+        .find(|f| f.name == "id")
+        .expect("id");
+    assert_eq!(f.wire_name, "lid");
+}
+
+#[test]
+fn a_conditional_expression_write_tombstones_the_binding() {
+    // `cond && (x = a("lid"))` runs on some paths only, so `x` no longer has one known
+    // source. Ignoring the nested assignment left the pre-expression `jid` asserted.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let a = edge_action(&ir, "condw");
+    assert!(
+        !a.fields
+            .iter()
+            .any(|f| f.name == "id" && f.wire_name == "jid"),
+        "the stale source must not be published: {:?}",
+        a.fields
+    );
+}
+
+#[test]
+fn an_action_object_with_a_spread_is_refused() {
+    // `obj_props` skips the spread, so folding the survivors would publish a partial
+    // shape. A shape that cannot be read whole is refused, like the tables.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let a = edge_action(&ir, "sprd");
+    assert!(
+        !a.fields.iter().any(|f| f.name == "id"),
+        "no partial shape is published: {:?}",
+        a.fields
+    );
+}

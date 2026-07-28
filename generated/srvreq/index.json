@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "1.0.0",
+  "schemaVersion": "2.0.0",
   "waVersion": "2.3000.1043899084",
   "requests": [
     {
@@ -20,7 +20,7 @@
         ],
         "fields": [
           {
-            "method": "attrJidWithType",
+            "method": "literalJid",
             "name": "from",
             "wireName": "from",
             "type": "jid",
@@ -38,7 +38,8 @@
             "name": "type",
             "wireName": "type",
             "type": "string",
-            "required": true
+            "required": true,
+            "literalValue": "business"
           },
           {
             "method": "attrString",
@@ -96,6 +97,20 @@
                 "wireName": "display",
                 "type": "enum",
                 "required": true,
+                "enumRef": {
+                  "name": "ENUM_INFO_WARNING",
+                  "module": "WASmaxInBizCtwaActionEnums",
+                  "variants": [
+                    {
+                      "name": "info",
+                      "value": "info"
+                    },
+                    {
+                      "name": "warning",
+                      "value": "warning"
+                    }
+                  ]
+                },
                 "sourcePath": [
                   "config"
                 ]
@@ -106,6 +121,20 @@
                 "wireName": "revoked",
                 "type": "enum",
                 "required": true,
+                "enumRef": {
+                  "name": "ENUM_FALSE_TRUE",
+                  "module": "WASmaxInBizCtwaActionEnums",
+                  "variants": [
+                    {
+                      "name": "false",
+                      "value": "false"
+                    },
+                    {
+                      "name": "true",
+                      "value": "true"
+                    }
+                  ]
+                },
                 "sourcePath": [
                   "config"
                 ]
@@ -450,7 +479,7 @@
         ],
         "fields": [
           {
-            "method": "attrJidWithType",
+            "method": "literalJid",
             "name": "from",
             "wireName": "from",
             "type": "jid",
@@ -468,7 +497,8 @@
             "name": "type",
             "wireName": "type",
             "type": "string",
-            "required": true
+            "required": true,
+            "literalValue": "business"
           },
           {
             "method": "contentString",
@@ -523,7 +553,7 @@
         ],
         "fields": [
           {
-            "method": "attrJidWithType",
+            "method": "literalJid",
             "name": "from",
             "wireName": "from",
             "type": "jid",
@@ -541,7 +571,8 @@
             "name": "type",
             "wireName": "type",
             "type": "string",
-            "required": true
+            "required": true,
+            "literalValue": "business"
           },
           {
             "method": "child",
@@ -556,6 +587,24 @@
                 "wireName": "value",
                 "type": "enum",
                 "required": true,
+                "enumRef": {
+                  "name": "ENUM_FALSE_NOTSET_TRUE",
+                  "module": "WASmaxInBizSettingsEnums",
+                  "variants": [
+                    {
+                      "name": "false",
+                      "value": "false"
+                    },
+                    {
+                      "name": "notset",
+                      "value": "notset"
+                    },
+                    {
+                      "name": "true",
+                      "value": "true"
+                    }
+                  ]
+                },
                 "sourcePath": [
                   "smb_data_sharing_with_meta_consent"
                 ]
@@ -617,7 +666,7 @@
         ],
         "fields": [
           {
-            "method": "attrJidWithType",
+            "method": "literalJid",
             "name": "from",
             "wireName": "from",
             "type": "jid",
@@ -628,7 +677,8 @@
             "name": "type",
             "wireName": "type",
             "type": "string",
-            "required": true
+            "required": true,
+            "literalValue": "hosted"
           },
           {
             "method": "attrEnum",
@@ -636,6 +686,24 @@
             "wireName": "product_surface",
             "type": "enum",
             "required": true,
+            "enumRef": {
+              "name": "ENUM_AIFROMMETA_AUTOMATION_BUSINESSPLATFORM",
+              "module": "WASmaxInCoexistenceEnums",
+              "variants": [
+                {
+                  "name": "ai_from_meta",
+                  "value": "ai_from_meta"
+                },
+                {
+                  "name": "automation",
+                  "value": "automation"
+                },
+                {
+                  "name": "business_platform",
+                  "value": "business_platform"
+                }
+              ]
+            },
             "sourcePath": [
               "offboarding"
             ]
@@ -751,7 +819,7 @@
         ],
         "fields": [
           {
-            "method": "attrJidWithType",
+            "method": "literalJid",
             "name": "from",
             "wireName": "from",
             "type": "jid",
@@ -762,7 +830,8 @@
             "name": "type",
             "wireName": "type",
             "type": "string",
-            "required": true
+            "required": true,
+            "literalValue": "hosted"
           },
           {
             "method": "attrEnum",
@@ -770,6 +839,20 @@
             "wireName": "status",
             "type": "enum",
             "required": true,
+            "enumRef": {
+              "name": "ENUM_COMPLETED_FAILED",
+              "module": "WASmaxInCoexistenceEnums",
+              "variants": [
+                {
+                  "name": "completed",
+                  "value": "completed"
+                },
+                {
+                  "name": "failed",
+                  "value": "failed"
+                }
+              ]
+            },
             "sourcePath": [
               "onboarding_status"
             ]
@@ -786,7 +869,25 @@
                 "name": "productSurface",
                 "wireName": "product_surface",
                 "type": "enum",
-                "required": true
+                "required": true,
+                "enumRef": {
+                  "name": "ENUM_AIFROMMETA_AUTOMATION_BUSINESSPLATFORM",
+                  "module": "WASmaxInCoexistenceEnums",
+                  "variants": [
+                    {
+                      "name": "ai_from_meta",
+                      "value": "ai_from_meta"
+                    },
+                    {
+                      "name": "automation",
+                      "value": "automation"
+                    },
+                    {
+                      "name": "business_platform",
+                      "value": "business_platform"
+                    }
+                  ]
+                }
               }
             ],
             "repeats": false
@@ -906,10 +1007,11 @@
             "name": "type",
             "wireName": "type",
             "type": "string",
-            "required": true
+            "required": true,
+            "literalValue": "w:gp2"
           },
           {
-            "method": "attrJidWithType",
+            "method": "literalJid",
             "name": "from",
             "wireName": "from",
             "type": "jid",
@@ -983,10 +1085,11 @@
             "name": "type",
             "wireName": "type",
             "type": "string",
-            "required": true
+            "required": true,
+            "literalValue": "passkey_prologue_request"
           },
           {
-            "method": "attrJidWithType",
+            "method": "literalJid",
             "name": "from",
             "wireName": "from",
             "type": "jid",
@@ -1058,10 +1161,11 @@
             "name": "type",
             "wireName": "type",
             "type": "string",
-            "required": true
+            "required": true,
+            "literalValue": "link_code_companion_reg"
           },
           {
-            "method": "attrJidWithType",
+            "method": "literalJid",
             "name": "from",
             "wireName": "from",
             "type": "jid",
@@ -1073,6 +1177,7 @@
             "wireName": "stage",
             "type": "string",
             "required": true,
+            "literalValue": "primary_hello",
             "sourcePath": [
               "link_code_companion_reg"
             ]
@@ -1155,10 +1260,11 @@
             "name": "type",
             "wireName": "type",
             "type": "string",
-            "required": true
+            "required": true,
+            "literalValue": "link_code_companion_reg"
           },
           {
-            "method": "attrJidWithType",
+            "method": "literalJid",
             "name": "from",
             "wireName": "from",
             "type": "jid",
@@ -1170,6 +1276,7 @@
             "wireName": "stage",
             "type": "string",
             "required": true,
+            "literalValue": "refresh_code",
             "sourcePath": [
               "link_code_companion_reg"
             ]
@@ -1180,6 +1287,20 @@
             "wireName": "force_manual_refresh",
             "type": "enum",
             "required": false,
+            "enumRef": {
+              "name": "ENUM_FALSE_TRUE",
+              "module": "WASmaxInMdEnums",
+              "variants": [
+                {
+                  "name": "false",
+                  "value": "false"
+                },
+                {
+                  "name": "true",
+                  "value": "true"
+                }
+              ]
+            },
             "sourcePath": [
               "link_code_companion_reg"
             ]
@@ -1242,10 +1363,11 @@
             "name": "type",
             "wireName": "type",
             "type": "string",
-            "required": true
+            "required": true,
+            "literalValue": "crsc_continuation"
           },
           {
-            "method": "attrJidWithType",
+            "method": "literalJid",
             "name": "from",
             "wireName": "from",
             "type": "jid",
@@ -1359,7 +1481,8 @@
                     "name": "isSender",
                     "wireName": "is_sender",
                     "type": "string",
-                    "required": false
+                    "required": false,
+                    "literalValue": "true"
                   },
                   {
                     "method": "",
@@ -1494,6 +1617,7 @@
                             "wireName": "questiontype",
                             "type": "string",
                             "required": true,
+                            "literalValue": "question",
                             "sourcePath": [
                               "meta"
                             ]
@@ -1510,6 +1634,7 @@
                                 "wireName": "is_wamo_sub",
                                 "type": "string",
                                 "required": true,
+                                "literalValue": "true",
                                 "sourcePath": [
                                   "meta"
                                 ]
@@ -1549,7 +1674,8 @@
                                     "name": "type",
                                     "wireName": "type",
                                     "type": "string",
-                                    "required": true
+                                    "required": true,
+                                    "literalValue": "text"
                                   },
                                   {
                                     "method": "",
@@ -1563,6 +1689,7 @@
                                         "wireName": "is_wamo_sub",
                                         "type": "string",
                                         "required": true,
+                                        "literalValue": "true",
                                         "sourcePath": [
                                           "meta"
                                         ]
@@ -1592,6 +1719,92 @@
                                     "wireName": "mediatype",
                                     "type": "enum",
                                     "required": true,
+                                    "enumRef": {
+                                      "name": "ENUM_1PSTICKER_AUDIO_AVATARSTICKER_CATALOGLINK_COLLECTION_DOCUMENT_GENAISTICKER_GIF_IMAGE_MOTIONPHOTO_MOTIONVIDEO_PRODUCTLINK_PTT_PTV_STICKER_STICKERPACK_URL_USERCREATEDSTICKER_VCARD_VIDEO",
+                                      "module": "WASmaxInNewslettersEnums",
+                                      "variants": [
+                                        {
+                                          "name": "1p_sticker",
+                                          "value": "1p_sticker"
+                                        },
+                                        {
+                                          "name": "audio",
+                                          "value": "audio"
+                                        },
+                                        {
+                                          "name": "avatar_sticker",
+                                          "value": "avatar_sticker"
+                                        },
+                                        {
+                                          "name": "cataloglink",
+                                          "value": "cataloglink"
+                                        },
+                                        {
+                                          "name": "collection",
+                                          "value": "collection"
+                                        },
+                                        {
+                                          "name": "document",
+                                          "value": "document"
+                                        },
+                                        {
+                                          "name": "genai_sticker",
+                                          "value": "genai_sticker"
+                                        },
+                                        {
+                                          "name": "gif",
+                                          "value": "gif"
+                                        },
+                                        {
+                                          "name": "image",
+                                          "value": "image"
+                                        },
+                                        {
+                                          "name": "motion_photo",
+                                          "value": "motion_photo"
+                                        },
+                                        {
+                                          "name": "motion_video",
+                                          "value": "motion_video"
+                                        },
+                                        {
+                                          "name": "productlink",
+                                          "value": "productlink"
+                                        },
+                                        {
+                                          "name": "ptt",
+                                          "value": "ptt"
+                                        },
+                                        {
+                                          "name": "ptv",
+                                          "value": "ptv"
+                                        },
+                                        {
+                                          "name": "sticker",
+                                          "value": "sticker"
+                                        },
+                                        {
+                                          "name": "sticker_pack",
+                                          "value": "sticker_pack"
+                                        },
+                                        {
+                                          "name": "url",
+                                          "value": "url"
+                                        },
+                                        {
+                                          "name": "user_created_sticker",
+                                          "value": "user_created_sticker"
+                                        },
+                                        {
+                                          "name": "vcard",
+                                          "value": "vcard"
+                                        },
+                                        {
+                                          "name": "video",
+                                          "value": "video"
+                                        }
+                                      ]
+                                    },
                                     "sourcePath": [
                                       "plaintext"
                                     ]
@@ -1619,7 +1832,8 @@
                                     "name": "type",
                                     "wireName": "type",
                                     "type": "string",
-                                    "required": true
+                                    "required": true,
+                                    "literalValue": "media"
                                   },
                                   {
                                     "method": "",
@@ -1633,6 +1847,7 @@
                                         "wireName": "is_wamo_sub",
                                         "type": "string",
                                         "required": true,
+                                        "literalValue": "true",
                                         "sourcePath": [
                                           "meta"
                                         ]
@@ -1652,6 +1867,40 @@
                                         "wireName": "message_association_type",
                                         "type": "enum",
                                         "required": true,
+                                        "enumRef": {
+                                          "name": "ENUM_HDIMAGEDUALUPLOAD_HDVIDEODUALUPLOAD_HEVCVIDEODUALUPLOAD_MEDIAPOLL_MOTIONPHOTO_POLLADDOPTION_STICKERANNOTATION",
+                                          "module": "WASmaxInNewslettersEnums",
+                                          "variants": [
+                                            {
+                                              "name": "hd_image_dual_upload",
+                                              "value": "hd_image_dual_upload"
+                                            },
+                                            {
+                                              "name": "hd_video_dual_upload",
+                                              "value": "hd_video_dual_upload"
+                                            },
+                                            {
+                                              "name": "hevc_video_dual_upload",
+                                              "value": "hevc_video_dual_upload"
+                                            },
+                                            {
+                                              "name": "media_poll",
+                                              "value": "media_poll"
+                                            },
+                                            {
+                                              "name": "motion_photo",
+                                              "value": "motion_photo"
+                                            },
+                                            {
+                                              "name": "poll_add_option",
+                                              "value": "poll_add_option"
+                                            },
+                                            {
+                                              "name": "sticker_annotation",
+                                              "value": "sticker_annotation"
+                                            }
+                                          ]
+                                        },
                                         "sourcePath": [
                                           "meta"
                                         ]
@@ -1709,7 +1958,8 @@
                             "name": "edit",
                             "wireName": "edit",
                             "type": "string",
-                            "required": true
+                            "required": true,
+                            "literalValue": "3"
                           },
                           {
                             "method": "",
@@ -1723,6 +1973,7 @@
                                 "wireName": "is_wamo_sub",
                                 "type": "string",
                                 "required": true,
+                                "literalValue": "true",
                                 "sourcePath": [
                                   "meta"
                                 ]
@@ -1745,6 +1996,7 @@
                                     "wireName": "questiontype",
                                     "type": "string",
                                     "required": true,
+                                    "literalValue": "reply",
                                     "sourcePath": [
                                       "meta"
                                     ]
@@ -1761,6 +2013,7 @@
                                         "wireName": "is_wamo_sub",
                                         "type": "string",
                                         "required": true,
+                                        "literalValue": "true",
                                         "sourcePath": [
                                           "meta"
                                         ]
@@ -1800,7 +2053,8 @@
                                             "name": "type",
                                             "wireName": "type",
                                             "type": "string",
-                                            "required": true
+                                            "required": true,
+                                            "literalValue": "text"
                                           },
                                           {
                                             "method": "",
@@ -1814,6 +2068,7 @@
                                                 "wireName": "is_wamo_sub",
                                                 "type": "string",
                                                 "required": true,
+                                                "literalValue": "true",
                                                 "sourcePath": [
                                                   "meta"
                                                 ]
@@ -1843,6 +2098,92 @@
                                             "wireName": "mediatype",
                                             "type": "enum",
                                             "required": true,
+                                            "enumRef": {
+                                              "name": "ENUM_1PSTICKER_AUDIO_AVATARSTICKER_CATALOGLINK_COLLECTION_DOCUMENT_GENAISTICKER_GIF_IMAGE_MOTIONPHOTO_MOTIONVIDEO_PRODUCTLINK_PTT_PTV_STICKER_STICKERPACK_URL_USERCREATEDSTICKER_VCARD_VIDEO",
+                                              "module": "WASmaxInNewslettersEnums",
+                                              "variants": [
+                                                {
+                                                  "name": "1p_sticker",
+                                                  "value": "1p_sticker"
+                                                },
+                                                {
+                                                  "name": "audio",
+                                                  "value": "audio"
+                                                },
+                                                {
+                                                  "name": "avatar_sticker",
+                                                  "value": "avatar_sticker"
+                                                },
+                                                {
+                                                  "name": "cataloglink",
+                                                  "value": "cataloglink"
+                                                },
+                                                {
+                                                  "name": "collection",
+                                                  "value": "collection"
+                                                },
+                                                {
+                                                  "name": "document",
+                                                  "value": "document"
+                                                },
+                                                {
+                                                  "name": "genai_sticker",
+                                                  "value": "genai_sticker"
+                                                },
+                                                {
+                                                  "name": "gif",
+                                                  "value": "gif"
+                                                },
+                                                {
+                                                  "name": "image",
+                                                  "value": "image"
+                                                },
+                                                {
+                                                  "name": "motion_photo",
+                                                  "value": "motion_photo"
+                                                },
+                                                {
+                                                  "name": "motion_video",
+                                                  "value": "motion_video"
+                                                },
+                                                {
+                                                  "name": "productlink",
+                                                  "value": "productlink"
+                                                },
+                                                {
+                                                  "name": "ptt",
+                                                  "value": "ptt"
+                                                },
+                                                {
+                                                  "name": "ptv",
+                                                  "value": "ptv"
+                                                },
+                                                {
+                                                  "name": "sticker",
+                                                  "value": "sticker"
+                                                },
+                                                {
+                                                  "name": "sticker_pack",
+                                                  "value": "sticker_pack"
+                                                },
+                                                {
+                                                  "name": "url",
+                                                  "value": "url"
+                                                },
+                                                {
+                                                  "name": "user_created_sticker",
+                                                  "value": "user_created_sticker"
+                                                },
+                                                {
+                                                  "name": "vcard",
+                                                  "value": "vcard"
+                                                },
+                                                {
+                                                  "name": "video",
+                                                  "value": "video"
+                                                }
+                                              ]
+                                            },
                                             "sourcePath": [
                                               "plaintext"
                                             ]
@@ -1870,7 +2211,8 @@
                                             "name": "type",
                                             "wireName": "type",
                                             "type": "string",
-                                            "required": true
+                                            "required": true,
+                                            "literalValue": "media"
                                           },
                                           {
                                             "method": "",
@@ -1884,6 +2226,7 @@
                                                 "wireName": "is_wamo_sub",
                                                 "type": "string",
                                                 "required": true,
+                                                "literalValue": "true",
                                                 "sourcePath": [
                                                   "meta"
                                                 ]
@@ -1903,6 +2246,40 @@
                                                 "wireName": "message_association_type",
                                                 "type": "enum",
                                                 "required": true,
+                                                "enumRef": {
+                                                  "name": "ENUM_HDIMAGEDUALUPLOAD_HDVIDEODUALUPLOAD_HEVCVIDEODUALUPLOAD_MEDIAPOLL_MOTIONPHOTO_POLLADDOPTION_STICKERANNOTATION",
+                                                  "module": "WASmaxInNewslettersEnums",
+                                                  "variants": [
+                                                    {
+                                                      "name": "hd_image_dual_upload",
+                                                      "value": "hd_image_dual_upload"
+                                                    },
+                                                    {
+                                                      "name": "hd_video_dual_upload",
+                                                      "value": "hd_video_dual_upload"
+                                                    },
+                                                    {
+                                                      "name": "hevc_video_dual_upload",
+                                                      "value": "hevc_video_dual_upload"
+                                                    },
+                                                    {
+                                                      "name": "media_poll",
+                                                      "value": "media_poll"
+                                                    },
+                                                    {
+                                                      "name": "motion_photo",
+                                                      "value": "motion_photo"
+                                                    },
+                                                    {
+                                                      "name": "poll_add_option",
+                                                      "value": "poll_add_option"
+                                                    },
+                                                    {
+                                                      "name": "sticker_annotation",
+                                                      "value": "sticker_annotation"
+                                                    }
+                                                  ]
+                                                },
                                                 "sourcePath": [
                                                   "meta"
                                                 ]
@@ -1978,7 +2355,8 @@
                                     "name": "type",
                                     "wireName": "type",
                                     "type": "string",
-                                    "required": true
+                                    "required": true,
+                                    "literalValue": "text"
                                   },
                                   {
                                     "method": "",
@@ -1992,6 +2370,7 @@
                                         "wireName": "is_wamo_sub",
                                         "type": "string",
                                         "required": true,
+                                        "literalValue": "true",
                                         "sourcePath": [
                                           "meta"
                                         ]
@@ -2021,6 +2400,92 @@
                                     "wireName": "mediatype",
                                     "type": "enum",
                                     "required": true,
+                                    "enumRef": {
+                                      "name": "ENUM_1PSTICKER_AUDIO_AVATARSTICKER_CATALOGLINK_COLLECTION_DOCUMENT_GENAISTICKER_GIF_IMAGE_MOTIONPHOTO_MOTIONVIDEO_PRODUCTLINK_PTT_PTV_STICKER_STICKERPACK_URL_USERCREATEDSTICKER_VCARD_VIDEO",
+                                      "module": "WASmaxInNewslettersEnums",
+                                      "variants": [
+                                        {
+                                          "name": "1p_sticker",
+                                          "value": "1p_sticker"
+                                        },
+                                        {
+                                          "name": "audio",
+                                          "value": "audio"
+                                        },
+                                        {
+                                          "name": "avatar_sticker",
+                                          "value": "avatar_sticker"
+                                        },
+                                        {
+                                          "name": "cataloglink",
+                                          "value": "cataloglink"
+                                        },
+                                        {
+                                          "name": "collection",
+                                          "value": "collection"
+                                        },
+                                        {
+                                          "name": "document",
+                                          "value": "document"
+                                        },
+                                        {
+                                          "name": "genai_sticker",
+                                          "value": "genai_sticker"
+                                        },
+                                        {
+                                          "name": "gif",
+                                          "value": "gif"
+                                        },
+                                        {
+                                          "name": "image",
+                                          "value": "image"
+                                        },
+                                        {
+                                          "name": "motion_photo",
+                                          "value": "motion_photo"
+                                        },
+                                        {
+                                          "name": "motion_video",
+                                          "value": "motion_video"
+                                        },
+                                        {
+                                          "name": "productlink",
+                                          "value": "productlink"
+                                        },
+                                        {
+                                          "name": "ptt",
+                                          "value": "ptt"
+                                        },
+                                        {
+                                          "name": "ptv",
+                                          "value": "ptv"
+                                        },
+                                        {
+                                          "name": "sticker",
+                                          "value": "sticker"
+                                        },
+                                        {
+                                          "name": "sticker_pack",
+                                          "value": "sticker_pack"
+                                        },
+                                        {
+                                          "name": "url",
+                                          "value": "url"
+                                        },
+                                        {
+                                          "name": "user_created_sticker",
+                                          "value": "user_created_sticker"
+                                        },
+                                        {
+                                          "name": "vcard",
+                                          "value": "vcard"
+                                        },
+                                        {
+                                          "name": "video",
+                                          "value": "video"
+                                        }
+                                      ]
+                                    },
                                     "sourcePath": [
                                       "plaintext"
                                     ]
@@ -2048,7 +2513,8 @@
                                     "name": "type",
                                     "wireName": "type",
                                     "type": "string",
-                                    "required": true
+                                    "required": true,
+                                    "literalValue": "media"
                                   },
                                   {
                                     "method": "",
@@ -2062,6 +2528,7 @@
                                         "wireName": "is_wamo_sub",
                                         "type": "string",
                                         "required": true,
+                                        "literalValue": "true",
                                         "sourcePath": [
                                           "meta"
                                         ]
@@ -2081,6 +2548,40 @@
                                         "wireName": "message_association_type",
                                         "type": "enum",
                                         "required": true,
+                                        "enumRef": {
+                                          "name": "ENUM_HDIMAGEDUALUPLOAD_HDVIDEODUALUPLOAD_HEVCVIDEODUALUPLOAD_MEDIAPOLL_MOTIONPHOTO_POLLADDOPTION_STICKERANNOTATION",
+                                          "module": "WASmaxInNewslettersEnums",
+                                          "variants": [
+                                            {
+                                              "name": "hd_image_dual_upload",
+                                              "value": "hd_image_dual_upload"
+                                            },
+                                            {
+                                              "name": "hd_video_dual_upload",
+                                              "value": "hd_video_dual_upload"
+                                            },
+                                            {
+                                              "name": "hevc_video_dual_upload",
+                                              "value": "hevc_video_dual_upload"
+                                            },
+                                            {
+                                              "name": "media_poll",
+                                              "value": "media_poll"
+                                            },
+                                            {
+                                              "name": "motion_photo",
+                                              "value": "motion_photo"
+                                            },
+                                            {
+                                              "name": "poll_add_option",
+                                              "value": "poll_add_option"
+                                            },
+                                            {
+                                              "name": "sticker_annotation",
+                                              "value": "sticker_annotation"
+                                            }
+                                          ]
+                                        },
                                         "sourcePath": [
                                           "meta"
                                         ]
@@ -2144,6 +2645,7 @@
                             "wireName": "questiontype",
                             "type": "string",
                             "required": true,
+                            "literalValue": "reply",
                             "sourcePath": [
                               "meta"
                             ]
@@ -2160,6 +2662,7 @@
                                 "wireName": "is_wamo_sub",
                                 "type": "string",
                                 "required": true,
+                                "literalValue": "true",
                                 "sourcePath": [
                                   "meta"
                                 ]
@@ -2199,7 +2702,8 @@
                                     "name": "type",
                                     "wireName": "type",
                                     "type": "string",
-                                    "required": true
+                                    "required": true,
+                                    "literalValue": "text"
                                   },
                                   {
                                     "method": "",
@@ -2213,6 +2717,7 @@
                                         "wireName": "is_wamo_sub",
                                         "type": "string",
                                         "required": true,
+                                        "literalValue": "true",
                                         "sourcePath": [
                                           "meta"
                                         ]
@@ -2242,6 +2747,92 @@
                                     "wireName": "mediatype",
                                     "type": "enum",
                                     "required": true,
+                                    "enumRef": {
+                                      "name": "ENUM_1PSTICKER_AUDIO_AVATARSTICKER_CATALOGLINK_COLLECTION_DOCUMENT_GENAISTICKER_GIF_IMAGE_MOTIONPHOTO_MOTIONVIDEO_PRODUCTLINK_PTT_PTV_STICKER_STICKERPACK_URL_USERCREATEDSTICKER_VCARD_VIDEO",
+                                      "module": "WASmaxInNewslettersEnums",
+                                      "variants": [
+                                        {
+                                          "name": "1p_sticker",
+                                          "value": "1p_sticker"
+                                        },
+                                        {
+                                          "name": "audio",
+                                          "value": "audio"
+                                        },
+                                        {
+                                          "name": "avatar_sticker",
+                                          "value": "avatar_sticker"
+                                        },
+                                        {
+                                          "name": "cataloglink",
+                                          "value": "cataloglink"
+                                        },
+                                        {
+                                          "name": "collection",
+                                          "value": "collection"
+                                        },
+                                        {
+                                          "name": "document",
+                                          "value": "document"
+                                        },
+                                        {
+                                          "name": "genai_sticker",
+                                          "value": "genai_sticker"
+                                        },
+                                        {
+                                          "name": "gif",
+                                          "value": "gif"
+                                        },
+                                        {
+                                          "name": "image",
+                                          "value": "image"
+                                        },
+                                        {
+                                          "name": "motion_photo",
+                                          "value": "motion_photo"
+                                        },
+                                        {
+                                          "name": "motion_video",
+                                          "value": "motion_video"
+                                        },
+                                        {
+                                          "name": "productlink",
+                                          "value": "productlink"
+                                        },
+                                        {
+                                          "name": "ptt",
+                                          "value": "ptt"
+                                        },
+                                        {
+                                          "name": "ptv",
+                                          "value": "ptv"
+                                        },
+                                        {
+                                          "name": "sticker",
+                                          "value": "sticker"
+                                        },
+                                        {
+                                          "name": "sticker_pack",
+                                          "value": "sticker_pack"
+                                        },
+                                        {
+                                          "name": "url",
+                                          "value": "url"
+                                        },
+                                        {
+                                          "name": "user_created_sticker",
+                                          "value": "user_created_sticker"
+                                        },
+                                        {
+                                          "name": "vcard",
+                                          "value": "vcard"
+                                        },
+                                        {
+                                          "name": "video",
+                                          "value": "video"
+                                        }
+                                      ]
+                                    },
                                     "sourcePath": [
                                       "plaintext"
                                     ]
@@ -2269,7 +2860,8 @@
                                     "name": "type",
                                     "wireName": "type",
                                     "type": "string",
-                                    "required": true
+                                    "required": true,
+                                    "literalValue": "media"
                                   },
                                   {
                                     "method": "",
@@ -2283,6 +2875,7 @@
                                         "wireName": "is_wamo_sub",
                                         "type": "string",
                                         "required": true,
+                                        "literalValue": "true",
                                         "sourcePath": [
                                           "meta"
                                         ]
@@ -2302,6 +2895,40 @@
                                         "wireName": "message_association_type",
                                         "type": "enum",
                                         "required": true,
+                                        "enumRef": {
+                                          "name": "ENUM_HDIMAGEDUALUPLOAD_HDVIDEODUALUPLOAD_HEVCVIDEODUALUPLOAD_MEDIAPOLL_MOTIONPHOTO_POLLADDOPTION_STICKERANNOTATION",
+                                          "module": "WASmaxInNewslettersEnums",
+                                          "variants": [
+                                            {
+                                              "name": "hd_image_dual_upload",
+                                              "value": "hd_image_dual_upload"
+                                            },
+                                            {
+                                              "name": "hd_video_dual_upload",
+                                              "value": "hd_video_dual_upload"
+                                            },
+                                            {
+                                              "name": "hevc_video_dual_upload",
+                                              "value": "hevc_video_dual_upload"
+                                            },
+                                            {
+                                              "name": "media_poll",
+                                              "value": "media_poll"
+                                            },
+                                            {
+                                              "name": "motion_photo",
+                                              "value": "motion_photo"
+                                            },
+                                            {
+                                              "name": "poll_add_option",
+                                              "value": "poll_add_option"
+                                            },
+                                            {
+                                              "name": "sticker_annotation",
+                                              "value": "sticker_annotation"
+                                            }
+                                          ]
+                                        },
                                         "sourcePath": [
                                           "meta"
                                         ]
@@ -2359,14 +2986,16 @@
                             "name": "edit",
                             "wireName": "edit",
                             "type": "string",
-                            "required": true
+                            "required": true,
+                            "literalValue": "8"
                           },
                           {
                             "method": "attrString",
                             "name": "type",
                             "wireName": "type",
                             "type": "string",
-                            "required": true
+                            "required": true,
+                            "literalValue": "text"
                           },
                           {
                             "method": "",
@@ -2380,6 +3009,7 @@
                                 "wireName": "is_wamo_sub",
                                 "type": "string",
                                 "required": true,
+                                "literalValue": "true",
                                 "sourcePath": [
                                   "meta"
                                 ]
@@ -2431,7 +3061,8 @@
                             "name": "type",
                             "wireName": "type",
                             "type": "string",
-                            "required": true
+                            "required": true,
+                            "literalValue": "text"
                           },
                           {
                             "method": "",
@@ -2445,6 +3076,7 @@
                                 "wireName": "is_wamo_sub",
                                 "type": "string",
                                 "required": true,
+                                "literalValue": "true",
                                 "sourcePath": [
                                   "meta"
                                 ]
@@ -2474,6 +3106,92 @@
                             "wireName": "mediatype",
                             "type": "enum",
                             "required": true,
+                            "enumRef": {
+                              "name": "ENUM_1PSTICKER_AUDIO_AVATARSTICKER_CATALOGLINK_COLLECTION_DOCUMENT_GENAISTICKER_GIF_IMAGE_MOTIONPHOTO_MOTIONVIDEO_PRODUCTLINK_PTT_PTV_STICKER_STICKERPACK_URL_USERCREATEDSTICKER_VCARD_VIDEO",
+                              "module": "WASmaxInNewslettersEnums",
+                              "variants": [
+                                {
+                                  "name": "1p_sticker",
+                                  "value": "1p_sticker"
+                                },
+                                {
+                                  "name": "audio",
+                                  "value": "audio"
+                                },
+                                {
+                                  "name": "avatar_sticker",
+                                  "value": "avatar_sticker"
+                                },
+                                {
+                                  "name": "cataloglink",
+                                  "value": "cataloglink"
+                                },
+                                {
+                                  "name": "collection",
+                                  "value": "collection"
+                                },
+                                {
+                                  "name": "document",
+                                  "value": "document"
+                                },
+                                {
+                                  "name": "genai_sticker",
+                                  "value": "genai_sticker"
+                                },
+                                {
+                                  "name": "gif",
+                                  "value": "gif"
+                                },
+                                {
+                                  "name": "image",
+                                  "value": "image"
+                                },
+                                {
+                                  "name": "motion_photo",
+                                  "value": "motion_photo"
+                                },
+                                {
+                                  "name": "motion_video",
+                                  "value": "motion_video"
+                                },
+                                {
+                                  "name": "productlink",
+                                  "value": "productlink"
+                                },
+                                {
+                                  "name": "ptt",
+                                  "value": "ptt"
+                                },
+                                {
+                                  "name": "ptv",
+                                  "value": "ptv"
+                                },
+                                {
+                                  "name": "sticker",
+                                  "value": "sticker"
+                                },
+                                {
+                                  "name": "sticker_pack",
+                                  "value": "sticker_pack"
+                                },
+                                {
+                                  "name": "url",
+                                  "value": "url"
+                                },
+                                {
+                                  "name": "user_created_sticker",
+                                  "value": "user_created_sticker"
+                                },
+                                {
+                                  "name": "vcard",
+                                  "value": "vcard"
+                                },
+                                {
+                                  "name": "video",
+                                  "value": "video"
+                                }
+                              ]
+                            },
                             "sourcePath": [
                               "plaintext"
                             ]
@@ -2501,7 +3219,8 @@
                             "name": "type",
                             "wireName": "type",
                             "type": "string",
-                            "required": true
+                            "required": true,
+                            "literalValue": "media"
                           },
                           {
                             "method": "",
@@ -2515,6 +3234,7 @@
                                 "wireName": "is_wamo_sub",
                                 "type": "string",
                                 "required": true,
+                                "literalValue": "true",
                                 "sourcePath": [
                                   "meta"
                                 ]
@@ -2534,6 +3254,40 @@
                                 "wireName": "message_association_type",
                                 "type": "enum",
                                 "required": true,
+                                "enumRef": {
+                                  "name": "ENUM_HDIMAGEDUALUPLOAD_HDVIDEODUALUPLOAD_HEVCVIDEODUALUPLOAD_MEDIAPOLL_MOTIONPHOTO_POLLADDOPTION_STICKERANNOTATION",
+                                  "module": "WASmaxInNewslettersEnums",
+                                  "variants": [
+                                    {
+                                      "name": "hd_image_dual_upload",
+                                      "value": "hd_image_dual_upload"
+                                    },
+                                    {
+                                      "name": "hd_video_dual_upload",
+                                      "value": "hd_video_dual_upload"
+                                    },
+                                    {
+                                      "name": "hevc_video_dual_upload",
+                                      "value": "hevc_video_dual_upload"
+                                    },
+                                    {
+                                      "name": "media_poll",
+                                      "value": "media_poll"
+                                    },
+                                    {
+                                      "name": "motion_photo",
+                                      "value": "motion_photo"
+                                    },
+                                    {
+                                      "name": "poll_add_option",
+                                      "value": "poll_add_option"
+                                    },
+                                    {
+                                      "name": "sticker_annotation",
+                                      "value": "sticker_annotation"
+                                    }
+                                  ]
+                                },
                                 "sourcePath": [
                                   "meta"
                                 ]
@@ -2599,7 +3353,8 @@
                             "name": "type",
                             "wireName": "type",
                             "type": "string",
-                            "required": true
+                            "required": true,
+                            "literalValue": "poll"
                           },
                           {
                             "method": "attrString",
@@ -2607,6 +3362,7 @@
                             "wireName": "polltype",
                             "type": "string",
                             "required": true,
+                            "literalValue": "creation",
                             "sourcePath": [
                               "meta"
                             ]
@@ -2633,6 +3389,7 @@
                                 "wireName": "is_wamo_sub",
                                 "type": "string",
                                 "required": true,
+                                "literalValue": "true",
                                 "sourcePath": [
                                   "meta"
                                 ]
@@ -2679,7 +3436,8 @@
                             "name": "type",
                             "wireName": "type",
                             "type": "string",
-                            "required": true
+                            "required": true,
+                            "literalValue": "poll"
                           },
                           {
                             "method": "attrString",
@@ -2687,6 +3445,7 @@
                             "wireName": "polltype",
                             "type": "string",
                             "required": true,
+                            "literalValue": "quiz_creation",
                             "sourcePath": [
                               "meta"
                             ]
@@ -2713,6 +3472,7 @@
                                 "wireName": "is_wamo_sub",
                                 "type": "string",
                                 "required": true,
+                                "literalValue": "true",
                                 "sourcePath": [
                                   "meta"
                                 ]
@@ -2759,7 +3519,8 @@
                             "name": "type",
                             "wireName": "type",
                             "type": "string",
-                            "required": true
+                            "required": true,
+                            "literalValue": "poll"
                           },
                           {
                             "method": "attrString",
@@ -2767,6 +3528,7 @@
                             "wireName": "polltype",
                             "type": "string",
                             "required": true,
+                            "literalValue": "result_snapshot",
                             "sourcePath": [
                               "meta"
                             ]
@@ -2783,6 +3545,7 @@
                                 "wireName": "is_wamo_sub",
                                 "type": "string",
                                 "required": true,
+                                "literalValue": "true",
                                 "sourcePath": [
                                   "meta"
                                 ]
@@ -2812,6 +3575,7 @@
                             "wireName": "is_wamo_sub",
                             "type": "string",
                             "required": true,
+                            "literalValue": "true",
                             "sourcePath": [
                               "meta"
                             ]
@@ -2827,7 +3591,8 @@
                                 "name": "edit",
                                 "wireName": "edit",
                                 "type": "string",
-                                "required": true
+                                "required": true,
+                                "literalValue": "8"
                               }
                             ],
                             "sameNode": true
@@ -2843,7 +3608,8 @@
                                 "name": "edit",
                                 "wireName": "edit",
                                 "type": "string",
-                                "required": true
+                                "required": true,
+                                "literalValue": "3"
                               }
                             ],
                             "sameNode": true
@@ -2863,6 +3629,7 @@
                                     "wireName": "questiontype",
                                     "type": "string",
                                     "required": true,
+                                    "literalValue": "question",
                                     "sourcePath": [
                                       "meta"
                                     ]
@@ -2881,7 +3648,8 @@
                                             "name": "type",
                                             "wireName": "type",
                                             "type": "string",
-                                            "required": true
+                                            "required": true,
+                                            "literalValue": "text"
                                           }
                                         ],
                                         "assertions": [
@@ -2904,7 +3672,8 @@
                                             "name": "type",
                                             "wireName": "type",
                                             "type": "string",
-                                            "required": true
+                                            "required": true,
+                                            "literalValue": "media"
                                           }
                                         ],
                                         "assertions": [
@@ -2938,6 +3707,7 @@
                                     "wireName": "questiontype",
                                     "type": "string",
                                     "required": true,
+                                    "literalValue": "reply",
                                     "sourcePath": [
                                       "meta"
                                     ]
@@ -2956,7 +3726,8 @@
                                             "name": "type",
                                             "wireName": "type",
                                             "type": "string",
-                                            "required": true
+                                            "required": true,
+                                            "literalValue": "text"
                                           }
                                         ],
                                         "assertions": [
@@ -2979,7 +3750,8 @@
                                             "name": "type",
                                             "wireName": "type",
                                             "type": "string",
-                                            "required": true
+                                            "required": true,
+                                            "literalValue": "media"
                                           }
                                         ],
                                         "assertions": [
@@ -3012,7 +3784,8 @@
                                     "name": "type",
                                     "wireName": "type",
                                     "type": "string",
-                                    "required": true
+                                    "required": true,
+                                    "literalValue": "text"
                                   }
                                 ],
                                 "assertions": [
@@ -3035,7 +3808,8 @@
                                     "name": "type",
                                     "wireName": "type",
                                     "type": "string",
-                                    "required": true
+                                    "required": true,
+                                    "literalValue": "media"
                                   }
                                 ],
                                 "assertions": [
@@ -3058,7 +3832,8 @@
                                     "name": "type",
                                     "wireName": "type",
                                     "type": "string",
-                                    "required": true
+                                    "required": true,
+                                    "literalValue": "poll"
                                   },
                                   {
                                     "method": "attrString",
@@ -3066,6 +3841,7 @@
                                     "wireName": "polltype",
                                     "type": "string",
                                     "required": true,
+                                    "literalValue": "creation",
                                     "sourcePath": [
                                       "meta"
                                     ]
@@ -3101,7 +3877,8 @@
                                     "name": "type",
                                     "wireName": "type",
                                     "type": "string",
-                                    "required": true
+                                    "required": true,
+                                    "literalValue": "poll"
                                   },
                                   {
                                     "method": "attrString",
@@ -3109,6 +3886,7 @@
                                     "wireName": "polltype",
                                     "type": "string",
                                     "required": true,
+                                    "literalValue": "quiz_creation",
                                     "sourcePath": [
                                       "meta"
                                     ]
@@ -3251,6 +4029,7 @@
                         "wireName": "mediatype",
                         "type": "string",
                         "required": true,
+                        "literalValue": "url",
                         "sourcePath": [
                           "plaintext"
                         ]
@@ -3269,7 +4048,8 @@
                         "name": "type",
                         "wireName": "type",
                         "type": "string",
-                        "required": true
+                        "required": true,
+                        "literalValue": "media"
                       }
                     ],
                     "sameNode": true
@@ -3314,7 +4094,8 @@
                                 "name": "type",
                                 "wireName": "type",
                                 "type": "string",
-                                "required": false
+                                "required": false,
+                                "literalValue": "views"
                               },
                               {
                                 "method": "attrInt",
@@ -3378,7 +4159,8 @@
             "name": "type",
             "wireName": "type",
             "type": "string",
-            "required": true
+            "required": true,
+            "literalValue": "newsletter"
           },
           {
             "method": "attrInt",
@@ -3435,7 +4217,8 @@
             "name": "type",
             "wireName": "type",
             "type": "string",
-            "required": true
+            "required": true,
+            "literalValue": "psa"
           },
           {
             "method": "attrInt",
@@ -3492,7 +4275,8 @@
             "name": "type",
             "wireName": "type",
             "type": "string",
-            "required": true
+            "required": true,
+            "literalValue": "psa"
           },
           {
             "method": "child",
@@ -3600,6 +4384,20 @@
                         "wireName": "dismissable",
                         "type": "enum",
                         "required": true,
+                        "enumRef": {
+                          "name": "ENUM_FALSE_TRUE",
+                          "module": "WASmaxInQpSurfacesEnums",
+                          "variants": [
+                            {
+                              "name": "false",
+                              "value": "false"
+                            },
+                            {
+                              "name": "true",
+                              "value": "true"
+                            }
+                          ]
+                        },
                         "sourcePath": [
                           "qp_config"
                         ]
@@ -3610,6 +4408,20 @@
                         "wireName": "force_pass",
                         "type": "enum",
                         "required": true,
+                        "enumRef": {
+                          "name": "ENUM_FALSE_TRUE",
+                          "module": "WASmaxInQpSurfacesEnums",
+                          "variants": [
+                            {
+                              "name": "false",
+                              "value": "false"
+                            },
+                            {
+                              "name": "true",
+                              "value": "true"
+                            }
+                          ]
+                        },
                         "sourcePath": [
                           "qp_config"
                         ]
@@ -3630,6 +4442,20 @@
                         "wireName": "deterministic",
                         "type": "enum",
                         "required": true,
+                        "enumRef": {
+                          "name": "ENUM_FALSE_TRUE",
+                          "module": "WASmaxInQpSurfacesEnums",
+                          "variants": [
+                            {
+                              "name": "false",
+                              "value": "false"
+                            },
+                            {
+                              "name": "true",
+                              "value": "true"
+                            }
+                          ]
+                        },
                         "sourcePath": [
                           "qp_config"
                         ]
@@ -3650,6 +4476,20 @@
                         "wireName": "exposure_holdout",
                         "type": "enum",
                         "required": true,
+                        "enumRef": {
+                          "name": "ENUM_FALSE_TRUE",
+                          "module": "WASmaxInQpSurfacesEnums",
+                          "variants": [
+                            {
+                              "name": "false",
+                              "value": "false"
+                            },
+                            {
+                              "name": "true",
+                              "value": "true"
+                            }
+                          ]
+                        },
                         "sourcePath": [
                           "qp_config"
                         ]
@@ -3700,6 +4540,20 @@
                         "wireName": "log_eligibility_waterfall",
                         "type": "enum",
                         "required": true,
+                        "enumRef": {
+                          "name": "ENUM_FALSE_TRUE",
+                          "module": "WASmaxInQpSurfacesEnums",
+                          "variants": [
+                            {
+                              "name": "false",
+                              "value": "false"
+                            },
+                            {
+                              "name": "true",
+                              "value": "true"
+                            }
+                          ]
+                        },
                         "sourcePath": [
                           "qp_config"
                         ]
@@ -4117,7 +4971,7 @@
         ],
         "fields": [
           {
-            "method": "attrJidWithType",
+            "method": "literalJid",
             "name": "from",
             "wireName": "from",
             "type": "jid",
@@ -4135,7 +4989,8 @@
             "name": "type",
             "wireName": "type",
             "type": "string",
-            "required": true
+            "required": true,
+            "literalValue": "business"
           },
           {
             "method": "maybeAttrString",
@@ -4173,6 +5028,20 @@
             "wireName": "status",
             "type": "enum",
             "required": true,
+            "enumRef": {
+              "name": "ENUM_INTEGRITYNOTCLEARED_OK",
+              "module": "WASmaxInSmbMeteredMessagesCampaignEnums",
+              "variants": [
+                {
+                  "name": "INTEGRITY_NOT_CLEARED",
+                  "value": "INTEGRITY_NOT_CLEARED"
+                },
+                {
+                  "name": "OK",
+                  "value": "OK"
+                }
+              ]
+            },
             "sourcePath": [
               "mm_campaign"
             ]
@@ -4221,7 +5090,7 @@
         ],
         "fields": [
           {
-            "method": "attrJidWithType",
+            "method": "literalJid",
             "name": "from",
             "wireName": "from",
             "type": "jid",
@@ -4232,7 +5101,8 @@
             "name": "type",
             "wireName": "type",
             "type": "string",
-            "required": true
+            "required": true,
+            "literalValue": "waffle"
           },
           {
             "method": "attrInt",
@@ -4252,6 +5122,20 @@
             "wireName": "show_user_notif",
             "type": "enum",
             "required": false,
+            "enumRef": {
+              "name": "ENUM_FALSE_TRUE",
+              "module": "WASmaxInWaffleEnums",
+              "variants": [
+                {
+                  "name": "false",
+                  "value": "false"
+                },
+                {
+                  "name": "true",
+                  "value": "true"
+                }
+              ]
+            },
             "sourcePath": [
               "notification_metadata"
             ]
@@ -4274,6 +5158,20 @@
             "wireName": "client_resync",
             "type": "enum",
             "required": false,
+            "enumRef": {
+              "name": "ENUM_FALSE_TRUE",
+              "module": "WASmaxInWaffleEnums",
+              "variants": [
+                {
+                  "name": "false",
+                  "value": "false"
+                },
+                {
+                  "name": "true",
+                  "value": "true"
+                }
+              ]
+            },
             "sourcePath": [
               "notification_metadata"
             ]
@@ -4294,6 +5192,20 @@
             "wireName": "npr",
             "type": "enum",
             "required": false,
+            "enumRef": {
+              "name": "ENUM_FALSE_TRUE",
+              "module": "WASmaxInWaffleEnums",
+              "variants": [
+                {
+                  "name": "false",
+                  "value": "false"
+                },
+                {
+                  "name": "true",
+                  "value": "true"
+                }
+              ]
+            },
             "sourcePath": [
               "notification_metadata"
             ]
@@ -4347,7 +5259,7 @@
         ],
         "fields": [
           {
-            "method": "attrJidWithType",
+            "method": "literalJid",
             "name": "from",
             "wireName": "from",
             "type": "jid",
@@ -4358,7 +5270,8 @@
             "name": "xmlns",
             "wireName": "xmlns",
             "type": "string",
-            "required": true
+            "required": true,
+            "literalValue": "md"
           },
           {
             "method": "contentBytes",
@@ -4400,6 +5313,20 @@
             "wireName": "beta",
             "type": "enum",
             "required": false,
+            "enumRef": {
+              "name": "ENUM_FALSE_TRUE",
+              "module": "WASmaxInMdEnums",
+              "variants": [
+                {
+                  "name": "false",
+                  "value": "false"
+                },
+                {
+                  "name": "true",
+                  "value": "true"
+                }
+              ]
+            },
             "sourcePath": [
               "pair-success",
               "device"
@@ -4428,7 +5355,8 @@
             "name": "type",
             "wireName": "type",
             "type": "string",
-            "required": true
+            "required": true,
+            "literalValue": "set"
           },
           {
             "method": "child",
@@ -4481,14 +5409,16 @@
                 "name": "version",
                 "wireName": "version",
                 "type": "string",
-                "required": true
+                "required": true,
+                "literalValue": "1"
               },
               {
                 "method": "attrString",
                 "name": "algorithm",
                 "wireName": "algorithm",
                 "type": "string",
-                "required": true
+                "required": true,
+                "literalValue": "aes-256-gcm"
               },
               {
                 "method": "contentBytes",
@@ -4566,7 +5496,7 @@
         ],
         "fields": [
           {
-            "method": "attrJidWithType",
+            "method": "literalJid",
             "name": "from",
             "wireName": "from",
             "type": "jid",
@@ -4577,7 +5507,8 @@
             "name": "xmlns",
             "wireName": "xmlns",
             "type": "string",
-            "required": true
+            "required": true,
+            "literalValue": "md"
           },
           {
             "method": "attrString",
@@ -4591,7 +5522,8 @@
             "name": "type",
             "wireName": "type",
             "type": "string",
-            "required": true
+            "required": true,
+            "literalValue": "set"
           },
           {
             "method": "child",
@@ -4628,7 +5560,7 @@
         ],
         "fields": [
           {
-            "method": "attrJidWithType",
+            "method": "literalJid",
             "name": "from",
             "wireName": "from",
             "type": "jid",
@@ -4707,7 +5639,8 @@
                     "name": "type",
                     "wireName": "type",
                     "type": "string",
-                    "required": true
+                    "required": true,
+                    "literalValue": "unavailable"
                   }
                 ],
                 "assertions": [
@@ -4737,14 +5670,33 @@
                     "name": "type",
                     "wireName": "type",
                     "type": "string",
-                    "required": true
+                    "required": true,
+                    "literalValue": "unavailable"
                   },
                   {
                     "method": "maybeAttrEnum",
                     "name": "last",
                     "wireName": "last",
                     "type": "enum",
-                    "required": false
+                    "required": false,
+                    "enumRef": {
+                      "name": "ENUM_DENY_ERROR_NONE",
+                      "module": "WASmaxInPresenceEnums",
+                      "variants": [
+                        {
+                          "name": "deny",
+                          "value": "deny"
+                        },
+                        {
+                          "name": "error",
+                          "value": "error"
+                        },
+                        {
+                          "name": "none",
+                          "value": "none"
+                        }
+                      ]
+                    }
                   }
                 ],
                 "assertions": [
@@ -4774,7 +5726,8 @@
                     "name": "type",
                     "wireName": "type",
                     "type": "string",
-                    "required": true
+                    "required": true,
+                    "literalValue": "unavailable"
                   },
                   {
                     "method": "maybeAttrString",
@@ -4811,7 +5764,8 @@
                     "name": "type",
                     "wireName": "type",
                     "type": "string",
-                    "required": false
+                    "required": false,
+                    "literalValue": "available"
                   },
                   {
                     "method": "maybeAttrString",
@@ -4874,10 +5828,10 @@
                 "name": "FromUser",
                 "fields": [
                   {
-                    "method": "attrJidWithType",
+                    "method": "attrJidEnum",
                     "name": "from",
                     "wireName": "from",
-                    "type": "jid",
+                    "type": "jid_typed",
                     "required": true
                   }
                 ],
@@ -4899,10 +5853,10 @@
                     "required": true
                   },
                   {
-                    "method": "attrJidWithType",
+                    "method": "attrJidEnum",
                     "name": "participant",
                     "wireName": "participant",
-                    "type": "jid",
+                    "type": "jid_typed",
                     "required": true
                   },
                   {
@@ -4937,6 +5891,7 @@
                     "wireName": "media",
                     "type": "string",
                     "required": false,
+                    "literalValue": "audio",
                     "sourcePath": [
                       "composing"
                     ]
@@ -5005,7 +5960,8 @@
             "name": "isSender",
             "wireName": "is_sender",
             "type": "string",
-            "required": false
+            "required": false,
+            "literalValue": "true"
           },
           {
             "method": "",
@@ -5140,6 +6096,7 @@
                     "wireName": "questiontype",
                     "type": "string",
                     "required": true,
+                    "literalValue": "question",
                     "sourcePath": [
                       "meta"
                     ]
@@ -5156,6 +6113,7 @@
                         "wireName": "is_wamo_sub",
                         "type": "string",
                         "required": true,
+                        "literalValue": "true",
                         "sourcePath": [
                           "meta"
                         ]
@@ -5195,7 +6153,8 @@
                             "name": "type",
                             "wireName": "type",
                             "type": "string",
-                            "required": true
+                            "required": true,
+                            "literalValue": "text"
                           },
                           {
                             "method": "",
@@ -5209,6 +6168,7 @@
                                 "wireName": "is_wamo_sub",
                                 "type": "string",
                                 "required": true,
+                                "literalValue": "true",
                                 "sourcePath": [
                                   "meta"
                                 ]
@@ -5238,6 +6198,92 @@
                             "wireName": "mediatype",
                             "type": "enum",
                             "required": true,
+                            "enumRef": {
+                              "name": "ENUM_1PSTICKER_AUDIO_AVATARSTICKER_CATALOGLINK_COLLECTION_DOCUMENT_GENAISTICKER_GIF_IMAGE_MOTIONPHOTO_MOTIONVIDEO_PRODUCTLINK_PTT_PTV_STICKER_STICKERPACK_URL_USERCREATEDSTICKER_VCARD_VIDEO",
+                              "module": "WASmaxInMessageDeliverEnums",
+                              "variants": [
+                                {
+                                  "name": "1p_sticker",
+                                  "value": "1p_sticker"
+                                },
+                                {
+                                  "name": "audio",
+                                  "value": "audio"
+                                },
+                                {
+                                  "name": "avatar_sticker",
+                                  "value": "avatar_sticker"
+                                },
+                                {
+                                  "name": "cataloglink",
+                                  "value": "cataloglink"
+                                },
+                                {
+                                  "name": "collection",
+                                  "value": "collection"
+                                },
+                                {
+                                  "name": "document",
+                                  "value": "document"
+                                },
+                                {
+                                  "name": "genai_sticker",
+                                  "value": "genai_sticker"
+                                },
+                                {
+                                  "name": "gif",
+                                  "value": "gif"
+                                },
+                                {
+                                  "name": "image",
+                                  "value": "image"
+                                },
+                                {
+                                  "name": "motion_photo",
+                                  "value": "motion_photo"
+                                },
+                                {
+                                  "name": "motion_video",
+                                  "value": "motion_video"
+                                },
+                                {
+                                  "name": "productlink",
+                                  "value": "productlink"
+                                },
+                                {
+                                  "name": "ptt",
+                                  "value": "ptt"
+                                },
+                                {
+                                  "name": "ptv",
+                                  "value": "ptv"
+                                },
+                                {
+                                  "name": "sticker",
+                                  "value": "sticker"
+                                },
+                                {
+                                  "name": "sticker_pack",
+                                  "value": "sticker_pack"
+                                },
+                                {
+                                  "name": "url",
+                                  "value": "url"
+                                },
+                                {
+                                  "name": "user_created_sticker",
+                                  "value": "user_created_sticker"
+                                },
+                                {
+                                  "name": "vcard",
+                                  "value": "vcard"
+                                },
+                                {
+                                  "name": "video",
+                                  "value": "video"
+                                }
+                              ]
+                            },
                             "sourcePath": [
                               "plaintext"
                             ]
@@ -5265,7 +6311,8 @@
                             "name": "type",
                             "wireName": "type",
                             "type": "string",
-                            "required": true
+                            "required": true,
+                            "literalValue": "media"
                           },
                           {
                             "method": "",
@@ -5279,6 +6326,7 @@
                                 "wireName": "is_wamo_sub",
                                 "type": "string",
                                 "required": true,
+                                "literalValue": "true",
                                 "sourcePath": [
                                   "meta"
                                 ]
@@ -5298,6 +6346,40 @@
                                 "wireName": "message_association_type",
                                 "type": "enum",
                                 "required": true,
+                                "enumRef": {
+                                  "name": "ENUM_HDIMAGEDUALUPLOAD_HDVIDEODUALUPLOAD_HEVCVIDEODUALUPLOAD_MEDIAPOLL_MOTIONPHOTO_POLLADDOPTION_STICKERANNOTATION",
+                                  "module": "WASmaxInMessageDeliverEnums",
+                                  "variants": [
+                                    {
+                                      "name": "hd_image_dual_upload",
+                                      "value": "hd_image_dual_upload"
+                                    },
+                                    {
+                                      "name": "hd_video_dual_upload",
+                                      "value": "hd_video_dual_upload"
+                                    },
+                                    {
+                                      "name": "hevc_video_dual_upload",
+                                      "value": "hevc_video_dual_upload"
+                                    },
+                                    {
+                                      "name": "media_poll",
+                                      "value": "media_poll"
+                                    },
+                                    {
+                                      "name": "motion_photo",
+                                      "value": "motion_photo"
+                                    },
+                                    {
+                                      "name": "poll_add_option",
+                                      "value": "poll_add_option"
+                                    },
+                                    {
+                                      "name": "sticker_annotation",
+                                      "value": "sticker_annotation"
+                                    }
+                                  ]
+                                },
                                 "sourcePath": [
                                   "meta"
                                 ]
@@ -5373,7 +6455,8 @@
                     "name": "type",
                     "wireName": "type",
                     "type": "string",
-                    "required": true
+                    "required": true,
+                    "literalValue": "text"
                   },
                   {
                     "method": "attrString",
@@ -5381,6 +6464,7 @@
                     "wireName": "questiontype",
                     "type": "string",
                     "required": true,
+                    "literalValue": "response",
                     "sourcePath": [
                       "meta"
                     ]
@@ -5416,7 +6500,8 @@
                     "name": "edit",
                     "wireName": "edit",
                     "type": "string",
-                    "required": true
+                    "required": true,
+                    "literalValue": "3"
                   },
                   {
                     "method": "",
@@ -5430,6 +6515,7 @@
                         "wireName": "is_wamo_sub",
                         "type": "string",
                         "required": true,
+                        "literalValue": "true",
                         "sourcePath": [
                           "meta"
                         ]
@@ -5452,6 +6538,7 @@
                             "wireName": "questiontype",
                             "type": "string",
                             "required": true,
+                            "literalValue": "reply",
                             "sourcePath": [
                               "meta"
                             ]
@@ -5468,6 +6555,7 @@
                                 "wireName": "is_wamo_sub",
                                 "type": "string",
                                 "required": true,
+                                "literalValue": "true",
                                 "sourcePath": [
                                   "meta"
                                 ]
@@ -5507,7 +6595,8 @@
                                     "name": "type",
                                     "wireName": "type",
                                     "type": "string",
-                                    "required": true
+                                    "required": true,
+                                    "literalValue": "text"
                                   },
                                   {
                                     "method": "",
@@ -5521,6 +6610,7 @@
                                         "wireName": "is_wamo_sub",
                                         "type": "string",
                                         "required": true,
+                                        "literalValue": "true",
                                         "sourcePath": [
                                           "meta"
                                         ]
@@ -5550,6 +6640,92 @@
                                     "wireName": "mediatype",
                                     "type": "enum",
                                     "required": true,
+                                    "enumRef": {
+                                      "name": "ENUM_1PSTICKER_AUDIO_AVATARSTICKER_CATALOGLINK_COLLECTION_DOCUMENT_GENAISTICKER_GIF_IMAGE_MOTIONPHOTO_MOTIONVIDEO_PRODUCTLINK_PTT_PTV_STICKER_STICKERPACK_URL_USERCREATEDSTICKER_VCARD_VIDEO",
+                                      "module": "WASmaxInMessageDeliverEnums",
+                                      "variants": [
+                                        {
+                                          "name": "1p_sticker",
+                                          "value": "1p_sticker"
+                                        },
+                                        {
+                                          "name": "audio",
+                                          "value": "audio"
+                                        },
+                                        {
+                                          "name": "avatar_sticker",
+                                          "value": "avatar_sticker"
+                                        },
+                                        {
+                                          "name": "cataloglink",
+                                          "value": "cataloglink"
+                                        },
+                                        {
+                                          "name": "collection",
+                                          "value": "collection"
+                                        },
+                                        {
+                                          "name": "document",
+                                          "value": "document"
+                                        },
+                                        {
+                                          "name": "genai_sticker",
+                                          "value": "genai_sticker"
+                                        },
+                                        {
+                                          "name": "gif",
+                                          "value": "gif"
+                                        },
+                                        {
+                                          "name": "image",
+                                          "value": "image"
+                                        },
+                                        {
+                                          "name": "motion_photo",
+                                          "value": "motion_photo"
+                                        },
+                                        {
+                                          "name": "motion_video",
+                                          "value": "motion_video"
+                                        },
+                                        {
+                                          "name": "productlink",
+                                          "value": "productlink"
+                                        },
+                                        {
+                                          "name": "ptt",
+                                          "value": "ptt"
+                                        },
+                                        {
+                                          "name": "ptv",
+                                          "value": "ptv"
+                                        },
+                                        {
+                                          "name": "sticker",
+                                          "value": "sticker"
+                                        },
+                                        {
+                                          "name": "sticker_pack",
+                                          "value": "sticker_pack"
+                                        },
+                                        {
+                                          "name": "url",
+                                          "value": "url"
+                                        },
+                                        {
+                                          "name": "user_created_sticker",
+                                          "value": "user_created_sticker"
+                                        },
+                                        {
+                                          "name": "vcard",
+                                          "value": "vcard"
+                                        },
+                                        {
+                                          "name": "video",
+                                          "value": "video"
+                                        }
+                                      ]
+                                    },
                                     "sourcePath": [
                                       "plaintext"
                                     ]
@@ -5577,7 +6753,8 @@
                                     "name": "type",
                                     "wireName": "type",
                                     "type": "string",
-                                    "required": true
+                                    "required": true,
+                                    "literalValue": "media"
                                   },
                                   {
                                     "method": "",
@@ -5591,6 +6768,7 @@
                                         "wireName": "is_wamo_sub",
                                         "type": "string",
                                         "required": true,
+                                        "literalValue": "true",
                                         "sourcePath": [
                                           "meta"
                                         ]
@@ -5610,6 +6788,40 @@
                                         "wireName": "message_association_type",
                                         "type": "enum",
                                         "required": true,
+                                        "enumRef": {
+                                          "name": "ENUM_HDIMAGEDUALUPLOAD_HDVIDEODUALUPLOAD_HEVCVIDEODUALUPLOAD_MEDIAPOLL_MOTIONPHOTO_POLLADDOPTION_STICKERANNOTATION",
+                                          "module": "WASmaxInMessageDeliverEnums",
+                                          "variants": [
+                                            {
+                                              "name": "hd_image_dual_upload",
+                                              "value": "hd_image_dual_upload"
+                                            },
+                                            {
+                                              "name": "hd_video_dual_upload",
+                                              "value": "hd_video_dual_upload"
+                                            },
+                                            {
+                                              "name": "hevc_video_dual_upload",
+                                              "value": "hevc_video_dual_upload"
+                                            },
+                                            {
+                                              "name": "media_poll",
+                                              "value": "media_poll"
+                                            },
+                                            {
+                                              "name": "motion_photo",
+                                              "value": "motion_photo"
+                                            },
+                                            {
+                                              "name": "poll_add_option",
+                                              "value": "poll_add_option"
+                                            },
+                                            {
+                                              "name": "sticker_annotation",
+                                              "value": "sticker_annotation"
+                                            }
+                                          ]
+                                        },
                                         "sourcePath": [
                                           "meta"
                                         ]
@@ -5685,7 +6897,8 @@
                             "name": "type",
                             "wireName": "type",
                             "type": "string",
-                            "required": true
+                            "required": true,
+                            "literalValue": "text"
                           },
                           {
                             "method": "",
@@ -5699,6 +6912,7 @@
                                 "wireName": "is_wamo_sub",
                                 "type": "string",
                                 "required": true,
+                                "literalValue": "true",
                                 "sourcePath": [
                                   "meta"
                                 ]
@@ -5728,6 +6942,92 @@
                             "wireName": "mediatype",
                             "type": "enum",
                             "required": true,
+                            "enumRef": {
+                              "name": "ENUM_1PSTICKER_AUDIO_AVATARSTICKER_CATALOGLINK_COLLECTION_DOCUMENT_GENAISTICKER_GIF_IMAGE_MOTIONPHOTO_MOTIONVIDEO_PRODUCTLINK_PTT_PTV_STICKER_STICKERPACK_URL_USERCREATEDSTICKER_VCARD_VIDEO",
+                              "module": "WASmaxInMessageDeliverEnums",
+                              "variants": [
+                                {
+                                  "name": "1p_sticker",
+                                  "value": "1p_sticker"
+                                },
+                                {
+                                  "name": "audio",
+                                  "value": "audio"
+                                },
+                                {
+                                  "name": "avatar_sticker",
+                                  "value": "avatar_sticker"
+                                },
+                                {
+                                  "name": "cataloglink",
+                                  "value": "cataloglink"
+                                },
+                                {
+                                  "name": "collection",
+                                  "value": "collection"
+                                },
+                                {
+                                  "name": "document",
+                                  "value": "document"
+                                },
+                                {
+                                  "name": "genai_sticker",
+                                  "value": "genai_sticker"
+                                },
+                                {
+                                  "name": "gif",
+                                  "value": "gif"
+                                },
+                                {
+                                  "name": "image",
+                                  "value": "image"
+                                },
+                                {
+                                  "name": "motion_photo",
+                                  "value": "motion_photo"
+                                },
+                                {
+                                  "name": "motion_video",
+                                  "value": "motion_video"
+                                },
+                                {
+                                  "name": "productlink",
+                                  "value": "productlink"
+                                },
+                                {
+                                  "name": "ptt",
+                                  "value": "ptt"
+                                },
+                                {
+                                  "name": "ptv",
+                                  "value": "ptv"
+                                },
+                                {
+                                  "name": "sticker",
+                                  "value": "sticker"
+                                },
+                                {
+                                  "name": "sticker_pack",
+                                  "value": "sticker_pack"
+                                },
+                                {
+                                  "name": "url",
+                                  "value": "url"
+                                },
+                                {
+                                  "name": "user_created_sticker",
+                                  "value": "user_created_sticker"
+                                },
+                                {
+                                  "name": "vcard",
+                                  "value": "vcard"
+                                },
+                                {
+                                  "name": "video",
+                                  "value": "video"
+                                }
+                              ]
+                            },
                             "sourcePath": [
                               "plaintext"
                             ]
@@ -5755,7 +7055,8 @@
                             "name": "type",
                             "wireName": "type",
                             "type": "string",
-                            "required": true
+                            "required": true,
+                            "literalValue": "media"
                           },
                           {
                             "method": "",
@@ -5769,6 +7070,7 @@
                                 "wireName": "is_wamo_sub",
                                 "type": "string",
                                 "required": true,
+                                "literalValue": "true",
                                 "sourcePath": [
                                   "meta"
                                 ]
@@ -5788,6 +7090,40 @@
                                 "wireName": "message_association_type",
                                 "type": "enum",
                                 "required": true,
+                                "enumRef": {
+                                  "name": "ENUM_HDIMAGEDUALUPLOAD_HDVIDEODUALUPLOAD_HEVCVIDEODUALUPLOAD_MEDIAPOLL_MOTIONPHOTO_POLLADDOPTION_STICKERANNOTATION",
+                                  "module": "WASmaxInMessageDeliverEnums",
+                                  "variants": [
+                                    {
+                                      "name": "hd_image_dual_upload",
+                                      "value": "hd_image_dual_upload"
+                                    },
+                                    {
+                                      "name": "hd_video_dual_upload",
+                                      "value": "hd_video_dual_upload"
+                                    },
+                                    {
+                                      "name": "hevc_video_dual_upload",
+                                      "value": "hevc_video_dual_upload"
+                                    },
+                                    {
+                                      "name": "media_poll",
+                                      "value": "media_poll"
+                                    },
+                                    {
+                                      "name": "motion_photo",
+                                      "value": "motion_photo"
+                                    },
+                                    {
+                                      "name": "poll_add_option",
+                                      "value": "poll_add_option"
+                                    },
+                                    {
+                                      "name": "sticker_annotation",
+                                      "value": "sticker_annotation"
+                                    }
+                                  ]
+                                },
                                 "sourcePath": [
                                   "meta"
                                 ]
@@ -5851,6 +7187,7 @@
                     "wireName": "questiontype",
                     "type": "string",
                     "required": true,
+                    "literalValue": "reply",
                     "sourcePath": [
                       "meta"
                     ]
@@ -5867,6 +7204,7 @@
                         "wireName": "is_wamo_sub",
                         "type": "string",
                         "required": true,
+                        "literalValue": "true",
                         "sourcePath": [
                           "meta"
                         ]
@@ -5906,7 +7244,8 @@
                             "name": "type",
                             "wireName": "type",
                             "type": "string",
-                            "required": true
+                            "required": true,
+                            "literalValue": "text"
                           },
                           {
                             "method": "",
@@ -5920,6 +7259,7 @@
                                 "wireName": "is_wamo_sub",
                                 "type": "string",
                                 "required": true,
+                                "literalValue": "true",
                                 "sourcePath": [
                                   "meta"
                                 ]
@@ -5949,6 +7289,92 @@
                             "wireName": "mediatype",
                             "type": "enum",
                             "required": true,
+                            "enumRef": {
+                              "name": "ENUM_1PSTICKER_AUDIO_AVATARSTICKER_CATALOGLINK_COLLECTION_DOCUMENT_GENAISTICKER_GIF_IMAGE_MOTIONPHOTO_MOTIONVIDEO_PRODUCTLINK_PTT_PTV_STICKER_STICKERPACK_URL_USERCREATEDSTICKER_VCARD_VIDEO",
+                              "module": "WASmaxInMessageDeliverEnums",
+                              "variants": [
+                                {
+                                  "name": "1p_sticker",
+                                  "value": "1p_sticker"
+                                },
+                                {
+                                  "name": "audio",
+                                  "value": "audio"
+                                },
+                                {
+                                  "name": "avatar_sticker",
+                                  "value": "avatar_sticker"
+                                },
+                                {
+                                  "name": "cataloglink",
+                                  "value": "cataloglink"
+                                },
+                                {
+                                  "name": "collection",
+                                  "value": "collection"
+                                },
+                                {
+                                  "name": "document",
+                                  "value": "document"
+                                },
+                                {
+                                  "name": "genai_sticker",
+                                  "value": "genai_sticker"
+                                },
+                                {
+                                  "name": "gif",
+                                  "value": "gif"
+                                },
+                                {
+                                  "name": "image",
+                                  "value": "image"
+                                },
+                                {
+                                  "name": "motion_photo",
+                                  "value": "motion_photo"
+                                },
+                                {
+                                  "name": "motion_video",
+                                  "value": "motion_video"
+                                },
+                                {
+                                  "name": "productlink",
+                                  "value": "productlink"
+                                },
+                                {
+                                  "name": "ptt",
+                                  "value": "ptt"
+                                },
+                                {
+                                  "name": "ptv",
+                                  "value": "ptv"
+                                },
+                                {
+                                  "name": "sticker",
+                                  "value": "sticker"
+                                },
+                                {
+                                  "name": "sticker_pack",
+                                  "value": "sticker_pack"
+                                },
+                                {
+                                  "name": "url",
+                                  "value": "url"
+                                },
+                                {
+                                  "name": "user_created_sticker",
+                                  "value": "user_created_sticker"
+                                },
+                                {
+                                  "name": "vcard",
+                                  "value": "vcard"
+                                },
+                                {
+                                  "name": "video",
+                                  "value": "video"
+                                }
+                              ]
+                            },
                             "sourcePath": [
                               "plaintext"
                             ]
@@ -5976,7 +7402,8 @@
                             "name": "type",
                             "wireName": "type",
                             "type": "string",
-                            "required": true
+                            "required": true,
+                            "literalValue": "media"
                           },
                           {
                             "method": "",
@@ -5990,6 +7417,7 @@
                                 "wireName": "is_wamo_sub",
                                 "type": "string",
                                 "required": true,
+                                "literalValue": "true",
                                 "sourcePath": [
                                   "meta"
                                 ]
@@ -6009,6 +7437,40 @@
                                 "wireName": "message_association_type",
                                 "type": "enum",
                                 "required": true,
+                                "enumRef": {
+                                  "name": "ENUM_HDIMAGEDUALUPLOAD_HDVIDEODUALUPLOAD_HEVCVIDEODUALUPLOAD_MEDIAPOLL_MOTIONPHOTO_POLLADDOPTION_STICKERANNOTATION",
+                                  "module": "WASmaxInMessageDeliverEnums",
+                                  "variants": [
+                                    {
+                                      "name": "hd_image_dual_upload",
+                                      "value": "hd_image_dual_upload"
+                                    },
+                                    {
+                                      "name": "hd_video_dual_upload",
+                                      "value": "hd_video_dual_upload"
+                                    },
+                                    {
+                                      "name": "hevc_video_dual_upload",
+                                      "value": "hevc_video_dual_upload"
+                                    },
+                                    {
+                                      "name": "media_poll",
+                                      "value": "media_poll"
+                                    },
+                                    {
+                                      "name": "motion_photo",
+                                      "value": "motion_photo"
+                                    },
+                                    {
+                                      "name": "poll_add_option",
+                                      "value": "poll_add_option"
+                                    },
+                                    {
+                                      "name": "sticker_annotation",
+                                      "value": "sticker_annotation"
+                                    }
+                                  ]
+                                },
                                 "sourcePath": [
                                   "meta"
                                 ]
@@ -6066,14 +7528,16 @@
                     "name": "edit",
                     "wireName": "edit",
                     "type": "string",
-                    "required": true
+                    "required": true,
+                    "literalValue": "8"
                   },
                   {
                     "method": "attrString",
                     "name": "type",
                     "wireName": "type",
                     "type": "string",
-                    "required": true
+                    "required": true,
+                    "literalValue": "text"
                   },
                   {
                     "method": "",
@@ -6087,6 +7551,7 @@
                         "wireName": "is_wamo_sub",
                         "type": "string",
                         "required": true,
+                        "literalValue": "true",
                         "sourcePath": [
                           "meta"
                         ]
@@ -6138,7 +7603,8 @@
                     "name": "type",
                     "wireName": "type",
                     "type": "string",
-                    "required": true
+                    "required": true,
+                    "literalValue": "text"
                   },
                   {
                     "method": "",
@@ -6152,6 +7618,7 @@
                         "wireName": "is_wamo_sub",
                         "type": "string",
                         "required": true,
+                        "literalValue": "true",
                         "sourcePath": [
                           "meta"
                         ]
@@ -6181,6 +7648,92 @@
                     "wireName": "mediatype",
                     "type": "enum",
                     "required": true,
+                    "enumRef": {
+                      "name": "ENUM_1PSTICKER_AUDIO_AVATARSTICKER_CATALOGLINK_COLLECTION_DOCUMENT_GENAISTICKER_GIF_IMAGE_MOTIONPHOTO_MOTIONVIDEO_PRODUCTLINK_PTT_PTV_STICKER_STICKERPACK_URL_USERCREATEDSTICKER_VCARD_VIDEO",
+                      "module": "WASmaxInMessageDeliverEnums",
+                      "variants": [
+                        {
+                          "name": "1p_sticker",
+                          "value": "1p_sticker"
+                        },
+                        {
+                          "name": "audio",
+                          "value": "audio"
+                        },
+                        {
+                          "name": "avatar_sticker",
+                          "value": "avatar_sticker"
+                        },
+                        {
+                          "name": "cataloglink",
+                          "value": "cataloglink"
+                        },
+                        {
+                          "name": "collection",
+                          "value": "collection"
+                        },
+                        {
+                          "name": "document",
+                          "value": "document"
+                        },
+                        {
+                          "name": "genai_sticker",
+                          "value": "genai_sticker"
+                        },
+                        {
+                          "name": "gif",
+                          "value": "gif"
+                        },
+                        {
+                          "name": "image",
+                          "value": "image"
+                        },
+                        {
+                          "name": "motion_photo",
+                          "value": "motion_photo"
+                        },
+                        {
+                          "name": "motion_video",
+                          "value": "motion_video"
+                        },
+                        {
+                          "name": "productlink",
+                          "value": "productlink"
+                        },
+                        {
+                          "name": "ptt",
+                          "value": "ptt"
+                        },
+                        {
+                          "name": "ptv",
+                          "value": "ptv"
+                        },
+                        {
+                          "name": "sticker",
+                          "value": "sticker"
+                        },
+                        {
+                          "name": "sticker_pack",
+                          "value": "sticker_pack"
+                        },
+                        {
+                          "name": "url",
+                          "value": "url"
+                        },
+                        {
+                          "name": "user_created_sticker",
+                          "value": "user_created_sticker"
+                        },
+                        {
+                          "name": "vcard",
+                          "value": "vcard"
+                        },
+                        {
+                          "name": "video",
+                          "value": "video"
+                        }
+                      ]
+                    },
                     "sourcePath": [
                       "plaintext"
                     ]
@@ -6208,7 +7761,8 @@
                     "name": "type",
                     "wireName": "type",
                     "type": "string",
-                    "required": true
+                    "required": true,
+                    "literalValue": "media"
                   },
                   {
                     "method": "",
@@ -6222,6 +7776,7 @@
                         "wireName": "is_wamo_sub",
                         "type": "string",
                         "required": true,
+                        "literalValue": "true",
                         "sourcePath": [
                           "meta"
                         ]
@@ -6241,6 +7796,40 @@
                         "wireName": "message_association_type",
                         "type": "enum",
                         "required": true,
+                        "enumRef": {
+                          "name": "ENUM_HDIMAGEDUALUPLOAD_HDVIDEODUALUPLOAD_HEVCVIDEODUALUPLOAD_MEDIAPOLL_MOTIONPHOTO_POLLADDOPTION_STICKERANNOTATION",
+                          "module": "WASmaxInMessageDeliverEnums",
+                          "variants": [
+                            {
+                              "name": "hd_image_dual_upload",
+                              "value": "hd_image_dual_upload"
+                            },
+                            {
+                              "name": "hd_video_dual_upload",
+                              "value": "hd_video_dual_upload"
+                            },
+                            {
+                              "name": "hevc_video_dual_upload",
+                              "value": "hevc_video_dual_upload"
+                            },
+                            {
+                              "name": "media_poll",
+                              "value": "media_poll"
+                            },
+                            {
+                              "name": "motion_photo",
+                              "value": "motion_photo"
+                            },
+                            {
+                              "name": "poll_add_option",
+                              "value": "poll_add_option"
+                            },
+                            {
+                              "name": "sticker_annotation",
+                              "value": "sticker_annotation"
+                            }
+                          ]
+                        },
                         "sourcePath": [
                           "meta"
                         ]
@@ -6298,7 +7887,8 @@
                     "name": "type",
                     "wireName": "type",
                     "type": "string",
-                    "required": true
+                    "required": true,
+                    "literalValue": "reaction"
                   }
                 ],
                 "assertions": [
@@ -6321,14 +7911,16 @@
                     "name": "edit",
                     "wireName": "edit",
                     "type": "string",
-                    "required": true
+                    "required": true,
+                    "literalValue": "7"
                   },
                   {
                     "method": "attrString",
                     "name": "type",
                     "wireName": "type",
                     "type": "string",
-                    "required": true
+                    "required": true,
+                    "literalValue": "reaction"
                   }
                 ],
                 "assertions": [
@@ -6374,7 +7966,8 @@
                     "name": "type",
                     "wireName": "type",
                     "type": "string",
-                    "required": true
+                    "required": true,
+                    "literalValue": "poll"
                   },
                   {
                     "method": "attrString",
@@ -6382,6 +7975,7 @@
                     "wireName": "polltype",
                     "type": "string",
                     "required": true,
+                    "literalValue": "creation",
                     "sourcePath": [
                       "meta"
                     ]
@@ -6408,6 +8002,7 @@
                         "wireName": "is_wamo_sub",
                         "type": "string",
                         "required": true,
+                        "literalValue": "true",
                         "sourcePath": [
                           "meta"
                         ]
@@ -6454,7 +8049,8 @@
                     "name": "type",
                     "wireName": "type",
                     "type": "string",
-                    "required": true
+                    "required": true,
+                    "literalValue": "poll"
                   },
                   {
                     "method": "attrString",
@@ -6462,6 +8058,7 @@
                     "wireName": "polltype",
                     "type": "string",
                     "required": true,
+                    "literalValue": "quiz_creation",
                     "sourcePath": [
                       "meta"
                     ]
@@ -6488,6 +8085,7 @@
                         "wireName": "is_wamo_sub",
                         "type": "string",
                         "required": true,
+                        "literalValue": "true",
                         "sourcePath": [
                           "meta"
                         ]
@@ -6516,7 +8114,8 @@
                     "name": "type",
                     "wireName": "type",
                     "type": "string",
-                    "required": true
+                    "required": true,
+                    "literalValue": "poll"
                   },
                   {
                     "method": "attrString",
@@ -6524,6 +8123,7 @@
                     "wireName": "polltype",
                     "type": "string",
                     "required": true,
+                    "literalValue": "vote",
                     "sourcePath": [
                       "meta"
                     ]
@@ -6597,7 +8197,8 @@
                     "name": "type",
                     "wireName": "type",
                     "type": "string",
-                    "required": true
+                    "required": true,
+                    "literalValue": "poll"
                   },
                   {
                     "method": "attrString",
@@ -6605,6 +8206,7 @@
                     "wireName": "polltype",
                     "type": "string",
                     "required": true,
+                    "literalValue": "result_snapshot",
                     "sourcePath": [
                       "meta"
                     ]
@@ -6621,6 +8223,7 @@
                         "wireName": "is_wamo_sub",
                         "type": "string",
                         "required": true,
+                        "literalValue": "true",
                         "sourcePath": [
                           "meta"
                         ]
@@ -6650,6 +8253,7 @@
                     "wireName": "is_wamo_sub",
                     "type": "string",
                     "required": true,
+                    "literalValue": "true",
                     "sourcePath": [
                       "meta"
                     ]
@@ -6665,7 +8269,8 @@
                         "name": "edit",
                         "wireName": "edit",
                         "type": "string",
-                        "required": true
+                        "required": true,
+                        "literalValue": "8"
                       }
                     ],
                     "sameNode": true
@@ -6681,7 +8286,8 @@
                         "name": "edit",
                         "wireName": "edit",
                         "type": "string",
-                        "required": true
+                        "required": true,
+                        "literalValue": "3"
                       }
                     ],
                     "sameNode": true
@@ -6701,6 +8307,7 @@
                             "wireName": "questiontype",
                             "type": "string",
                             "required": true,
+                            "literalValue": "question",
                             "sourcePath": [
                               "meta"
                             ]
@@ -6719,7 +8326,8 @@
                                     "name": "type",
                                     "wireName": "type",
                                     "type": "string",
-                                    "required": true
+                                    "required": true,
+                                    "literalValue": "text"
                                   }
                                 ],
                                 "assertions": [
@@ -6742,7 +8350,8 @@
                                     "name": "type",
                                     "wireName": "type",
                                     "type": "string",
-                                    "required": true
+                                    "required": true,
+                                    "literalValue": "media"
                                   }
                                 ],
                                 "assertions": [
@@ -6776,6 +8385,7 @@
                             "wireName": "questiontype",
                             "type": "string",
                             "required": true,
+                            "literalValue": "reply",
                             "sourcePath": [
                               "meta"
                             ]
@@ -6794,7 +8404,8 @@
                                     "name": "type",
                                     "wireName": "type",
                                     "type": "string",
-                                    "required": true
+                                    "required": true,
+                                    "literalValue": "text"
                                   }
                                 ],
                                 "assertions": [
@@ -6817,7 +8428,8 @@
                                     "name": "type",
                                     "wireName": "type",
                                     "type": "string",
-                                    "required": true
+                                    "required": true,
+                                    "literalValue": "media"
                                   }
                                 ],
                                 "assertions": [
@@ -6850,7 +8462,8 @@
                             "name": "type",
                             "wireName": "type",
                             "type": "string",
-                            "required": true
+                            "required": true,
+                            "literalValue": "text"
                           }
                         ],
                         "assertions": [
@@ -6873,7 +8486,8 @@
                             "name": "type",
                             "wireName": "type",
                             "type": "string",
-                            "required": true
+                            "required": true,
+                            "literalValue": "media"
                           }
                         ],
                         "assertions": [
@@ -6896,7 +8510,8 @@
                             "name": "type",
                             "wireName": "type",
                             "type": "string",
-                            "required": true
+                            "required": true,
+                            "literalValue": "poll"
                           },
                           {
                             "method": "attrString",
@@ -6904,6 +8519,7 @@
                             "wireName": "polltype",
                             "type": "string",
                             "required": true,
+                            "literalValue": "creation",
                             "sourcePath": [
                               "meta"
                             ]
@@ -6939,7 +8555,8 @@
                             "name": "type",
                             "wireName": "type",
                             "type": "string",
-                            "required": true
+                            "required": true,
+                            "literalValue": "poll"
                           },
                           {
                             "method": "attrString",
@@ -6947,6 +8564,7 @@
                             "wireName": "polltype",
                             "type": "string",
                             "required": true,
+                            "literalValue": "quiz_creation",
                             "sourcePath": [
                               "meta"
                             ]
@@ -7034,6 +8652,7 @@
                 "wireName": "mediatype",
                 "type": "string",
                 "required": true,
+                "literalValue": "url",
                 "sourcePath": [
                   "plaintext"
                 ]
@@ -7052,7 +8671,8 @@
                 "name": "type",
                 "wireName": "type",
                 "type": "string",
-                "required": true
+                "required": true,
+                "literalValue": "media"
               }
             ],
             "sameNode": true
@@ -7107,7 +8727,8 @@
             "name": "isSender",
             "wireName": "is_sender",
             "type": "string",
-            "required": false
+            "required": false,
+            "literalValue": "true"
           },
           {
             "method": "",
@@ -7123,14 +8744,16 @@
                     "name": "edit",
                     "wireName": "edit",
                     "type": "string",
-                    "required": true
+                    "required": true,
+                    "literalValue": "8"
                   },
                   {
                     "method": "attrString",
                     "name": "type",
                     "wireName": "type",
                     "type": "string",
-                    "required": true
+                    "required": true,
+                    "literalValue": "text"
                   }
                 ],
                 "assertions": [
@@ -7176,7 +8799,8 @@
                     "name": "type",
                     "wireName": "type",
                     "type": "string",
-                    "required": true
+                    "required": true,
+                    "literalValue": "text"
                   }
                 ],
                 "assertions": [
@@ -7200,6 +8824,28 @@
                     "wireName": "mediatype",
                     "type": "enum",
                     "required": true,
+                    "enumRef": {
+                      "name": "ENUM_AUDIO_GIF_IMAGE_VIDEO",
+                      "module": "WASmaxInStatusDeliverEnums",
+                      "variants": [
+                        {
+                          "name": "audio",
+                          "value": "audio"
+                        },
+                        {
+                          "name": "gif",
+                          "value": "gif"
+                        },
+                        {
+                          "name": "image",
+                          "value": "image"
+                        },
+                        {
+                          "name": "video",
+                          "value": "video"
+                        }
+                      ]
+                    },
                     "sourcePath": [
                       "plaintext"
                     ]
@@ -7227,7 +8873,8 @@
                     "name": "type",
                     "wireName": "type",
                     "type": "string",
-                    "required": true
+                    "required": true,
+                    "literalValue": "media"
                   }
                 ],
                 "assertions": [
@@ -7260,7 +8907,8 @@
                     "name": "type",
                     "wireName": "type",
                     "type": "string",
-                    "required": true
+                    "required": true,
+                    "literalValue": "reaction"
                   }
                 ],
                 "assertions": [
@@ -7283,14 +8931,16 @@
                     "name": "edit",
                     "wireName": "edit",
                     "type": "string",
-                    "required": true
+                    "required": true,
+                    "literalValue": "7"
                   },
                   {
                     "method": "attrString",
                     "name": "type",
                     "wireName": "type",
                     "type": "string",
-                    "required": true
+                    "required": true,
+                    "literalValue": "reaction"
                   }
                 ],
                 "assertions": [

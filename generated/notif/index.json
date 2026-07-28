@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "1.0.0",
+  "schemaVersion": "2.0.0",
   "waVersion": "2.3000.1043899084",
   "dispatcherModules": [
     "WAWebCommsHandleLoggedInStanza",
@@ -641,10 +641,11 @@
             "name": "type",
             "wireName": "type",
             "type": "string",
-            "required": true
+            "required": true,
+            "literalValue": "crsc_continuation"
           },
           {
-            "method": "attrJidWithType",
+            "method": "literalJid",
             "name": "from",
             "wireName": "from",
             "type": "jid",
@@ -1062,10 +1063,11 @@
             "name": "type",
             "wireName": "type",
             "type": "string",
-            "required": true
+            "required": true,
+            "literalValue": "passkey_prologue_request"
           },
           {
-            "method": "attrJidWithType",
+            "method": "literalJid",
             "name": "from",
             "wireName": "from",
             "type": "jid",
@@ -1338,8 +1340,13 @@
                       {
                         "method": "attrEnumValues",
                         "name": "mediatype",
-                        "type": "string",
-                        "required": true
+                        "type": "enum",
+                        "required": true,
+                        "enumKeys": [
+                          "image",
+                          "video",
+                          "text"
+                        ]
                       },
                       {
                         "method": "contentBytes",
@@ -1371,8 +1378,13 @@
               {
                 "method": "attrEnumValues",
                 "name": "mediatype",
-                "type": "string",
-                "required": true
+                "type": "enum",
+                "required": true,
+                "enumKeys": [
+                  "image",
+                  "video",
+                  "text"
+                ]
               },
               {
                 "method": "contentBytes",
@@ -1600,6 +1612,12 @@
             "required": true
           },
           {
+            "method": "maybeAttrPhoneUserJid",
+            "name": "participant_pn",
+            "type": "user_jid",
+            "required": false
+          },
+          {
             "method": "attrTime",
             "name": "t",
             "type": "integer",
@@ -1738,7 +1756,1109 @@
             "required": false
           }
         ]
-      }
+      },
+      "actions": [
+        {
+          "wireTag": "create",
+          "actionType": "create",
+          "fields": [
+            {
+              "name": "reason",
+              "wireName": "reason",
+              "type": "enum",
+              "required": false
+            },
+            {
+              "name": "contextGroupId",
+              "wireName": "context_group_jid",
+              "type": "group_jid",
+              "required": false
+            }
+          ]
+        },
+        {
+          "wireTag": "add",
+          "actionType": "add",
+          "fields": [
+            {
+              "name": "reason",
+              "wireName": "reason",
+              "type": "string",
+              "required": false
+            }
+          ],
+          "children": [
+            {
+              "name": "participants",
+              "wireTag": "participant",
+              "fields": [
+                {
+                  "name": "displayName",
+                  "wireName": "display_name",
+                  "type": "string",
+                  "required": false
+                },
+                {
+                  "name": "id",
+                  "wireName": "jid",
+                  "type": "user_jid",
+                  "required": true
+                },
+                {
+                  "name": "lid",
+                  "wireName": "lid",
+                  "type": "lid_user_jid",
+                  "required": false
+                },
+                {
+                  "name": "phoneNumber",
+                  "wireName": "phone_number",
+                  "type": "user_jid",
+                  "required": false
+                },
+                {
+                  "name": "username",
+                  "wireName": "username",
+                  "type": "string",
+                  "required": false
+                },
+                {
+                  "name": "joinTime",
+                  "wireName": "join_time",
+                  "type": "integer",
+                  "required": false
+                },
+                {
+                  "name": "groupHistorySentState",
+                  "wireName": "group_history_sent_state",
+                  "type": "string",
+                  "required": false
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "wireTag": "delete",
+          "actionType": "delete",
+          "fields": [
+            {
+              "name": "reason",
+              "wireName": "reason",
+              "type": "string",
+              "required": false
+            }
+          ]
+        },
+        {
+          "wireTag": "remove",
+          "actionType": "remove",
+          "fields": [
+            {
+              "name": "reason",
+              "wireName": "reason",
+              "type": "string",
+              "required": false
+            }
+          ],
+          "children": [
+            {
+              "name": "participants",
+              "wireTag": "participant",
+              "fields": [
+                {
+                  "name": "displayName",
+                  "wireName": "display_name",
+                  "type": "string",
+                  "required": false
+                },
+                {
+                  "name": "id",
+                  "wireName": "jid",
+                  "type": "user_jid",
+                  "required": true
+                },
+                {
+                  "name": "lid",
+                  "wireName": "lid",
+                  "type": "lid_user_jid",
+                  "required": false
+                },
+                {
+                  "name": "phoneNumber",
+                  "wireName": "phone_number",
+                  "type": "user_jid",
+                  "required": false
+                },
+                {
+                  "name": "username",
+                  "wireName": "username",
+                  "type": "string",
+                  "required": false
+                },
+                {
+                  "name": "joinTime",
+                  "wireName": "join_time",
+                  "type": "integer",
+                  "required": false
+                },
+                {
+                  "name": "groupHistorySentState",
+                  "wireName": "group_history_sent_state",
+                  "type": "string",
+                  "required": false
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "wireTag": "promote",
+          "actionType": "promote",
+          "children": [
+            {
+              "name": "participants",
+              "wireTag": "participant",
+              "fields": [
+                {
+                  "name": "displayName",
+                  "wireName": "display_name",
+                  "type": "string",
+                  "required": false
+                },
+                {
+                  "name": "id",
+                  "wireName": "jid",
+                  "type": "user_jid",
+                  "required": true
+                },
+                {
+                  "name": "lid",
+                  "wireName": "lid",
+                  "type": "lid_user_jid",
+                  "required": false
+                },
+                {
+                  "name": "phoneNumber",
+                  "wireName": "phone_number",
+                  "type": "user_jid",
+                  "required": false
+                },
+                {
+                  "name": "username",
+                  "wireName": "username",
+                  "type": "string",
+                  "required": false
+                },
+                {
+                  "name": "joinTime",
+                  "wireName": "join_time",
+                  "type": "integer",
+                  "required": false
+                },
+                {
+                  "name": "groupHistorySentState",
+                  "wireName": "group_history_sent_state",
+                  "type": "string",
+                  "required": false
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "wireTag": "demote",
+          "actionType": "demote",
+          "children": [
+            {
+              "name": "participants",
+              "wireTag": "participant",
+              "fields": [
+                {
+                  "name": "displayName",
+                  "wireName": "display_name",
+                  "type": "string",
+                  "required": false
+                },
+                {
+                  "name": "id",
+                  "wireName": "jid",
+                  "type": "user_jid",
+                  "required": true
+                },
+                {
+                  "name": "lid",
+                  "wireName": "lid",
+                  "type": "lid_user_jid",
+                  "required": false
+                },
+                {
+                  "name": "phoneNumber",
+                  "wireName": "phone_number",
+                  "type": "user_jid",
+                  "required": false
+                },
+                {
+                  "name": "username",
+                  "wireName": "username",
+                  "type": "string",
+                  "required": false
+                },
+                {
+                  "name": "joinTime",
+                  "wireName": "join_time",
+                  "type": "integer",
+                  "required": false
+                },
+                {
+                  "name": "groupHistorySentState",
+                  "wireName": "group_history_sent_state",
+                  "type": "string",
+                  "required": false
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "wireTag": "linked_group_promote",
+          "actionType": "linked_group_promote",
+          "fields": [
+            {
+              "name": "jid",
+              "wireName": "jid",
+              "type": "group_jid",
+              "required": false
+            }
+          ],
+          "children": [
+            {
+              "name": "participants",
+              "wireTag": "participant",
+              "fields": [
+                {
+                  "name": "displayName",
+                  "wireName": "display_name",
+                  "type": "string",
+                  "required": false
+                },
+                {
+                  "name": "id",
+                  "wireName": "jid",
+                  "type": "user_jid",
+                  "required": true
+                },
+                {
+                  "name": "lid",
+                  "wireName": "lid",
+                  "type": "lid_user_jid",
+                  "required": false
+                },
+                {
+                  "name": "phoneNumber",
+                  "wireName": "phone_number",
+                  "type": "user_jid",
+                  "required": false
+                },
+                {
+                  "name": "username",
+                  "wireName": "username",
+                  "type": "string",
+                  "required": false
+                },
+                {
+                  "name": "joinTime",
+                  "wireName": "join_time",
+                  "type": "integer",
+                  "required": false
+                },
+                {
+                  "name": "groupHistorySentState",
+                  "wireName": "group_history_sent_state",
+                  "type": "string",
+                  "required": false
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "wireTag": "linked_group_demote",
+          "actionType": "linked_group_demote",
+          "fields": [
+            {
+              "name": "jid",
+              "wireName": "jid",
+              "type": "group_jid",
+              "required": false
+            }
+          ],
+          "children": [
+            {
+              "name": "participants",
+              "wireTag": "participant",
+              "fields": [
+                {
+                  "name": "displayName",
+                  "wireName": "display_name",
+                  "type": "string",
+                  "required": false
+                },
+                {
+                  "name": "id",
+                  "wireName": "jid",
+                  "type": "user_jid",
+                  "required": true
+                },
+                {
+                  "name": "lid",
+                  "wireName": "lid",
+                  "type": "lid_user_jid",
+                  "required": false
+                },
+                {
+                  "name": "phoneNumber",
+                  "wireName": "phone_number",
+                  "type": "user_jid",
+                  "required": false
+                },
+                {
+                  "name": "username",
+                  "wireName": "username",
+                  "type": "string",
+                  "required": false
+                },
+                {
+                  "name": "joinTime",
+                  "wireName": "join_time",
+                  "type": "integer",
+                  "required": false
+                },
+                {
+                  "name": "groupHistorySentState",
+                  "wireName": "group_history_sent_state",
+                  "type": "string",
+                  "required": false
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "wireTag": "modify",
+          "actionType": "modify",
+          "children": [
+            {
+              "name": "participants",
+              "wireTag": "participant",
+              "fields": [
+                {
+                  "name": "displayName",
+                  "wireName": "display_name",
+                  "type": "string",
+                  "required": false
+                },
+                {
+                  "name": "id",
+                  "wireName": "jid",
+                  "type": "user_jid",
+                  "required": true
+                },
+                {
+                  "name": "lid",
+                  "wireName": "lid",
+                  "type": "lid_user_jid",
+                  "required": false
+                },
+                {
+                  "name": "phoneNumber",
+                  "wireName": "phone_number",
+                  "type": "user_jid",
+                  "required": false
+                },
+                {
+                  "name": "username",
+                  "wireName": "username",
+                  "type": "string",
+                  "required": false
+                },
+                {
+                  "name": "joinTime",
+                  "wireName": "join_time",
+                  "type": "integer",
+                  "required": false
+                },
+                {
+                  "name": "groupHistorySentState",
+                  "wireName": "group_history_sent_state",
+                  "type": "string",
+                  "required": false
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "wireTag": "subject",
+          "actionType": "subject",
+          "fields": [
+            {
+              "name": "subject",
+              "wireName": "subject",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "s_o",
+              "wireName": "s_o",
+              "type": "user_jid",
+              "required": false
+            },
+            {
+              "name": "subjectOwnerPn",
+              "wireName": "s_o_pn",
+              "type": "user_jid",
+              "required": false
+            },
+            {
+              "name": "subjectOwnerUsername",
+              "wireName": "s_o_username",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "s_t",
+              "wireName": "s_t",
+              "type": "integer",
+              "required": false
+            }
+          ]
+        },
+        {
+          "wireTag": "description",
+          "actionType": "desc_remove",
+          "fields": [
+            {
+              "name": "descId",
+              "wireName": "id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "wireTag": "description",
+          "actionType": "desc_add",
+          "fields": [
+            {
+              "name": "descId",
+              "wireName": "id",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "desc",
+              "wireName": "body",
+              "type": "string",
+              "required": false,
+              "content": true
+            }
+          ]
+        },
+        {
+          "wireTag": "suspended",
+          "actionType": "suspend",
+          "constantFields": [
+            {
+              "name": "value",
+              "value": true
+            }
+          ]
+        },
+        {
+          "wireTag": "unsuspended",
+          "actionType": "suspend",
+          "constantFields": [
+            {
+              "name": "value",
+              "value": false
+            }
+          ]
+        },
+        {
+          "wireTag": "locked",
+          "actionType": "restrict",
+          "fields": [
+            {
+              "name": "threshold",
+              "wireName": "threshold",
+              "type": "string",
+              "required": false
+            }
+          ],
+          "constantFields": [
+            {
+              "name": "value",
+              "value": true
+            }
+          ]
+        },
+        {
+          "wireTag": "unlocked",
+          "actionType": "restrict",
+          "constantFields": [
+            {
+              "name": "value",
+              "value": false
+            }
+          ]
+        },
+        {
+          "wireTag": "announcement",
+          "actionType": "announce",
+          "constantFields": [
+            {
+              "name": "value",
+              "value": true
+            }
+          ]
+        },
+        {
+          "wireTag": "not_announcement",
+          "actionType": "announce",
+          "constantFields": [
+            {
+              "name": "value",
+              "value": false
+            }
+          ]
+        },
+        {
+          "wireTag": "no_frequently_forwarded",
+          "actionType": "no_frequently_forwarded",
+          "constantFields": [
+            {
+              "name": "value",
+              "value": true
+            }
+          ]
+        },
+        {
+          "wireTag": "frequently_forwarded_ok",
+          "actionType": "no_frequently_forwarded",
+          "constantFields": [
+            {
+              "name": "value",
+              "value": false
+            }
+          ]
+        },
+        {
+          "wireTag": "invite",
+          "actionType": "invite",
+          "fields": [
+            {
+              "name": "code",
+              "wireName": "code",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "wireTag": "ephemeral",
+          "actionType": "ephemeral",
+          "fields": [
+            {
+              "name": "duration",
+              "wireName": "expiration",
+              "type": "integer",
+              "required": true
+            },
+            {
+              "name": "trigger",
+              "wireName": "trigger",
+              "type": "integer",
+              "required": false
+            }
+          ]
+        },
+        {
+          "wireTag": "not_ephemeral",
+          "actionType": "ephemeral",
+          "constantFields": [
+            {
+              "name": "duration",
+              "value": 0
+            }
+          ]
+        },
+        {
+          "wireTag": "revoke",
+          "actionType": "revoke_invite",
+          "children": [
+            {
+              "name": "participants",
+              "wireTag": "participant",
+              "fields": [
+                {
+                  "name": "id",
+                  "wireName": "jid",
+                  "type": "user_jid",
+                  "required": true
+                },
+                {
+                  "name": "expiration",
+                  "wireName": "expiration",
+                  "type": "integer",
+                  "required": true
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "wireTag": "growth_unlocked",
+          "actionType": "growth_unlocked"
+        },
+        {
+          "wireTag": "growth_locked",
+          "actionType": "growth_locked",
+          "fields": [
+            {
+              "name": "expiration",
+              "wireName": "expiration",
+              "type": "integer",
+              "required": true
+            },
+            {
+              "name": "type",
+              "wireName": "type",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "wireTag": "link",
+          "children": [
+            {
+              "name": "groupDatas",
+              "wireTag": "group",
+              "fields": [
+                {
+                  "name": "id",
+                  "wireName": "jid",
+                  "type": "group_jid",
+                  "required": true
+                },
+                {
+                  "name": "subject",
+                  "wireName": "subject",
+                  "type": "string",
+                  "required": true
+                },
+                {
+                  "name": "subjectTime",
+                  "wireName": "s_t",
+                  "type": "integer",
+                  "required": true
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "wireTag": "unlink",
+          "actionType": "delete_parent_group_unlink",
+          "children": [
+            {
+              "name": "groupDatas",
+              "wireTag": "group",
+              "fields": [
+                {
+                  "name": "id",
+                  "wireName": "jid",
+                  "type": "group_jid",
+                  "required": true
+                },
+                {
+                  "name": "subject",
+                  "wireName": "subject",
+                  "type": "string",
+                  "required": true
+                },
+                {
+                  "name": "subjectTime",
+                  "wireName": "s_t",
+                  "type": "integer",
+                  "required": true
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "wireTag": "unlink",
+          "actionType": "integrity_parent_group_unlink",
+          "children": [
+            {
+              "name": "groupDatas",
+              "wireTag": "group",
+              "fields": [
+                {
+                  "name": "id",
+                  "wireName": "jid",
+                  "type": "group_jid",
+                  "required": true
+                },
+                {
+                  "name": "subject",
+                  "wireName": "subject",
+                  "type": "string",
+                  "required": true
+                },
+                {
+                  "name": "subjectTime",
+                  "wireName": "s_t",
+                  "type": "integer",
+                  "required": true
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "wireTag": "unlink",
+          "actionType": "integrity_sub_group_unlink",
+          "children": [
+            {
+              "name": "groupDatas",
+              "wireTag": "group",
+              "fields": [
+                {
+                  "name": "id",
+                  "wireName": "jid",
+                  "type": "group_jid",
+                  "required": true
+                },
+                {
+                  "name": "subject",
+                  "wireName": "subject",
+                  "type": "string",
+                  "required": true
+                },
+                {
+                  "name": "subjectTime",
+                  "wireName": "s_t",
+                  "type": "integer",
+                  "required": true
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "wireTag": "unlink",
+          "children": [
+            {
+              "name": "groupDatas",
+              "wireTag": "group",
+              "fields": [
+                {
+                  "name": "id",
+                  "wireName": "jid",
+                  "type": "group_jid",
+                  "required": true
+                },
+                {
+                  "name": "subject",
+                  "wireName": "subject",
+                  "type": "string",
+                  "required": true
+                },
+                {
+                  "name": "subjectTime",
+                  "wireName": "s_t",
+                  "type": "integer",
+                  "required": true
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "wireTag": "membership_approval_mode",
+          "actionType": "membership_approval_mode",
+          "fields": [
+            {
+              "name": "triggered",
+              "wireName": "triggered",
+              "type": "string",
+              "required": false
+            }
+          ]
+        },
+        {
+          "wireTag": "membership_approval_request",
+          "actionType": "membership_approval_request",
+          "fields": [
+            {
+              "name": "parentGroupId",
+              "wireName": "parent_group_jid",
+              "type": "group_jid",
+              "required": false
+            }
+          ]
+        },
+        {
+          "wireTag": "allow_admin_reports",
+          "actionType": "allow_admin_reports",
+          "fields": [
+            {
+              "name": "triggered",
+              "wireName": "triggered",
+              "type": "string",
+              "required": false
+            }
+          ],
+          "constantFields": [
+            {
+              "name": "shouldSkipGenMsg",
+              "value": false
+            },
+            {
+              "name": "value",
+              "value": true
+            }
+          ]
+        },
+        {
+          "wireTag": "not_allow_admin_reports",
+          "actionType": "allow_admin_reports",
+          "fields": [
+            {
+              "name": "triggered",
+              "wireName": "triggered",
+              "type": "string",
+              "required": false
+            }
+          ],
+          "constantFields": [
+            {
+              "name": "shouldSkipGenMsg",
+              "value": false
+            },
+            {
+              "name": "value",
+              "value": false
+            }
+          ]
+        },
+        {
+          "wireTag": "reports",
+          "actionType": "admin_report_received",
+          "constantFields": [
+            {
+              "name": "shouldSkipGenMsg",
+              "value": true
+            }
+          ]
+        },
+        {
+          "wireTag": "created_membership_requests",
+          "actionType": "created_membership_requests",
+          "fields": [
+            {
+              "name": "parentGroupId",
+              "wireName": "parent_group_jid",
+              "type": "group_jid",
+              "required": false
+            }
+          ],
+          "children": [
+            {
+              "name": "requests",
+              "wireTag": "requested_user",
+              "fields": [
+                {
+                  "name": "wid",
+                  "wireName": "jid",
+                  "type": "user_jid",
+                  "required": true
+                },
+                {
+                  "name": "username",
+                  "wireName": "username",
+                  "type": "string",
+                  "required": false
+                },
+                {
+                  "name": "phoneNumber",
+                  "wireName": "phone_number",
+                  "type": "user_jid",
+                  "required": false
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "wireTag": "revoked_membership_requests",
+          "actionType": "revoked_membership_requests",
+          "children": [
+            {
+              "name": "requests",
+              "wireTag": "participant",
+              "fields": [
+                {
+                  "name": "jid",
+                  "wireName": "jid",
+                  "type": "user_jid",
+                  "required": true
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "wireTag": "allow_non_admin_sub_group_creation",
+          "actionType": "allow_non_admin_sub_group_creation",
+          "constantFields": [
+            {
+              "name": "value",
+              "value": true
+            }
+          ]
+        },
+        {
+          "wireTag": "not_allow_non_admin_sub_group_creation",
+          "actionType": "allow_non_admin_sub_group_creation",
+          "constantFields": [
+            {
+              "name": "value",
+              "value": false
+            }
+          ]
+        },
+        {
+          "wireTag": "created_sub_group_suggestion",
+          "actionType": "created_subgroup_suggestion",
+          "fields": [
+            {
+              "name": "id",
+              "wireName": "jid",
+              "type": "group_jid",
+              "required": true
+            },
+            {
+              "name": "owner",
+              "wireName": "creator",
+              "type": "user_jid",
+              "required": true
+            },
+            {
+              "name": "subject",
+              "wireName": "subject",
+              "type": "string",
+              "required": true,
+              "content": true
+            },
+            {
+              "name": "t",
+              "wireName": "creation",
+              "type": "integer",
+              "required": true
+            }
+          ]
+        },
+        {
+          "wireTag": "revoked_sub_group_suggestions",
+          "actionType": "revoked_sub_group_suggestions",
+          "children": [
+            {
+              "name": "subgroupSuggestions",
+              "wireTag": "sub_group_suggestion",
+              "fields": [
+                {
+                  "name": "id",
+                  "wireName": "jid",
+                  "type": "group_jid",
+                  "required": true
+                },
+                {
+                  "name": "owner",
+                  "wireName": "creator",
+                  "type": "user_jid",
+                  "required": true
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "wireTag": "change_number",
+          "actionType": "subgroup_suggestions_change_number",
+          "fields": [
+            {
+              "name": "oldOwner",
+              "wireName": "participant",
+              "type": "user_jid",
+              "required": true
+            },
+            {
+              "name": "newOwner",
+              "wireName": "jid",
+              "type": "user_jid",
+              "required": true
+            }
+          ],
+          "children": [
+            {
+              "name": "subgroupSuggestions",
+              "wireTag": "sub_group_suggestion",
+              "fields": [
+                {
+                  "name": "jid",
+                  "wireName": "jid",
+                  "type": "group_jid",
+                  "required": true
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "wireTag": "member_add_mode",
+          "actionType": "member_add_mode",
+          "fields": [
+            {
+              "name": "memberAddMode",
+              "wireName": "",
+              "type": "string",
+              "required": true,
+              "content": true
+            }
+          ]
+        },
+        {
+          "wireTag": "auto_add_disabled",
+          "actionType": "general_chat_auto_add_disabled"
+        },
+        {
+          "wireTag": "group_safety_check",
+          "actionType": "group_safety_check",
+          "constantFields": [
+            {
+              "name": "value",
+              "value": true
+            }
+          ]
+        },
+        {
+          "wireTag": "missing_participant_identification"
+        }
+      ]
     },
     {
       "type": "w:growth",
@@ -1767,8 +2887,12 @@
           {
             "method": "attrEnum",
             "name": "type",
-            "type": "string",
-            "required": true
+            "type": "enum",
+            "required": true,
+            "enumKeys": [
+              "contacts",
+              "w:growth"
+            ]
           },
           {
             "method": "child",
@@ -1821,7 +2945,7 @@
         ],
         "fields": [
           {
-            "method": "attrJidWithType",
+            "method": "literalJid",
             "name": "from",
             "wireName": "from",
             "type": "jid",
@@ -1832,7 +2956,8 @@
             "name": "type",
             "wireName": "type",
             "type": "string",
-            "required": true
+            "required": true,
+            "literalValue": "waffle"
           },
           {
             "method": "attrInt",
@@ -1852,6 +2977,20 @@
             "wireName": "show_user_notif",
             "type": "enum",
             "required": false,
+            "enumRef": {
+              "name": "ENUM_FALSE_TRUE",
+              "module": "WASmaxInWaffleEnums",
+              "variants": [
+                {
+                  "name": "false",
+                  "value": "false"
+                },
+                {
+                  "name": "true",
+                  "value": "true"
+                }
+              ]
+            },
             "sourcePath": [
               "notification_metadata"
             ]
@@ -1874,6 +3013,20 @@
             "wireName": "client_resync",
             "type": "enum",
             "required": false,
+            "enumRef": {
+              "name": "ENUM_FALSE_TRUE",
+              "module": "WASmaxInWaffleEnums",
+              "variants": [
+                {
+                  "name": "false",
+                  "value": "false"
+                },
+                {
+                  "name": "true",
+                  "value": "true"
+                }
+              ]
+            },
             "sourcePath": [
               "notification_metadata"
             ]
@@ -1894,6 +3047,20 @@
             "wireName": "npr",
             "type": "enum",
             "required": false,
+            "enumRef": {
+              "name": "ENUM_FALSE_TRUE",
+              "module": "WASmaxInWaffleEnums",
+              "variants": [
+                {
+                  "name": "false",
+                  "value": "false"
+                },
+                {
+                  "name": "true",
+                  "value": "true"
+                }
+              ]
+            },
             "sourcePath": [
               "notification_metadata"
             ]

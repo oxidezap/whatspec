@@ -319,6 +319,175 @@ mod tests {
     }
 
     #[test]
+    fn integer_content_children_get_their_own_named_fields() {
+        // Two things were wrong at once, and the second hid the first: the codegen's
+        // content predicate admitted only three spellings, so live `contentUint` fields
+        // were dropped and the generated Rust came out unchanged — which read as "nothing
+        // broke". Once they arrived, every one of them was named `content` and collapsed
+        // into a single field, so two of three values were still lost.
+        let uint_child = |tag: &str| {
+            let mut c = parsed("child", tag, ParsedFieldType::String);
+            c.tag = Some(tag.into());
+            c.children = Some(vec![parsed(
+                "contentUint",
+                "content",
+                ParsedFieldType::Integer,
+            )]);
+            c
+        };
+        let ir = IqIr {
+            wa_version: "0.0.0".into(),
+            stanzas: vec![IqStanzaDef {
+                module_name: "WAWebDigest".into(),
+                namespace: "encrypt".into(),
+                iq_type: IqType::Get,
+                target: IqTarget::Server,
+                parser_name: "p".into(),
+                exported_function: Some("digest".into()),
+                all_exports: vec!["digest".into()],
+                request: IqRequestDef {
+                    namespace: "encrypt".into(),
+                    iq_type: IqType::Get,
+                    target: IqTarget::Server,
+                    children: vec![],
+                },
+                response: ParsedResponse {
+                    parser_name: "p".into(),
+                    assertions: vec![],
+                    fields: vec![uint_child("registration"), uint_child("id")],
+                    ..Default::default()
+                },
+            }],
+            unparseable: vec![],
+        };
+        let c = &generate_iq(&ir);
+        assert!(c.contains("pub registration: u64,"), "registration field");
+        assert!(c.contains("pub id: u64,"), "id field");
+        assert!(
+            !c.contains("pub content: u64,"),
+            "must not collapse both onto `content`"
+        );
+        // The accessor reads N big-endian bytes, not decimal text — a 3-byte prekey id,
+        // a 4-byte registration id. Parsing that as a string makes every one silently 0.
+        assert!(
+            c.contains("content_bytes()") && c.contains("(acc << 8) | x as u64"),
+            "and the value is decoded big-endian:\n{c}"
+        );
+    }
+
+    #[test]
+    fn an_optional_jid_parses_optionally() {
+        // `rust_field_type` declares `Option<Jid>` for a `maybeAttr…Jid`, but every JID
+        // went through the unconditional branch — a `Jid` initializer for an
+        // `Option<Jid>` field, which also rejects the absence the accessor permits.
+        let ir = IqIr {
+            wa_version: "0.0.0".into(),
+            stanzas: vec![IqStanzaDef {
+                module_name: "WAWebPn".into(),
+                namespace: "w:g2".into(),
+                iq_type: IqType::Get,
+                target: IqTarget::Server,
+                parser_name: "p".into(),
+                exported_function: Some("pn".into()),
+                all_exports: vec!["pn".into()],
+                request: IqRequestDef {
+                    namespace: "w:g2".into(),
+                    iq_type: IqType::Get,
+                    target: IqTarget::Server,
+                    children: vec![],
+                },
+                response: ParsedResponse {
+                    parser_name: "p".into(),
+                    assertions: vec![],
+                    fields: vec![
+                        parsed(
+                            "maybeAttrPhoneUserJid",
+                            "participant_pn",
+                            ParsedFieldType::UserJid,
+                        ),
+                        // Optional by the IR, NOT by the accessor spelling: a smax tail
+                        // conditional makes a field optional without renaming its
+                        // accessor, and 108 such JID fields are live in the artifact.
+                        ParsedField {
+                            required: false,
+                            ..parsed("attrUserJid", "to", ParsedFieldType::UserJid)
+                        },
+                    ],
+                    ..Default::default()
+                },
+            }],
+            unparseable: vec![],
+        };
+        let c = &generate_iq(&ir);
+        assert!(
+            c.contains("pub participant_pn: Option<Jid>,"),
+            "declared optional:\n{c}"
+        );
+        assert!(
+            !c.contains("missing participant_pn"),
+            "and never required in the parser:\n{c}"
+        );
+        assert!(
+            c.contains("pub to: Option<Jid>,"),
+            "`required: false` alone is enough to make it optional:\n{c}"
+        );
+        assert!(
+            !c.contains("missing to"),
+            "so the parser never demands it:\n{c}"
+        );
+        assert!(
+            c.contains(".and_then(|v| v.to_jid());"),
+            "parsed as an optional Jid:\n{c}"
+        );
+    }
+
+    #[test]
+    fn a_ranged_byte_content_child_is_still_bytes() {
+        // `child("blob").contentBytesRange(1, 128)` decodes to bytes. Asking the
+        // classifier for the integer branch while testing the exact name `contentBytes`
+        // for the bytes branch — in one expression — typed this as `String` and read it
+        // with `content_str()`, so a byte payload came out as lossy text.
+        let mut blob = parsed("child", "blob", ParsedFieldType::String);
+        blob.tag = Some("blob".into());
+        blob.children = Some(vec![parsed(
+            "contentBytesRange",
+            "content",
+            ParsedFieldType::Bytes,
+        )]);
+        let ir = IqIr {
+            wa_version: "0.0.0".into(),
+            stanzas: vec![IqStanzaDef {
+                module_name: "WAWebBlob".into(),
+                namespace: "encrypt".into(),
+                iq_type: IqType::Get,
+                target: IqTarget::Server,
+                parser_name: "p".into(),
+                exported_function: Some("blob".into()),
+                all_exports: vec!["blob".into()],
+                request: IqRequestDef {
+                    namespace: "encrypt".into(),
+                    iq_type: IqType::Get,
+                    target: IqTarget::Server,
+                    children: vec![],
+                },
+                response: ParsedResponse {
+                    parser_name: "p".into(),
+                    assertions: vec![],
+                    fields: vec![blob],
+                    ..Default::default()
+                },
+            }],
+            unparseable: vec![],
+        };
+        let c = &generate_iq(&ir);
+        assert!(c.contains("pub blob: Vec<u8>,"), "typed as bytes:\n{c}");
+        assert!(
+            c.contains("blob_node.content_bytes()"),
+            "and read as bytes:\n{c}"
+        );
+    }
+
+    #[test]
     fn generates_spec_with_request_and_response() {
         let ir = IqIr {
             wa_version: "0.0.0".into(),

@@ -31,6 +31,8 @@
 //! the AST.
 #![cfg(not(target_arch = "wasm32"))]
 
+mod actions;
+
 use std::collections::HashMap;
 
 use oxc_allocator::Allocator;
@@ -71,6 +73,17 @@ pub fn extract_notif_from_modules(
     module_defs: &[ModuleDefinition],
     wa_version: &str,
 ) -> NotifIr {
+    extract_notif_with_diagnostics(source, module_defs, wa_version).0
+}
+
+/// Like [`extract_notif_from_modules`], but also returns the constraints the handlers'
+/// legacy parsers carried and this domain could not resolve, by `dropsByReason` key.
+/// See [`wa_scan::scan_incoming_with_diagnostics`] for why they are counted.
+pub fn extract_notif_with_diagnostics(
+    source: &str,
+    module_defs: &[ModuleDefinition],
+    wa_version: &str,
+) -> (NotifIr, std::collections::BTreeMap<String, usize>) {
     // Collect each dispatcher once (a module is often defined in several shards).
     let mut dispatchers: Vec<(String, Dispatch)> = Vec::new();
     let mut seen = std::collections::HashSet::new();
@@ -112,6 +125,11 @@ pub fn extract_notif_from_modules(
     // handler that yields no parser leaves `content` absent (degraded), never
     // dropping the catalog entry.
     let slice_by_name = module_slice_index(source, module_defs);
+    // The legacy parser leaves `o("Mod").ENUM` links pending — it reads one module at a
+    // time — so this domain runs the same cross-module post-pass the IQ scan does.
+    // Skipping it did not merely lose the link: the pending marker used to be an
+    // `enumRef` with no variants, published as "this field admits no value".
+    let mut enums = wa_scan::ResponseEnumLinker::new(module_defs, source);
     for n in &mut dispatch.notifications {
         let Some(module) = n.handler_module.clone() else {
             continue;
@@ -121,6 +139,47 @@ pub fn extract_notif_from_modules(
         };
         let notif_type = n.notif_type.clone();
         n.content = notification_content(slice, &notif_type);
+        if let Some(content) = &mut n.content {
+            enums.resolve(&format!("{module}::{notif_type}"), content);
+        }
+    }
+
+    // Phase 3: the payload action union. `content` describes the envelope; a handler
+    // that maps over the notification's children and switches on each child's tag
+    // carries a whole second union inside it (`w:gp2`'s 40+ group actions). Resolved
+    // against the full module index, since both the case labels and the `actionType`
+    // values are `Module.CONST.MEMBER` references defined elsewhere.
+    // The union is located per MODULE, not per handler function: the switch does not
+    // live in the exported handler at all — `handleGroupNotification` builds a
+    // `WADeprecatedWapParser` around a sibling local, and the child-tag switch is inside
+    // that local. Scoping discovery to the handler's own body would therefore find
+    // nothing and lose the whole `w:gp2` union.
+    //
+    // The cost of module scope is that a module hosting two handlers with two different
+    // child-tag switches would hand the larger union to both of its notification types.
+    // No module serves more than one type today, so rather than guess at which switch
+    // belongs to which handler, a shared module is left without actions — an omission a
+    // consumer can see, instead of an action union silently attributed to the wrong type.
+    let mut types_per_module: HashMap<String, usize> = HashMap::new();
+    for n in &dispatch.notifications {
+        if let Some(m) = n.handler_module.clone() {
+            *types_per_module.entry(m).or_default() += 1;
+        }
+    }
+    let consts = actions::ConstResolver::new(&slice_by_name);
+    for n in &mut dispatch.notifications {
+        let Some(module) = n.handler_module.as_deref() else {
+            continue;
+        };
+        if types_per_module.get(module).copied().unwrap_or(0) > 1 {
+            continue;
+        }
+        let Some(slice) = slice_by_name.get(module) else {
+            continue;
+        };
+        if let Some(found) = actions::extract_actions(slice, &consts) {
+            n.actions = found;
+        }
     }
 
     // Phase 2b: a type still degraded here has a handler that delegates parsing to
@@ -134,17 +193,36 @@ pub fn extract_notif_from_modules(
             if n.content.is_none()
                 && let Some(shape) = srvreq_shapes.get(&n.notif_type)
             {
-                n.content = Some(shape.clone());
+                let mut shape = shape.clone();
+                // This fallback runs after the pass above, so its shapes get resolved
+                // here — otherwise a link recovered from a server-request read-shape
+                // would be the one kind that still shipped unfinished.
+                enums.resolve(&format!("srvreq::{}", n.notif_type), &mut shape);
+                n.content = Some(shape);
             }
         }
     }
 
-    NotifIr {
-        wa_version: wa_version.to_string(),
-        dispatcher_modules,
-        stanza_tags: dispatch.stanza_tags,
-        notifications: dispatch.notifications,
+    let mut drops = enums.into_drop_counts();
+    // The action path has no linker to drain a pending marker, so it reports its own
+    // unresolvable allowed-value tables here. Without this the `w:gp2` `create.reason`
+    // field shipped as `"type": "enum"` with no values and nothing anywhere saying a
+    // constraint had been lost.
+    let action_enum_drops = consts.take_enum_drops();
+    if action_enum_drops > 0 {
+        *drops
+            .entry("action enum table not structurally resolvable".to_string())
+            .or_default() += action_enum_drops;
     }
+    (
+        NotifIr {
+            wa_version: wa_version.to_string(),
+            dispatcher_modules,
+            stanza_tags: dispatch.stanza_tags,
+            notifications: dispatch.notifications,
+        },
+        drops,
+    )
 }
 
 /// Fold one dispatcher's arms into the accumulated catalog. New tags/types are
@@ -435,6 +513,7 @@ fn extract_notifications(consequent: &[Statement]) -> Vec<NotificationDef> {
                 handler_function: handler.and_then(|(_, f)| f),
                 sub_discriminants: Vec::new(),
                 content: None,
+                actions: Vec::new(),
             });
         }
     }
@@ -450,6 +529,7 @@ fn extract_notification_case(notif_type: &str, consequent: &[Statement]) -> Noti
         handler_function: handler.and_then(|(_, f)| f),
         sub_discriminants: extract_sub_discriminants(consequent),
         content: None,
+        actions: Vec::new(),
     }
 }
 

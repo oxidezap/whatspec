@@ -9,7 +9,7 @@
 use wa_ir::{NotifIr, NotificationDef, StanzaTagDef};
 
 use crate::fields::{RustChildStruct, RustField, collect_response_fields, emit_enum_def};
-use crate::naming::{pascal_case, snake_case};
+use crate::naming::{pascal_case, rust_lit, snake_case};
 
 /// Generate the reference Rust catalog from the notification IR.
 pub fn generate_notif(ir: &NotifIr) -> String {
@@ -17,6 +17,7 @@ pub fn generate_notif(ir: &NotifIr) -> String {
     body.push_str(&emit_notification_type_enum(&ir.notifications));
     body.push_str(&emit_stanza_tag_enum(&ir.stanza_tags));
     body.push_str(&emit_handler_table(&ir.notifications));
+    body.push_str(&emit_action_tables(&ir.notifications));
     let (content, uses_jid) = emit_content_module(&ir.notifications);
 
     let mut out = String::new();
@@ -266,6 +267,221 @@ fn opt_str(v: &Option<String>) -> String {
     }
 }
 
+/// The `NotifFieldType` variants, in IR order.
+///
+/// Paired with [`field_type_variant`]'s exhaustive match: adding a variant to
+/// [`wa_ir::ParsedFieldType`] fails to compile the generator rather than silently
+/// widening a generated enum that a consumer has already matched on.
+const FIELD_TYPE_VARIANTS: &[&str] = &[
+    "String",
+    "Integer",
+    "Timestamp",
+    "TimestampMillis",
+    "Enum",
+    "Bytes",
+    "Jid",
+    "UserJid",
+    "LidUserJid",
+    "DeviceJid",
+    "LidDeviceJid",
+    "GroupJid",
+    "NewsletterJid",
+    "CallJid",
+    "BroadcastJid",
+    "StatusJid",
+    "JidTyped",
+    "Bool",
+    "Union",
+];
+
+/// The generated variant name for an IR field type. Exhaustive on purpose; see
+/// [`FIELD_TYPE_VARIANTS`].
+fn field_type_variant(t: wa_ir::ParsedFieldType) -> &'static str {
+    use wa_ir::ParsedFieldType as T;
+    match t {
+        T::String => "String",
+        T::Integer => "Integer",
+        T::Timestamp => "Timestamp",
+        T::TimestampMillis => "TimestampMillis",
+        T::Enum => "Enum",
+        T::Bytes => "Bytes",
+        T::Jid => "Jid",
+        T::UserJid => "UserJid",
+        T::LidUserJid => "LidUserJid",
+        T::DeviceJid => "DeviceJid",
+        T::LidDeviceJid => "LidDeviceJid",
+        T::GroupJid => "GroupJid",
+        T::NewsletterJid => "NewsletterJid",
+        T::CallJid => "CallJid",
+        T::BroadcastJid => "BroadcastJid",
+        T::StatusJid => "StatusJid",
+        T::JidTyped => "JidTyped",
+        T::Bool => "Bool",
+        T::Union => "Union",
+    }
+}
+
+/// The payload action unions (`notifications[].actions`) as a const table.
+///
+/// The envelope structs above describe what wraps the payload; this is the layer INSIDE
+/// it — `w:gp2`'s 47 group-action arms and their normalization. Without it a consumer
+/// reading the reference `notif.rs` instead of the JSON sees none of it, which is the
+/// whole point of shipping a reference consumer.
+///
+/// Emitted as data rather than a generated enum per notification type: the arms are a
+/// many-to-one wire-tag → action-type map with heterogeneous payloads, and a table keeps
+/// the mapping and the per-arm shape addressable without inventing 47 struct names.
+fn emit_action_tables(notifications: &[NotificationDef]) -> String {
+    if notifications.iter().all(|n| n.actions.is_empty()) {
+        return String::new();
+    }
+    let mut l = String::new();
+    l.push_str(
+        "/// How an action field decodes. Mirrors the IR's own vocabulary rather than\n\
+         /// collapsing to a Rust type, because the JID flavours must stay distinct: a PN\n\
+         /// user JID and a LID user JID are different identities for the same person.\n",
+    );
+    l.push_str("#[derive(Debug, Clone, Copy, PartialEq, Eq)]\n");
+    l.push_str("pub enum NotifFieldType {\n");
+    for v in FIELD_TYPE_VARIANTS {
+        l.push_str(&format!("    {v},\n"));
+    }
+    l.push_str("}\n\n");
+    l.push_str("/// One field an action arm reads off its child element.\n");
+    l.push_str("#[derive(Debug, Clone, Copy)]\n");
+    l.push_str("pub struct NotifActionField {\n");
+    l.push_str("    /// Output field name.\n");
+    l.push_str("    pub name: &'static str,\n");
+    l.push_str("    /// The wire attribute (or child tag, for a content read) it comes from.\n");
+    l.push_str("    pub wire_name: &'static str,\n");
+    l.push_str("    /// How the value decodes.\n");
+    l.push_str("    pub field_type: NotifFieldType,\n");
+    l.push_str("    /// Whether the arm reads it unconditionally.\n");
+    l.push_str("    pub required: bool,\n");
+    l.push_str("    /// The element body is read instead of an attribute.\n");
+    l.push_str("    pub content: bool,\n");
+    l.push_str(
+        "    /// The wire enum the handler validates this value against, when the\n\
+         \x20   /// extractor could name it. A `field_type` of `Enum` says the value is\n\
+         \x20   /// constrained; this says to WHAT.\n",
+    );
+    l.push_str("    pub enum_values: &'static [&'static str],\n");
+    l.push_str("}\n\n");
+    l.push_str(
+        "/// A value an arm stamps rather than reading. Typed, because `false` and the\n\
+         /// string `\"false\"` are different values and a stringified table cannot say which.\n",
+    );
+    l.push_str("#[derive(Debug, Clone, Copy)]\n");
+    l.push_str("pub enum NotifConstValue {\n");
+    l.push_str("    Bool(bool),\n");
+    l.push_str("    Int(i64),\n");
+    l.push_str("    Str(&'static str),\n");
+    l.push_str("}\n\n");
+    l.push_str("/// A repeated sub-element an arm maps over (`participants`).\n");
+    l.push_str("#[derive(Debug, Clone, Copy)]\n");
+    l.push_str("pub struct NotifActionChild {\n");
+    l.push_str("    pub name: &'static str,\n");
+    l.push_str("    pub wire_tag: &'static str,\n");
+    l.push_str("    pub fields: &'static [NotifActionField],\n");
+    l.push_str("}\n\n");
+    l.push_str("/// One arm of a notification's payload action union.\n");
+    l.push_str("#[derive(Debug, Clone, Copy)]\n");
+    l.push_str("pub struct NotifAction {\n");
+    l.push_str("    pub notif_type: NotificationType,\n");
+    l.push_str("    /// The child element's tag — what the handler switches on.\n");
+    l.push_str("    pub wire_tag: &'static str,\n");
+    l.push_str(
+        "    /// The normalized identity. NOT always the wire tag (`not_ephemeral` →\n\
+         \x20   /// `ephemeral`); `None` when the arm computes it.\n",
+    );
+    l.push_str("    pub action_type: Option<&'static str>,\n");
+    l.push_str("    pub fields: &'static [NotifActionField],\n");
+    l.push_str(
+        "    /// Fields the arm stamps to a constant rather than reading — the\n\
+         \x20   /// normalization that is invisible from the wire alone.\n",
+    );
+    l.push_str("    pub constants: &'static [(&'static str, NotifConstValue)],\n");
+    l.push_str("    pub children: &'static [NotifActionChild],\n");
+    l.push_str("}\n\n");
+
+    let field_list = |fields: &[wa_ir::NotifActionField]| -> String {
+        let items: Vec<String> = fields
+            .iter()
+            .map(|f| {
+                let values: Vec<String> = f
+                    .enum_ref
+                    .as_ref()
+                    .map(|e| e.variants.iter().map(|v| rust_lit(&v.value)).collect())
+                    .unwrap_or_default();
+                format!(
+                    "NotifActionField {{ name: {}, wire_name: {}, field_type: NotifFieldType::{}, required: {}, content: {}, enum_values: &[{}] }}",
+                    rust_lit(&f.name),
+                    rust_lit(&f.wire_name),
+                    field_type_variant(f.field_type),
+                    f.required,
+                    f.content,
+                    values.join(", ")
+                )
+            })
+            .collect();
+        format!("&[{}]", items.join(", "))
+    };
+
+    l.push_str("/// Every payload action arm, by notification type then wire tag.\n");
+    l.push_str("pub const NOTIF_ACTIONS: &[NotifAction] = &[\n");
+    for n in notifications {
+        for a in &n.actions {
+            let constants: Vec<String> = a
+                .constant_fields
+                .iter()
+                .map(|c| {
+                    let v = match &c.value {
+                        wa_ir::NotifConstValue::Bool(b) => format!("NotifConstValue::Bool({b})"),
+                        wa_ir::NotifConstValue::Int(i) => format!("NotifConstValue::Int({i})"),
+                        wa_ir::NotifConstValue::Str(s) => {
+                            format!("NotifConstValue::Str({})", rust_lit(s))
+                        }
+                    };
+                    format!("({}, {v})", rust_lit(&c.name))
+                })
+                .collect();
+            let children: Vec<String> = a
+                .children
+                .iter()
+                .map(|c| {
+                    format!(
+                        "NotifActionChild {{ name: {}, wire_tag: {}, fields: {} }}",
+                        rust_lit(&c.name),
+                        rust_lit(&c.wire_tag),
+                        field_list(&c.fields)
+                    )
+                })
+                .collect();
+            l.push_str(&format!(
+                "    NotifAction {{ notif_type: NotificationType::{}, wire_tag: {}, \
+                 action_type: {}, fields: {}, constants: &[{}], children: &[{}] }},\n",
+                pascal_case(&n.notif_type),
+                rust_lit(&a.wire_tag),
+                match &a.action_type {
+                    Some(t) => format!("Some({})", rust_lit(t)),
+                    None => "None".to_string(),
+                },
+                field_list(&a.fields),
+                constants.join(", "),
+                children.join(", ")
+            ));
+        }
+    }
+    l.push_str("];\n\n");
+    l.push_str(
+        "/// The arms a notification type's payload can carry.\n\
+         pub fn actions_for(t: NotificationType) -> impl Iterator<Item = &'static NotifAction> {\n\
+         \x20   NOTIF_ACTIONS.iter().filter(move |a| a.notif_type == t)\n\
+         }\n\n",
+    );
+    l
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -273,6 +489,39 @@ mod tests {
         AssertionKind, ParsedField, ParsedFieldType, ParsedResponse, ResponseAssertion, SubCase,
         SubDiscriminant, SubDiscriminantOn,
     };
+
+    #[test]
+    fn the_payload_action_union_reaches_generated_rust() {
+        // The envelope structs describe what WRAPS the payload; the arms inside it are a
+        // whole protocol layer, and a consumer reading this file instead of the JSON saw
+        // none of it. The many-to-one normalization is the part that cannot be guessed
+        // from the wire, so it is what the assertion pins.
+        let mut ir = ir();
+        ir.notifications[0].actions = vec![wa_ir::NotifActionDef {
+            wire_tag: "not_ephemeral".into(),
+            action_type: Some("ephemeral".into()),
+            fields: vec![],
+            constant_fields: vec![wa_ir::NotifActionConstant {
+                name: "duration".into(),
+                value: wa_ir::NotifConstValue::Int(0),
+            }],
+            children: vec![],
+        }];
+        let src = generate_notif(&ir);
+        assert!(src.contains("pub const NOTIF_ACTIONS"), "the table exists");
+        assert!(
+            src.contains(r#"wire_tag: "not_ephemeral""#)
+                && src.contains(r#"action_type: Some("ephemeral")"#),
+            "the many-to-one mapping survives:\n{src}"
+        );
+        // Typed, not stringified: `false` and the string `"false"` are different values,
+        // and a `(&str, &str)` table cannot say which one the arm stamps.
+        assert!(
+            src.contains(r#"("duration", NotifConstValue::Int(0))"#),
+            "and the constant the arm stamps, with its type:\n{src}"
+        );
+        syn::parse_file(&src).expect("generated notif.rs is valid Rust");
+    }
 
     fn ir() -> NotifIr {
         NotifIr {
@@ -295,6 +544,7 @@ mod tests {
                             kind: AssertionKind::Tag,
                             name: Some("notification".into()),
                             value: None,
+                            reference_path: None,
                         }],
                         fields: vec![ParsedField {
                             method: "attrString".into(),
@@ -305,6 +555,7 @@ mod tests {
                         }],
                         ..Default::default()
                     }),
+                    actions: Vec::new(),
                 },
                 NotificationDef {
                     notif_type: "encrypt".into(),
@@ -319,6 +570,7 @@ mod tests {
                         }],
                     }],
                     content: None,
+                    actions: Vec::new(),
                 },
             ],
         }

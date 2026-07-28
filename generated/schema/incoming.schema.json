@@ -40,17 +40,117 @@
           "description": "The node's text content is pinned to a fixed value (`literalContent(content,\nnode, \"admin_add\")`) — a discriminator for marker union variants. The value is\nin [`ResponseAssertion::value`]; `name` is unused.",
           "type": "string",
           "const": "content"
+        },
+        {
+          "description": "The attribute named by [`ResponseAssertion::name`] must **echo a value taken\nfrom the request** — `literal(attrString, node, \"from\",\nattrStringFromReference(request, [\"to\"]))`. The expected value is not a\nconstant, so [`ResponseAssertion::value`] is absent; where it comes from is in\n[`ResponseAssertion::reference_path`].\n\nThis is the rule 17 of the 26 namespace `IQError…Mixin`s (and every success\nparser) enforce: an answer's `id` must equal the request's `id` and its `from`\nthe request's `to`. An emitter that hardcodes `from=\"s.whatsapp.net\"` produces\nstanzas a real client cannot parse whenever the request went to `g.us`.",
+          "type": "string",
+          "const": "reference"
         }
+      ]
+    },
+    "AttrEnumRef": {
+      "description": "A wire enum a request attribute's value is drawn from, recovered by resolving a\nstructural `o(\"Mod\").EnumName.VARIANT` reference in the builder. String-valued (all\nstanza-attr enums are wire tokens), so a consumer can generate a real enum type.",
+      "type": "object",
+      "properties": {
+        "module": {
+          "description": "The module that defines it (`WAWebBackendJobs.flow`, `WAWebUsync`, …).",
+          "type": "string"
+        },
+        "name": {
+          "description": "The enum's name (`CiphertextType`, `USYNC_ADDRESSING_MODE`, …).",
+          "type": "string"
+        },
+        "variants": {
+          "description": "The enum's variants in source order.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AttrEnumVariant"
+          }
+        }
+      },
+      "required": [
+        "name",
+        "module",
+        "variants"
+      ]
+    },
+    "AttrEnumVariant": {
+      "description": "One `NAME: \"wire_value\"` member of an [`AttrEnumRef`].",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "value"
       ]
     },
     "ContentType": {
       "description": "How a child/leaf node's content is accessed in the response parser.",
-      "type": "string",
-      "enum": [
-        "string",
-        "bytes",
-        "nodes"
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "string",
+            "bytes",
+            "nodes"
+          ]
+        },
+        {
+          "description": "A decimal integer in the element body (`contentUint`, `contentInt`). Distinct\nfrom [`String`] because a consumer that reads it as text has to re-parse, and\nbecause collapsing it onto `String` is how three sibling integer contents ended\nup sharing one generated field.\n\n[`String`]: ContentType::String",
+          "type": "string",
+          "const": "integer"
+        }
       ]
+    },
+    "ErrorArm": {
+      "description": "One accepted `<error>` shape of a response variant: the `code` and `text` that must\noccur **together**.\n\nA variant accepting `400 bad-request` and `501 feature-not-implemented` cannot be\ndescribed by two independent lists — nothing would then rule out `400\nfeature-not-implemented`, a combination the parser rejects, so an emitter picking one\nvalue from each list produces an unparseable stanza. The pairing is the point.\n\nEvery field is optional because each is a genuine shape: an arm may pin an exact\n`(code, text)`, pin only the code and read the text freely\n(`IQErrorReportTokenValidationFail` accepts any text with 548), or pin neither and\nrange-check the code (the `IQErrorFallback*` arms).",
+      "type": "object",
+      "properties": {
+        "code": {
+          "description": "The exact `code` this arm pins, when it pins one.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64"
+        },
+        "codeMax": {
+          "description": "Inclusive upper bound of the same range (see [`code_min`]).\n\n[`code_min`]: ErrorArm::code_min",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64"
+        },
+        "codeMin": {
+          "description": "Inclusive lower bound of the codes this arm accepts, when it range-checks instead\nof pinning.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64"
+        },
+        "name": {
+          "description": "The disjunction alternative this arm comes from (`IQErrorBadRequest`), when the\nerror is parsed as a `…Errors` union. `None` for an RPC that parses a single\n`<error>` child directly, which has exactly one arm and no name for it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "text": {
+          "description": "The exact `text` this arm pins. Absent is a fact, not a gap — see the note above.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
     },
     "IncomingDef": {
       "description": "One received stanza's read-shape: which tag it parses, the module that defines the\nparser, and the recovered field tree.",
@@ -143,6 +243,17 @@
             "type": "string"
           }
         },
+        "enumRef": {
+          "description": "The wire enum this field's value is drawn from, when the parser reads it with an\nenum accessor (`attrStringEnum(node, \"state\", o(\"Mod\").ENUM_OFF_ON)`). Resolved\nthe same way the request side resolves [`WapAttrDef::enum_ref`], so a consumer\ncan type the field as that enum instead of a bare string — and an emitter knows\nwhich values are legal instead of guessing from the generated `ENUM_OFF_ON` name.\nAbsent when the enum argument is not a structurally resolvable module export, or\nresolves to a non-string enum (never guessed).\n\n[`WapAttrDef::enum_ref`]: WapAttrDef::enum_ref",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AttrEnumRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "intMax": {
           "description": "Inclusive upper bound from the same `attrIntRange` check (see [`int_min`]).\n\n[`int_min`]: ParsedField::int_min",
           "type": [
@@ -159,12 +270,29 @@
           ],
           "format": "int64"
         },
+        "literalValue": {
+          "description": "The fixed value the parser pins this field to — `literal(attrString, participant,\n\"type\", \"admin\")` → `\"admin\"`, `literal(attrInt, error, \"code\", 429)` → `\"429\"`.\nAlways the string form of the literal; [`field_type`] says how to read it (a\n`code` field with `literalValue: \"429\"` is the integer 429 on the wire). On a\n[`ParsedFieldType::Bytes`] field it is **lowercase hex** — the encoding\n[`WapContent::const_bytes`] already uses on the request side —\nand [`byte_length`] is its length: `contentLiteralBytes(node, new Uint8Array([5]))`\n→ `literalValue: \"05\"`, `byteLength: 1`.\n\n[`byte_length`]: ParsedField::byte_length\n\n[`required`] tells the two pinning forms apart, and the difference matters to an\nemitter: a **required** literal (`literal`) is a hard discriminator — the\nattribute MUST be present and equal to this value or the variant does not match;\nan **optional** one (`optionalLiteral`) is pinned only when present — the emitter\nmay omit the attribute, but must never send a contradicting value.\n\n**On a [`ParsedFieldType::Bool`] field the pin is always conditional.** Such a\nfield is a *presence flag* — `{hasListCDhash: m.value != null}` — so its\n`required: true` describes the flag (the parser always produces it), never the\nwire attribute named by [`wire_name`], which by construction may be absent. The\npin constrains that attribute when present, and never the boolean itself.\n\n[`field_type`]: ParsedField::field_type\n[`required`]: ParsedField::required\n[`wire_name`]: ParsedField::wire_name",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "method": {
           "type": "string"
         },
         "name": {
           "description": "The output (struct field) name — the camelCase `makeResult` key in smax.",
           "type": "string"
+        },
+        "referencePath": {
+          "description": "The field is pinned not to a constant but to **a value taken from the request** —\nthe same echo rule [`AssertionKind::Reference`] carries, in the same\n`attrStringFromReference` path form, but for a pin that is *not* a variant guard.\n\nA required echo (`literal(…, \"from\", ref.to)`) is recorded as an assertion, since\nit must hold for the variant to match at all. An **optional** one\n(`optionalLiteral(…, \"c_dhash\", ref.item.dhash)`) is not a guard — the attribute\nmay be absent — so it lives here instead: an emitter may omit it, but if it sends\nit, the value must be the request's. Mutually exclusive with [`literal_value`],\nand — like it — always conditional when carried on a [`ParsedFieldType::Bool`]\npresence flag.\n\n[`literal_value`]: ParsedField::literal_value",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
         },
         "repeats": {
           "type": [
@@ -357,6 +485,16 @@
             "null"
           ]
         },
+        "referencePath": {
+          "description": "Where the expected value is read from **in the request**, for\n[`AssertionKind::Reference`]. It is the argument list of WA's\n`attrStringFromReference(request, path)` helper: every element but the last is a\nchild tag to descend into, and the last is the attribute name. So `[\"to\"]` means\n\"the request's `to` attribute\" and `[\"account\", \"action\"]` means \"the `action`\nattribute of the request's `<account>` child\".\n\nCarried structurally (rather than left to be inferred from `name`) so a consumer\nnever has to pattern-match attribute names to know an echo rule applies.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
         "value": {
           "type": [
             "string",
@@ -377,6 +515,24 @@
           "items": {
             "$ref": "#/$defs/ResponseAssertion"
           }
+        },
+        "errorArms": {
+          "description": "The accepted `<error>` shapes, in parser order — **which code goes with which\ntext**. See [`ErrorArm`]; this is the only representation of the vocabulary,\ndeliberately, because the flattened `errorCodes` / `errorTexts` lists it replaced\nlet an emitter combine one arm's code with another's text and produce a stanza no\nbranch accepts.\n\nAn arm describes the *discriminating* `<error>` node. When the variant also pins\nthe node above it, those pins are in [`error_envelope`], and the full shape is\n**arm + envelope**.\n\nTo answer \"does this RPC accept code N / text T?\", scan the arms — the question\nthe flat lists used to answer is one `.iter().any(…)` away, and asking it that way\ncannot produce an invalid pair.\n\n[`error_envelope`]: ResponseVariant::error_envelope",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ErrorArm"
+          }
+        },
+        "errorEnvelope": {
+          "description": "Pins on the `<error>` node **enclosing** the one the arms discriminate, for a\ntwo-level error.\n\n`SetResponsePreKeySuccessVnameFailure` is the shape: `<error code=\"207\">` — the\npartial-failure envelope, shared by every arm — wrapping an inner `<error>` whose\ntext the disjunction pins and whose code is range-checked. Pins are partitioned by\nthe node they are read from, so the envelope holds only the enclosing node's and\nthe inner node's shared constraints stay on the arms; mixing them would tell a\nconsumer that code 207 must also fall in 400–599.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorArm"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "fields": {
           "type": "array",
@@ -404,14 +560,28 @@
       ]
     },
     "ResponseVariantKind": {
-      "description": "How a response-root union variant classifies (drives codegen `Ok`/`Err` arms).",
+      "description": "How a response-root union variant classifies (drives codegen `Ok`/`Err` arms).\n\nThe error side is split by **who is at fault**, because that decides what a caller\nshould do: a 4xx will fail again if retried unchanged, a 5xx may not. WA models the\ntwo as separate parsers with disjoint code ranges (`bad-request` 400,\n`rate-overlimit` 429, fallback 400–499 / `internal-server-error` 500, fallback\n500–599), so the split is the protocol's, not an interpretation.\n\nThe side is derived from the **codes** the variant accepts, never from its name: WA\nspells the arms inconsistently (`…ResponseServerError`, but also\n`…ResponseInternalServerError`, and `SetResponsePreKeySuccessVnameFailure` reads as a\nsuccess while asserting `type=\"error\"`). A variant whose codes are mixed or outside\nboth families stays [`Error`] — an error whose side could not be determined, which is\na fact worth stating rather than a coin flip.\n\n[`Error`]: ResponseVariantKind::Error",
       "oneOf": [
         {
           "type": "string",
           "enum": [
-            "success",
-            "error"
+            "success"
           ]
+        },
+        {
+          "description": "The request was wrong (4xx) — retrying it unchanged will fail again.",
+          "type": "string",
+          "const": "client_error"
+        },
+        {
+          "description": "The server failed (5xx) — the same request may succeed later.",
+          "type": "string",
+          "const": "server_error"
+        },
+        {
+          "description": "An error whose side the accepted codes do not determine.",
+          "type": "string",
+          "const": "error"
         },
         {
           "description": "A structured non-happy outcome that still parses (Nack, Conflict, …).",
