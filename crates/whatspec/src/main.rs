@@ -277,6 +277,7 @@ fn update(args: &[String]) -> Result<()> {
         source,
         bundles,
         wasm,
+        boot_pins,
         authoritative,
     } = load_source(&opts)?;
     eprintln!("WhatsApp version: {wa_version}");
@@ -354,7 +355,7 @@ fn update(args: &[String]) -> Result<()> {
     if authoritative && !wasm.is_empty() {
         let lock_path = opts.out.join(WASM_LOCK_NAME);
         warn_if_wasm_shrank(&lock_path, &wasm);
-        let lock = WasmLock::new(&wa_version, wasm);
+        let lock = WasmLock::with_bootloader(&wa_version, wasm, boot_pins);
         fs::write(&lock_path, lock.to_pretty_json())
             .with_context(|| format!("write {}", lock_path.display()))?;
         eprintln!(
@@ -934,6 +935,10 @@ struct Loaded {
     /// for on the fetch path. Never part of `source`: these are binaries, and the
     /// extractors parse `source` as JavaScript.
     wasm: Vec<WasmLockEntry>,
+    /// What the bootloader yielded this run, when the fetch path ran — see
+    /// [`lock::BootloaderPins`]. `None` for a local `--bundles` regen, which never
+    /// asks the bootloader anything and must not clobber a recorded map with nothing.
+    boot_pins: Option<lock::BootloaderPins>,
     /// `true` only for the fetch path, which knows every bundle's origin URL and is
     /// therefore the *authoritative* source of a full lockfile. The offline `--bundles`
     /// path fingerprints the same inputs (for `--check`) but never rewrites the lock,
@@ -959,6 +964,7 @@ fn load_source(opts: &Options) -> Result<Loaded> {
                 // directory of `.js` files, so it stays empty (and the committed wasm
                 // lock is left untouched — see `authoritative`).
                 wasm: Vec::new(),
+                boot_pins: None,
                 authoritative: false,
             })
         }
@@ -1072,12 +1078,14 @@ fn fetch_source(opts: &Options) -> Result<Loaded> {
                     bundles.len()
                 );
                 maybe_save_bundles(opts, &bundles)?;
-                let wasm = load_wasm(opts, &discovered, Some(remote_version.as_str()))?;
+                let (wasm, boot_pins) =
+                    load_wasm(opts, &discovered, Some(remote_version.as_str()))?;
                 return Ok(Loaded {
                     wa_version: version,
                     source: concat_bundles(&bundles),
                     bundles: bundle_ids(&bundles),
                     wasm,
+                    boot_pins,
                     authoritative: true,
                 });
             }
@@ -1122,12 +1130,13 @@ fn fetch_source(opts: &Options) -> Result<Loaded> {
     // must never be able to cost the (expensive) JS download a retry.
     // The discovered version keys the cache; it does not gate the fetch. A run stamped
     // with `--wa-version` over an unreadable page still collects its payloads.
-    let wasm = load_wasm(opts, &discovered, discovered.wa_version.as_deref())?;
+    let (wasm, boot_pins) = load_wasm(opts, &discovered, discovered.wa_version.as_deref())?;
     Ok(Loaded {
         wa_version: version,
         source: concat_bundles(&outcome.bundles),
         bundles: bundle_ids(&outcome.bundles),
         wasm,
+        boot_pins,
         authoritative: true,
     })
 }
@@ -1179,9 +1188,9 @@ fn load_wasm(
     opts: &Options,
     discovered: &wa_fetch::Discovered,
     remote_version: Option<&str>,
-) -> Result<Vec<WasmLockEntry>> {
+) -> Result<(Vec<WasmLockEntry>, Option<lock::BootloaderPins>)> {
     if !opts.wasm {
-        return Ok(Vec::new());
+        return Ok((Vec::new(), None));
     }
 
     // The cache is keyed by the *discovered* version. Without one it can't be used at all
@@ -1197,6 +1206,14 @@ fn load_wasm(
     }
 
     let resolution = wa_fetch::resolve_wasm(discovered, &wa_fetch::WasmResolveOptions::default());
+    // Pinned alongside the payloads: the id→URI map is the ONLY thing that turns the
+    // numeric handle the JS asks for into something fetchable, and nothing recorded it.
+    let pins = lock::BootloaderPins {
+        handles_from_page: resolution.from_page,
+        wasm_handles: resolution.by_id.clone(),
+        requests: resolution.requests,
+        failed_requests: resolution.failures.len(),
+    };
     eprintln!(
         "resolved {} wasm payload(s): {} from the page, {} handle(s) after {} bootloader \
          round(s) ({} request(s))",
@@ -1290,7 +1307,7 @@ fn load_wasm(
         // previous run's payloads behind, or a runner would consume a set no lock
         // describes. Not an error — a blocked resolution must not fail a spec update.
         maybe_save_wasm(opts, &payloads)?;
-        return Ok(Vec::new());
+        return Ok((Vec::new(), Some(pins)));
     }
 
     // Handles: what this run resolved, plus what the cache recorded for payloads it is
@@ -1312,7 +1329,7 @@ fn load_wasm(
 
     let entries = wasm_entries(&payloads, &handles);
     maybe_save_wasm(opts, &payloads)?;
-    Ok(entries)
+    Ok((entries, Some(pins)))
 }
 
 /// Give every payload a file name that is unique across the set and safe on disk, deriving

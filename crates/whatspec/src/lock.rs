@@ -12,6 +12,8 @@
 //! of bundle contents, not their filenames or order. [`set_hash`] fingerprints that
 //! multiset in one line; [`BundleLock`] carries the full per-bundle detail.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 /// One bundle's identity, as collected during a generation run. The `url` is present
@@ -144,6 +146,32 @@ pub struct WasmLockEntry {
     pub size: u64,
 }
 
+/// The bootloader extraction, pinned.
+///
+/// The JS never carries a wasm URL: it asks the bootloader for a numeric `bx` id, and only
+/// the page's resource map turns that id into something fetchable. Nothing recorded that
+/// map, so a change in the bootloader's shape showed up only as a wasm count that quietly
+/// stopped growing — and `wasmResources` is deliberately unguarded, because most handles
+/// address theme images that come and go.
+///
+/// What is pinned is the EXTRACTION, not the page. The HTML carries nonces and timestamps
+/// and is byte-unstable by construction; hashing it would fail the determinism gate for
+/// reasons that have nothing to do with the protocol. The resolved id→URI map is stable
+/// for a given release, so it can be diffed across releases and read on its own.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BootloaderPins {
+    /// Handles the page inlined, before any request to the bootloader endpoint.
+    pub handles_from_page: usize,
+    /// Every `bx` id that resolved to a wasm URL, page and endpoint together.
+    pub wasm_handles: BTreeMap<String, String>,
+    /// Endpoint requests sent, and how many came back unusable. A run that suddenly
+    /// needs more rounds, or starts failing, is the early signal that the endpoint
+    /// contract moved.
+    pub requests: usize,
+    pub failed_requests: usize,
+}
+
 /// The wasm lockfile (`generated/wasm.lock.json`) — what a fetch run resolved and stored.
 ///
 /// Deliberately **separate** from [`BundleLock`]:
@@ -165,18 +193,30 @@ pub struct WasmLock {
     pub wasm_set_hash: String,
     pub wasm_count: usize,
     /// Every payload, sorted by `(sha256, url)` for a deterministic, diffable file.
+    /// What the page's bootloader actually yielded this run — see [`BootloaderPins`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bootloader: Option<BootloaderPins>,
     pub wasm: Vec<WasmLockEntry>,
 }
 
 impl WasmLock {
-    /// Build a lock from a fetch run's resolved payloads.
-    pub fn new(wa_version: &str, mut wasm: Vec<WasmLockEntry>) -> Self {
+    /// Build a lock from a fetch run's resolved payloads and what the bootloader yielded.
+    ///
+    /// `bootloader` is `None` only for a path that never asked it anything; a local
+    /// `--bundles` regen does not reach here at all, so a recorded map is never
+    /// overwritten with nothing.
+    pub fn with_bootloader(
+        wa_version: &str,
+        mut wasm: Vec<WasmLockEntry>,
+        bootloader: Option<BootloaderPins>,
+    ) -> Self {
         wasm.sort_by(|a, b| a.sha256.cmp(&b.sha256).then_with(|| a.url.cmp(&b.url)));
         let ids: Vec<BundleId> = wasm.iter().map(WasmLockEntry::as_bundle_id).collect();
         Self {
             wa_version: wa_version.to_string(),
             wasm_set_hash: set_hash(&ids),
             wasm_count: wasm.len(),
+            bootloader,
             wasm,
         }
     }
@@ -333,12 +373,13 @@ mod tests {
 
     #[test]
     fn wasm_lock_sorts_fingerprints_and_round_trips() {
-        let lock = WasmLock::new(
+        let lock = WasmLock::with_bootloader(
             "2.3000.1",
             vec![
                 wasm_entry("ff", 9, "https://s/y/voip.wasm", Some("32180")),
                 wasm_entry("aa", 1, "https://s/x/liboqs.wasm", None),
             ],
+            None,
         );
         assert_eq!(lock.wasm[0].sha256, "aa", "sorted by content hash");
         assert_eq!(lock.wasm[0].file_name, "liboqs.wasm");
@@ -364,19 +405,24 @@ mod tests {
         // (the published JS archive name and the reproducibility gate depend on it).
         let bundles = vec![id("aa", 1, Some("https://s/a.js"))];
         let js = BundleLock::new("v", bundles.clone());
-        let wasm = WasmLock::new("v", vec![wasm_entry("bb", 2, "https://s/w.wasm", None)]);
+        let wasm = WasmLock::with_bootloader(
+            "v",
+            vec![wasm_entry("bb", 2, "https://s/w.wasm", None)],
+            None,
+        );
         assert_ne!(js.set_hash, wasm.wasm_set_hash);
         assert_eq!(js.set_hash, BundleLock::new("v", bundles).set_hash);
     }
 
     #[test]
     fn wasm_self_consistency_catches_tampering() {
-        let lock = WasmLock::new(
+        let lock = WasmLock::with_bootloader(
             "v",
             vec![
                 wasm_entry("aa", 1, "https://s/a.wasm", None),
                 wasm_entry("bb", 2, "https://s/b.wasm", None),
             ],
+            None,
         );
         let mut tampered = lock.clone();
         tampered.wasm[0].sha256 = "cc".to_string();
@@ -394,5 +440,28 @@ mod tests {
                 .unwrap_err()
                 .contains("wasmCount")
         );
+    }
+    #[test]
+    fn the_bootloader_map_survives_a_lock_round_trip() {
+        // The id→URI map is the only thing that turns the numeric handle the JS asks for
+        // into something fetchable, and nothing recorded it — a change in the bootloader
+        // showed up only as a wasm count that quietly stopped growing.
+        let pins = BootloaderPins {
+            handles_from_page: 12,
+            wasm_handles: BTreeMap::from([("30933".into(), "https://s/a.wasm".into())]),
+            requests: 4,
+            failed_requests: 1,
+        };
+        let lock = WasmLock::with_bootloader(
+            "2.3000.TEST",
+            vec![wasm_entry("aa", 1, "https://s/a.wasm", Some("30933"))],
+            Some(pins.clone()),
+        );
+        let back: WasmLock = serde_json::from_str(&lock.to_pretty_json()).expect("round trip");
+        assert_eq!(back.bootloader.as_ref(), Some(&pins));
+        // And a run that never asked the bootloader writes no key at all, so an offline
+        // regen cannot be mistaken for "the map is empty now".
+        let bare = WasmLock::with_bootloader("2.3000.TEST", Vec::new(), None);
+        assert!(!bare.to_pretty_json().contains("bootloader"));
     }
 }
