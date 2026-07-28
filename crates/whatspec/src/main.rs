@@ -366,7 +366,7 @@ fn update(args: &[String]) -> Result<()> {
         // configuration `cargo test --workspace` never exercises.
         #[cfg(feature = "fetch")]
         if let Some(pins) = &boot_pins
-            && let Err(e) = update_lock_bootloader(&lock_path, pins)
+            && let Err(e) = update_lock_bootloader(&lock_path, pins, &wa_version)
         {
             eprintln!("  wasm lock not updated with the bootloader map: {e:#}");
         }
@@ -2125,10 +2125,29 @@ struct NotifCounts {
 /// replacing the section wholesale would delete those ids while deliberately keeping the
 /// payloads they resolved. That is precisely the "a later run must not shrink the map"
 /// rule the pins were introduced to honour.
+///
+/// Accumulating is only sound WITHIN one release, so a lock stamped for a different
+/// `wa_version` is left untouched. On a version bump that resolves nothing, the lock still
+/// pins the previous release's payloads (`warn_if_wasm_lock_is_now_stale` says so); writing
+/// this run's handles into it would attribute the new release's ids to the old one, and —
+/// because the map accumulates — interleave two releases' ids into a provenance record
+/// whose whole purpose is being diffable.
 #[cfg(feature = "fetch")]
-fn update_lock_bootloader(lock_path: &Path, pins: &lock::BootloaderPins) -> Result<()> {
+fn update_lock_bootloader(
+    lock_path: &Path,
+    pins: &lock::BootloaderPins,
+    wa_version: &str,
+) -> Result<()> {
     let raw = fs::read_to_string(lock_path)?;
     let mut lock: WasmLock = serde_json::from_str(&raw)?;
+    if lock.wa_version != wa_version {
+        eprintln!(
+            "  bootloader map not written: {} is stamped for {}, not {wa_version}",
+            lock_path.display(),
+            lock.wa_version
+        );
+        return Ok(());
+    }
     let mut pins = pins.clone();
     if let Some(prev) = &lock.bootloader {
         for (id, url) in &prev.wasm_handles {
@@ -3061,8 +3080,12 @@ mod tests {
         fs::write(&path, before.to_pretty_json()).expect("seed the lock");
 
         // An unproductive run that saw only the page's own handle.
-        update_lock_bootloader(&path, &pins(&[("22", "https://x/b.wasm")], 1, 1))
-            .expect("rewrite the section");
+        update_lock_bootloader(
+            &path,
+            &pins(&[("22", "https://x/b.wasm")], 1, 1),
+            "2.3000.test",
+        )
+        .expect("rewrite the section");
 
         let after: lock::WasmLock =
             serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
@@ -3074,6 +3097,23 @@ mod tests {
         );
         assert_eq!(boot.requests, 1, "diagnostics describe THIS run");
         assert_eq!(boot.failed_requests, 1);
+
+        // ...but only within one release. On a version bump that resolved nothing, the
+        // lock still describes the PREVIOUS release, so accumulating this run's ids into
+        // it would interleave two releases in a record whose point is being diffable.
+        update_lock_bootloader(
+            &path,
+            &pins(&[("33", "https://x/c.wasm")], 9, 9),
+            "2.3000.next",
+        )
+        .expect("a stale lock is not an error");
+        let untouched: lock::WasmLock =
+            serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(
+            untouched.bootloader.expect("still there"),
+            boot,
+            "a lock stamped for another version is left exactly as it was"
+        );
         fs::remove_dir_all(&dir).unwrap();
     }
 

@@ -166,6 +166,44 @@ def check_const_bytes(node, path, errors):
         )
 
 
+def check_enum_catalog_refs(data, domain, errors):
+    """Enum references that point INTO the document's own top-level `enums` catalog.
+
+    Every other enum in the IR inlines its values, so `check_enum_ref` — which looks at
+    an `enumRef` object in place — is enough. WAM instead names a module and expects the
+    consumer to find it in `enums`, and nothing verified the link resolved: a dangling
+    name, or a definition left with no variants (which the schema permits), still read as
+    "internally consistent" while a consumer could not encode the field at all.
+
+    Keyed on the document HAVING a catalog rather than on the domain name, so a second
+    domain adopting the same shape is covered without anyone remembering to add it here.
+    """
+    catalog = data.get("enums")
+    if not isinstance(catalog, list) or not catalog:
+        return
+    by_module = {}
+    for e in catalog:
+        if isinstance(e, dict) and "module" in e:
+            by_module.setdefault(e["module"], []).append(e)
+
+    def visit(node, path):
+        if node.get("kind") != "enum" or "module" not in node:
+            return
+        module = node["module"]
+        found = by_module.get(module, [])
+        if not found:
+            errors.append(f"{domain}{path}: enum reference {module!r} is in no definition")
+        elif len(found) > 1:
+            errors.append(
+                f"{domain}{path}: enum reference {module!r} matches "
+                f"{len(found)} definitions, so it does not identify one"
+            )
+        elif not found[0].get("variants"):
+            errors.append(f"{domain}{path}: enum reference {module!r} resolves to no values")
+
+    walk(data, visit)
+
+
 def check_assertion(a, path, errors):
     if a.get("kind") == "reference" and not a.get("referencePath"):
         errors.append(f"{path}: reference assertion with no referencePath")
@@ -211,6 +249,9 @@ def main() -> int:
             check_const_bytes(node, f"{domain}{path}", errors)
 
         walk(data, visit)
+        # Needs the whole document, not one node: the reference and its definition sit in
+        # different subtrees.
+        check_enum_catalog_refs(data, domain, errors)
 
     ok = True
     for name, observed in sorted(counts.items()):
