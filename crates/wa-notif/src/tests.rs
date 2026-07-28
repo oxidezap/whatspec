@@ -598,7 +598,7 @@ __d("WAWebHandleDeviceNotification",["WADeprecatedWapParser"],(function(t,n,r,o,
 __d("WAWebHandleGroupNotificationConst",[],(function(t,n,r,o,a,i,l){
   var cache={};
   cache.GROUP_NOTIFICATION_TAG={ADD:"WRONG_add",SUBJECT:"WRONG_subject"};
-  var e=Object.freeze({ADD:"add",SUBJECT:"subject",EPHEMERAL:"ephemeral",NOT_EPHEMERAL:"not_ephemeral",MODIFY:"modify",LOCKED:"locked",REVOKE_INVITE:"revoke",DESC:"description",UNLINK:"unlink"});
+  var e=Object.freeze({ADD:"add",SUBJECT:"subject",EPHEMERAL:"ephemeral",NOT_EPHEMERAL:"not_ephemeral",MODIFY:"modify",GROWTH_LOCKED:"growth_locked",LOCKED:"locked",REVOKE_INVITE:"revoke",DESC:"description",UNLINK:"unlink"});
   l.GROUP_NOTIFICATION_TAG=e;
 }), 1);
 __d("WAWebGroupApiConst",[],(function(t,n,r,o,a,i,l){
@@ -613,7 +613,8 @@ __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGr
   function w(e){ if (e.hasChild("a")) return {alpha:e.attrString("alpha")}; return {beta:e.attrString("beta")}; }
   function q(e){ return e.mapChildrenWithTag("entry", function(x){
     if (x.hasChild("full")) return {id:x.attrString("id"), extra:x.attrString("extra"), who:x.attrString("jid")};
-    return {id:x.attrString("id"), who:x.attrString("lid")};
+    if (x.hasChild("mid")) return {id:x.attrString("id"), who:x.attrString("lid")};
+    return {id:x.attrString("id"), who:x.attrString("jid")};
   }); }
   function y(e,t){ return t.mapChildrenWithTag("participant", function(p){
     return { id: p.attrUserJid("jid"), displayName: p.maybeAttrString("display_name"), kind: p.maybeAttrEnum("type", o("WAWebGroupApiConst").GROUP_PARTICIPANT_TYPES) };
@@ -643,6 +644,8 @@ __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGr
           var z = t.attrString("second");
           return {actionType:o("WAWebGroupType").GROUP_ACTIONS.RESTRICT, pick:z};
         }
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.GROWTH_LOCKED:
+          o("WALogger").INFO("setup");
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.LOCKED: {
           var n;
           return {actionType:o("WAWebGroupType").GROUP_ACTIONS.RESTRICT, value:!0, threshold:(n=t.maybeAttrString("threshold"))!=null?n:void 0};
@@ -1069,4 +1072,46 @@ fn a_key_bound_to_different_wire_reads_is_dropped_not_guessed() {
     let f = |n: &str| entries.fields.iter().find(|f| f.name == n);
     assert!(f("id").expect("id").required, "read by every branch");
     assert!(!f("extra").expect("extra").required, "read by one branch");
+}
+
+#[test]
+fn a_fall_through_label_with_setup_still_inherits_the_shared_action() {
+    // `case GROWTH_LOCKED: log(); case SUSPENDED: return {…}` — the first label has a
+    // non-empty body that produces no shape and falls through. Treating "non-empty" as
+    // "its own arm" lost the action type and every field of a legally dispatched tag.
+    let ir = extract_notif(GROUP_ACTIONS_BUNDLE, "2.3000.test");
+    let arm = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .find(|a| a.wire_tag == "growth_locked")
+        .expect("growth_locked arm");
+    assert_eq!(
+        arm.action_type.as_deref(),
+        Some("restrict"),
+        "must inherit the body it falls through into"
+    );
+    assert!(!arm.constant_fields.is_empty(), "including its constants");
+}
+
+#[test]
+fn a_third_branch_cannot_resurrect_a_conflicted_key() {
+    // A(jid) vs B(lid) tombstones `who`; without a tombstone that outlives the single
+    // merge, C(jid) sees nothing there and adds it back — and the union again advertises
+    // one source while another legal branch reads a different attribute.
+    let ir = extract_notif(GROUP_ACTIONS_BUNDLE, "2.3000.test");
+    let entries = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .find(|a| a.wire_tag == "modify")
+        .expect("modify arm")
+        .children
+        .iter()
+        .find(|c| c.name == "entries")
+        .expect("entries child");
+    let names: Vec<&str> = entries.fields.iter().map(|f| f.name.as_str()).collect();
+    assert!(
+        !names.contains(&"who"),
+        "the third branch must not resurrect the conflict: {names:?}"
+    );
+    assert!(names.contains(&"id"), "unambiguous keys survive: {names:?}");
 }

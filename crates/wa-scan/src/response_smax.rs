@@ -1221,13 +1221,13 @@ fn normalize_accessor(m: &str) -> Option<(String, ParsedFieldType, Option<u32>)>
         "attrCallJid" => s(wap::ATTR_CALL_JID, ParsedFieldType::CallJid),
         "attrBroadcastJid" => s(wap::ATTR_BROADCAST_JID, ParsedFieldType::BroadcastJid),
         "attrStatusJid" => s(wap::ATTR_STATUS_JID, ParsedFieldType::StatusJid),
-        // Generic / multi-flavor accessors stay a bare Jid: `attrChatJid` is a user OR
-        // a group, `attrJid`/`attrDomainJid` accept any, `attrJidEnum` pins the server
-        // kind via a runtime enum arg (no single static flavor).
-        "attrJid" | "attrDomainJid" | "attrChatJid" | "attrPhoneChatJid" | "attrWapJid"
-        | "attrFromJid" | "attrFromPhoneJid" | "attrLidJid" | "attrJidEnum" | "literalJid" => {
-            s(wap::ATTR_JID_WITH_TYPE, ParsedFieldType::Jid)
-        }
+        // Every remaining JID accessor keeps its OWN name and takes its type from the
+        // shared classifier. Collapsing them onto `attrJidWithType`/`Jid` lost which
+        // accessor validated the value AND made one method carry two types in the same
+        // artifact — `attrJidWithType` appeared as `jid` 68 times (this path) and
+        // `jid_typed` 12 times (the legacy path, via the classifier), for the same wire
+        // contract. One classifier, one answer.
+        other if wap::method_field_type(other).is_jid() => s(other, wap::method_field_type(other)),
         _ => None,
     }
 }

@@ -645,7 +645,7 @@
             "literalValue": "crsc_continuation"
           },
           {
-            "method": "attrJidWithType",
+            "method": "literalJid",
             "name": "from",
             "wireName": "from",
             "type": "jid",
@@ -1067,7 +1067,7 @@
             "literalValue": "passkey_prologue_request"
           },
           {
-            "method": "attrJidWithType",
+            "method": "literalJid",
             "name": "from",
             "wireName": "from",
             "type": "jid",
@@ -1600,6 +1600,12 @@
             "name": "participant",
             "type": "user_jid",
             "required": true
+          },
+          {
+            "method": "maybeAttrPhoneUserJid",
+            "name": "participant_pn",
+            "type": "user_jid",
+            "required": false
           },
           {
             "method": "attrTime",
@@ -2901,7 +2907,7 @@
         ],
         "fields": [
           {
-            "method": "attrJidWithType",
+            "method": "literalJid",
             "name": "from",
             "wireName": "from",
             "type": "jid",

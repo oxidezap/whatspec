@@ -84,33 +84,19 @@ pub fn is_content_method(m: &str) -> bool {
 /// is the single source of truth for "is this method an attribute accessor",
 /// shared by the scanner and the codegen so the two can't drift.
 pub fn is_attr_method(m: &str) -> bool {
-    matches!(
-        m,
-        ATTR_STRING
-            | ATTR_INT
-            | ATTR_ENUM
-            | ATTR_ENUM_VALUES
-            | MAYBE_ATTR_STRING
-            | MAYBE_ATTR_INT
-            | MAYBE_ATTR_ENUM
-            | ATTR_DEVICE_JID
-            | ATTR_GROUP_JID
-            | ATTR_JID_WITH_TYPE
-            | ATTR_TIME
-            | MAYBE_ATTR_TIME
-            | ATTR_USER_JID
-            | MAYBE_ATTR_USER_JID
-            | ATTR_WAP_JID
-            | ATTR_CHAT_JID
-            | ATTR_FROM_JID
-            | ATTR_LID_USER_JID
-            | MAYBE_ATTR_LID_USER_JID
-            | ATTR_LID_DEVICE_JID
-            | ATTR_NEWSLETTER_JID
-            | ATTR_CALL_JID
-            | ATTR_BROADCAST_JID
-            | ATTR_STATUS_JID
-    )
+    // Derived from the spelling, not enumerated. Every accessor WA names `attr…` /
+    // `maybeAttr…` reads an attribute; `hasAttr` is the presence test, not a read, and
+    // the `…FromReference` helpers read off the REQUEST rather than the node.
+    //
+    // Enumerating was the bug: the list drifted from `method_field_type`, so giving a JID
+    // accessor its own name instead of collapsing it onto `attrJidWithType` silently
+    // dropped 85 lines of generated code — the fields fell outside the list and stopped
+    // being treated as attribute reads at all.
+    // `literalJid` is an attribute read too — it reads a JID attribute and pins it to a
+    // value — while `literalContent` pins the element's content and names no attribute.
+    let literal_attr = m.starts_with("literal") && !m.contains("Content");
+    let attr = (m.starts_with("attr") || m.starts_with("maybeAttr")) && m != HAS_ATTR;
+    (attr || literal_attr) && !m.ends_with("FromReference")
 }
 
 /// `maybe*` accessors decode to optional / non-required fields.
@@ -171,9 +157,8 @@ pub fn method_field_type(m: &str) -> ParsedFieldType {
         ATTR_WAP_JID | ATTR_CHAT_JID | ATTR_FROM_JID => ParsedFieldType::Jid,
         // Multi-flavor accessors: a chat is a user OR a group, `attrDomainJid`/`attrLidJid`
         // accept more than one server, so they stay a generic JID rather than a string.
-        "attrPhoneChatJid" | "attrDomainJid" | "attrLidJid" | "attrFromPhoneJid" => {
-            ParsedFieldType::Jid
-        }
+        "attrJid" | "literalJid" | "attrPhoneChatJid" | "attrDomainJid" | "attrLidJid"
+        | "attrFromPhoneJid" => ParsedFieldType::Jid,
         // The enum accessors, whose raw spellings the legacy parsers use directly.
         // `contentEnum` reads the content as a string and looks it up.
         "attrStringEnum" | "contentStringEnum" | "contentEnum" | "attrEnumOrNullIfUnknown" => {

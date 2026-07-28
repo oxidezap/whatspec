@@ -415,14 +415,16 @@ fn extract_switch(switch: &SwitchStatement, ctx: &ArmCtx) -> Vec<NotifActionDef>
         let Some(wire_tag) = case.test.as_ref().and_then(|t| ctx.consts.resolve(t)) else {
             continue;
         };
-        // `case TAG_A: case TAG_B: return {…}` — a fall-through label has an empty body
-        // and runs the next non-empty one. Recording it as an empty action would lose the
-        // action type and every field of a legally dispatched tag.
+        // `case TAG_A: case TAG_B: return {…}` — a fall-through label runs the next case
+        // that actually produces something. Stopping at the first NON-EMPTY consequent is
+        // not enough: a label may do setup or log first (`case TAG_A: log();`) and still
+        // fall through, and treating that as its own arm loses the action type and every
+        // field of a legally dispatched tag. Search forward for the first case that
+        // yields a result shape instead.
         let consequent = switch.cases[i..]
             .iter()
-            .map(|c| &c.consequent)
-            .find(|c| !c.is_empty())
-            .map(|c| &c[..])
+            .map(|c| &c.consequent[..])
+            .find(|c| !arm_result_shapes(c).is_empty())
             .unwrap_or(&case.consequent);
         let shapes = arm_result_shapes(consequent);
         if shapes.is_empty() {
@@ -478,15 +480,13 @@ fn merge_action(into: &mut NotifActionDef, from: NotifActionDef) {
             existing.required = false;
         }
     }
-    for f in from.fields {
-        match into.fields.iter_mut().find(|x| x.name == f.name) {
-            Some(existing) => existing.required &= f.required,
-            None => into.fields.push(NotifActionField {
-                required: false,
-                ..f
-            }),
-        }
-    }
+    // Scalars go through the same rule the mapped children use, tombstone included: a
+    // key bound to different wire reads in two branches has no single answer, and
+    // updating only `required` here would publish the first branch's attribute for both.
+    let mut dead = Conflicts::new();
+    merge_fields(&mut into.fields, from.fields, false, &mut dead);
+    apply_conflicts(&mut into.fields, &dead);
+    let mut dead_children: Vec<String> = Vec::new();
     for c in from.children {
         match into.children.iter_mut().find(|x| x.name == c.name) {
             // Two branches mapping the same output name: their element shapes are
@@ -494,13 +494,18 @@ fn merge_action(into: &mut NotifActionDef, from: NotifActionDef) {
             // Discarding the later one lost fields only it reads, and left fields only
             // the first reads marked required though a legal branch omits them.
             Some(existing) if existing.wire_tag == c.wire_tag => {
-                merge_fields(&mut existing.fields, c.fields, false)
+                let mut d = Conflicts::new();
+                merge_fields(&mut existing.fields, c.fields, false, &mut d);
+                apply_conflicts(&mut existing.fields, &d);
             }
-            // Same output name, different wire tag — no single answer; drop it.
-            Some(_) => {}
+            // Same output name, different wire TAG — two different elements under one
+            // name. Leaving the first in place would tell a consumer every legal shape
+            // uses it, so both go.
+            Some(existing) => dead_children.push(existing.name.clone()),
             None => into.children.push(c),
         }
     }
+    into.children.retain(|c| !dead_children.contains(&c.name));
     into.constant_fields
         .retain(|c| from.constant_fields.contains(c));
 }
@@ -1230,13 +1235,15 @@ fn collect_accessor_fields<'b, 'a>(
     // one list would mark a field read in only one branch as required, and let two
     // branches reusing an output name silently keep whichever came first.
     let mut merged: Vec<NotifActionField> = Vec::new();
+    let mut dead = Conflicts::new();
     let mut branches = 0usize;
     for (shape, inner) in fn_result_shapes(e, &scope) {
         branches += 1;
         let mut fields = Vec::new();
         collect_shape_fields(shape, &inner, consts, &mut fields);
-        merge_fields(&mut merged, fields, branches == 1);
+        merge_fields(&mut merged, fields, branches == 1, &mut dead);
     }
+    apply_conflicts(&mut merged, &dead);
     // A callback that returns a bare value rather than an object
     // (`p => userJidToUserWid(p.attrUserJid("jid"))`) has no property key to name the
     // field by, so the wire attribute names it — better than reporting no fields at all.
@@ -1291,14 +1298,26 @@ fn collect_shape_fields<'b, 'a>(
     w.visit_expression(deref_ident(shape, scope));
 }
 
+/// Names whose wire read two branches disagreed on. A **tombstone**, kept for the whole
+/// merge rather than one call of it: with three or more branches, `A(jid)` conflicting
+/// with `B(lid)` would remove the key and then `C(jid)` — seeing nothing there — would
+/// add it back, so the union would again advertise one source while another legal branch
+/// reads a different attribute.
+type Conflicts = std::collections::HashSet<String>;
+
 /// Fold one branch's fields into the accumulated set: a field either branch reads is
 /// present, and required only when EVERY branch reads it unconditionally.
 ///
 /// When two branches bind the same output key to **different wire reads**, there is no
 /// single answer — reporting the first branch's attribute would describe the other
-/// branch's payload wrongly — so the key is dropped. Missing, not wrong, as everywhere
-/// else in this module.
-fn merge_fields(into: &mut Vec<NotifActionField>, from: Vec<NotifActionField>, first: bool) {
+/// branch's payload wrongly — so the key is tombstoned. Missing, not wrong, as everywhere
+/// else in this module. Call [`apply_conflicts`] once the last branch is in.
+fn merge_fields(
+    into: &mut Vec<NotifActionField>,
+    from: Vec<NotifActionField>,
+    first: bool,
+    dead: &mut Conflicts,
+) {
     if !first {
         for existing in into.iter_mut() {
             if !from.iter().any(|f| f.name == existing.name) {
@@ -1306,18 +1325,26 @@ fn merge_fields(into: &mut Vec<NotifActionField>, from: Vec<NotifActionField>, f
             }
         }
     }
-    let mut conflicting: Vec<String> = Vec::new();
     for f in from {
+        if dead.contains(&f.name) {
+            continue;
+        }
         match into.iter_mut().find(|x| x.name == f.name) {
             Some(existing) if same_wire_read(existing, &f) => existing.required &= f.required,
-            Some(existing) => conflicting.push(existing.name.clone()),
+            Some(existing) => {
+                dead.insert(existing.name.clone());
+            }
             None => into.push(NotifActionField {
                 required: f.required && first,
                 ..f
             }),
         }
     }
-    into.retain(|f| !conflicting.contains(&f.name));
+}
+
+/// Drop every tombstoned key. Run after the final branch, never between them.
+fn apply_conflicts(fields: &mut Vec<NotifActionField>, dead: &Conflicts) {
+    fields.retain(|f| !dead.contains(&f.name));
 }
 
 /// Whether two bindings of the same output key describe the same wire read.

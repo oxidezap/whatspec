@@ -4812,10 +4812,10 @@
             "tag": "user",
             "children": [
               {
-                "method": "attrJidWithType",
+                "method": "attrJidEnum",
                 "name": "jid",
                 "wireName": "jid",
-                "type": "jid",
+                "type": "jid_typed",
                 "required": true
               },
               {
@@ -5259,10 +5259,10 @@
                 "tag": "user",
                 "children": [
                   {
-                    "method": "attrJidWithType",
+                    "method": "attrJidEnum",
                     "name": "jid",
                     "wireName": "jid",
-                    "type": "jid",
+                    "type": "jid_typed",
                     "required": true
                   },
                   {
@@ -6046,10 +6046,10 @@
             "tag": "user",
             "children": [
               {
-                "method": "attrJidWithType",
+                "method": "attrJidEnum",
                 "name": "jid",
                 "wireName": "jid",
-                "type": "jid",
+                "type": "jid_typed",
                 "required": true
               },
               {
@@ -6062,10 +6062,10 @@
                     "name": "FetchMissingPreKeysUserSuccess",
                     "fields": [
                       {
-                        "method": "attrJidWithType",
+                        "method": "attrJidEnum",
                         "name": "jid",
                         "wireName": "jid",
-                        "type": "jid",
+                        "type": "jid_typed",
                         "required": true
                       },
                       {
@@ -6467,10 +6467,10 @@
                 "tag": "user",
                 "children": [
                   {
-                    "method": "attrJidWithType",
+                    "method": "attrJidEnum",
                     "name": "jid",
                     "wireName": "jid",
-                    "type": "jid",
+                    "type": "jid_typed",
                     "required": true
                   },
                   {
@@ -6483,10 +6483,10 @@
                         "name": "FetchMissingPreKeysUserSuccess",
                         "fields": [
                           {
-                            "method": "attrJidWithType",
+                            "method": "attrJidEnum",
                             "name": "jid",
                             "wireName": "jid",
-                            "type": "jid",
+                            "type": "jid_typed",
                             "required": true
                           },
                           {
@@ -12524,10 +12524,10 @@
             ],
             "fields": [
               {
-                "method": "attrJidWithType",
+                "method": "attrJidEnum",
                 "name": "from",
                 "wireName": "from",
-                "type": "jid",
+                "type": "jid_typed",
                 "required": false
               },
               {
@@ -20387,7 +20387,7 @@
         "assertions": [],
         "fields": [
           {
-            "method": "attrJidWithType",
+            "method": "literalJid",
             "name": "from",
             "wireName": "from",
             "type": "jid",
@@ -23146,7 +23146,7 @@
             ],
             "fields": [
               {
-                "method": "attrJidWithType",
+                "method": "literalJid",
                 "name": "from",
                 "wireName": "from",
                 "type": "jid",
@@ -26348,7 +26348,7 @@
             ],
             "fields": [
               {
-                "method": "attrJidWithType",
+                "method": "literalJid",
                 "name": "from",
                 "wireName": "from",
                 "type": "jid",
@@ -29016,7 +29016,7 @@
         "assertions": [],
         "fields": [
           {
-            "method": "attrJidWithType",
+            "method": "literalJid",
             "name": "from",
             "wireName": "from",
             "type": "jid",
@@ -29579,7 +29579,7 @@
             ],
             "fields": [
               {
-                "method": "attrJidWithType",
+                "method": "literalJid",
                 "name": "from",
                 "wireName": "from",
                 "type": "jid",
@@ -30585,7 +30585,7 @@
             ],
             "fields": [
               {
-                "method": "attrJidWithType",
+                "method": "literalJid",
                 "name": "from",
                 "wireName": "from",
                 "type": "jid",
@@ -33928,7 +33928,7 @@
             "literalValue": "result"
           },
           {
-            "method": "attrJidWithType",
+            "method": "literalJid",
             "name": "from",
             "wireName": "from",
             "type": "jid",
@@ -33968,7 +33968,7 @@
                 "literalValue": "result"
               },
               {
-                "method": "attrJidWithType",
+                "method": "literalJid",
                 "name": "from",
                 "wireName": "from",
                 "type": "jid",
@@ -34015,7 +34015,7 @@
             "literalValue": "result"
           },
           {
-            "method": "attrJidWithType",
+            "method": "literalJid",
             "name": "from",
             "wireName": "from",
             "type": "jid",
@@ -34055,7 +34055,7 @@
                 "literalValue": "result"
               },
               {
-                "method": "attrJidWithType",
+                "method": "literalJid",
                 "name": "from",
                 "wireName": "from",
                 "type": "jid",
@@ -34105,10 +34105,10 @@
             ]
           },
           {
-            "method": "attrJidWithType",
+            "method": "attrJidEnum",
             "name": "from",
             "wireName": "from",
-            "type": "jid",
+            "type": "jid_typed",
             "required": false
           },
           {
@@ -34229,10 +34229,10 @@
                 ]
               },
               {
-                "method": "attrJidWithType",
+                "method": "attrJidEnum",
                 "name": "from",
                 "wireName": "from",
-                "type": "jid",
+                "type": "jid_typed",
                 "required": false
               },
               {
@@ -34353,10 +34353,10 @@
                 ]
               },
               {
-                "method": "attrJidWithType",
+                "method": "attrJidEnum",
                 "name": "from",
                 "wireName": "from",
-                "type": "jid",
+                "type": "jid_typed",
                 "required": false
               },
               {
@@ -34464,10 +34464,10 @@
             ],
             "fields": [
               {
-                "method": "attrJidWithType",
+                "method": "attrJidEnum",
                 "name": "from",
                 "wireName": "from",
-                "type": "jid",
+                "type": "jid_typed",
                 "required": false
               },
               {
@@ -35954,10 +35954,10 @@
         "assertions": [],
         "fields": [
           {
-            "method": "attrJidWithType",
+            "method": "attrJidEnum",
             "name": "from",
             "wireName": "from",
-            "type": "jid",
+            "type": "jid_typed",
             "required": false
           },
           {
@@ -36013,10 +36013,10 @@
             ],
             "fields": [
               {
-                "method": "attrJidWithType",
+                "method": "attrJidEnum",
                 "name": "from",
                 "wireName": "from",
-                "type": "jid",
+                "type": "jid_typed",
                 "required": false
               },
               {
@@ -36103,10 +36103,10 @@
             ],
             "fields": [
               {
-                "method": "attrJidWithType",
+                "method": "attrJidEnum",
                 "name": "from",
                 "wireName": "from",
-                "type": "jid",
+                "type": "jid_typed",
                 "required": false
               },
               {
@@ -36416,10 +36416,10 @@
         "assertions": [],
         "fields": [
           {
-            "method": "attrJidWithType",
+            "method": "attrJidEnum",
             "name": "from",
             "wireName": "from",
-            "type": "jid",
+            "type": "jid_typed",
             "required": false
           },
           {
@@ -36475,10 +36475,10 @@
             ],
             "fields": [
               {
-                "method": "attrJidWithType",
+                "method": "attrJidEnum",
                 "name": "from",
                 "wireName": "from",
-                "type": "jid",
+                "type": "jid_typed",
                 "required": false
               },
               {
@@ -36565,10 +36565,10 @@
             ],
             "fields": [
               {
-                "method": "attrJidWithType",
+                "method": "attrJidEnum",
                 "name": "from",
                 "wireName": "from",
-                "type": "jid",
+                "type": "jid_typed",
                 "required": false
               },
               {
@@ -36869,10 +36869,10 @@
         "assertions": [],
         "fields": [
           {
-            "method": "attrJidWithType",
+            "method": "attrJidEnum",
             "name": "from",
             "wireName": "from",
-            "type": "jid",
+            "type": "jid_typed",
             "required": false
           },
           {
@@ -36928,10 +36928,10 @@
             ],
             "fields": [
               {
-                "method": "attrJidWithType",
+                "method": "attrJidEnum",
                 "name": "from",
                 "wireName": "from",
-                "type": "jid",
+                "type": "jid_typed",
                 "required": false
               },
               {
@@ -37018,10 +37018,10 @@
             ],
             "fields": [
               {
-                "method": "attrJidWithType",
+                "method": "attrJidEnum",
                 "name": "from",
                 "wireName": "from",
-                "type": "jid",
+                "type": "jid_typed",
                 "required": false
               },
               {
@@ -37316,10 +37316,10 @@
         "assertions": [],
         "fields": [
           {
-            "method": "attrJidWithType",
+            "method": "attrJidEnum",
             "name": "from",
             "wireName": "from",
-            "type": "jid",
+            "type": "jid_typed",
             "required": false
           },
           {
@@ -37375,10 +37375,10 @@
             ],
             "fields": [
               {
-                "method": "attrJidWithType",
+                "method": "attrJidEnum",
                 "name": "from",
                 "wireName": "from",
-                "type": "jid",
+                "type": "jid_typed",
                 "required": false
               },
               {
@@ -37465,10 +37465,10 @@
             ],
             "fields": [
               {
-                "method": "attrJidWithType",
+                "method": "attrJidEnum",
                 "name": "from",
                 "wireName": "from",
-                "type": "jid",
+                "type": "jid_typed",
                 "required": false
               },
               {
@@ -37757,7 +37757,7 @@
         "assertions": [],
         "fields": [
           {
-            "method": "attrJidWithType",
+            "method": "attrDomainJid",
             "name": "from",
             "wireName": "from",
             "type": "jid",
@@ -37816,7 +37816,7 @@
             ],
             "fields": [
               {
-                "method": "attrJidWithType",
+                "method": "attrDomainJid",
                 "name": "from",
                 "wireName": "from",
                 "type": "jid",
@@ -37897,7 +37897,7 @@
             ],
             "fields": [
               {
-                "method": "attrJidWithType",
+                "method": "attrDomainJid",
                 "name": "from",
                 "wireName": "from",
                 "type": "jid",
@@ -71783,7 +71783,7 @@
         "assertions": [],
         "fields": [
           {
-            "method": "attrJidWithType",
+            "method": "literalJid",
             "name": "from",
             "wireName": "from",
             "type": "jid",
@@ -72450,10 +72450,10 @@
                     "name": "CreateParticipantAddedResponse",
                     "fields": [
                       {
-                        "method": "attrJidWithType",
+                        "method": "attrJidEnum",
                         "name": "jid",
                         "wireName": "jid",
-                        "type": "jid",
+                        "type": "jid_typed",
                         "required": true
                       },
                       {
@@ -73006,7 +73006,7 @@
             ],
             "fields": [
               {
-                "method": "attrJidWithType",
+                "method": "literalJid",
                 "name": "from",
                 "wireName": "from",
                 "type": "jid",
@@ -73673,10 +73673,10 @@
                         "name": "CreateParticipantAddedResponse",
                         "fields": [
                           {
-                            "method": "attrJidWithType",
+                            "method": "attrJidEnum",
                             "name": "jid",
                             "wireName": "jid",
-                            "type": "jid",
+                            "type": "jid_typed",
                             "required": true
                           },
                           {
@@ -74229,7 +74229,7 @@
             ],
             "fields": [
               {
-                "method": "attrJidWithType",
+                "method": "literalJid",
                 "name": "from",
                 "wireName": "from",
                 "type": "jid",
@@ -79167,10 +79167,10 @@
                 "tag": "participant",
                 "children": [
                   {
-                    "method": "attrJidWithType",
+                    "method": "attrJidEnum",
                     "name": "jid",
                     "wireName": "jid",
-                    "type": "jid",
+                    "type": "jid_typed",
                     "required": true
                   },
                   {
@@ -79457,10 +79457,10 @@
                 "tag": "participant",
                 "children": [
                   {
-                    "method": "attrJidWithType",
+                    "method": "attrJidEnum",
                     "name": "jid",
                     "wireName": "jid",
-                    "type": "jid",
+                    "type": "jid_typed",
                     "required": true
                   },
                   {
@@ -79673,10 +79673,10 @@
                     "tag": "participant",
                     "children": [
                       {
-                        "method": "attrJidWithType",
+                        "method": "attrJidEnum",
                         "name": "jid",
                         "wireName": "jid",
-                        "type": "jid",
+                        "type": "jid_typed",
                         "required": true
                       },
                       {
@@ -79963,10 +79963,10 @@
                     "tag": "participant",
                     "children": [
                       {
-                        "method": "attrJidWithType",
+                        "method": "attrJidEnum",
                         "name": "jid",
                         "wireName": "jid",
-                        "type": "jid",
+                        "type": "jid_typed",
                         "required": true
                       },
                       {
@@ -82645,10 +82645,10 @@
             "tag": "participant",
             "children": [
               {
-                "method": "attrJidWithType",
+                "method": "attrJidEnum",
                 "name": "jid",
                 "wireName": "jid",
-                "type": "jid",
+                "type": "jid_typed",
                 "required": true
               },
               {
@@ -82882,10 +82882,10 @@
                 "tag": "participant",
                 "children": [
                   {
-                    "method": "attrJidWithType",
+                    "method": "attrJidEnum",
                     "name": "jid",
                     "wireName": "jid",
-                    "type": "jid",
+                    "type": "jid_typed",
                     "required": true
                   },
                   {
@@ -90206,6 +90206,18 @@
                 "required": true
               },
               {
+                "method": "attrFutureTime",
+                "name": "auth_ttl",
+                "type": "integer",
+                "required": true
+              },
+              {
+                "method": "attrFutureTime",
+                "name": "ttl",
+                "type": "integer",
+                "required": true
+              },
+              {
                 "method": "attrInt",
                 "name": "max_buckets",
                 "type": "integer",
@@ -90317,10 +90329,10 @@
         ],
         "fields": [
           {
-            "method": "attrJidWithType",
+            "method": "attrJidEnum",
             "name": "from",
             "wireName": "from",
-            "type": "jid",
+            "type": "jid_typed",
             "required": true
           },
           {

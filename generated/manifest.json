@@ -61,7 +61,7 @@
     "iq": {
       "file": "iq/index.json",
       "schema": "schema/iq.schema.json",
-      "sha256": "722709bdb6994e533b9eb8db37a35d8ee4dbe5d993b22bb64de945beaab08847"
+      "sha256": "6df2e802fb23f0993ad7b73d433a5776f2e4faf1c943b2767dc131b5ad0db56f"
     },
     "mex": {
       "file": "mex/index.json",
@@ -71,7 +71,7 @@
     "notif": {
       "file": "notif/index.json",
       "schema": "schema/notif.schema.json",
-      "sha256": "e8c5eba1dff86c5b5ae1647a1469861c3cb6fde6e68a8bbe07ba5837e45c019f"
+      "sha256": "6504509e29cb7b50790f7cf12434b9a75f22843b4240a4cb5423e0e645a9f926"
     },
     "proto": {
       "file": "proto/WAProto.proto",
@@ -80,7 +80,7 @@
     "srvreq": {
       "file": "srvreq/index.json",
       "schema": "schema/srvreq.schema.json",
-      "sha256": "d47987b5c0fb452136fee81389457a7bed5089953a079250e1d4152cfeb299c4"
+      "sha256": "35bda50a8a1924274ff1e5be0a21ef189fa605378150b44b64ad7b41426ed48e"
     },
     "stanza": {
       "file": "stanza/index.json",
