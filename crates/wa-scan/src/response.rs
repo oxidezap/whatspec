@@ -425,6 +425,7 @@ fn analyze_with_scope(code: &str, param: &str, module: &ModuleScope) -> ParserRe
         fields: Vec::new(),
         child_vars: HashMap::new(),
         pending_enum_keys: HashMap::new(),
+        unresolved_enum_attrs: Default::default(),
         unresolved: Vec::new(),
         helper_depth: 0,
     };
@@ -453,6 +454,10 @@ struct ParserAnalyzer<'src, 'ms> {
     /// (the map is module-scope, so it's resolved and stashed here, then attached to the
     /// matching field in a post-pass — order-independent of the plain read of the attr).
     pending_enum_keys: HashMap<String, Vec<String>>,
+    /// Wire attributes read by `attrEnumOrNullIfUnknown` whose allowed-value table could
+    /// not be named. Resolved in [`ParserAnalyzer::attach_pending_enum_keys`] alongside
+    /// the ones that did resolve.
+    unresolved_enum_attrs: std::collections::BTreeSet<String>,
     /// Constraints seen on this parser but not statically resolvable, as
     /// `dropsByReason` keys. Parked on the produced [`ParsedResponse`] for whoever
     /// finishes it, since the legacy scanner has no diagnostics channel of its own.
@@ -551,16 +556,26 @@ impl ParserAnalyzer<'_, '_> {
             && obj_is_param
             && let Some(wire) = arg_str(call, 0)
         {
-            if let Some(keys) = call
+            match call
                 .arguments
                 .get(1)
                 .and_then(arg_expr)
                 .and_then(as_identifier)
                 .and_then(|m| self.module.maps.get(m).cloned())
             {
-                self.pending_enum_keys
-                    .entry(wire.to_string())
-                    .or_insert(keys);
+                Some(keys) => {
+                    self.pending_enum_keys
+                        .entry(wire.to_string())
+                        .or_insert(keys);
+                }
+                // The table is not a module-scope identifier — `o("Mod").TABLE`, or a
+                // computed set. The parser still enforces an enum here, so returning
+                // silently produced neither a link nor a drop and the new diagnostics
+                // reported nothing lost. Recorded so it is counted, and so a field gets
+                // synthesized when no companion read created one.
+                None => {
+                    self.unresolved_enum_attrs.insert(wire.to_string());
+                }
             }
             return;
         }
@@ -779,6 +794,34 @@ impl ParserAnalyzer<'_, '_> {
                 self.fields.push(f);
             }
         }
+        // The same two halves for a table that could NOT be named: mark the companion read
+        // as an enum with an unrecoverable value set, or synthesize the field, so the
+        // constraint is counted either way instead of vanishing.
+        for wire in std::mem::take(&mut self.unresolved_enum_attrs) {
+            match self
+                .fields
+                .iter_mut()
+                .find(|f| f.name == wire && f.tag.is_none())
+            {
+                Some(f) if f.enum_keys.is_none() && f.pending_enum_ref.is_none() => {
+                    let optional = wap::is_optional_method(&f.method);
+                    f.method = if optional {
+                        wap::MAYBE_ATTR_ENUM.to_string()
+                    } else {
+                        wap::ATTR_ENUM.to_string()
+                    };
+                    f.field_type = ParsedFieldType::Enum;
+                    f.required = !optional;
+                    f.pending_enum_ref = Some(wa_ir::PendingEnum::Unresolvable);
+                }
+                Some(_) => {}
+                None => {
+                    let mut f = mk_field(wap::MAYBE_ATTR_ENUM, &wire, ParsedFieldType::Enum, false);
+                    f.pending_enum_ref = Some(wa_ir::PendingEnum::Unresolvable);
+                    self.fields.push(f);
+                }
+            }
+        }
     }
 }
 
@@ -964,6 +1007,7 @@ fn analyze_child_node(
         fields: Vec::new(),
         child_vars: HashMap::from([(node_param.to_string(), tag.to_string())]),
         pending_enum_keys: HashMap::new(),
+        unresolved_enum_attrs: Default::default(),
         unresolved: Vec::new(),
         helper_depth: depth,
     };
@@ -1515,6 +1559,31 @@ mod tests {
             type_fields[0].enum_keys.as_deref(),
             Some(["delivery", "read", "played"].map(String::from).as_slice())
         );
+    }
+
+    #[test]
+    fn an_unnameable_enum_table_is_still_counted() {
+        // `attrEnumOrNullIfUnknown("type", o("Mod").TABLE)` — the table is not a
+        // module-scope identifier, so the fast path missed and returned, producing no
+        // link, no drop and (with no companion read) no field. The parser enforces an
+        // enum there; a silent loss is the one outcome this change exists to prevent.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                var t=e.attrEnumOrNullIfUnknown("type", o("Other").TABLE);
+                return {};
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let f = p
+            .fields
+            .iter()
+            .find(|f| f.name == "type")
+            .expect("the field is synthesized rather than vanishing");
+        assert_eq!(f.field_type, ParsedFieldType::Enum);
+        assert_eq!(f.pending_enum_ref, Some(wa_ir::PendingEnum::Unresolvable));
+        assert!(f.enum_keys.is_none(), "and no invented value set");
     }
 
     #[test]

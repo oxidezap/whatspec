@@ -709,15 +709,29 @@ fn classify_call(
         // `all_member_add`). Not an output field (the value is fixed); record it as a
         // Content assertion when on the same node.
         "literalContent" => {
-            if source_path.is_none()
-                && let Some(value) = args.get(2).and_then(arg_expr).and_then(as_string_lit)
-            {
-                assertions.push(ResponseAssertion {
+            let value = args.get(2).and_then(arg_expr).and_then(as_string_lit);
+            match value {
+                Some(value) if source_path.is_none() => assertions.push(ResponseAssertion {
                     kind: AssertionKind::Content,
                     name: None,
                     value: Some(value.to_string()),
                     reference_path: None,
-                });
+                }),
+                // A marker value supplied through a local constant or a computed
+                // expression. The disjunction still discriminates on it, so emitting no
+                // assertion AND no drop published fieldless variants with no usable
+                // discriminator while the diagnostics claimed nothing was lost.
+                None => resolver.drop_note_keyed(
+                    "literalContent marker value not statically resolvable",
+                    format!(
+                        "{site}:{}",
+                        source_path
+                            .as_ref()
+                            .map(|p| p.join("/"))
+                            .unwrap_or_else(|| "<same-node>".to_string())
+                    ),
+                ),
+                Some(_) => {}
             }
             Binding::None
         }
@@ -2152,6 +2166,38 @@ mod tests {
         let slices = HashMap::new();
         let resolver = Resolver::new(&slices);
         analyze_module_exports(module, &resolver)
+    }
+
+    #[test]
+    fn an_unresolvable_literal_content_marker_is_counted() {
+        // A disjunction discriminates on `literalContent`. When the marker value arrives
+        // through a local constant rather than an inline string, emitting neither an
+        // assertion nor a drop published a fieldless variant with no usable
+        // discriminator while the diagnostics claimed nothing was lost.
+        let slices = HashMap::new();
+        let resolver = Resolver::new(&slices);
+        let (asserts, _) = analyze_fn_source(
+            r#"function p(node){
+                 var v = MARKER;
+                 var a = o("WASmaxParseUtils").literalContent(node, "x", v);
+                 return o("WAResultOrError").makeResult({});
+               }"#,
+            &LocalFns::new(),
+            &resolver,
+            &mut HashSet::new(),
+        )
+        .expect("analyzed");
+        assert!(
+            !asserts.iter().any(|a| a.kind == AssertionKind::Content),
+            "no discriminator is invented"
+        );
+        assert_eq!(
+            resolver
+                .drop_counts()
+                .get("literalContent marker value not statically resolvable"),
+            Some(&1),
+            "but the loss is reported"
+        );
     }
 
     #[test]
