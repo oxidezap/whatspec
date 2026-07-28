@@ -374,6 +374,11 @@ fn update(args: &[String]) -> Result<()> {
     if authoritative && !wasm.is_empty() {
         let lock_path = opts.out.join(WASM_LOCK_NAME);
         warn_if_wasm_shrank(&lock_path, &wasm);
+        // Accumulated here too, not only on the empty path. A run that resolves a SMALLER
+        // endpoint subset still succeeds, and replacing the section with its own sample
+        // would delete ids an earlier run resolved — the same shrink, just reached by a
+        // productive run instead of a blocked one.
+        let boot_pins = pins_with_prior(&lock_path, boot_pins, &wa_version);
         let lock = WasmLock::with_bootloader(&wa_version, wasm, boot_pins);
         fs::write(&lock_path, lock.to_pretty_json())
             .with_context(|| format!("write {}", lock_path.display()))?;
@@ -2149,11 +2154,7 @@ fn update_lock_bootloader(
         return Ok(());
     }
     let mut pins = pins.clone();
-    if let Some(prev) = &lock.bootloader {
-        for (id, url) in &prev.wasm_handles {
-            pins.wasm_handles.entry(id.clone()).or_insert(url.clone());
-        }
-    }
+    merge_prior_handles(&mut pins, lock.bootloader.as_ref());
     let pins = &pins;
     if lock.bootloader.as_ref() == Some(pins) {
         return Ok(());
@@ -2169,6 +2170,45 @@ fn update_lock_bootloader(
         pins.failed_requests
     );
     Ok(())
+}
+
+/// Fold the handles a previous run recorded into `pins`, current run winning a collision.
+///
+/// The map is a best-effort SUPERSET for one release: the bootloader endpoint answers the
+/// same request with different subsets, so whichever run happens to be last must not get
+/// to decide the whole map. Its ids are provenance, not identity — they do not enter
+/// `wasmSetHash` — so keeping one whose payload this run did not re-resolve costs nothing,
+/// while dropping it makes an unchanged release diff against itself.
+fn merge_prior_handles(pins: &mut lock::BootloaderPins, prior: Option<&lock::BootloaderPins>) {
+    let Some(prior) = prior else { return };
+    for (id, url) in &prior.wasm_handles {
+        pins.wasm_handles.entry(id.clone()).or_insert(url.clone());
+    }
+}
+
+/// [`merge_prior_handles`] against whatever the lock on disk already holds, for the write
+/// paths that build a whole new [`WasmLock`] rather than editing the existing one.
+///
+/// Only within the same release — a lock stamped for another `wa_version` describes a
+/// different set of ids, and merging across the two would produce a map belonging to
+/// neither. An unreadable or absent lock simply contributes nothing.
+///
+/// Deliberately NOT `#[cfg(feature = "fetch")]`: its caller is on the ordinary write path
+/// and compiles in every configuration. Gating the callee and not the caller is exactly
+/// what broke the no-default-features build twice in this branch.
+fn pins_with_prior(
+    lock_path: &Path,
+    pins: Option<lock::BootloaderPins>,
+    wa_version: &str,
+) -> Option<lock::BootloaderPins> {
+    let mut pins = pins?;
+    let prior = fs::read_to_string(lock_path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<WasmLock>(&raw).ok())
+        .filter(|l| l.wa_version == wa_version)
+        .and_then(|l| l.bootloader);
+    merge_prior_handles(&mut pins, prior.as_ref());
+    Some(pins)
 }
 
 /// Emit the incoming content-stanza read-shape catalog (`incoming/index.json`) — the
@@ -3114,6 +3154,64 @@ mod tests {
             boot,
             "a lock stamped for another version is left exactly as it was"
         );
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_productive_run_accumulates_the_handle_map_too() {
+        // The empty-run path was fixed first, but a run that resolves a SMALLER endpoint
+        // subset also succeeds — and rebuilding the lock from its own sample deletes ids
+        // an earlier run resolved. Same shrink, reached by a productive run. Without
+        // `--cache` (which is how the update workflow runs) the lock is the only record,
+        // so nothing else would have restored them.
+        let dir = std::env::temp_dir().join(format!("ws-boot-nonempty-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("scratch dir");
+        let path = dir.join("wasm.lock.json");
+        let pins = |handles: &[(&str, &str)]| lock::BootloaderPins {
+            handles_from_page: 1,
+            wasm_handles: handles
+                .iter()
+                .map(|(a, b)| (a.to_string(), b.to_string()))
+                .collect(),
+            requests: 4,
+            failed_requests: 0,
+        };
+        let seed = lock::WasmLock::with_bootloader(
+            "2.3000.test",
+            vec![],
+            Some(pins(&[
+                ("11", "https://x/a.wasm"),
+                ("22", "https://x/b.wasm"),
+            ])),
+        );
+        fs::write(&path, seed.to_pretty_json()).expect("seed the lock");
+
+        // This run saw only one of the two, and one the earlier run had not.
+        let merged = pins_with_prior(
+            &path,
+            Some(pins(&[
+                ("22", "https://x/b.wasm"),
+                ("33", "https://x/c.wasm"),
+            ])),
+            "2.3000.test",
+        )
+        .expect("pins were supplied");
+        assert_eq!(
+            merged.wasm_handles.keys().collect::<Vec<_>>(),
+            ["11", "22", "33"],
+            "the id this run did not re-resolve survives"
+        );
+
+        // A lock for another release contributes nothing — merging across two would
+        // produce a map belonging to neither.
+        let isolated = pins_with_prior(
+            &path,
+            Some(pins(&[("33", "https://x/c.wasm")])),
+            "2.3000.next",
+        )
+        .expect("pins were supplied");
+        assert_eq!(isolated.wasm_handles.keys().collect::<Vec<_>>(), ["33"]);
         fs::remove_dir_all(&dir).unwrap();
     }
 
