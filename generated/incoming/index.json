@@ -496,7 +496,8 @@
                 "method": "contentUint",
                 "name": "content",
                 "type": "integer",
-                "required": true
+                "required": true,
+                "byteLength": 3
               }
             ]
           },
@@ -555,7 +556,8 @@
                 "method": "contentUint",
                 "name": "content",
                 "type": "integer",
-                "required": true
+                "required": true,
+                "byteLength": 4
               }
             ]
           }

@@ -1215,6 +1215,15 @@ fn content_byte_length(
     accessor: Option<&str>,
     args: &[Argument],
 ) -> (Option<u32>, Option<(u32, u32)>) {
+    // `contentUint(N)` reads N big-endian bytes, so N is a fixed length like
+    // `contentBytes(N)`'s — not a bound.
+    if accessor == Some("contentUint") {
+        let n = args
+            .iter()
+            .filter_map(|a| arg_expr(a).and_then(as_int))
+            .next();
+        return (n.and_then(|n| u32::try_from(n).ok()), None);
+    }
     if accessor != Some("contentBytesRange") {
         return (None, None);
     }

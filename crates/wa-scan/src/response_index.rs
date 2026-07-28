@@ -86,6 +86,14 @@ impl ResponseIndex {
                 .find(|(_, pr)| !pr.fields.is_empty())
                 .map(|(_, pr)| pr)
             {
+                // The name gate above is a cheap pre-filter; this is the decision. WA's
+                // names contradict the wire discriminator often enough that
+                // `SetResponsePreKeySuccessVnameFailure` reads as a success while
+                // asserting `type="error"` — classifying on the suffix alone would hand
+                // an error parser back as the operation's single response shape.
+                if variant_kind(variant, &pr.assertions) != ResponseVariantKind::Success {
+                    continue;
+                }
                 return Some(pr);
             }
         }

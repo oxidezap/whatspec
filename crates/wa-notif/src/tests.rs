@@ -1229,7 +1229,7 @@ __d("WAWebCommsHandleLoggedInStanza",["WAWebHandleGroupNotification"],function(g
   }); };
 }, 1);
 __d("WAWebHandleGroupNotificationConst",[],(function(t,n,r,o,a,i,l){
-  l.GROUP_NOTIFICATION_TAG=Object.freeze({EVICT:"evict",COND:"cond",REBIND:"rebind",PICK:"pick",BARE:"bare",HELPER:"helper",ESCAPE:"escape",TAIL:"tail",JOIN:"join",SEQ:"seq",SUFFIX:"suffix",AFTER:"after",TRY:"try_tag",FIN:"fin",FINCOND:"fincond",FINTHROW:"finthrow",MULTI:"multi"});
+  l.GROUP_NOTIFICATION_TAG=Object.freeze({EVICT:"evict",COND:"cond",REBIND:"rebind",PICK:"pick",BARE:"bare",HELPER:"helper",ESCAPE:"escape",TAIL:"tail",JOIN:"join",SEQ:"seq",SUFFIX:"suffix",AFTER:"after",TRY:"try_tag",FIN:"fin",FINCOND:"fincond",FINTHROW:"finthrow",MULTI:"multi",MULTI3:"multi3"});
 }), 1);
 __d("WAWebGroupType",[],(function(t,n,r,o,a,i,l){
   l.GROUP_ACTIONS=Object.freeze({FIRST:"first",SECOND:"second",THIRD:"third"});
@@ -1280,6 +1280,8 @@ __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGr
           finally { throw new Error("x"); }
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.MULTI:
           return {actionType:o("WAWebGroupType").GROUP_ACTIONS.SECOND, id:combine(t.attrString("jid"), t.attrString("lid")), plain:t.attrString("plain")};
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.MULTI3:
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, id:combine(t.attrString("jid"), t.attrString("jid"), t.attrString("lid")), plain:t.attrString("plain")};
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.SUFFIX:
           switch (t.attrString("k")) {
             case "a": t.attrString("setup");
@@ -1551,6 +1553,24 @@ fn a_wrapper_over_two_accessors_refuses_the_field() {
     assert!(
         a.fields.iter().any(|f| f.name == "plain"),
         "and the unambiguous sibling is kept: {:?}",
+        a.fields
+    );
+}
+
+#[test]
+fn a_conflict_past_the_second_wrapper_argument_still_refuses() {
+    // `combine(a("jid"), a("jid"), a("lid"))` — the second read matches the first, so
+    // comparing only those two accepted `jid` and never looked at the conflicting third.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let a = edge_action(&ir, "multi3");
+    assert!(
+        !a.fields.iter().any(|f| f.name == "id"),
+        "every argument is inspected: {:?}",
+        a.fields
+    );
+    assert!(
+        a.fields.iter().any(|f| f.name == "plain"),
+        "and the unambiguous sibling survives: {:?}",
         a.fields
     );
 }

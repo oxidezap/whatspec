@@ -314,7 +314,11 @@ fn field_from_call(
     // reading their arguments published unconstrained `bytes` — an emitter would think
     // any payload passes where the parser accepts one sequence or one length band.
     match method {
-        wap::CONTENT_BYTES => {
+        // `contentBytes(64)` and `contentUint(3)` both take a BYTE COUNT. `contentUint`
+        // is not a decimal string: WA packs a prekey id into 3 bytes and a registration
+        // id into 4, big-endian, so the length is part of the wire contract and dropping
+        // it left the field looking like unbounded text.
+        wap::CONTENT_BYTES | "contentUint" => {
             if let Some(Expression::NumericLiteral(n)) = arg0 {
                 f.byte_length = Some(n.value as u32);
             }

@@ -367,9 +367,11 @@ mod tests {
             !c.contains("pub content: u64,"),
             "must not collapse both onto `content`"
         );
+        // The accessor reads N big-endian bytes, not decimal text — a 3-byte prekey id,
+        // a 4-byte registration id. Parsing that as a string makes every one silently 0.
         assert!(
-            c.contains("content_str().and_then(|s| s.parse().ok())"),
-            "and the value is actually parsed"
+            c.contains("content_bytes()") && c.contains("(acc << 8) | x as u64"),
+            "and the value is decoded big-endian:\n{c}"
         );
     }
 

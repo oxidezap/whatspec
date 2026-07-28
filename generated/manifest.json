@@ -62,12 +62,12 @@
     "incoming": {
       "file": "incoming/index.json",
       "schema": "schema/incoming.schema.json",
-      "sha256": "f6714888d1385cd244830338821e0529240eddb7296f588ef59abceacfe6e174"
+      "sha256": "b3870361f25c53e008716a39de46fca394c10a5b0a6ce697a91a3fa22f922b56"
     },
     "iq": {
       "file": "iq/index.json",
       "schema": "schema/iq.schema.json",
-      "sha256": "644607df3585822a944fe2dee3a08a7456d5cd00a7e5f07440a340051470dc86"
+      "sha256": "85d7eb9cc903d879fe88163de561c1e6a98f93b332b7a54905423cd119f619de"
     },
     "mex": {
       "file": "mex/index.json",

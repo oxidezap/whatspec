@@ -708,15 +708,7 @@ fn field_expr(f: &ParsedField, node_var: &str) -> String {
     // `is_attr_field` and `child_content_type`, so a `contentUint` inside a union variant
     // fell through to the attribute path and was read as an attribute that does not exist.
     if wap::is_content_method(method) {
-        return match wap::method_field_type(method) {
-            ParsedFieldType::Bytes => {
-                format!("{node_var}.content_bytes().map(|b| b.to_vec()).unwrap_or_default()")
-            }
-            ParsedFieldType::Integer => {
-                format!("{node_var}.content_str().and_then(|s| s.parse().ok()).unwrap_or_default()")
-            }
-            _ => format!("{node_var}.content_str().unwrap_or_default().to_string()"),
-        };
+        return format!("{node_var}.{}", crate::emit::content_decoder(method));
     }
     let wire = f.wire_name.as_deref().unwrap_or(&f.name);
     let flit = rust_lit(wire);

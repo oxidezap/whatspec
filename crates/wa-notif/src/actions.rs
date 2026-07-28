@@ -116,9 +116,19 @@ impl<'a> ConstResolver<'a> {
         }
         let resolved = arg.and_then(|a| self.enum_ref(a));
         if resolved.is_none() {
-            self.enum_drops
-                .borrow_mut()
-                .insert(format!("{wire_name}@{method}"));
+            // Keyed by the table argument's SOURCE SPAN when there is one. `wireName@method`
+            // was resolver-wide, so two actions each losing `reason` counted once. A span is
+            // a stronger identity than the action name in both directions: two arms with two
+            // `attrEnumOrNullIfUnknown("reason", …)` calls are two losses, and two arms
+            // sharing one helper's call are one constraint referenced twice.
+            let key = arg.map_or_else(
+                || format!("{wire_name}@{method}"),
+                |a| {
+                    let sp = oxc_span::GetSpan::span(a);
+                    format!("{}..{}@{method}", sp.start, sp.end)
+                },
+            );
+            self.enum_drops.borrow_mut().insert(key);
         }
         resolved
     }
@@ -1687,20 +1697,19 @@ fn find_accessor_at<'b, 'a>(
     // `wireName` with one requiredness — so taking whichever came first would state as
     // fact something the IR cannot express. Refused instead, the same rule a key bound to
     // two different reads across branches already follows.
+    // EVERY argument is inspected, not just the second: `combine(a("jid"), a("jid"),
+    // a("lid"))` matches on the second and conflicts on the third, and stopping early
+    // published `jid` again for a value that also depends on `lid`.
     let mut found = call
         .arguments
         .iter()
         .filter_map(arg_expr)
         .filter_map(|a| find_accessor_at(a, scope, depth + 1));
     let first = found.next()?;
-    match found.next() {
-        // A repeated read of the SAME attribute is not ambiguous — a normaliser given the
-        // same value twice still has one source.
-        Some(second) if second.wire_name != first.wire_name || second.method != first.method => {
-            None
-        }
-        _ => Some(first),
-    }
+    // A repeated read of the SAME attribute is not ambiguous — a normaliser given the
+    // same value twice still has one source.
+    let conflicts = found.any(|a| a.wire_name != first.wire_name || a.method != first.method);
+    (!conflicts).then_some(first)
 }
 
 /// The enum table an enum-valued accessor validates against.
