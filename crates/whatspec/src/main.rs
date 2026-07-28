@@ -1460,6 +1460,14 @@ fn truncate_on_char_boundary(s: &str, max_bytes: usize) -> &str {
 /// while their payloads stay in the set — and the supposedly diffable map would differ
 /// between two runs of an unchanged release.
 ///
+/// Only wasm entries the DOWNLOAD path would accept are pinned. The page's `bxData` is
+/// server-supplied and may name any absolute URL; `resolve_wasm_with` already refuses a
+/// non-CDN one, but the pins were built from the unfiltered page map behind a
+/// filename-suffix check alone, so the committed lockfile — which `restore` treats as
+/// trusted — could publish `https://attacker.example/payload.wasm` as a resolved handle
+/// that the fetcher itself had rejected. Same predicate as the fetch path, not a second
+/// copy of it.
+///
 /// Only the wasm entries are pinned, as the field name promises. `handles` starts from the
 /// page's `bxData`, the bootloader's map of EVERY resource — images and the rest — while
 /// the other two contributors are already wasm-filtered (`by_id` keeps only wasm URLs, and
@@ -1476,7 +1484,7 @@ fn bootloader_pins(
         handles_from_page: resolution.from_page,
         wasm_handles: ids
             .iter()
-            .filter(|(_, url)| wa_fetch::is_wasm_url(url))
+            .filter(|(_, url)| wa_fetch::is_wasm_url(url) && wa_fetch::is_cdn_payload(url))
             .map(|(id, url)| (id.clone(), url.clone()))
             .collect(),
         requests: resolution.requests,
@@ -3256,10 +3264,18 @@ mod tests {
         // alias one wasm URL, and the URL-keyed index this used to be built from kept only
         // the lowest of them.
         let handles: BTreeMap<String, String> = [
-            ("11", "https://x/a.wasm"),
-            ("22", "https://x/logo.png"),
-            ("33", "https://x/b.wasm?v=3"),
-            ("44", "https://x/a.wasm"),
+            ("11", "https://static.whatsapp.net/a.wasm"),
+            ("22", "https://static.whatsapp.net/logo.png"),
+            ("33", "https://static.whatsapp.net/b.wasm?v=3"),
+            ("44", "https://static.whatsapp.net/a.wasm"),
+            // Server-supplied `bxData` may name any host. The fetcher refuses these; the
+            // lockfile is trusted by `restore`, so it must refuse them too.
+            ("55", "https://attacker.example/payload.wasm"),
+            ("66", "http://static.whatsapp.net/downgraded.wasm"),
+            (
+                "77",
+                "https://static.whatsapp.net:443@attacker.example/x.wasm",
+            ),
         ]
         .iter()
         .map(|(i, u)| (i.to_string(), u.to_string()))
@@ -3274,8 +3290,8 @@ mod tests {
         assert_eq!(
             pins.wasm_handles.keys().collect::<Vec<_>>(),
             ["11", "33", "44"],
-            "the image is dropped, a query string does not hide a .wasm, \
-             and an aliasing id is kept"
+            "the image is dropped, a query string does not hide a .wasm, an aliasing id \
+             is kept, and nothing off the CDN is pinned"
         );
         // The diagnostics still come from the resolution, untouched by the filter.
         assert_eq!((pins.handles_from_page, pins.requests), (1, 2));

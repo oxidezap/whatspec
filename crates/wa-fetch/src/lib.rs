@@ -35,7 +35,7 @@ mod native;
 #[cfg(all(test, feature = "native"))]
 mod testutil;
 
-pub use bootloader::{WasmResolution, WasmResolveOptions, resolve_wasm_with};
+pub use bootloader::{WasmResolution, WasmResolveOptions, is_cdn_payload, resolve_wasm_with};
 pub use discover::{
     BootloaderParams, Discovered, Sources, WA_WEB_URL, build_wa_version, discover_bundle_urls_with,
     discover_from_html, is_wasm_url,

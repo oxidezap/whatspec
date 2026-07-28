@@ -624,6 +624,7 @@ __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGr
   function shadowedCb(x){ return {wrong:x.attrString("wrong")}; }
   function hh(e){ return {wrongHelper:e.attrString("wrong")}; }
   function callsShadowed(e,hh){ return hh(e); }
+  function parseP(x){ return {aliased:x.attrString("via_alias")}; }
   function mk(v){ return {chained:v}; }
   function mk2(v){ return mk(v); }
   function mixedKids(e){ return {plainField:e.attrString("plain"), kids:e.mapChildrenWithTag("mixed_user", function(x){ return {id:x.attrUserJid("jid")}; })}; }
@@ -679,6 +680,7 @@ __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGr
           return I(t);
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.MEMBERSHIP: {
           var cycA=cycB, cycB=cycC, cycC=cycA;
+          var cbAlias=parseP;
           return {actionType:o("WAWebGroupType").GROUP_ACTIONS.MEMBERSHIP,
             picked: t.hasChildren() ? t.mapChildrenWithTag("picked_user", function(x){ return {id:x.attrUserJid("jid")}; }) : [{id:"fallback"}],
             nulled: t.hasChild("opt") ? t.mapChildrenWithTag("nulled_user", function(x){ return {id:x.attrUserJid("jid")}; }) : null,
@@ -689,7 +691,8 @@ __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGr
             cyclic: t.mapChildrenWithTag("cyclic_user", cycA),
             twoDeep: mk2(t.attrString("deep_jid")),
             viaShadowedCallee: callsShadowed(t, function(z){ return {rightHelper:z.attrString("ok")}; }),
-            mixed: t.hasChild("mx") && mixedKids(t)};
+            mixed: t.hasChild("mx") && mixedKids(t),
+            aliasedCb: t.mapChildrenWithTag("alias_user", cbAlias)};
         }
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.REVOKE_INVITE:
           return {actionType:o("WAWebGroupType").GROUP_ACTIONS.REVOKE_INVITE, participants:t.mapChildrenWithTag("participant", function(p){ return {id:p.attrUserJid("jid"), expiration:p.attrInt("expiration")}; }), owners:t.mapChildrenWithTag("owner", p=>o("WAWebJidToWid").userJidToUserWid(p.maybeAttrPhoneUserJid("phone_number")))};
@@ -905,6 +908,21 @@ fn a_mapped_child_is_optional_only_when_the_guard_admits_absence() {
     assert!(
         !plain.required,
         "`cond && helper(node)` makes the helper's fields optional too, not only its children"
+    );
+
+    // A TERMINAL alias (`var cbAlias = parseP`) names a module callback and must resolve.
+    // The cycle guard above refuses any chain ending on an identifier, which threw this
+    // away too — the child shipped with an empty field list.
+    let aliased = child("aliasedCb");
+    assert_eq!(aliased.wire_tag, "alias_user");
+    assert_eq!(
+        aliased
+            .fields
+            .iter()
+            .map(|f| f.name.as_str())
+            .collect::<Vec<_>>(),
+        ["aliased"],
+        "a terminal alias resolves through the module callbacks"
     );
 
     // The guard must not cost the child's contents.

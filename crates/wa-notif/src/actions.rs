@@ -2301,8 +2301,22 @@ fn collect_accessor_fields<'b, 'a>(
             // four (`a → b → c → a`) it returns a *different* identifier every time —
             // and recursing on that walks the cycle forever until the stack goes. An
             // unresolved chain is refused, which is what the hop limit was already for.
-            if as_identifier(resolved).is_none() {
-                collect_accessor_fields(resolved, outer, ctx, out);
+            // Recurse ONLY into something that is no longer an identifier: on a cycle
+            // whose length does not divide the hop limit, `deref_ident` hands back a
+            // different identifier every call and recursing walks it forever.
+            //
+            // But a chain ending on an identifier has a second, benign cause: a TERMINAL
+            // alias naming a module callback (`var cb = parseP`). Refusing those cost the
+            // child its whole field list. Scope still binding the name is what separates
+            // the two — a terminal module name is not bound by the caller, a cycle's is.
+            match as_identifier(resolved) {
+                None => collect_accessor_fields(resolved, outer, ctx, out),
+                Some(inner) if outer.get(inner).is_none() => {
+                    if let Some(src) = ctx.locals.get(inner) {
+                        collect_named_callback_fields(src, ctx, out);
+                    }
+                }
+                Some(_) => {}
             }
             return;
         }

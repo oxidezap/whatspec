@@ -226,7 +226,7 @@ pub fn resolve_wasm(discovered: &Discovered, opts: &WasmResolveOptions) -> WasmR
 /// `https://static.whatsapp.net:443@attacker.example/x.wasm` names `attacker.example` as
 /// the host a client would connect to, and must not pass as the CDN). Plaintext is refused
 /// so a downgraded URL can't put a fetched payload on the wire unauthenticated.
-fn is_cdn_payload(url: &str) -> bool {
+pub fn is_cdn_payload(url: &str) -> bool {
     url.starts_with("https://") && host_of(url).as_deref() == Some(ALLOWED_HOST)
 }
 

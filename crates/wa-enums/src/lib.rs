@@ -405,6 +405,26 @@ impl<'a> Visit<'a> for NamedResolver {
         self.param_scopes.pop();
     }
 
+    fn visit_catch_clause(&mut self, c: &oxc_ast::ast::CatchClause<'a>) {
+        // `catch (e)` binds `e` for the handler body exactly as a parameter binds it for
+        // a function body — the third form of the same shadow, after parameters and
+        // destructured declarations.
+        let names = c
+            .param
+            .as_ref()
+            .map(|p| {
+                p.pattern
+                    .get_binding_identifiers()
+                    .into_iter()
+                    .map(|i| i.name.to_string())
+                    .collect()
+            })
+            .unwrap_or_default();
+        self.param_scopes.push(names);
+        walk::walk_catch_clause(self, c);
+        self.param_scopes.pop();
+    }
+
     fn visit_arrow_function_expression(&mut self, f: &oxc_ast::ast::ArrowFunctionExpression<'a>) {
         self.param_scopes.push(param_names(&f.params));
         walk::walk_arrow_function_expression(self, f);
@@ -801,6 +821,26 @@ mod tests {
             function f(obj){ var {e}=obj; var x=babelHelpers.extends({},e,{B:"b"}); i.OUT=x }
         }),1);"#;
         assert!(resolve_named_enum(destructured_var, "M", "OUT").is_none());
+
+        // `catch (e)` binds for the handler body — the third form of the same shadow.
+        let caught = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"};
+            try { risky() } catch(e) { var x=babelHelpers.extends({},e,{B:"b"}); i.OUT=x }
+        }),1);"#;
+        assert!(resolve_named_enum(caught, "M", "OUT").is_none());
+        // Sanity: the SAME shape without the catch binding must resolve, or the assertion
+        // above proves nothing about catch.
+        let no_catch = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"};
+            try { risky() } catch(q) { var x=babelHelpers.extends({},e,{B:"b"}); i.OUT=x }
+        }),1);"#;
+        assert_eq!(
+            resolve_named_enum(no_catch, "M", "OUT")
+                .expect("resolves when catch binds another name")
+                .variants
+                .len(),
+            2
+        );
 
         // A name rebound to the SAME body is not ambiguous — refusing it would throw away
         // a resolvable enum for nothing.

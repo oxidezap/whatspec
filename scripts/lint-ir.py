@@ -352,8 +352,14 @@ def check_action_keys(node, path, errors):
 
 
 def check_assertion(a, path, errors):
-    if a.get("kind") == "reference" and not a.get("referencePath"):
-        errors.append(f"{path}: reference assertion with no referencePath")
+    if a.get("kind") == "reference":
+        if not a.get("referencePath"):
+            errors.append(f"{path}: reference assertion with no referencePath")
+        # The path says WHERE in the request the value comes from; `name` says which
+        # response attribute has to echo it. With only the path a consumer knows the
+        # source of a rule it cannot apply to anything.
+        if not a.get("name"):
+            errors.append(f"{path}: reference assertion with no target attribute name")
     if a.get("kind") == "attr" and not a.get("name"):
         errors.append(f"{path}: attr assertion with no attribute name")
     # `WapAttrKind::Const` is documented as "fixed literal value (carried in
