@@ -403,14 +403,27 @@ impl<'a> Visit<'a> for NamedResolver {
         // A nested `function e(){}` HOISTS a binding named `e` over the enclosing body, so
         // an operand read there is the function, not the module local — the fourth form of
         // the same shadow, after parameters, destructured declarations and catch bindings.
-        // Recorded on the module-wide set (that is where the name becomes visible) and
-        // only on collision, the rule every other unreadable shadow follows.
+        // Only on collision, the rule every other unreadable shadow follows.
         if let Some(id) = &f.id
             && self.locals.contains_key(id.name.as_str())
         {
             self.shadowed.insert(id.name.to_string());
         }
-        self.param_scopes.push(param_names(&f.params));
+        // The declarations INSIDE this body are hoisted over all of it, so one written
+        // AFTER a composition still binds the operand that composition reads. Recording
+        // them only as the walk reaches them was source-ordered, and reversing the two
+        // lines slipped straight past — so they are pre-registered before descending.
+        let mut hoisted = param_names(&f.params);
+        if let Some(body) = &f.body {
+            for stmt in &body.statements {
+                if let oxc_ast::ast::Statement::FunctionDeclaration(d) = stmt
+                    && let Some(id) = &d.id
+                {
+                    hoisted.insert(id.name.to_string());
+                }
+            }
+        }
+        self.param_scopes.push(hoisted);
         walk::walk_function(self, f, flags);
         self.param_scopes.pop();
     }
@@ -858,6 +871,14 @@ mod tests {
             function g(){ function e(){} var x=babelHelpers.extends({},e,{B:"b"}); i.OUT=x }
         }),1);"#;
         assert!(resolve_named_enum(fn_name, "M", "OUT").is_none());
+
+        // ...and hoisting means the declaration may come AFTER the composition that reads
+        // the name. A source-ordered check misses exactly this order.
+        let hoisted_after = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"};
+            function g(){ var x=babelHelpers.extends({},e,{B:"b"}); function e(){} i.OUT=x }
+        }),1);"#;
+        assert!(resolve_named_enum(hoisted_after, "M", "OUT").is_none());
 
         // A name rebound to the SAME body is not ambiguous — refusing it would throw away
         // a resolvable enum for nothing.

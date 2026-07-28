@@ -260,6 +260,12 @@ pub struct NotifActionChild {
     /// Always serialized. Skipping the `true` case would leave a non-Rust consumer —
     /// which is who the IR is for — unable to tell "required by default" from
     /// "unspecified", and the JSON Schema cannot carry the default either.
+    ///
+    /// The JSON Schema cannot say so: `serde(default)` makes schemars drop the property
+    /// from `required`, and `schemars(required)` is a no-op on a non-`Option` field. A
+    /// document omitting it therefore validates clean, which is the ambiguity above
+    /// reappearing through the published contract — so `lint-ir.py` enforces the presence
+    /// instead. The serde default stays, so an older document still deserializes.
     #[serde(default = "crate::default_true")]
     pub required: bool,
 }
