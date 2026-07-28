@@ -1229,13 +1229,14 @@ __d("WAWebCommsHandleLoggedInStanza",["WAWebHandleGroupNotification"],function(g
   }); };
 }, 1);
 __d("WAWebHandleGroupNotificationConst",[],(function(t,n,r,o,a,i,l){
-  l.GROUP_NOTIFICATION_TAG=Object.freeze({EVICT:"evict",COND:"cond",REBIND:"rebind",PICK:"pick",BARE:"bare",HELPER:"helper",ESCAPE:"escape",TAIL:"tail",JOIN:"join",SEQ:"seq",SUFFIX:"suffix",AFTER:"after",TRY:"try_tag",FIN:"fin",FINCOND:"fincond",FINTHROW:"finthrow",MULTI:"multi",MULTI3:"multi3",DEAD:"dead",LIT:"lit"});
+  l.GROUP_NOTIFICATION_TAG=Object.freeze({EVICT:"evict",COND:"cond",REBIND:"rebind",PICK:"pick",BARE:"bare",HELPER:"helper",ESCAPE:"escape",TAIL:"tail",JOIN:"join",SEQ:"seq",SUFFIX:"suffix",AFTER:"after",TRY:"try_tag",FIN:"fin",FINCOND:"fincond",FINTHROW:"finthrow",MULTI:"multi",MULTI3:"multi3",DEAD:"dead",LIT:"lit",LOOP:"loop_tag",FINTRY:"fintry",PARAM:"param"});
 }), 1);
 __d("WAWebGroupType",[],(function(t,n,r,o,a,i,l){
   l.GROUP_ACTIONS=Object.freeze({FIRST:"first",SECOND:"second",THIRD:"third"});
 }), 1);
 __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGroupType"],(function(t,n,r,o,a,i,l){
   function hlp(e){ return {actionType:o("WAWebGroupType").GROUP_ACTIONS.SECOND, extra:e.attrString("extra")}; }
+  function norm(v){ return v == null ? null : v; }
   function h(e){
     var x=e.mapChildrenWithTag("child", function(t){
       switch (t.tag) {
@@ -1287,6 +1288,15 @@ __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGr
           return {actionType:o("WAWebGroupType").GROUP_ACTIONS.SECOND, b:t.attrString("b")};
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.LIT:
           return {actionType:"create", who:t.attrString("who")};
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.LOOP:
+          while (t.hasChild("more")) { return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, l:t.attrString("l")}; }
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.SECOND, m:t.attrString("m")};
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.FINTRY: {
+          var fx = t.attrString("jid");
+          try { fx = t.attrString("lid"); } finally { return {actionType:o("WAWebGroupType").GROUP_ACTIONS.THIRD, id:fx}; }
+        }
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.PARAM:
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, reason:t.hasAttr("reason")?norm(t.attrString("reason")):null};
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.SUFFIX:
           switch (t.attrString("k")) {
             case "a": t.attrString("setup");
@@ -1602,4 +1612,51 @@ fn a_literal_action_type_is_kept() {
     let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
     let a = edge_action(&ir, "lit");
     assert_eq!(a.action_type.as_deref(), Some("create"));
+}
+
+#[test]
+fn a_loop_body_return_is_collected() {
+    // `while (c) { return A } return B` legally produces both. Loops fell into the
+    // catch-all, so only B was emitted.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let mut got: Vec<&str> = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .filter(|a| a.wire_tag == "loop_tag")
+        .filter_map(|a| a.action_type.as_deref())
+        .collect();
+    got.sort_unstable();
+    assert_eq!(got, ["first", "second"], "both paths: {got:?}");
+}
+
+#[test]
+fn a_finalizer_does_not_read_a_binding_the_try_overwrote() {
+    // `var x = a("jid"); try { x = a("lid") } finally { return {id: x} }` returns `lid`.
+    // Analyzing the finalizer against the pre-`try` scope published `jid` as fact; the
+    // body may also have thrown part-way, so neither source is certain and the name is
+    // tombstoned rather than guessed.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let a = edge_action(&ir, "fintry");
+    assert!(
+        !a.fields.iter().any(|f| f.wire_name == "jid"),
+        "the stale pre-try source must not be published: {:?}",
+        a.fields
+    );
+}
+
+#[test]
+fn a_helper_that_only_normalises_its_argument_keeps_the_wire_read() {
+    // `reason: hasAttr("reason") ? norm(t.attrString("reason")) : null` — `norm` is a
+    // module-local helper, so the inliner claimed the key, produced an empty shape
+    // (the helper reads no attribute of its own) and dropped the field. Live for
+    // `add`/`remove`/`delete`'s `reason` before the fallback to `read_field`.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let a = edge_action(&ir, "param");
+    let f = a
+        .fields
+        .iter()
+        .find(|f| f.name == "reason")
+        .expect("the field survives the helper");
+    assert_eq!(f.wire_name, "reason");
+    assert!(!f.required, "it sits behind a presence guard");
 }

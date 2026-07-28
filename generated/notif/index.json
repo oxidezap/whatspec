@@ -1779,6 +1779,14 @@
         {
           "wireTag": "add",
           "actionType": "add",
+          "fields": [
+            {
+              "name": "reason",
+              "wireName": "reason",
+              "type": "string",
+              "required": false
+            }
+          ],
           "children": [
             {
               "name": "participants",
@@ -1832,11 +1840,27 @@
         },
         {
           "wireTag": "delete",
-          "actionType": "delete"
+          "actionType": "delete",
+          "fields": [
+            {
+              "name": "reason",
+              "wireName": "reason",
+              "type": "string",
+              "required": false
+            }
+          ]
         },
         {
           "wireTag": "remove",
           "actionType": "remove",
+          "fields": [
+            {
+              "name": "reason",
+              "wireName": "reason",
+              "type": "string",
+              "required": false
+            }
+          ],
           "children": [
             {
               "name": "participants",

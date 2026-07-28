@@ -875,7 +875,15 @@ fn collect_returns<'b, 'a>(
                 // empty. Only a finalizer that leaves on EVERY path replaces them.
                 let mut finalizer = Vec::new();
                 if let Some(f) = &t.finalizer {
-                    collect_returns(&as_refs(&f.body), &scope, &mut finalizer);
+                    // The finalizer runs AFTER the try body, so the entry scope is wrong:
+                    // `var x = a("jid"); try { x = a("lid") } finally { return {id: x} }`
+                    // returns `lid`. The body may also have thrown part-way, so neither
+                    // binding is certain — every name the try or catch writes is
+                    // tombstoned for the finalizer, the same conservative merge used
+                    // where branches rejoin.
+                    let mut fin_scope = scope.clone();
+                    tombstone_branch_writes(s, &mut fin_scope);
+                    collect_returns(&as_refs(&f.body), &fin_scope, &mut finalizer);
                 }
                 let finalizer_settles = t
                     .finalizer
@@ -900,8 +908,34 @@ fn collect_returns<'b, 'a>(
                 }
                 tombstone_branch_writes(s, &mut scope);
             }
+            // A loop body is a conditional path like any other: `while (c) { return A }
+            // return B` legally produces both, and falling into the catch-all collected
+            // only B. Its writes are tombstoned on exit for the same reason a branch's
+            // are — the body may have run any number of times, including zero.
+            Statement::ForStatement(_)
+            | Statement::ForInStatement(_)
+            | Statement::ForOfStatement(_)
+            | Statement::WhileStatement(_)
+            | Statement::DoWhileStatement(_) => {
+                if let Some(body) = loop_body(s) {
+                    collect_returns(&[body], &scope, out);
+                }
+                tombstone_branch_writes(s, &mut scope);
+            }
             _ => {}
         }
+    }
+}
+
+/// The body statement of any loop form, so one arm can handle them all.
+fn loop_body<'b, 'a>(s: &'b Statement<'a>) -> Option<&'b Statement<'a>> {
+    match s {
+        Statement::ForStatement(f) => Some(&f.body),
+        Statement::ForInStatement(f) => Some(&f.body),
+        Statement::ForOfStatement(f) => Some(&f.body),
+        Statement::WhileStatement(w) => Some(&w.body),
+        Statement::DoWhileStatement(d) => Some(&d.body),
+        _ => None,
     }
 }
 
@@ -976,6 +1010,11 @@ fn assigned_names<'a>(s: &'a Statement, out: &mut Vec<&'a str>) {
                 assigned_names(a, out);
             }
         }
+        s if loop_body(s).is_some() => {
+            if let Some(b) = loop_body(s) {
+                assigned_names(b, out);
+            }
+        }
         Statement::TryStatement(t) => {
             t.block.body.iter().for_each(|s| assigned_names(s, out));
             if let Some(h) = &t.handler {
@@ -1026,66 +1065,6 @@ type Scope<'b, 'a> = HashMap<&'b str, &'b Expression<'a>>;
 
 /// A result shape together with the bindings in force where it is returned.
 type Shape<'b, 'a> = (&'b Expression<'a>, Scope<'b, 'a>);
-
-/// A single flat scope for callers that have no return path to attribute a binding to
-/// (the object-property walker visits every property in a callback at once).
-///
-/// Without a path, a name rebound to a *different* initializer in a sibling branch
-/// cannot be resolved correctly — so it is refused rather than guessed, the same
-/// "missing, not wrong" rule the constant tables and helper names follow.
-fn scope_bindings<'b, 'a>(stmts: &'b [Statement<'a>]) -> Scope<'b, 'a> {
-    let mut out = Scope::new();
-    let mut ambiguous: Vec<&str> = Vec::new();
-    collect_bindings(stmts, &mut out, &mut ambiguous);
-    for name in ambiguous {
-        out.remove(name);
-    }
-    out
-}
-
-/// Collect `var` bindings through control flow, mirroring [`collect_returns`].
-///
-/// `var` is function-scoped in JS, so a declaration inside an `if` block is in scope for
-/// the whole function — and now that returns are collected from nested branches, their
-/// locals have to be too, or `if (c) { var id = child.attrString("id"); return {id} }`
-/// yields a return whose `id` resolves to nothing and is silently dropped. First binding
-/// wins, so the walk order (source order) decides, not the recursion order.
-fn collect_bindings<'b, 'a>(
-    stmts: &'b [Statement<'a>],
-    out: &mut Scope<'b, 'a>,
-    ambiguous: &mut Vec<&'b str>,
-) {
-    for s in stmts {
-        match s {
-            Statement::VariableDeclaration(decl) => {
-                for d in &decl.declarations {
-                    if let (Some(name), Some(init)) = (d.id.get_identifier_name(), d.init.as_ref())
-                    {
-                        match out.entry(name.as_str()) {
-                            std::collections::hash_map::Entry::Vacant(e) => {
-                                e.insert(init);
-                            }
-                            std::collections::hash_map::Entry::Occupied(e) => {
-                                if !std::ptr::eq(*e.get(), init) {
-                                    ambiguous.push(name.as_str());
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            Statement::BlockStatement(b) => collect_bindings(&b.body, out, ambiguous),
-            Statement::IfStatement(i) => {
-                collect_bindings(std::slice::from_ref(&i.consequent), out, ambiguous);
-                if let Some(alt) = &i.alternate {
-                    collect_bindings(std::slice::from_ref(alt), out, ambiguous);
-                }
-            }
-            Statement::TryStatement(t) => collect_bindings(&t.block.body, out, ambiguous),
-            _ => {}
-        }
-    }
-}
 
 /// Follow a bare identifier through the scope to the expression bound to it. Bounded so
 /// a self-referential minified binding can't loop.
@@ -1389,6 +1368,22 @@ fn fold_object<'b, 'a>(
         {
             let mut nested = empty_action(String::new());
             inline_local(&src, &mut nested, ctx, depth);
+            // A helper that yields nothing is a helper the inliner cannot see through —
+            // typically because the value arrives through a PARAMETER
+            // (`reason: hasAttr("reason") ? S(t.attrString("reason")) : null`, where `S`
+            // normalises the string it is handed). Its body reads no wire attribute of its
+            // own, so inlining produced an empty shape and the key was dropped, live for
+            // `add`, `remove` and `delete`'s `reason`.
+            //
+            // Falling through to `read_field` recovers it: the wire read is in the CALL's
+            // arguments, which `find_accessor` already descends into — and it refuses the
+            // key outright if two arguments disagree.
+            if nested.children.is_empty() && nested.fields.is_empty() {
+                if let Some(field) = read_field(key, value, scope, ctx.consts) {
+                    write_key(def, key, KeyValue::Field(field));
+                }
+                continue;
+            }
             // A helper whose result is a repeated element becomes this key's child list;
             // one that returns a flat object contributes its fields under their own names.
             for mut c in nested.children {
@@ -1762,12 +1757,13 @@ fn collect_accessor_fields<'b, 'a>(
     consts: &ConstResolver,
     out: &mut Vec<NotifActionField>,
 ) {
-    // The callback's own `var` bindings, layered over the enclosing scope: the minifier
-    // hoists most reads into locals inside the callback too.
-    let mut scope = outer.clone();
-    if let Some(stmts) = function_body_of(e) {
-        scope.extend(scope_bindings(stmts));
-    }
+    // No whole-body pre-pass. `collect_returns` installs the callback's own `var`
+    // bindings in STATEMENT ORDER, which is the same rule it already documents for the
+    // top level: hoisting moves the declaration, not the assignment, so snapshotting the
+    // whole body made a later initializer visible to an earlier return —
+    // `if (c) return {id: x}; var x = item.attrString("late")` published a wire
+    // dependency on `late` for a branch that runs before it exists.
+    let scope = outer.clone();
     // Only function arguments hold the per-element shape; a bare expression contributes
     // nothing (the tag string, the bounds).
     if !matches!(

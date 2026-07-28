@@ -111,6 +111,20 @@ impl<'a> EnumResolver<'a> {
         fields: &mut [wa_ir::ParsedField],
         dropped: &mut std::collections::BTreeSet<String>,
     ) {
+        self.resolve_fields_at(site, "", fields, dropped)
+    }
+
+    /// [`resolve_fields`], carrying the traversal `path` so two losses of the same table
+    /// on the same attribute under different children count as two.
+    ///
+    /// [`resolve_fields`]: EnumResolver::resolve_fields
+    fn resolve_fields_at(
+        &mut self,
+        site: &str,
+        path: &str,
+        fields: &mut [wa_ir::ParsedField],
+        dropped: &mut std::collections::BTreeSet<String>,
+    ) {
         for f in fields {
             // Taken, not read: the pending reference is consumed here whether or not it
             // resolves, so a second traversal of the same tree cannot count the same loss
@@ -131,14 +145,18 @@ impl<'a> EnumResolver<'a> {
                     wa_ir::PendingEnum::Unresolvable => Some("<unresolvable table>".to_string()),
                 };
                 if let Some(what) = lost {
-                    dropped.insert(format!("{site}\u{1}{what}@{attr}"));
+                    // The node PATH is part of the identity: one parser reading `state`
+                    // off both `<current>` and `<previous>` loses two constraints, and
+                    // `site + table + attr` collapsed them into one.
+                    dropped.insert(format!("{site}\u{1}{path}/{what}@{attr}"));
                 }
             }
+            let here = format!("{path}/{}", f.tag.as_deref().unwrap_or(&f.name));
             if let Some(children) = &mut f.children {
-                self.resolve_fields(site, children, dropped);
+                self.resolve_fields_at(site, &here, children, dropped);
             }
             for uv in f.union_variants.iter_mut().flatten() {
-                self.resolve_fields(site, &mut uv.fields, dropped);
+                self.resolve_fields_at(site, &here, &mut uv.fields, dropped);
             }
         }
     }

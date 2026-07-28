@@ -26,7 +26,7 @@
       "dropsByReason": {
         "iq builder substring present but no AST iq call": 5,
         "mixin fragment (folded into requests, not a standalone stanza)": 66,
-        "response enum argument not structurally resolvable": 37
+        "response enum argument not structurally resolvable": 41
       },
       "excludedFragments": 66,
       "stanzas": 143,
@@ -34,7 +34,7 @@
       "unparseable": 5
     },
     "notif": {
-      "actionShapes": 181,
+      "actionShapes": 184,
       "actions": 47,
       "degraded": 5,
       "dropsByReason": {
@@ -79,7 +79,7 @@
     "notif": {
       "file": "notif/index.json",
       "schema": "schema/notif.schema.json",
-      "sha256": "a4f868868e9689488e4dcbf58ebb09665421626acdbef1ee9ceab27d4f946883"
+      "sha256": "473f4d20fefe3136b264f3398811fb9af85dc5fca59022b727ca16f83420cd33"
     },
     "proto": {
       "file": "proto/WAProto.proto",
