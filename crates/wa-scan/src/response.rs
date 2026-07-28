@@ -894,7 +894,16 @@ impl<'a> Visit<'a> for ModuleScopeBuilder<'_> {
                 // `var name = { key: val, … }` — an enum value map — or the same object
                 // wrapped in a one-argument factory, which is how WA declares a
                 // module-local enum: `var u = n("$InternalEnum")({Image: "image", …})`.
+                // Only a factory-body-level (depth 1) binding is module-scope, the same
+                // gate the helper branch above uses. Recording at ANY depth let two
+                // parsers reusing one minified name share a table: the second `u.members()`
+                // resolved to the first parser's values and published a closed `enumKeys`
+                // set that is simply wrong — an invented constraint, worse than a lost one.
                 _ => {
+                    if self.fn_depth != 1 {
+                        walk::walk_variable_declarator(self, d);
+                        return;
+                    }
                     let obj = wa_oxc::as_object(init).or_else(|| {
                         wa_oxc::as_call(init)
                             .filter(|c| c.arguments.len() == 1)

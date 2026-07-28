@@ -1229,7 +1229,7 @@ __d("WAWebCommsHandleLoggedInStanza",["WAWebHandleGroupNotification"],function(g
   }); };
 }, 1);
 __d("WAWebHandleGroupNotificationConst",[],(function(t,n,r,o,a,i,l){
-  l.GROUP_NOTIFICATION_TAG=Object.freeze({EVICT:"evict",COND:"cond",REBIND:"rebind",PICK:"pick",BARE:"bare",HELPER:"helper",ESCAPE:"escape",TAIL:"tail",JOIN:"join",SEQ:"seq",SUFFIX:"suffix",AFTER:"after",TRY:"try_tag",FIN:"fin",FINCOND:"fincond",FINTHROW:"finthrow",MULTI:"multi",MULTI3:"multi3",DEAD:"dead",LIT:"lit",LOOP:"loop_tag",FINTRY:"fintry",PARAM:"param"});
+  l.GROUP_NOTIFICATION_TAG=Object.freeze({EVICT:"evict",COND:"cond",REBIND:"rebind",PICK:"pick",BARE:"bare",HELPER:"helper",ESCAPE:"escape",TAIL:"tail",JOIN:"join",SEQ:"seq",SUFFIX:"suffix",AFTER:"after",TRY:"try_tag",FIN:"fin",FINCOND:"fincond",FINTHROW:"finthrow",MULTI:"multi",MULTI3:"multi3",DEAD:"dead",LIT:"lit",LOOP:"loop_tag",FINTRY:"fintry",PARAM:"param",BLK:"blk",EXH:"exh"});
 }), 1);
 __d("WAWebGroupType",[],(function(t,n,r,o,a,i,l){
   l.GROUP_ACTIONS=Object.freeze({FIRST:"first",SECOND:"second",THIRD:"third"});
@@ -1297,6 +1297,15 @@ __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGr
         }
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.PARAM:
           return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, reason:t.hasAttr("reason")?norm(t.attrString("reason")):null};
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.BLK: {
+          var bx = t.attrString("jid");
+          { bx = t.attrString("lid"); }
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, id:bx};
+        }
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.EXH:
+          if (t.hasChild("q")) return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, a:t.attrString("a")};
+          else return {actionType:o("WAWebGroupType").GROUP_ACTIONS.SECOND, b:t.attrString("b")};
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.THIRD, c:t.attrString("c")};
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.SUFFIX:
           switch (t.attrString("k")) {
             case "a": t.attrString("setup");
@@ -1659,4 +1668,41 @@ fn a_helper_that_only_normalises_its_argument_keeps_the_wire_read() {
         .expect("the field survives the helper");
     assert_eq!(f.wire_name, "reason");
     assert!(!f.required, "it sits behind a presence guard");
+}
+
+#[test]
+fn a_bare_block_hands_its_writes_back() {
+    // A bare block always runs and `var` is function-scoped, so
+    // `var x = a("jid"); { x = a("lid"); } return {id: x}` reads `lid`. Analyzing the
+    // block against a clone discarded the write and published the pre-block source.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let a = edge_action(&ir, "blk");
+    let f = a
+        .fields
+        .iter()
+        .find(|f| f.name == "id")
+        .expect("the id field");
+    assert_eq!(
+        f.wire_name, "lid",
+        "the block's write is what reaches the return"
+    );
+}
+
+#[test]
+fn nothing_after_an_exhaustive_if_is_reachable() {
+    // `if (c) return A; else return B; return C;` — C never runs. The direct-return stop
+    // did not cover a statement that exits through both of its branches.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let mut got: Vec<&str> = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .filter(|a| a.wire_tag == "exh")
+        .filter_map(|a| a.action_type.as_deref())
+        .collect();
+    got.sort_unstable();
+    assert_eq!(
+        got,
+        ["first", "second"],
+        "the trailing return is dead: {got:?}"
+    );
 }

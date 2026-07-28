@@ -797,6 +797,16 @@ fn collect_returns<'b, 'a>(
     // one branch's return read the other branch's attribute — a wrong `wireName` rather
     // than a missing field.
     let mut scope = outer.clone();
+    collect_returns_into(stmts, &mut scope, out);
+}
+
+/// [`collect_returns`] over a scope the caller owns, so a construct that always runs —
+/// a bare block — can hand its writes back instead of having them discarded with a clone.
+fn collect_returns_into<'b, 'a>(
+    stmts: &[&'b Statement<'a>],
+    scope: &mut Scope<'b, 'a>,
+    out: &mut Vec<Shape<'b, 'a>>,
+) {
     for s in stmts.iter().copied() {
         match s {
             Statement::VariableDeclaration(decl) => {
@@ -824,7 +834,7 @@ fn collect_returns<'b, 'a>(
                 flatten_sequence(&e.expression, &mut ops);
                 for a in ops {
                     if let Some(name) = a.left.get_identifier_name() {
-                        let reads_wire = find_accessor(strip_guard(&a.right), &scope).is_some();
+                        let reads_wire = find_accessor(strip_guard(&a.right), scope).is_some();
                         if reads_wire {
                             scope.insert(name, &a.right);
                         } else {
@@ -839,24 +849,24 @@ fn collect_returns<'b, 'a>(
                     collect_branches(arg, &mut branches);
                     out.extend(branches.into_iter().map(|e| (e, scope.clone())));
                 }
-                // Nothing after an unconditional `return` runs. Continuing to scan the
-                // list published unreachable returns as additional legal actions —
-                // `return {actionType: A}; return {actionType: B};` yielded both — and
-                // let statements below it contribute phantom fields.
-                return;
             }
-            Statement::BlockStatement(b) => collect_returns(&as_refs(&b.body), &scope, out),
+            // A bare block ALWAYS runs and `var` is function-scoped, so its writes
+            // survive it: `{ x = child.attrString("lid"); } return {id: x}` reads `lid`.
+            // Analyzing it against a clone discarded that and published the pre-block
+            // source. (A branch's block is different — it reaches here through the `if`
+            // arm below, which clones deliberately.)
+            Statement::BlockStatement(b) => collect_returns_into(&as_refs(&b.body), scope, out),
             Statement::IfStatement(i) => {
-                collect_returns(&[&i.consequent], &scope, out);
+                collect_returns(&[&i.consequent], scope, out);
                 if let Some(alt) = &i.alternate {
-                    collect_returns(&[alt], &scope, out);
+                    collect_returns(&[alt], scope, out);
                 }
                 // Where the branches rejoin, a name either branch reassigned no longer has
                 // one known value: `var x = attrString("jid"); if (c) x = attrString("lid");
                 // return {id: x}` reads `lid` on one legal path, and keeping the pre-branch
                 // binding published `jid` as if it were certain. Tombstoned rather than
                 // guessed, the same way a key bound to two different reads is refused.
-                tombstone_branch_writes(s, &mut scope);
+                tombstone_branch_writes(s, scope);
             }
             Statement::TryStatement(t) => {
                 // The `try` body and its `catch` are alternative paths — WA wraps a
@@ -864,9 +874,9 @@ fn collect_returns<'b, 'a>(
                 // legal as the body's — and both see the pre-`try` scope, since nothing
                 // the body wrote is guaranteed to have run when the handler is entered.
                 let mut paths = Vec::new();
-                collect_returns(&as_refs(&t.block.body), &scope, &mut paths);
+                collect_returns(&as_refs(&t.block.body), scope, &mut paths);
                 if let Some(h) = &t.handler {
-                    collect_returns(&as_refs(&h.body.body), &scope, &mut paths);
+                    collect_returns(&as_refs(&h.body.body), scope, &mut paths);
                 }
                 // What the finalizer does to the earlier shapes is a control-flow
                 // question, not a "did it yield anything" one. Emptiness gets both ends
@@ -894,7 +904,7 @@ fn collect_returns<'b, 'a>(
                 }
                 out.extend(finalizer);
                 // A `try` body may have run in part; nothing it wrote is certain after it.
-                tombstone_branch_writes(s, &mut scope);
+                tombstone_branch_writes(s, scope);
             }
             // A nested `switch` inside an arm (or a helper body) is how THAT arm picks
             // its shape — `case LINK: switch (linkType) { case "parent": return {…};
@@ -904,9 +914,9 @@ fn collect_returns<'b, 'a>(
             // returns.
             Statement::SwitchStatement(sw) => {
                 for c in &sw.cases {
-                    collect_returns(&as_refs(&c.consequent), &scope, out);
+                    collect_returns(&as_refs(&c.consequent), scope, out);
                 }
-                tombstone_branch_writes(s, &mut scope);
+                tombstone_branch_writes(s, scope);
             }
             // A loop body is a conditional path like any other: `while (c) { return A }
             // return B` legally produces both, and falling into the catch-all collected
@@ -918,11 +928,17 @@ fn collect_returns<'b, 'a>(
             | Statement::WhileStatement(_)
             | Statement::DoWhileStatement(_) => {
                 if let Some(body) = loop_body(s) {
-                    collect_returns(&[body], &scope, out);
+                    collect_returns(&[body], scope, out);
                 }
-                tombstone_branch_writes(s, &mut scope);
+                tombstone_branch_writes(s, scope);
             }
             _ => {}
+        }
+        // Nothing after a statement that leaves on every path runs. This covers the bare
+        // `return` and, equally, `if (c) return A; else return B;` — whose trailing
+        // `return C` is unreachable yet was emitted as a third legal action.
+        if stmt_exits(s, false) {
+            return;
         }
     }
 }
