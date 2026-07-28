@@ -704,16 +704,19 @@ fn value_payload(enum_name: &str, variant: &str, fields: &[ParsedField], node_va
 /// (the variant guard already proved the required attrs present).
 fn field_expr(f: &ParsedField, node_var: &str) -> String {
     let method = f.method.as_str();
-    if method == wap::CONTENT_STRING {
-        return format!("{node_var}.content_str().unwrap_or_default().to_string()");
-    }
-    if method == wap::CONTENT_BYTES {
-        return format!("{node_var}.content_bytes().map(|b| b.to_vec()).unwrap_or_default()");
-    }
-    if method == wap::CONTENT_INT {
-        return format!(
-            "{node_var}.content_str().and_then(|s| s.parse().ok()).unwrap_or_default()"
-        );
+    // Derived, not enumerated — the same three names were spelled out here as in
+    // `is_attr_field` and `child_content_type`, so a `contentUint` inside a union variant
+    // fell through to the attribute path and was read as an attribute that does not exist.
+    if wap::is_content_method(method) {
+        return match wap::method_field_type(method) {
+            ParsedFieldType::Bytes => {
+                format!("{node_var}.content_bytes().map(|b| b.to_vec()).unwrap_or_default()")
+            }
+            ParsedFieldType::Integer => {
+                format!("{node_var}.content_str().and_then(|s| s.parse().ok()).unwrap_or_default()")
+            }
+            _ => format!("{node_var}.content_str().unwrap_or_default().to_string()"),
+        };
     }
     let wire = f.wire_name.as_deref().unwrap_or(&f.name);
     let flit = rust_lit(wire);

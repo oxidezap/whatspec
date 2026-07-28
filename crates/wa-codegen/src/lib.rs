@@ -374,6 +374,52 @@ mod tests {
     }
 
     #[test]
+    fn a_ranged_byte_content_child_is_still_bytes() {
+        // `child("blob").contentBytesRange(1, 128)` decodes to bytes. Asking the
+        // classifier for the integer branch while testing the exact name `contentBytes`
+        // for the bytes branch — in one expression — typed this as `String` and read it
+        // with `content_str()`, so a byte payload came out as lossy text.
+        let mut blob = parsed("child", "blob", ParsedFieldType::String);
+        blob.tag = Some("blob".into());
+        blob.children = Some(vec![parsed(
+            "contentBytesRange",
+            "content",
+            ParsedFieldType::Bytes,
+        )]);
+        let ir = IqIr {
+            wa_version: "0.0.0".into(),
+            stanzas: vec![IqStanzaDef {
+                module_name: "WAWebBlob".into(),
+                namespace: "encrypt".into(),
+                iq_type: IqType::Get,
+                target: IqTarget::Server,
+                parser_name: "p".into(),
+                exported_function: Some("blob".into()),
+                all_exports: vec!["blob".into()],
+                request: IqRequestDef {
+                    namespace: "encrypt".into(),
+                    iq_type: IqType::Get,
+                    target: IqTarget::Server,
+                    children: vec![],
+                },
+                response: ParsedResponse {
+                    parser_name: "p".into(),
+                    assertions: vec![],
+                    fields: vec![blob],
+                    ..Default::default()
+                },
+            }],
+            unparseable: vec![],
+        };
+        let c = &generate_iq(&ir);
+        assert!(c.contains("pub blob: Vec<u8>,"), "typed as bytes:\n{c}");
+        assert!(
+            c.contains("blob_node.content_bytes()"),
+            "and read as bytes:\n{c}"
+        );
+    }
+
+    #[test]
     fn generates_spec_with_request_and_response() {
         let ir = IqIr {
             wa_version: "0.0.0".into(),

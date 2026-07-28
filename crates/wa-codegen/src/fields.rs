@@ -152,16 +152,23 @@ pub(crate) fn child_content_type(f: &ParsedField) -> Option<ContentType> {
     // type decides. Collapsing everything that was not bytes onto `String` is what made
     // `<registration>`, `<type>` and `<id>` — three `contentUint` siblings — share a
     // single generated `content` field, two of the three silently dropped.
-    Some(if kids.iter().any(|c| c.method == wap::CONTENT_BYTES) {
-        ContentType::Bytes
-    } else if kids
-        .iter()
-        .all(|c| wap::method_field_type(&c.method) == wa_ir::ParsedFieldType::Integer)
-    {
-        ContentType::Integer
-    } else {
-        ContentType::String
-    })
+    //
+    // Both branches ask the classifier. Using it for integers and an exact `contentBytes`
+    // name test for bytes — in the same expression — would have typed a
+    // `contentBytesRange` child as `String` and read it with `content_str()`.
+    let decodes_to = |c: &ParsedField| wap::method_field_type(&c.method);
+    Some(
+        if kids.iter().any(|c| decodes_to(c) == ParsedFieldType::Bytes) {
+            ContentType::Bytes
+        } else if kids
+            .iter()
+            .all(|c| decodes_to(c) == ParsedFieldType::Integer)
+        {
+            ContentType::Integer
+        } else {
+            ContentType::String
+        },
+    )
 }
 
 fn is_content_method(f: &ParsedField) -> bool {
