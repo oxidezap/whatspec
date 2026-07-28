@@ -170,6 +170,14 @@ pub struct BootloaderPins {
     /// contract moved.
     pub requests: usize,
     pub failed_requests: usize,
+    /// How many ways resolution came up short, INCLUDING the ones that never reached a
+    /// request — a component list capped by `max_components`, a page that deferred
+    /// nothing, endpoint parameters the page did not ship. `failed_requests` counts only
+    /// requests that failed, so a capped run whose requests all succeeded pinned zeroes
+    /// across the board and, with the handle map accumulating, left no diff at all to say
+    /// the extraction had been incomplete.
+    #[serde(default)]
+    pub degradations: usize,
 }
 
 /// The wasm lockfile (`generated/wasm.lock.json`) — what a fetch run resolved and stored.
@@ -451,6 +459,7 @@ mod tests {
             wasm_handles: BTreeMap::from([("30933".into(), "https://s/a.wasm".into())]),
             requests: 4,
             failed_requests: 1,
+            degradations: 2,
         };
         let lock = WasmLock::with_bootloader(
             "2.3000.TEST",

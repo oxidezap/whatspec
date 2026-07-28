@@ -1489,6 +1489,7 @@ fn bootloader_pins(
             .collect(),
         requests: resolution.requests,
         failed_requests: resolution.failed_requests,
+        degradations: resolution.failures.len(),
     }
 }
 
@@ -3148,6 +3149,7 @@ mod tests {
                 .collect(),
             requests,
             failed_requests: failed,
+            degradations: 0,
         };
 
         let before = lock::WasmLock::with_bootloader(
@@ -3214,6 +3216,7 @@ mod tests {
                 .collect(),
             requests: 4,
             failed_requests: 0,
+            degradations: 0,
         };
         let seed = lock::WasmLock::with_bootloader(
             "2.3000.test",
@@ -3284,6 +3287,9 @@ mod tests {
             from_page: 1,
             requests: 2,
             failed_requests: 0,
+            // Degradation that never reached a request: the pins must still carry it, or
+            // a capped run whose requests all succeeded looks identical to a clean one.
+            failures: vec!["component list capped".into()],
             ..Default::default()
         };
         let pins = bootloader_pins(&resolution, &handles);
@@ -3295,6 +3301,11 @@ mod tests {
         );
         // The diagnostics still come from the resolution, untouched by the filter.
         assert_eq!((pins.handles_from_page, pins.requests), (1, 2));
+        assert_eq!(
+            (pins.failed_requests, pins.degradations),
+            (0, 1),
+            "no request failed, but coverage was still short"
+        );
     }
 
     #[test]

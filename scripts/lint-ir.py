@@ -24,16 +24,57 @@ Usage: scripts/lint-ir.py [generated-dir]   (default: ./generated)
 """
 import json
 import sys
+from collections import defaultdict
 from pathlib import Path
 
 # Counted states, with the value observed when this guard was introduced. Raising
 # one of these is a deliberate act: it means a constraint the extractor used to
 # recover is now being lost, and the number has to be updated with a reason.
 BASELINE = {
-    # 157 -> 155: appstate's two `protoEnum` fields were never unresolved, only
-    # unrecognised by the check below.
-    "enum field with no values": 155,
     "content integer with no byte width": 0,
+}
+
+# The enums no extraction path could resolve, by IDENTITY rather than by total.
+#
+# A single number cannot see a SUBSTITUTION: one field gaining values while another loses
+# them holds the sum at 155 and reports `ok`, which is precisely the silent constraint loss
+# this file exists to catch. Identity is domain + field name + wire name + accessor, so it
+# survives reordering — a positional path would churn on every unrelated insertion. The
+# counts are multiplicities: the same wire enum is read at several places.
+#
+# 155 fields collapse to 30 identities. Adding one, dropping one, or changing a count all
+# fail; each is a deliberate act that costs one line here.
+UNRESOLVED_ENUMS = {
+    "incoming|edit|edit|attrEnum": 1,
+    "iq|automaticBinding|automatic-binding|maybeAttrEnum": 2,
+    "iq|canAddPayout|can-add-payout|attrEnum": 2,
+    "iq|canPayout|can-payout|attrEnum": 2,
+    "iq|canSell|can-sell|attrEnum": 2,
+    "iq|capabilitiesDefaultEligibleP2m|default-eligible-p2m|maybeAttrEnum": 6,
+    "iq|capabilitiesDefaultEligibleP2p|default-eligible-p2p|maybeAttrEnum": 6,
+    "iq|capabilitiesDefaultEligible|default-eligible|attrEnum": 6,
+    "iq|capabilitiesEditable|editable|attrEnum": 6,
+    "iq|capabilitiesP2mCreditEligible|p2m-credit-eligible|attrEnum": 2,
+    "iq|capabilitiesP2mDebitEligible|p2m-debit-eligible|attrEnum": 2,
+    "iq|capabilitiesVerifiable|verifiable|attrEnum": 6,
+    "iq|defaultCreditP2m|default-credit-p2m|maybeAttrEnum": 8,
+    "iq|defaultCreditP2p|default-credit-p2p|maybeAttrEnum": 8,
+    "iq|defaultCredit|default-credit|attrEnum": 8,
+    "iq|defaultDebitP2m|default-debit-p2m|maybeAttrEnum": 8,
+    "iq|defaultDebitP2p|default-debit-p2p|maybeAttrEnum": 8,
+    "iq|defaultDebit|default-debit|attrEnum": 8,
+    "iq|error|error|maybeAttrEnum": 7,
+    "iq|isAadhaarEnabled|is-aadhaar-enabled|maybeAttrEnum": 2,
+    "iq|isInternationalPayEnabled|is_international_pay_enabled|maybeAttrEnum": 2,
+    "iq|isMpinSet|is-mpin-set|attrEnum": 2,
+    "iq|membershipApprovalRequestError|error|maybeAttrEnum": 2,
+    "iq|needsDeviceBinding|needs-device-binding|attrEnum": 2,
+    "iq|p2mEligible|p2m-eligible|maybeAttrEnum": 18,
+    "iq|p2pEligible|p2p-eligible|maybeAttrEnum": 18,
+    "iq|pinFormatVersion|pin-format-version|attrEnum": 2,
+    "iq|pixOnboardingState|pix-onboarding-state|maybeAttrEnum": 2,
+    "iq|verified|verified|attrEnum": 6,
+    "notif|reason|reason|": 1,
 }
 
 # `contentInt` reads DECIMAL TEXT, so it has no byte width and must not be asked
@@ -71,7 +112,7 @@ def walk(node, visit, path=""):
             walk(v, visit, f"{path}/{i}")
 
 
-def check_field(f, path, errors, counts):
+def check_field(f, path, domain, errors, counts, unresolved):
     """Invariants of one `ParsedField`-shaped object."""
     t = f.get("type")
     method = f.get("method", "")
@@ -90,7 +131,7 @@ def check_field(f, path, errors, counts):
         and not f.get("enumKeys")
         and not f.get("protoEnum")
     ):
-        counts["enum field with no values"] += 1
+        unresolved[f"{domain}|{f.get('name')}|{f.get('wireName')}|{method}"] += 1
 
     if method in WIDTH_BEARING and "byteLength" not in f:
         counts["content integer with no byte width"] += 1
@@ -351,6 +392,19 @@ def check_action_keys(node, path, errors):
         errors.append(f"{path}: one key filled twice across fields/constantFields/children: {repeated}")
 
 
+def check_variant_group(node, path, errors):
+    """A `WapVariantGroup` says exactly one of its alternatives applies.
+
+    With none listed, a REQUIRED group promises a choice and supplies nothing to choose:
+    an emitter cannot construct the request, and the Rust generator emits a required field
+    whose enum has no variants. An optional group with no alternatives is merely empty.
+    """
+    if "variants" not in node or "optional" not in node:
+        return
+    if not node.get("optional") and not node.get("variants"):
+        errors.append(f"{path}: required variant group offers no alternative")
+
+
 def check_assertion(a, path, errors):
     if a.get("kind") == "reference":
         if not a.get("referencePath"):
@@ -386,6 +440,7 @@ def main() -> int:
     root = Path(sys.argv[1] if len(sys.argv) > 1 else "generated")
     errors: list[str] = []
     counts = dict.fromkeys(BASELINE, 0)
+    unresolved: dict[str, int] = defaultdict(int)
 
     docs = sorted(root.glob("*/index.json"))
     if not docs:
@@ -412,13 +467,14 @@ def main() -> int:
                         f"{domain}{path}: field type {node.get('type')!r} is not in the "
                         f"ParsedFieldType vocabulary"
                     )
-                check_field(node, f"{domain}{path}", errors, counts)
+                check_field(node, f"{domain}{path}", domain, errors, counts, unresolved)
             if "kind" in node and "reference_path" not in node:
                 check_assertion(node, f"{domain}{path}", errors)
             # Independent of the field gate — see each function's note.
             check_enum_ref(node, f"{domain}{path}", errors)
             check_const_bytes(node, f"{domain}{path}", errors)
             check_action_keys(node, f"{domain}{path}", errors)
+            check_variant_group(node, f"{domain}{path}", errors)
 
         walk(data, visit)
         # Needs the whole document, not one node: the reference and its definition sit in
@@ -427,6 +483,25 @@ def main() -> int:
         check_event_codes(data, domain, errors)
 
     ok = True
+    # Set difference in BOTH directions, plus the multiplicities. A gain that offsets a
+    # loss keeps the total at 155 and is exactly what a scalar cannot see.
+    for ident in sorted(set(unresolved) | set(UNRESOLVED_ENUMS)):
+        now, was = unresolved.get(ident, 0), UNRESOLVED_ENUMS.get(ident, 0)
+        if now == was:
+            continue
+        ok = False
+        if was == 0:
+            print(f"REGRESSION  newly unresolved enum: {ident} (x{now})")
+        elif now == 0:
+            print(f"IMPROVED    enum now resolved: {ident} — drop it from the baseline")
+        else:
+            print(f"CHANGED     {ident}: {was} -> {now} — update the baseline")
+    if ok:
+        print(
+            f"ok          unresolved enums: {sum(unresolved.values())} across "
+            f"{len(unresolved)} identities, as pinned"
+        )
+
     for name, observed in sorted(counts.items()):
         allowed = BASELINE[name]
         if observed > allowed:

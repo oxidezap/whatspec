@@ -400,6 +400,16 @@ impl<'a> Visit<'a> for NamedResolver {
         f: &oxc_ast::ast::Function<'a>,
         flags: oxc_syntax::scope::ScopeFlags,
     ) {
+        // A nested `function e(){}` HOISTS a binding named `e` over the enclosing body, so
+        // an operand read there is the function, not the module local — the fourth form of
+        // the same shadow, after parameters, destructured declarations and catch bindings.
+        // Recorded on the module-wide set (that is where the name becomes visible) and
+        // only on collision, the rule every other unreadable shadow follows.
+        if let Some(id) = &f.id
+            && self.locals.contains_key(id.name.as_str())
+        {
+            self.shadowed.insert(id.name.to_string());
+        }
         self.param_scopes.push(param_names(&f.params));
         walk::walk_function(self, f, flags);
         self.param_scopes.pop();
@@ -841,6 +851,13 @@ mod tests {
                 .len(),
             2
         );
+
+        // A nested `function e(){}` hoists a binding over the enclosing body.
+        let fn_name = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"};
+            function g(){ function e(){} var x=babelHelpers.extends({},e,{B:"b"}); i.OUT=x }
+        }),1);"#;
+        assert!(resolve_named_enum(fn_name, "M", "OUT").is_none());
 
         // A name rebound to the SAME body is not ambiguous — refusing it would throw away
         // a resolvable enum for nothing.
