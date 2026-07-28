@@ -24,7 +24,7 @@ mod srvreq;
 mod stanza;
 
 pub use enum_link::ResponseEnumLinker;
-pub use incoming::scan_incoming_from_modules;
+pub use incoming::{scan_incoming_from_modules, scan_incoming_with_diagnostics};
 pub use mixin_index::MixinIndex;
 pub use module::{CrossModuleStat, DropReason, scan_module_outcome, scan_module_source};
 pub use response::parse_module_wap_parsers;
@@ -307,8 +307,7 @@ pub fn scan_iq_with_diagnostics(
             constraint_drops: {
                 let mut d = response_index.drop_counts();
                 if !enum_drops.is_empty() {
-                    *d.entry("response enum argument not structurally resolvable".to_string())
-                        .or_default() += enum_drops.len();
+                    *d.entry(response_smax::ENUM_DROP.to_string()).or_default() += enum_drops.len();
                 }
                 d
             },

@@ -410,7 +410,9 @@ pub enum PendingEnum {
     /// `o("Mod").ENUM` — a module export the bundle-wide index can finish resolving.
     Link(AttrEnumRef),
     /// A table that is not a structurally recoverable reference (a computed expression,
-    /// a runtime-composed set). Carries the wire attribute it constrains, for the report.
+    /// a runtime-composed set, an object literal with a non-literal member). A unit
+    /// variant: the reporting pass names the loss from the field's own `wireName`/`name`,
+    /// so there is nothing to carry here.
     Unresolvable,
 }
 
@@ -693,6 +695,18 @@ pub struct ParsedResponse {
     pub fields: Vec<ParsedField>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub variants: Vec<ResponseVariant>,
+    /// Scanner-internal: constraints this parser carried that could not be resolved
+    /// structurally, as `dropsByReason` keys. Never serialized.
+    ///
+    /// The legacy scanner reads one module at a time and has no diagnostics channel of
+    /// its own, so it parks the losses on the shape it produces and whoever finishes the
+    /// shape drains them ([`crate::wap`]'s consumers do this via the response enum
+    /// linker). It exists for the same reason [`ParsedField::pending_enum_ref`] does: a
+    /// constraint seen and not recovered must never be indistinguishable from no
+    /// constraint at all.
+    #[serde(skip)]
+    #[cfg_attr(feature = "schema", schemars(skip))]
+    pub pending_drops: Vec<String>,
 }
 
 // ─── IQ operation ────────────────────────────────────────────────────────────────

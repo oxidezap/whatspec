@@ -202,8 +202,12 @@ fn variants_of(def: wa_ir::InternalEnumDef) -> Option<Vec<AttrEnumVariant>> {
 /// their artifacts shipped links that resolved to nothing.
 pub struct ResponseEnumLinker<'a> {
     inner: EnumResolver<'a>,
-    /// Losses keyed `site\x01module.ENUM@attr`; see [`EnumResolver::resolve_fields`].
+    /// Enum-link losses keyed `site\x01module.ENUM@attr`; see
+    /// [`EnumResolver::resolve_fields`].
     dropped: std::collections::BTreeSet<String>,
+    /// Everything else the legacy scanner could not resolve, keyed the same way so two
+    /// occurrences in one parser count twice and the same one seen twice counts once.
+    other: std::collections::BTreeSet<String>,
 }
 
 impl<'a> ResponseEnumLinker<'a> {
@@ -211,6 +215,7 @@ impl<'a> ResponseEnumLinker<'a> {
         Self {
             inner: EnumResolver::new(defs, source),
             dropped: Default::default(),
+            other: Default::default(),
         }
     }
 
@@ -222,11 +227,42 @@ impl<'a> ResponseEnumLinker<'a> {
             self.inner
                 .resolve_fields(site, &mut v.fields, &mut self.dropped);
         }
+        // The legacy scanner parks its other unresolved constraints (a byte pin, a
+        // length band) on the shape because it has no diagnostics channel of its own.
+        // This is the one pass every domain runs, so it is where they get collected.
+        for d in shape.pending_drops.drain(..) {
+            self.other.insert(format!("{site}\u{1}{d}"));
+        }
     }
 
-    /// The links seen but not resolvable, for `dropsByReason`.
+    /// The enum links seen but not resolvable, for `dropsByReason`.
     pub fn into_drops(self) -> std::collections::BTreeSet<String> {
         self.dropped
+    }
+
+    /// Every loss this pass collected, grouped by `dropsByReason` key: the enum links
+    /// under [`crate::response_smax::ENUM_DROP`], plus whatever the legacy scanner
+    /// parked on the shapes, each already de-duplicated per site.
+    pub fn into_drop_counts(self) -> std::collections::BTreeMap<String, usize> {
+        let mut out: std::collections::BTreeMap<String, usize> = Default::default();
+        if !self.dropped.is_empty() {
+            out.insert(
+                crate::response_smax::ENUM_DROP.to_string(),
+                self.dropped.len(),
+            );
+        }
+        for key in self.other {
+            // `site\x01reason@detail` → the reason is what a reader groups by.
+            let reason = key
+                .split_once('\u{1}')
+                .map_or(key.as_str(), |(_, r)| r)
+                .split('@')
+                .next()
+                .unwrap_or("")
+                .to_string();
+            *out.entry(reason).or_default() += 1;
+        }
+        out
     }
 }
 

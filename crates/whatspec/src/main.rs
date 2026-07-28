@@ -1639,11 +1639,18 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
     let (abprops_arts, abprops_count) = abprops.expect(checked);
     let (enums_arts, enums_count) = enums.expect(checked);
     let (wam_arts, wam_count) = wam.expect(checked);
-    let (notif_arts, (notif_count, notif_typed, notif_tags, notif_actions, notif_action_shapes)) =
-        notif.expect(checked);
+    let (notif_arts, notif_counts) = notif.expect(checked);
+    let NotifCounts {
+        types: notif_count,
+        typed_content: notif_typed,
+        stanza_tags: notif_tags,
+        actions: notif_actions,
+        action_shapes: notif_action_shapes,
+        drops: notif_drops,
+    } = notif_counts;
     let (stanza_arts, stanza_count) = stanza.expect(checked);
     let (tokens_arts, (token_single, token_double)) = tokens.expect(checked);
-    let (incoming_arts, incoming_count) = incoming.expect(checked);
+    let (incoming_arts, (incoming_count, incoming_drops)) = incoming.expect(checked);
     let (srvreq_arts, srvreq_count) = srvreq.expect(checked);
     let (wasm_arts, (wasm_binaries, wasm_resources, wasm_wasm_handles)) = wasm.expect(checked);
 
@@ -1833,7 +1840,12 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
                 "stanzaTags": counts.notif_stanza_tags,
                 "actions": counts.notif_actions,
                 "actionShapes": counts.notif_action_shapes,
+                "dropsByReason": notif_drops,
             },
+            // These two domains run the same legacy parser as IQ and had no diagnostics
+            // block at all, so a constraint they saw and could not recover was reported
+            // nowhere — the one case the pending marker cannot distinguish on its own.
+            "incoming": { "dropsByReason": incoming_drops },
         },
     });
     artifacts.push(Artifact {
@@ -1997,6 +2009,17 @@ fn push_stanza(
     Ok(count)
 }
 
+/// What the notification pass reports back: the counters the floor guard watches plus
+/// the constraints it saw and could not resolve.
+struct NotifCounts {
+    types: usize,
+    typed_content: usize,
+    stanza_tags: usize,
+    actions: usize,
+    action_shapes: usize,
+    drops: std::collections::BTreeMap<String, usize>,
+}
+
 /// Emit the incoming content-stanza read-shape catalog (`incoming/index.json`) — the
 /// field trees WA Web parses out of received message/receipt/call/ack stanzas. Neutral
 /// IR only; the codegen is a later phase.
@@ -2005,17 +2028,18 @@ fn push_incoming(
     wa_version: &str,
     source: &str,
     module_defs: &[wa_transform::ModuleDefinition],
-) -> Result<usize> {
+) -> Result<(usize, std::collections::BTreeMap<String, usize>)> {
+    let (incoming, drops) = wa_scan::scan_incoming_with_diagnostics(source, module_defs);
     let ir = wa_ir::IncomingIr {
         wa_version: wa_version.to_string(),
-        incoming: wa_scan::scan_incoming_from_modules(source, module_defs),
+        incoming,
     };
     let count = ir.incoming.len();
     artifacts.push(Artifact {
         rel_path: PathBuf::from("incoming/index.json"),
         content: serde_json::to_string_pretty(&wa_ir::IrEnvelope::new(&ir))? + "\n",
     });
-    Ok(count)
+    Ok((count, drops))
 }
 
 /// Emit the server-initiated request read-shape catalog (`srvreq/index.json`) — the
@@ -2277,8 +2301,9 @@ fn push_notif(
     wa_version: &str,
     source: &str,
     module_defs: &[wa_transform::ModuleDefinition],
-) -> Result<(usize, usize, usize, usize, usize)> {
-    let ir = wa_notif::extract_notif_from_modules(source, module_defs, wa_version);
+) -> Result<NotifCounts> {
+    let (ir, notif_drops) =
+        wa_notif::extract_notif_with_diagnostics(source, module_defs, wa_version);
     let count = ir.notifications.len();
     let stanza_tags = ir.stanza_tags.len();
     let typed = ir
@@ -2322,7 +2347,14 @@ fn push_notif(
         rel_path: PathBuf::from("notif/notif.rs"),
         content: wa_codegen::generate_notif(&ir),
     });
-    Ok((count, typed, stanza_tags, actions, action_shapes))
+    Ok(NotifCounts {
+        types: count,
+        typed_content: typed,
+        stanza_tags,
+        actions,
+        action_shapes,
+        drops: notif_drops,
+    })
 }
 
 fn push_wam(

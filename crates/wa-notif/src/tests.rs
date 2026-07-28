@@ -1229,7 +1229,7 @@ __d("WAWebCommsHandleLoggedInStanza",["WAWebHandleGroupNotification"],function(g
   }); };
 }, 1);
 __d("WAWebHandleGroupNotificationConst",[],(function(t,n,r,o,a,i,l){
-  l.GROUP_NOTIFICATION_TAG=Object.freeze({EVICT:"evict",COND:"cond",REBIND:"rebind",PICK:"pick",BARE:"bare",HELPER:"helper"});
+  l.GROUP_NOTIFICATION_TAG=Object.freeze({EVICT:"evict",COND:"cond",REBIND:"rebind",PICK:"pick",BARE:"bare",HELPER:"helper",ESCAPE:"escape",TAIL:"tail",JOIN:"join",SEQ:"seq"});
 }), 1);
 __d("WAWebGroupType",[],(function(t,n,r,o,a,i,l){
   l.GROUP_ACTIONS=Object.freeze({FIRST:"first",SECOND:"second",THIRD:"third"});
@@ -1254,6 +1254,23 @@ __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGr
           return {actionType:o("WAWebGroupType").GROUP_ACTIONS.THIRD, who:t.mapChildrenWithTag("p", function(p){ return p.hasChild("z") ? p.attrString("jid") : p.attrString("lid"); })};
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.HELPER:
           return babelHelpers.extends({actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST}, hlp(t));
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.ESCAPE:
+          switch (t.attrString("k")) {
+            case "a": if (t.hasChild("q")) break; return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, e1:t.attrString("e1")};
+            default: return {actionType:o("WAWebGroupType").GROUP_ACTIONS.SECOND, e2:t.attrString("e2")};
+          }
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.TAIL:
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.THIRD, t1:t.attrString("t1")};
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.JOIN: {
+          var j=t.attrString("jid");
+          if (t.hasChild("alt")) j=t.attrString("lid");
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, id:j};
+        }
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.SEQ: {
+          var s1, s2;
+          s1=t.attrString("jid"), s2=t.attrInt("n");
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.SECOND, id:s1, n:s2};
+        }
       }
     });
     return {actions:x};
@@ -1339,6 +1356,13 @@ fn a_bare_callback_read_is_optional_when_only_one_branch_takes_it() {
         .iter()
         .find(|c| c.name == "who")
         .expect("the mapped child is recovered");
+    // Asserted before the requiredness check: `all` on an empty list is vacuously true,
+    // and this is exactly the path that could regress to recovering no fields at all.
+    let names: Vec<&str> = child.fields.iter().map(|f| f.wire_name.as_str()).collect();
+    assert!(
+        names.contains(&"jid") && names.contains(&"lid"),
+        "both alternative reads survive the fold: {names:?}"
+    );
     assert!(
         child.fields.iter().all(|f| !f.required),
         "a read taken on only one branch is not required: {:?}",
@@ -1358,4 +1382,55 @@ fn a_helper_operand_replaces_the_earlier_action_type() {
         Some("second"),
         "the later operand wins, `actionType` included"
     );
+}
+
+#[test]
+fn a_nested_break_path_keeps_the_outer_fall_through() {
+    // `case "a": if (cond) break; return FIRST;` inside a nested switch: the `break`
+    // leaves only the INNER switch, so control resumes in the outer `escape` case and
+    // falls through to `tail`. Treating the later `return` as proof that every path
+    // exited hid that action.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let got: Vec<&str> = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .filter(|a| a.wire_tag == "escape")
+        .filter_map(|a| a.action_type.as_deref())
+        .collect();
+    assert!(
+        got.contains(&"third"),
+        "the break path falls through to the next outer case: {got:?}"
+    );
+}
+
+#[test]
+fn a_binding_reassigned_in_one_branch_is_not_reported_as_certain() {
+    // `var j = attrString("jid"); if (c) j = attrString("lid"); return {id: j}` reads
+    // `lid` on one legal path. Keeping the pre-branch binding published `jid` as fact.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let a = edge_action(&ir, "join");
+    assert!(
+        !a.fields
+            .iter()
+            .any(|f| f.name == "id" && f.wire_name == "jid"),
+        "the branch write must not leave `jid` asserted: {:?}",
+        a.fields
+    );
+}
+
+#[test]
+fn a_comma_sequence_of_assignments_binds_every_operand() {
+    // The minifier writes runs of assignments as one `SequenceExpression`
+    // (`s1 = t.attrString("jid"), s2 = t.attrInt("n")`); matching only a bare assignment
+    // statement skipped them all.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let a = edge_action(&ir, "seq");
+    let wire = |name: &str| {
+        a.fields
+            .iter()
+            .find(|f| f.name == name)
+            .map(|f| f.wire_name.as_str())
+    };
+    assert_eq!(wire("id"), Some("jid"));
+    assert_eq!(wire("n"), Some("n"));
 }

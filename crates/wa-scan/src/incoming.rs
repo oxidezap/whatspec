@@ -41,6 +41,19 @@ fn incoming_tag(tag: &str) -> Option<IncomingTag> {
 /// `new WADeprecatedWapParser("…", fn)` whose body asserts a content tag, with its
 /// field tree recovered.
 pub fn scan_incoming_from_modules(source: &str, defs: &[ModuleDefinition]) -> Vec<IncomingDef> {
+    scan_incoming_with_diagnostics(source, defs).0
+}
+
+/// Like [`scan_incoming_from_modules`], but also returns the constraints the legacy
+/// parsers carried and this domain could not resolve, by `dropsByReason` key.
+///
+/// The counts existed only for IQ, so an unresolvable enum table in a received-stanza
+/// parser produced a field with no legal values and no signal anywhere that a constraint
+/// had been lost — exactly the distinction the pending marker was introduced to keep.
+pub fn scan_incoming_with_diagnostics(
+    source: &str,
+    defs: &[ModuleDefinition],
+) -> (Vec<IncomingDef>, std::collections::BTreeMap<String, usize>) {
     let mut out = Vec::new();
     let mut seen = HashSet::new();
     // The legacy parser records `o("Mod").ENUM` as a pending link because it reads one
@@ -88,7 +101,7 @@ pub fn scan_incoming_from_modules(source: &str, defs: &[ModuleDefinition]) -> Ve
     out.dedup_by(|a, b| {
         a.tag == b.tag && a.module == b.module && a.shape.parser_name == b.shape.parser_name
     });
-    out
+    (out, enums.into_drop_counts())
 }
 
 /// A `WASmaxIn*Response{Success,Negative}` module whose root reads a top-level `<ack>` —

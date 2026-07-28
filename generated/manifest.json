@@ -2,6 +2,11 @@
   "abPropsConfigs": 2483,
   "appstateActions": 67,
   "diagnostics": {
+    "incoming": {
+      "dropsByReason": {
+        "response enum argument not structurally resolvable": 4
+      }
+    },
     "iq": {
       "candidateModules": 207,
       "constraints": {
@@ -32,6 +37,7 @@
       "actionShapes": 181,
       "actions": 47,
       "degraded": 5,
+      "dropsByReason": {},
       "stanzaTags": 13,
       "typedContent": 22,
       "types": 27

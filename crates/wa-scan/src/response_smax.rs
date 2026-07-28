@@ -47,7 +47,11 @@ use wa_ir::{
 use wa_oxc::{arg_expr, as_call, as_identifier, as_int, as_string_lit, callee_method};
 
 /// Drop reason for an enum accessor whose enum could not be resolved to its variants.
-const ENUM_DROP: &str = "response enum argument not structurally resolvable";
+pub(crate) const ENUM_DROP: &str = "response enum argument not structurally resolvable";
+
+/// The `dropsByReason` key for a `contentLiteralBytes` pin whose sequence is not a
+/// compile-time constant.
+const BYTES_DROP: &str = "contentLiteralBytes sequence not statically resolvable";
 
 /// A module's local parser functions, keyed by name → re-parsable source. Child
 /// accessors reference these by identifier (`optionalChildWithTag(n, "x", parseX)`).
@@ -722,10 +726,14 @@ fn classify_call(
         "contentLiteralBytes" => {
             let bytes = args.get(1).and_then(arg_expr).and_then(static_byte_literal);
             if bytes.is_none() {
-                resolver.drop_note_keyed(
-                    "contentLiteralBytes sequence not statically resolvable",
-                    site.to_string(),
-                );
+                // Keyed per OCCURRENCE, like every other reason here: a parser with two
+                // unresolvable byte pins has lost two constraints, and `site` alone
+                // folded them into one. The node path is what tells them apart.
+                let occurrence = source_path
+                    .as_ref()
+                    .map(|p| p.join("/"))
+                    .unwrap_or_else(|| "<same-node>".to_string());
+                resolver.drop_note_keyed(BYTES_DROP, format!("{site}:{occurrence}"));
             }
             Binding::Field {
                 method: wap::CONTENT_BYTES.to_string(),
@@ -2035,7 +2043,22 @@ impl Resolver<'_> {
 /// A compile-time byte sequence: `new Uint8Array([5])`, `Uint8Array.of(1, 2)`, or a bare
 /// `[0, 1]`. `None` for anything computed — the caller counts that as a dropped
 /// constraint rather than publishing the field as unconstrained.
-fn static_byte_literal(e: &Expression) -> Option<Vec<u8>> {
+///
+/// Shared with the legacy scanner, which reaches `contentLiteralBytes` by a different
+/// route and must pin the same value from the same spelling.
+pub(crate) fn static_byte_literal(e: &Expression) -> Option<Vec<u8>> {
+    // `Uint8Array.of(1, 2)` — the bytes are the ARGUMENTS, not an array operand. It was
+    // documented as supported here and was not: every call expression fell through to
+    // `None` and the pin was reported as an unresolved constraint.
+    if let Some(call) = wa_oxc::as_call(e)
+        && callee_method(call) == Some("of")
+    {
+        return call
+            .arguments
+            .iter()
+            .map(|a| arg_expr(a).and_then(byte_literal))
+            .collect();
+    }
     let elements = match e {
         Expression::ArrayExpression(a) => a,
         Expression::NewExpression(n) => {
@@ -2052,13 +2075,21 @@ fn static_byte_literal(e: &Expression) -> Option<Vec<u8>> {
     elements
         .elements
         .iter()
-        .map(|el| match el.as_expression()? {
-            Expression::NumericLiteral(n) if (0.0..=255.0).contains(&n.value) => {
-                Some(n.value as u8)
-            }
-            _ => None,
-        })
+        .map(|el| byte_literal(el.as_expression()?))
         .collect()
+}
+
+/// One numeric literal that is exactly a byte. Fractions are rejected rather than
+/// truncated: `1.5 as u8` is `1`, a pinned value the source never states.
+fn byte_literal(e: &Expression) -> Option<u8> {
+    match e {
+        Expression::NumericLiteral(n)
+            if n.value.fract() == 0.0 && (0.0..=255.0).contains(&n.value) =>
+        {
+            Some(n.value as u8)
+        }
+        _ => None,
+    }
 }
 
 #[cfg(test)]

@@ -73,6 +73,17 @@ pub fn extract_notif_from_modules(
     module_defs: &[ModuleDefinition],
     wa_version: &str,
 ) -> NotifIr {
+    extract_notif_with_diagnostics(source, module_defs, wa_version).0
+}
+
+/// Like [`extract_notif_from_modules`], but also returns the constraints the handlers'
+/// legacy parsers carried and this domain could not resolve, by `dropsByReason` key.
+/// See [`wa_scan::scan_incoming_with_diagnostics`] for why they are counted.
+pub fn extract_notif_with_diagnostics(
+    source: &str,
+    module_defs: &[ModuleDefinition],
+    wa_version: &str,
+) -> (NotifIr, std::collections::BTreeMap<String, usize>) {
     // Collect each dispatcher once (a module is often defined in several shards).
     let mut dispatchers: Vec<(String, Dispatch)> = Vec::new();
     let mut seen = std::collections::HashSet::new();
@@ -182,17 +193,26 @@ pub fn extract_notif_from_modules(
             if n.content.is_none()
                 && let Some(shape) = srvreq_shapes.get(&n.notif_type)
             {
-                n.content = Some(shape.clone());
+                let mut shape = shape.clone();
+                // This fallback runs after the pass above, so its shapes get resolved
+                // here — otherwise a link recovered from a server-request read-shape
+                // would be the one kind that still shipped unfinished.
+                enums.resolve(&format!("srvreq::{}", n.notif_type), &mut shape);
+                n.content = Some(shape);
             }
         }
     }
 
-    NotifIr {
-        wa_version: wa_version.to_string(),
-        dispatcher_modules,
-        stanza_tags: dispatch.stanza_tags,
-        notifications: dispatch.notifications,
-    }
+    let drops = enums.into_drop_counts();
+    (
+        NotifIr {
+            wa_version: wa_version.to_string(),
+            dispatcher_modules,
+            stanza_tags: dispatch.stanza_tags,
+            notifications: dispatch.notifications,
+        },
+        drops,
+    )
 }
 
 /// Fold one dispatcher's arms into the accumulated catalog. New tags/types are

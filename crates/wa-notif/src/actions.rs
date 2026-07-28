@@ -495,7 +495,44 @@ fn fall_through_body<'b, 'a>(
 /// leaves a path open and must fall through, while `switch (t) { case "a": return X;
 /// default: return Y }` closes them all and must not.
 fn terminates(stmts: &[Statement]) -> bool {
-    stmts.iter().any(|s| stmt_exits(s, false))
+    list_exits(stmts, false)
+}
+
+/// Whether the list leaves the enclosing case on every path.
+///
+/// Order matters, and `any` got it wrong: in `case X: if (cond) break; return A;` inside a
+/// nested switch, the `break` leaves only the INNER switch and control resumes in the
+/// outer case, yet the later `return` made the whole list look terminating. A statement
+/// that can escape upward poisons the conclusion before any later statement is consulted.
+fn list_exits(stmts: &[Statement], nested: bool) -> bool {
+    for s in stmts {
+        if can_escape(s, nested) {
+            return false;
+        }
+        if stmt_exits(s, nested) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Whether some path through `s` reaches a `break` that leaves the construct we are
+/// analysing rather than ending the case. Only meaningful inside a nested breakable
+/// construct — at case level a `break` *is* the exit.
+fn can_escape(s: &Statement, nested: bool) -> bool {
+    if !nested {
+        return false;
+    }
+    match s {
+        Statement::BreakStatement(_) => true,
+        Statement::BlockStatement(b) => b.body.iter().any(|s| can_escape(s, nested)),
+        Statement::IfStatement(i) => {
+            can_escape(&i.consequent, nested)
+                || i.alternate.as_ref().is_some_and(|a| can_escape(a, nested))
+        }
+        // A deeper switch or loop consumes the `break` itself, so it cannot reach us.
+        _ => false,
+    }
 }
 
 /// Whether `s` exits the enclosing switch case on every path.
@@ -507,7 +544,7 @@ fn stmt_exits(s: &Statement, nested: bool) -> bool {
     match s {
         Statement::ReturnStatement(_) | Statement::ThrowStatement(_) => true,
         Statement::BreakStatement(_) | Statement::ContinueStatement(_) => !nested,
-        Statement::BlockStatement(b) => b.body.iter().any(|s| stmt_exits(s, nested)),
+        Statement::BlockStatement(b) => list_exits(&b.body, nested),
         // Both arms, or the statement after the `if` still runs.
         Statement::IfStatement(i) => i
             .alternate
@@ -517,9 +554,10 @@ fn stmt_exits(s: &Statement, nested: bool) -> bool {
         // so it does not have to exit on its own.
         Statement::SwitchStatement(sw) => {
             sw.cases.iter().any(|c| c.test.is_none())
-                && sw.cases.iter().all(|c| {
-                    c.consequent.is_empty() || c.consequent.iter().any(|s| stmt_exits(s, true))
-                })
+                && sw
+                    .cases
+                    .iter()
+                    .all(|c| c.consequent.is_empty() || list_exits(&c.consequent, true))
         }
         _ => false,
     }
@@ -701,15 +739,21 @@ fn collect_returns<'b, 'a>(
             // An assignment whose right-hand side is not a wire read REMOVES the binding
             // rather than leaving the old one: the name no longer holds what it held, and
             // reporting a value that has been overwritten is worse than reporting none.
+            // The minifier also writes runs of assignments as one comma sequence
+            // (`a = t.attrString("jid"), b = t.attrInt("n")`), which arrives as a
+            // `SequenceExpression`; matching only a bare assignment skipped those
+            // entirely and left the stale initializer installed.
             Statement::ExpressionStatement(e) => {
-                if let Expression::AssignmentExpression(a) = &e.expression
-                    && let Some(name) = a.left.get_identifier_name()
-                {
-                    let reads_wire = find_accessor(strip_guard(&a.right), &scope).is_some();
-                    if reads_wire {
-                        scope.insert(name, &a.right);
-                    } else {
-                        scope.remove(name);
+                let mut ops = Vec::new();
+                flatten_sequence(&e.expression, &mut ops);
+                for a in ops {
+                    if let Some(name) = a.left.get_identifier_name() {
+                        let reads_wire = find_accessor(strip_guard(&a.right), &scope).is_some();
+                        if reads_wire {
+                            scope.insert(name, &a.right);
+                        } else {
+                            scope.remove(name);
+                        }
                     }
                 }
             }
@@ -726,8 +770,18 @@ fn collect_returns<'b, 'a>(
                 if let Some(alt) = &i.alternate {
                     collect_returns(&[alt], &scope, out);
                 }
+                // Where the branches rejoin, a name either branch reassigned no longer has
+                // one known value: `var x = attrString("jid"); if (c) x = attrString("lid");
+                // return {id: x}` reads `lid` on one legal path, and keeping the pre-branch
+                // binding published `jid` as if it were certain. Tombstoned rather than
+                // guessed, the same way a key bound to two different reads is refused.
+                tombstone_branch_writes(s, &mut scope);
             }
-            Statement::TryStatement(t) => collect_returns(&as_refs(&t.block.body), &scope, out),
+            Statement::TryStatement(t) => {
+                collect_returns(&as_refs(&t.block.body), &scope, out);
+                // A `try` body may have run in part; nothing it wrote is certain after it.
+                tombstone_branch_writes(s, &mut scope);
+            }
             // A nested `switch` inside an arm (or a helper body) is how THAT arm picks
             // its shape — `case LINK: switch (linkType) { case "parent": return {…};
             // default: return {…} }` describes two legal actions for `link`, and skipping
@@ -738,9 +792,95 @@ fn collect_returns<'b, 'a>(
                 for c in &sw.cases {
                     collect_returns(&as_refs(&c.consequent), &scope, out);
                 }
+                tombstone_branch_writes(s, &mut scope);
             }
             _ => {}
         }
+    }
+}
+
+/// The assignment operands of an expression, flattening the minifier's comma sequences.
+fn flatten_sequence<'b, 'a>(
+    e: &'b Expression<'a>,
+    out: &mut Vec<&'b oxc_ast::ast::AssignmentExpression<'a>>,
+) {
+    match e {
+        Expression::AssignmentExpression(a) => out.push(a),
+        Expression::SequenceExpression(seq) => {
+            for sub in &seq.expressions {
+                flatten_sequence(sub, out);
+            }
+        }
+        Expression::ParenthesizedExpression(p) => flatten_sequence(&p.expression, out),
+        _ => {}
+    }
+}
+
+/// Drop every binding a conditional construct may have reassigned, so statements after
+/// the rejoin do not read a value that only one path wrote.
+fn tombstone_branch_writes(s: &Statement, scope: &mut Scope) {
+    let mut names = Vec::new();
+    assigned_names(s, &mut names);
+    for n in names {
+        scope.remove(n);
+    }
+}
+
+/// Every identifier assigned anywhere inside `s`, not descending into nested functions
+/// (whose assignments belong to their own scope, not this one).
+fn assigned_names<'a>(s: &'a Statement, out: &mut Vec<&'a str>) {
+    fn expr<'a>(e: &'a Expression, out: &mut Vec<&'a str>) {
+        match e {
+            Expression::AssignmentExpression(a) => {
+                if let Some(n) = a.left.get_identifier_name() {
+                    out.push(n);
+                }
+                expr(&a.right, out);
+            }
+            Expression::SequenceExpression(seq) => {
+                seq.expressions.iter().for_each(|e| expr(e, out))
+            }
+            Expression::ParenthesizedExpression(p) => expr(&p.expression, out),
+            Expression::ConditionalExpression(c) => {
+                expr(&c.test, out);
+                expr(&c.consequent, out);
+                expr(&c.alternate, out);
+            }
+            Expression::LogicalExpression(l) => {
+                expr(&l.left, out);
+                expr(&l.right, out);
+            }
+            _ => {}
+        }
+    }
+    match s {
+        Statement::ExpressionStatement(e) => expr(&e.expression, out),
+        Statement::VariableDeclaration(d) => {
+            for decl in &d.declarations {
+                if let (Some(n), Some(_)) = (decl.id.get_identifier_name(), decl.init.as_ref()) {
+                    out.push(n.as_str());
+                }
+            }
+        }
+        Statement::BlockStatement(b) => b.body.iter().for_each(|s| assigned_names(s, out)),
+        Statement::IfStatement(i) => {
+            expr(&i.test, out);
+            assigned_names(&i.consequent, out);
+            if let Some(a) = &i.alternate {
+                assigned_names(a, out);
+            }
+        }
+        Statement::TryStatement(t) => t.block.body.iter().for_each(|s| assigned_names(s, out)),
+        Statement::SwitchStatement(sw) => sw
+            .cases
+            .iter()
+            .for_each(|c| c.consequent.iter().for_each(|s| assigned_names(s, out))),
+        Statement::ReturnStatement(r) => {
+            if let Some(a) = r.argument.as_ref() {
+                expr(a, out);
+            }
+        }
+        _ => {}
     }
 }
 
