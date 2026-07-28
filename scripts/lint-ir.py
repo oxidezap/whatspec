@@ -818,7 +818,12 @@ def main() -> int:
                 check_field(
                     node, f"{domain}{path}", domain, errors, counts, proto_enums
                 )
-            if "kind" in node and "reference_path" not in node:
+            # No `reference_path` guard: the IR emits `referencePath`, so that condition
+            # excluded nothing (13138 of 13138 nodes passed it) and only read as though it
+            # did. Every `kind` value these checks name — `reference`, `attr`, `tag`,
+            # `content`, `const` — belongs to exactly one of the two vocabularies, so
+            # running them on any node carrying a `kind` is correct as well as honest.
+            if "kind" in node:
                 check_assertion(node, f"{domain}{path}", errors)
             # Independent of the field gate — see each function's note.
             check_enum_ref(node, f"{domain}{path}", errors)

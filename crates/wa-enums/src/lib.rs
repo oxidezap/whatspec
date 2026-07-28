@@ -432,6 +432,13 @@ impl<'a> Visit<'a> for NamedResolver {
                 // values — 41 lost constraints, the largest single entry in
                 // `dropsByReason`.
                 .or_else(|| d.init.as_ref().and_then(|e| self.merge_extends(e)));
+            // A name bound by an enclosing parameter (or hoisted binding) is LOCAL to that
+            // body, so writing it into the module-wide `locals`/`shadowed` would let a
+            // write inside one function invalidate a valid module-level read elsewhere.
+            if self.param_shadows(&local) {
+                walk::walk_variable_declarator(self, d);
+                return;
+            }
             match data {
                 Some(data) => self.bind_local(local.as_str(), data),
                 // A redeclaration this pass cannot READ is as much a shadow as one it
@@ -501,7 +508,17 @@ impl<'a> Visit<'a> for NamedResolver {
     }
 
     fn visit_arrow_function_expression(&mut self, f: &oxc_ast::ast::ArrowFunctionExpression<'a>) {
-        self.param_scopes.push(param_names(&f.params));
+        // A block-bodied arrow hoists exactly as a function does; only its parameters
+        // were being recorded.
+        let mut hoisted = param_names(&f.params);
+        let mut declared = HashSet::new();
+        collect_hoisted(&f.body.statements, &mut declared);
+        hoisted.extend(
+            declared
+                .into_iter()
+                .filter(|n| self.locals.contains_key(n.as_str())),
+        );
+        self.param_scopes.push(hoisted);
         walk::walk_arrow_function_expression(self, f);
         self.param_scopes.pop();
     }
@@ -551,6 +568,11 @@ impl<'a> Visit<'a> for NamedResolver {
             // merged set would over-claim for every read that precedes the composition.
             // Refusing costs nothing here: the merge yields a body different from the one
             // already bound, so `bind_local` would mark the name shadowed anyway.
+            if self.param_shadows(name) {
+                // Local to the body that binds it — see the declarator path.
+                walk::walk_assignment_expression(self, a);
+                return;
+            }
             match enum_object(&a.right).and_then(parse_enum) {
                 Some(data) => self.bind_local(name, data),
                 // Rebound to something this pass cannot read: whatever `locals` still
@@ -780,22 +802,36 @@ mod tests {
     #[test]
     fn a_name_the_module_rebinds_is_refused_everywhere_it_is_read() {
         // `locals` is flat; JavaScript is not. A minifier that reuses `e` inside a nested
-        // function overwrites the outer binding that the composition below still refers
-        // to at runtime, so a flat map would publish `X,B` — a closed set naming a member
-        // the runtime never accepts, and omitting one it does. Both readers refuse.
+        // function must not leak into the outer binding the composition below reads. This
+        // once asserted REFUSAL on both, which was the conservative approximation of a
+        // resolver that could not tell an inner `e` from an outer one; now that parameter,
+        // hoisted and catch scopes are modelled, the honest answer is the lexical one —
+        // and keeping a refusal here would throw away two resolvable enums. What still
+        // refuses is ambiguity the pass genuinely cannot order, below.
         let module = r#"__d("M",[],(function(t,n,r,o,a,i){
             var e={A:"a"};
             function f(){var e={X:"x"};return e}
             var l=babelHelpers.extends({},e,{B:"b"});
             i.WITH=l,i.ALIAS=e
         }),1);"#;
-        assert!(
-            resolve_named_enum(module, "M", "WITH").is_none(),
-            "the composition reads a rebound operand"
+        // Now that the pass models scopes, the honest answer here is to RESOLVE: the inner
+        // `var e` is local to `f`, and both reads below are outer ones that never see it.
+        // The refusal this once asserted was the conservative approximation of a resolver
+        // that could not tell the two apart — worth keeping only while that was true.
+        assert_eq!(
+            resolve_named_enum(module, "M", "WITH")
+                .expect("the outer composition is unambiguous")
+                .variants
+                .len(),
+            2,
+            "outer `e` plus `B`, not the inner `{{X}}`"
         );
-        assert!(
-            resolve_named_enum(module, "M", "ALIAS").is_none(),
-            "`resolve_pending` reads the same rebound name"
+        assert_eq!(
+            resolve_named_enum(module, "M", "ALIAS")
+                .expect("the outer alias is unambiguous")
+                .variants
+                .len(),
+            1
         );
         // A bare `e = …` rebinding is invisible to `visit_variable_declarator`, so only
         // the `var` form reached `shadowed` at first — the same stale-body bug through
