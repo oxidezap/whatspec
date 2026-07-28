@@ -202,6 +202,34 @@ fn mk_field(method: &str, name: &str, ftype: ParsedFieldType, required: bool) ->
 /// the field name (else `"content"`), and capturing the `contentBytes(N)` byte length
 /// when the first argument is a numeric literal — the length WA Web's parser pins the
 /// wire field to (`child("signature").contentBytes(64)` → 64).
+/// The `o("Mod").ENUM_NAME` table an enum-valued accessor validates against, as a
+/// **pending** [`wa_ir::AttrEnumRef`] — name and module filled, variants empty.
+///
+/// The legacy scanner sees one module at a time and cannot read another's exports, so it
+/// records the reference and [`crate::enum_link`] fills it in a post-pass, the same
+/// convention the request-attribute enums already use. Without this the field shipped as
+/// `"type": "enum"` with nothing saying which values are legal — 98 of them.
+fn pending_enum_ref(method: &str, call: &CallExpression) -> Option<wa_ir::AttrEnumRef> {
+    if wap::method_field_type(method) != ParsedFieldType::Enum {
+        return None;
+    }
+    let (obj, name) = call
+        .arguments
+        .iter()
+        .skip(1)
+        .filter_map(arg_expr)
+        .find_map(wa_oxc::as_member)?;
+    let module = wa_oxc::as_call(obj)
+        .and_then(|c| c.arguments.first())
+        .and_then(arg_expr)
+        .and_then(as_string_lit)?;
+    Some(wa_ir::AttrEnumRef {
+        name: name.to_string(),
+        module: module.to_string(),
+        variants: Vec::new(),
+    })
+}
+
 fn field_from_call(method: &str, call: &CallExpression) -> ParsedField {
     let arg0 = call.arguments.first().and_then(arg_expr);
     let field_name = arg0.and_then(as_string_lit).unwrap_or("content");
@@ -216,6 +244,7 @@ fn field_from_call(method: &str, call: &CallExpression) -> ParsedField {
     {
         f.byte_length = Some(n.value as u32);
     }
+    f.enum_ref = pending_enum_ref(method, call);
     f
 }
 

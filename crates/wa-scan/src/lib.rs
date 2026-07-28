@@ -264,9 +264,17 @@ pub fn scan_iq_with_diagnostics(
     // `o("Mod").Enum.VARIANT`, whose definition lives in another module, so it's
     // filled in cross-module after the scan. (IQ attrs are namespace/type only, so
     // links here come from the request children.)
+    let mut enum_drops: std::collections::BTreeSet<String> = Default::default();
     let mut enum_resolver = enum_link::EnumResolver::new(module_defs, source);
     for s in &mut stanzas {
         enum_resolver.resolve_tree(&mut s.request.children);
+        // The response side needs the same pass: the legacy parser records an
+        // `o("Mod").ENUM` reference without variants because it reads one module at a
+        // time, and only here is the whole bundle index available to fill it.
+        enum_resolver.resolve_fields(&mut s.response.fields, &mut enum_drops);
+        for v in &mut s.response.variants {
+            enum_resolver.resolve_fields(&mut v.fields, &mut enum_drops);
+        }
     }
 
     // Normalize ordering by an intrinsic key so the output (index.json + the
@@ -295,7 +303,14 @@ pub fn scan_iq_with_diagnostics(
             // during the scan loop above and reports into the same shared collector, so
             // reading it right after `build_pass` would miss every drop from precisely the
             // unusual response shapes that fallback exists to handle.
-            constraint_drops: response_index.drop_counts(),
+            constraint_drops: {
+                let mut d = response_index.drop_counts();
+                if !enum_drops.is_empty() {
+                    *d.entry("response enum argument not structurally resolvable".to_string())
+                        .or_default() += enum_drops.len();
+                }
+                d
+            },
             ..stats
         },
     )

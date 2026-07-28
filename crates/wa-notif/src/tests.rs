@@ -662,9 +662,10 @@ __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGr
         }
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.GROWTH_LOCKED:
           o("WALogger").INFO("setup");
+          var thr = t.attrString("threshold");
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.LOCKED: {
           var n;
-          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.RESTRICT, value:!0, threshold:(n=t.maybeAttrString("threshold"))!=null?n:void 0};
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.RESTRICT, value:!0, threshold:(n=t.maybeAttrString("threshold"))!=null?n:void 0, seeded:thr};
         }
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.UNLINK:
           return I(t);
@@ -1189,4 +1190,22 @@ fn a_child_field_conflict_survives_a_third_branch() {
         !names.contains(&"v"),
         "a child field two branches disagree on must stay refused: {names:?}"
     );
+}
+
+#[test]
+fn a_fall_through_label_contributes_its_own_bindings() {
+    // `case A: var thr = child.attrString("threshold"); case B: return {…, seeded: thr}`
+    // — the A path binds before falling through, so handing the shape only B's body
+    // dropped the field. The chain now carries every statement it executes.
+    let ir = extract_notif(GROUP_ACTIONS_BUNDLE, "2.3000.test");
+    let seeded = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .find(|a| a.wire_tag == "growth_locked")
+        .expect("growth_locked arm")
+        .fields
+        .iter()
+        .find(|f| f.name == "seeded")
+        .expect("the binding from the fall-through label");
+    assert_eq!(seeded.wire_name, "threshold");
 }

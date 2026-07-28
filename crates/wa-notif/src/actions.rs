@@ -424,8 +424,9 @@ fn extract_switch(switch: &SwitchStatement, ctx: &ArmCtx) -> Vec<NotifActionDef>
         // …but the chain ENDS at a terminating statement. `case A: log(); break; case B:
         // return {…}` does not fall through, and scanning past the `break` would publish
         // B's action type and fields under A's wire tag — a shape that tag never produces.
-        let consequent = fall_through_body(&switch.cases[i..]).unwrap_or(&case.consequent);
-        let shapes = arm_result_shapes(consequent);
+        let run: Vec<&Statement> =
+            fall_through_body(&switch.cases[i..]).unwrap_or_else(|| as_refs(&case.consequent));
+        let shapes = arm_result_shapes_of(&run);
         if shapes.is_empty() {
             // A recognised tag whose arm returns no shape (a bare flag set, an early
             // break). Still catalogued: knowing the tag is dispatched at all beats
@@ -466,10 +467,15 @@ fn extract_switch(switch: &SwitchStatement, ctx: &ArmCtx) -> Vec<NotifActionDef>
 /// A's wire tag, a shape that tag never produces.
 fn fall_through_body<'b, 'a>(
     cases: &'b [oxc_ast::ast::SwitchCase<'a>],
-) -> Option<&'b [Statement<'a>]> {
+) -> Option<Vec<&'b Statement<'a>>> {
+    // Everything the chain executes, in order — not just the case that returns. A label
+    // may bind before falling through (`case A: var id = child.attrString("id"); case B:
+    // return {id}`), and handing back only B's body drops `id` from A's scope.
+    let mut run: Vec<&Statement> = Vec::new();
     for case in cases {
+        run.extend(case.consequent.iter());
         if !arm_result_shapes(&case.consequent).is_empty() {
-            return Some(&case.consequent);
+            return Some(run);
         }
         if terminates(&case.consequent) {
             return None;
@@ -523,7 +529,6 @@ struct BranchFold {
     dead_children: Conflicts,
     /// Per child name, the field keys its branches disagreed on.
     dead_child_fields: HashMap<String, Conflicts>,
-    first: bool,
 }
 
 impl BranchFold {
@@ -533,13 +538,11 @@ impl BranchFold {
             dead: Conflicts::new(),
             dead_children: Conflicts::new(),
             dead_child_fields: HashMap::new(),
-            first: true,
         }
     }
 
     /// Fold one more branch of the same action into the union.
     fn absorb(&mut self, from: NotifActionDef) {
-        self.first = false;
         if self.def.action_type.is_none() {
             self.def.action_type = from.action_type;
         }
@@ -584,16 +587,31 @@ impl BranchFold {
 /// Every distinct result shape an arm can return: one per branch of a `cond ? A : B`
 /// (nested ternaries included), each with its `babelHelpers.extends(…)` merged away.
 fn arm_result_shapes<'b, 'a>(consequent: &'b [Statement<'a>]) -> Vec<Shape<'b, 'a>> {
+    arm_result_shapes_of(&as_refs(consequent))
+}
+
+/// As [`arm_result_shapes`], over a statement list assembled from several sources — the
+/// fall-through chain runs the statements of every case it passes through, not only the
+/// one that returns.
+fn arm_result_shapes_of<'b, 'a>(consequent: &[&'b Statement<'a>]) -> Vec<Shape<'b, 'a>> {
     arm_result_shapes_in(consequent, &Scope::new())
+}
+
+fn as_refs<'b, 'a>(stmts: &'b [Statement<'a>]) -> Vec<&'b Statement<'a>> {
+    stmts.iter().collect()
 }
 
 /// As [`arm_result_shapes`], with an enclosing scope the branches layer over.
 fn arm_result_shapes_in<'b, 'a>(
-    consequent: &'b [Statement<'a>],
+    consequent: &[&'b Statement<'a>],
     outer: &Scope<'b, 'a>,
 ) -> Vec<Shape<'b, 'a>> {
-    let stmts = match consequent {
-        [Statement::BlockStatement(b)] => &b.body[..],
+    let unwrapped;
+    let stmts: &[&Statement] = match consequent {
+        [Statement::BlockStatement(b)] => {
+            unwrapped = as_refs(&b.body);
+            &unwrapped
+        }
         other => other,
     };
     let mut out = Vec::new();
@@ -617,12 +635,12 @@ fn fn_result_shapes<'b, 'a>(e: &'b Expression<'a>, base: &Scope<'b, 'a>) -> Vec<
         return branches.into_iter().map(|x| (x, base.clone())).collect();
     }
     function_body_of(e)
-        .map(|stmts| arm_result_shapes_in(stmts, base))
+        .map(|stmts| arm_result_shapes_in(&as_refs(stmts), base))
         .unwrap_or_default()
 }
 
 fn collect_returns<'b, 'a>(
-    stmts: &'b [Statement<'a>],
+    stmts: &[&'b Statement<'a>],
     outer: &Scope<'b, 'a>,
     out: &mut Vec<Shape<'b, 'a>>,
 ) {
@@ -637,7 +655,7 @@ fn collect_returns<'b, 'a>(
     // one branch's return read the other branch's attribute — a wrong `wireName` rather
     // than a missing field.
     let mut scope = outer.clone();
-    for s in stmts {
+    for s in stmts.iter().copied() {
         match s {
             Statement::VariableDeclaration(decl) => {
                 for d in &decl.declarations {
@@ -654,14 +672,14 @@ fn collect_returns<'b, 'a>(
                     out.extend(branches.into_iter().map(|e| (e, scope.clone())));
                 }
             }
-            Statement::BlockStatement(b) => collect_returns(&b.body, &scope, out),
+            Statement::BlockStatement(b) => collect_returns(&as_refs(&b.body), &scope, out),
             Statement::IfStatement(i) => {
-                collect_returns(std::slice::from_ref(&i.consequent), &scope, out);
+                collect_returns(&[&i.consequent], &scope, out);
                 if let Some(alt) = &i.alternate {
-                    collect_returns(std::slice::from_ref(alt), &scope, out);
+                    collect_returns(&[alt], &scope, out);
                 }
             }
-            Statement::TryStatement(t) => collect_returns(&t.block.body, &scope, out),
+            Statement::TryStatement(t) => collect_returns(&as_refs(&t.block.body), &scope, out),
             // A nested `switch` inside an arm (or a helper body) is how THAT arm picks
             // its shape — `case LINK: switch (linkType) { case "parent": return {…};
             // default: return {…} }` describes two legal actions for `link`, and skipping
@@ -670,7 +688,7 @@ fn collect_returns<'b, 'a>(
             // returns.
             Statement::SwitchStatement(sw) => {
                 for c in &sw.cases {
-                    collect_returns(&c.consequent, &scope, out);
+                    collect_returns(&as_refs(&c.consequent), &scope, out);
                 }
             }
             _ => {}
@@ -1010,10 +1028,13 @@ fn fold_object<'b, 'a>(
         // `link` selects between three actions by its own `link_type` attribute) —
         // recorded as unknown rather than guessed.
         let value = deref_ident(value, scope);
+        // Last write wins for EVERY key a shape writes, not just the scalar fields:
+        // `extends({actionType: A}, {actionType: B})` and `{duration: 0, duration: 1}`
+        // both yield the later value at runtime. Fixing this for one kind of key and
+        // leaving `actionType` and the constants on first-write was the same rule
+        // written in three places again.
         if key == "actionType" {
-            if def.action_type.is_none() {
-                def.action_type = ctx.consts.resolve(value);
-            }
+            def.action_type = ctx.consts.resolve(value);
             continue;
         }
         if let Some(c) = const_value(value) {
@@ -1065,11 +1086,13 @@ fn fold_object<'b, 'a>(
 }
 
 fn push_constant(def: &mut NotifActionDef, name: &str, value: NotifConstValue) {
-    if !def.constant_fields.iter().any(|c| c.name == name) {
-        def.constant_fields.push(NotifActionConstant {
-            name: name.to_string(),
-            value,
-        });
+    let c = NotifActionConstant {
+        name: name.to_string(),
+        value,
+    };
+    match def.constant_fields.iter_mut().find(|x| x.name == name) {
+        Some(existing) => *existing = c,
+        None => def.constant_fields.push(c),
     }
 }
 
@@ -1248,22 +1271,11 @@ fn find_accessor_at<'b, 'a>(
         if let Some(name) = name
             && is_wire_accessor(method)
         {
-            // An enum accessor takes the enum as a further argument
-            // (`maybeAttrEnum("type", o("Mod").GROUP_PARTICIPANT_TYPES)`) — often hoisted
-            // into a local first (`attrEnumOrNullIfUnknown("reason", v)`), so the
-            // candidate is dereferenced through the scope before being recognised.
-            let enum_arg = call
-                .arguments
-                .iter()
-                .skip(1)
-                .filter_map(arg_expr)
-                .map(|a| deref_ident(a, scope))
-                .find(|a| as_member(a).is_some());
             return Some(Accessor {
                 method: method.to_string(),
                 wire_name: name.to_string(),
                 content: false,
-                enum_arg,
+                enum_arg: enum_table_arg(method, call, scope),
             });
         }
         // A content read — `X.contentString()`, `X.contentUint()`, … — takes no attribute
@@ -1285,7 +1297,10 @@ fn find_accessor_at<'b, 'a>(
                 method: method.to_string(),
                 wire_name: tag.to_string(),
                 content: true,
-                enum_arg: None,
+                // `node.contentEnum(TABLE)` validates against a table just as the
+                // attribute path does; hardcoding `None` here typed the field as an enum
+                // while denying a consumer its legal values.
+                enum_arg: enum_table_arg(method, call, scope),
             });
         }
     }
@@ -1294,6 +1309,28 @@ fn find_accessor_at<'b, 'a>(
         .iter()
         .filter_map(arg_expr)
         .find_map(|a| find_accessor_at(a, scope, depth + 1))
+}
+
+/// The enum table an enum-valued accessor validates against.
+///
+/// Gated on the shared classifier rather than a list of spellings, and applied to the
+/// attribute and content paths alike — `maybeAttrEnum("type", o("Mod").TABLE)`,
+/// `attrEnumOrNullIfUnknown("reason", v)` (hoisted into a local, so the candidate is
+/// dereferenced first) and `contentEnum(TABLE)` are the same constraint written three
+/// ways. `None` for a non-enum accessor.
+fn enum_table_arg<'b, 'a>(
+    method: &str,
+    call: &'b oxc_ast::ast::CallExpression<'a>,
+    scope: &Scope<'b, 'a>,
+) -> Option<&'b Expression<'a>> {
+    if wap::method_field_type(method) != wa_ir::ParsedFieldType::Enum {
+        return None;
+    }
+    call.arguments
+        .iter()
+        .filter_map(arg_expr)
+        .map(|a| deref_ident(a, scope))
+        .find(|a| as_member(a).is_some())
 }
 
 /// Whether `method` is a wap accessor that reads a named wire attribute. Keyed on the

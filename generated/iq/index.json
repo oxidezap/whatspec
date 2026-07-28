@@ -34880,13 +34880,41 @@
                     "method": "attrEnum",
                     "name": "value",
                     "type": "enum",
-                    "required": true
+                    "required": true,
+                    "enumRef": {
+                      "name": "ALL_CONTACTS",
+                      "module": "WAWebPrivacySettings",
+                      "variants": [
+                        {
+                          "name": "all",
+                          "value": "all"
+                        },
+                        {
+                          "name": "contacts",
+                          "value": "contacts"
+                        }
+                      ]
+                    }
                   },
                   {
                     "method": "attrEnum",
                     "name": "value",
                     "type": "enum",
-                    "required": true
+                    "required": true,
+                    "enumRef": {
+                      "name": "DEFENSE_MODE_STATE",
+                      "module": "WAWebPrivacySettings",
+                      "variants": [
+                        {
+                          "name": "off",
+                          "value": "off"
+                        },
+                        {
+                          "name": "on_standard",
+                          "value": "on_standard"
+                        }
+                      ]
+                    }
                   },
                   {
                     "method": "attrEnum",
@@ -34951,13 +34979,41 @@
             "method": "attrEnum",
             "name": "value",
             "type": "enum",
-            "required": true
+            "required": true,
+            "enumRef": {
+              "name": "ALL_CONTACTS",
+              "module": "WAWebPrivacySettings",
+              "variants": [
+                {
+                  "name": "all",
+                  "value": "all"
+                },
+                {
+                  "name": "contacts",
+                  "value": "contacts"
+                }
+              ]
+            }
           },
           {
             "method": "attrEnum",
             "name": "value",
             "type": "enum",
-            "required": true
+            "required": true,
+            "enumRef": {
+              "name": "DEFENSE_MODE_STATE",
+              "module": "WAWebPrivacySettings",
+              "variants": [
+                {
+                  "name": "off",
+                  "value": "off"
+                },
+                {
+                  "name": "on_standard",
+                  "value": "on_standard"
+                }
+              ]
+            }
           },
           {
             "method": "attrEnum",

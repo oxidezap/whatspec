@@ -283,10 +283,14 @@ fn error_vocabulary(fields: &[ParsedField]) -> ErrorVocabulary {
     let mut by_path: std::collections::BTreeMap<Vec<String>, ErrorArm> = Default::default();
     pins_by_path(fields, &[], &mut by_path);
     if from_union && !by_path.is_empty() {
+        // The deepest pins sit on the node the arms discriminate; anything shallower
+        // encloses it. When every pin is at the variant's own node there IS no enclosing
+        // node — they are all shared constraints of the arms, and calling them an
+        // envelope would say the opposite of what the field documents.
         let deepest = by_path.keys().map(Vec::len).max().unwrap_or(0);
         let (inner, outer): (Vec<_>, Vec<_>) = by_path
             .into_iter()
-            .partition(|(path, _)| path.len() == deepest && deepest > 0);
+            .partition(|(path, _)| path.len() == deepest);
         // Shared constraints of the discriminating node: every arm is subject to them.
         for (_, shared) in &inner {
             for arm in &mut v.arms {

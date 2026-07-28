@@ -888,7 +888,10 @@ fn iq_constraint_counts(ir: &wa_ir::IqIr) -> IqConstraintCounts {
                     .chain(v.error_envelope.as_ref())
                     .filter_map(|a| a.text.clone()),
             );
-            c.error_arms += v.error_arms.len() + usize::from(v.error_envelope.is_some());
+            // Alternatives only. Folding the envelope in made the number disagree with
+            // the artifact (646 reported against 645 present) and let an envelope
+            // appearing offset an accepted shape disappearing in the floor check.
+            c.error_arms += v.error_arms.len();
             walk_fields(&v.fields, &mut c);
         }
     }

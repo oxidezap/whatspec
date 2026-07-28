@@ -107,7 +107,12 @@
             "method": "attrEnum",
             "name": "type",
             "type": "enum",
-            "required": true
+            "required": true,
+            "enumRef": {
+              "name": "STANZA_MSG_TYPES",
+              "module": "WAWebHandleMsgCommon",
+              "variants": []
+            }
           },
           {
             "method": "attrString",
@@ -2561,7 +2566,12 @@
             "method": "attrEnum",
             "name": "readreceipts",
             "type": "enum",
-            "required": true
+            "required": true,
+            "enumRef": {
+              "name": "ALL_NONE",
+              "module": "WAWebPrivacySettings",
+              "variants": []
+            }
           }
         ]
       }

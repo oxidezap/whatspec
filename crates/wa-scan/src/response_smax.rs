@@ -979,7 +979,11 @@ fn enum_arg_ref(
     resolver: &Resolver,
     site: &str,
 ) -> Option<AttrEnumRef> {
-    if !matches!(accessor, Some("attrStringEnum") | Some("contentStringEnum")) {
+    // Gated on the CLASSIFIER, not a local list of spellings. Whitelisting
+    // `attrStringEnum`/`contentStringEnum` left `attrEnum`, `maybeAttrEnum`, `contentEnum`
+    // and `attrEnumOrNullIfUnknown` typed `enum` with no `enumRef` and no drop recorded —
+    // 77 fields whose validation constraint looked absent rather than lost.
+    if !accessor.is_some_and(|m| wap::method_field_type(m) == ParsedFieldType::Enum) {
         return None;
     }
     // The enum is the only `o("Mod").NAME` member *reference* among the args (the node

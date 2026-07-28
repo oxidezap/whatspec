@@ -88,6 +88,62 @@ impl<'a> EnumResolver<'a> {
         }
     }
 
+    /// Fill in (or drop) the pending enum links on a response field tree.
+    ///
+    /// Same contract as the request side: a link whose enum resolves to a string-variant
+    /// set is kept, anything else is dropped rather than half-filled. The legacy scanner
+    /// records the reference without variants because it reads one module at a time; this
+    /// runs once the whole bundle index is available.
+    /// Returns the constraints it had to drop, keyed `module.ENUM@attr`, for
+    /// `dropsByReason` — an enum WA composes at runtime (`babelHelpers.extends({}, base,
+    /// {error: "error"})`, as the privacy settings do) has no literal value set to
+    /// recover, and that is worth reporting rather than leaving the field looking
+    /// unconstrained.
+    pub(crate) fn resolve_fields(
+        &mut self,
+        fields: &mut [wa_ir::ParsedField],
+        dropped: &mut std::collections::BTreeSet<String>,
+    ) {
+        for f in fields {
+            if let Some(er) = &f.enum_ref
+                && er.variants.is_empty()
+            {
+                let (module, name) = (er.module.clone(), er.name.clone());
+                f.enum_ref = self.lookup(&module, &name);
+                if f.enum_ref.is_none() {
+                    let attr = f.wire_name.clone().unwrap_or_else(|| f.name.clone());
+                    dropped.insert(format!("{module}.{name}@{attr}"));
+                }
+            }
+            if let Some(children) = &mut f.children {
+                self.resolve_fields(children, dropped);
+            }
+            for uv in f.union_variants.iter_mut().flatten() {
+                self.resolve_fields(&mut uv.fields, dropped);
+            }
+        }
+    }
+
+    /// The resolved variants of `module::name`, memoized. `None` when the module is
+    /// absent, the export is not an enum, or a value is not a string.
+    fn lookup(&mut self, module: &str, name: &str) -> Option<AttrEnumRef> {
+        let module_slice = &self.module_slice;
+        let variants = self
+            .cache
+            .entry((module.to_string(), name.to_string()))
+            .or_insert_with(|| {
+                module_slice.get(module).and_then(|slice| {
+                    wa_enums::resolve_named_enum(slice, module, name).and_then(variants_of)
+                })
+            })
+            .clone()?;
+        Some(AttrEnumRef {
+            name: name.to_string(),
+            module: module.to_string(),
+            variants,
+        })
+    }
+
     /// Resolve a flat list of attributes (a stanza root's own attrs).
     pub(crate) fn resolve_attrs(&mut self, attrs: &mut [WapAttrDef]) {
         for a in attrs {
