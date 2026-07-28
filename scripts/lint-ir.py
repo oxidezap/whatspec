@@ -298,8 +298,13 @@ def collect_proto_enums(path):
         if m and opens:
             name = m.group(2)
             if m.group(1) == "enum":
-                parent = enclosing()
-                out.add(f"{parent}.{name}" if parent else name)
+                # Every qualification, not just the immediate parent: a doubly nested enum
+                # is written `Outer.Inner.E` in the IR, and emitting only `Inner.E` made a
+                # real reference read as dangling (`WASARootSecretAction.RootSecretEntry.
+                # Status` was the case that surfaced it).
+                named = [n for n in stack if n is not None]
+                for i in range(len(named) + 1):
+                    out.add(".".join([*named[i:], name]))
             stack.append(name)
             opens -= 1
         # `oneof`, options, anything else braced. Popping on their `}` as if it closed the
@@ -448,8 +453,22 @@ def check_enum_ref(node, path, errors):
     surfaces unchecked.
     """
     ref = node.get("enumRef")
-    if isinstance(ref, dict) and not ref.get("variants"):
+    if not isinstance(ref, dict):
+        return
+    if not ref.get("variants"):
         errors.append(f"{path}: enumRef {ref.get('name')!r} has no variants")
+        return
+    # The same member-name rule the top-level catalog follows: JS keeps only the last
+    # repeated property, so two members under one name mean the reference no longer
+    # describes what the runtime validates against.
+    members = [
+        v.get("name")
+        for v in ref["variants"]
+        if isinstance(v, dict) and isinstance(v.get("name"), str)
+    ]
+    repeated = sorted({m for m in members if members.count(m) > 1})
+    if repeated:
+        errors.append(f"{path}: enumRef {ref.get('name')!r} defines {repeated} more than once")
 
 
 def check_const_bytes(node, path, errors):
@@ -768,47 +787,58 @@ def check_abprops(data, domain, errors):
 
 
 def pascal_case(name):
-    """`naming::pascal_case`, which is what actually names the generated variants.
+    """A faithful port of `wa_codegen::naming::pascal_case`, which is what actually names
+    the generated variants.
 
-    Splitting only on `-`/`_` was an approximation: `fooBar` and `foo-bar` both become
-    `FooBar` in the generator but came out `Foobar` and `FooBar` here, so a pair that
-    cannot compile was certified. Case boundaries count as separators too.
+    Two approximations preceded this and both certified pairs that cannot compile: the
+    first split only on `-`/`_`, missing `fooBar` vs `foo-bar`; the second still missed
+    `foo.bar`, because the generator replaces EVERY non-alphanumeric, not three chosen
+    ones. It also uppercases the first character without lowering the rest, which
+    `.capitalize()` does not do.
     """
-    parts, cur = [], ""
-    for ch in name:
-        if ch in "-_ ":
-            if cur:
-                parts.append(cur)
-            cur = ""
-        elif ch.isupper() and cur and not cur[-1].isupper():
-            parts.append(cur)
-            cur = ch
-        else:
-            cur += ch
-    if cur:
-        parts.append(cur)
-    return "".join(p[:1].upper() + p[1:].lower() for p in parts)
+    s2 = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", name)
+    s2 = re.sub(r"([A-Z])([A-Z][a-z])", r"\1 \2", s2)
+    s2 = re.sub(r"[^a-zA-Z0-9]", " ", s2)
+    return "".join(w[:1].upper() + w[1:] for w in s2.split() if w)
 
 
 def check_tokens(data, domain, errors):
-    """`singleByte[tag]` is a direct wire lookup with index zero reserved.
+    """`singleByte[tag]` and `doubleByte[dict][index]` are direct lookups by a wire BYTE.
 
-    The IR promises that, and nothing checked it: a table that lost its leading empty
-    string shifts every single-byte token by one, so the generated consumer encodes and
-    decodes different strings than the wire carries — silently, and for everything.
+    Index zero of the single-byte table is reserved: a table that lost its leading empty
+    string shifts every token by one, so the consumer encodes and decodes different
+    strings than the wire carries — silently, and for everything. And a position past 255
+    is unaddressable, so publishing it advertises a token that can be neither encoded nor
+    decoded.
     """
     table = data.get("singleByte")
-    if not isinstance(table, list):
-        return
-    if not table:
-        errors.append(f"{domain}/singleByte: the table is empty")
-    elif table[0] != "":
-        errors.append(
-            f"{domain}/singleByte[0] is {table[0]!r}; index zero is the reserved slot"
-        )
+    if isinstance(table, list):
+        if not table:
+            errors.append(f"{domain}/singleByte: the table is empty")
+        else:
+            if table[0] != "":
+                errors.append(
+                    f"{domain}/singleByte[0] is {table[0]!r}; index zero is the reserved slot"
+                )
+            if len(table) > 256:
+                errors.append(
+                    f"{domain}/singleByte holds {len(table)} tokens; a one-byte tag "
+                    f"addresses at most 256"
+                )
+    dicts = data.get("doubleByte")
+    if isinstance(dicts, list):
+        if len(dicts) > 256:
+            errors.append(
+                f"{domain}/doubleByte has {len(dicts)} dictionaries; the selector is one byte"
+            )
+        for i, sub in enumerate(dicts):
+            if isinstance(sub, list) and len(sub) > 256:
+                errors.append(
+                    f"{domain}/doubleByte/{i} holds {len(sub)} tokens; the index is one byte"
+                )
 
 
-def check_appstate_collections(data, domain, errors):
+def check_appstate_collections(data, domain, errors, proto_enums):
     """An action's `collection` must be one the document declares.
 
     The schema is only a string. `generate_appstate_schemas` builds the `Collection` enum
@@ -861,6 +891,15 @@ def check_appstate_collections(data, domain, errors):
             errors.append(
                 f"{domain}/actions/{name}: indexParts does not begin with a literal"
             )
+        # Each `valueEnumFields` value is a protobuf enum PATH, published unchanged for a
+        # consumer to interpret. A typo or a removed enum leaves mutation tooling unable
+        # to resolve what the IR claims — and the schema is only a string.
+        for field, path_ in sorted((a.get("valueEnumFields") or {}).items()):
+            if isinstance(path_, str) and path_ not in proto_enums:
+                errors.append(
+                    f"{domain}/actions/{name}: valueEnumFields[{field!r}] names "
+                    f"{path_!r}, which is in no committed protobuf enum"
+                )
         # `chatJidIndex` is the POSITION holding the chat JID, passed through unchanged to
         # the encoder — so an out-of-range one indexes past `indexParts`, and one pointing
         # at a non-JID part encodes the wrong component. `null` means "no chat JID", which
@@ -1029,7 +1068,7 @@ def main() -> int:
         check_enum_catalog_refs(data, domain, errors)
         check_event_codes(data, domain, errors)
         check_abprops(data, domain, errors)
-        check_appstate_collections(data, domain, errors)
+        check_appstate_collections(data, domain, errors, proto_enums)
         check_tokens(data, domain, errors)
         collect_unresolved_enums(data, domain, proto_enums, unresolved)
 

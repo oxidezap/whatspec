@@ -298,6 +298,7 @@ pub fn resolve_named_enum(module_slice: &str, module: &str, name: &str) -> Optio
         return None;
     }
     let mut r = NamedResolver::new();
+    r.factory_params = module_factory_params(&ret.program);
     r.visit_program(&ret.program);
     resolve_pending(&mut r);
     let (value_kind, variants) = r.exports.get(name)?.clone();
@@ -307,6 +308,36 @@ pub fn resolve_named_enum(module_slice: &str, module: &str, name: &str) -> Optio
         value_kind,
         variants,
     })
+}
+
+/// The parameter names of the `__d("Name", deps, factory, id)` factory, if it is there.
+///
+/// The export object is one of them, so a member assignment on anything else writes to a
+/// private object rather than exporting. Which parameter it is varies by bundle arity, so
+/// all of them are accepted — the point is to exclude module LOCALS.
+fn module_factory_params(program: &oxc_ast::ast::Program) -> HashSet<String> {
+    for stmt in &program.body {
+        let oxc_ast::ast::Statement::ExpressionStatement(es) = stmt else {
+            continue;
+        };
+        let Some(call) = as_call(&es.expression) else {
+            continue;
+        };
+        if as_identifier(&call.callee) != Some("__d") {
+            continue;
+        }
+        for arg in &call.arguments {
+            let Some(e) = arg_expr(arg) else { continue };
+            let e = match e {
+                Expression::ParenthesizedExpression(p) => &p.expression,
+                other => other,
+            };
+            if let Expression::FunctionExpression(f) = e {
+                return param_names(&f.params);
+            }
+        }
+    }
+    HashSet::new()
 }
 
 /// An enum-body object: either `$InternalEnum({…})` or a bare object literal.
@@ -346,6 +377,7 @@ fn extract_plain_object_enums(slice: &str, module: &str) -> Vec<InternalEnumDef>
         return Vec::new();
     }
     let mut r = NamedResolver::new();
+    r.factory_params = module_factory_params(&ret.program);
     r.visit_program(&ret.program);
     resolve_pending(&mut r);
     let mut out: Vec<InternalEnumDef> = Vec::new();
@@ -391,6 +423,13 @@ struct NamedResolver {
     /// name. A `let`/`const` in a nested block is invisible to a read written outside it,
     /// and treating it as a shadow dropped a resolvable enum.
     in_var_decl: bool,
+    /// The module factory's parameter names, when they could be identified.
+    ///
+    /// `X.Name = {…}` is only an EXPORT when `X` is one of them. Accepting it on any
+    /// object let a private `tmp.Target = {A:"a"}` be published as a named enum and
+    /// attached as a closed `enumRef` to protocol fields the runtime never validates
+    /// against it. Empty means "could not tell", and then nothing is narrowed.
+    factory_params: HashSet<String>,
     exports: HashMap<String, EnumData>,
     pending: Vec<(String, String)>,
 }
@@ -402,6 +441,7 @@ impl NamedResolver {
             shadowed: HashSet::new(),
             param_scopes: Vec::new(),
             in_var_decl: false,
+            factory_params: HashSet::new(),
             exports: HashMap::new(),
             pending: Vec::new(),
         }
@@ -413,6 +453,18 @@ impl NamedResolver {
             return None;
         }
         self.locals.get(name)
+    }
+
+    /// Whether `e` names the module's export object — one of the factory's parameters.
+    ///
+    /// When the parameters could not be identified this accepts anything, which is the
+    /// behaviour that predates the check: narrowing on a guess would silently drop real
+    /// exports, and a private object being published is the rarer failure.
+    fn is_export_object(&self, e: &Expression) -> bool {
+        if self.factory_params.is_empty() {
+            return true;
+        }
+        as_identifier(e).is_some_and(|n| self.factory_params.contains(n))
     }
 
     /// Whether an enclosing function binds `name` as a parameter, so a read of it here
@@ -629,6 +681,30 @@ impl<'a> Visit<'a> for NamedResolver {
         self.param_scopes.pop();
     }
 
+    fn visit_block_statement(&mut self, b: &oxc_ast::ast::BlockStatement<'a>) {
+        // `let`/`const` bind for THIS block only. Excluding them from the function-wide
+        // prescan was right; leaving them untracked entirely was not — an unreadable
+        // `let e = get()` inside a block still shadows the outer `e` for reads written in
+        // that block. A scope active only while the block is visited says both at once.
+        let mut lexical = HashSet::new();
+        for stmt in &b.body {
+            if let oxc_ast::ast::Statement::VariableDeclaration(d) = stmt
+                && !d.kind.is_var()
+            {
+                collect_declared(d, &mut lexical);
+            }
+        }
+        lexical.retain(|n| self.locals.contains_key(n.as_str()));
+        let pushed = !lexical.is_empty();
+        if pushed {
+            self.param_scopes.push(lexical);
+        }
+        walk::walk_block_statement(self, b);
+        if pushed {
+            self.param_scopes.pop();
+        }
+    }
+
     fn visit_catch_clause(&mut self, c: &oxc_ast::ast::CatchClause<'a>) {
         // `catch (e)` binds `e` for the handler body exactly as a parameter binds it for
         // a function body — the third form of the same shadow, after parameters and
@@ -668,6 +744,7 @@ impl<'a> Visit<'a> for NamedResolver {
     fn visit_assignment_expression(&mut self, a: &AssignmentExpression<'a>) {
         if let Some(m) = a.left.as_member_expression()
             && let Some(prop) = m.static_property_name()
+            && self.is_export_object(m.object())
         {
             if let Some(data) = enum_object(&a.right).and_then(parse_enum) {
                 self.exports.entry(prop.to_string()).or_insert(data);
@@ -1220,6 +1297,33 @@ mod tests {
         assert_eq!(
             resolve_named_enum(block_let, "M", "OUT")
                 .expect("a block-scoped `let` does not shadow the outer read")
+                .variants
+                .len(),
+            2
+        );
+
+        // A `let` shadows INSIDE its block, even though it does not hoist to the function.
+        let block_let_inside = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"};
+            { let e=get(); var x=babelHelpers.extends({},e,{B:"b"}); i.OUT=x }
+        }),1);"#;
+        assert!(resolve_named_enum(block_let_inside, "M", "OUT").is_none());
+
+        // `X.Name = {…}` is an EXPORT only when `X` is the module's export object. A
+        // private local assigned the same way would otherwise be published as a named
+        // enum and attached as a closed set to fields the runtime never checks against it.
+        let private_obj = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var tmp={};
+            tmp.Target={A:"a",B:"b"};
+        }),1);"#;
+        assert!(resolve_named_enum(private_obj, "M", "Target").is_none());
+        // ...and the real export object still works.
+        let real_export = r#"__d("M",[],(function(t,n,r,o,a,i){
+            i.Target={A:"a",B:"b"};
+        }),1);"#;
+        assert_eq!(
+            resolve_named_enum(real_export, "M", "Target")
+                .expect("an assignment on the factory's export param resolves")
                 .variants
                 .len(),
             2

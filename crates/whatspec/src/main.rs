@@ -1347,7 +1347,7 @@ fn load_wasm(
     // `A -> 11` would otherwise sit beside the new `B -> 11`: `wasm_entries` would stamp
     // `bxId: 11` on both payloads while the pins say 11 resolves to B — a lock that
     // contradicts itself. The live map wins, so any other URL claiming a live id goes.
-    drop_stale_aliases(&mut handles, &resolution.by_id);
+    drop_stale_aliases(&mut handles, &resolution.by_id, &resolution.observed_ids);
 
     // The PINS are built from the id → URL direction instead, because `handles` is
     // URL-keyed and therefore already lossy: `invert`/`handle_by_url` keep the lowest id
@@ -1528,10 +1528,15 @@ fn bootloader_pins(
 fn drop_stale_aliases(
     handles: &mut BTreeMap<String, String>,
     live_by_id: &BTreeMap<String, String>,
+    observed: &BTreeSet<String>,
 ) {
     handles.retain(|url, id| match live_by_id.get(id) {
         Some(live_url) => live_url == url,
-        None => true,
+        // Seen but NOT in `by_id`: the live binding was rejected by the wasm/CDN filter.
+        // Keeping the cached alias would stamp `bxId` on a payload while the pins — which
+        // tombstone the same id — say it resolves to nothing. Reconciling against the
+        // post-filter map alone left exactly that contradiction.
+        None => !observed.contains(id),
     });
 }
 
@@ -3351,7 +3356,7 @@ mod tests {
         .iter()
         .map(|(u, i)| (u.to_string(), i.to_string()))
         .collect();
-        drop_stale_aliases(&mut handles, &live);
+        drop_stale_aliases(&mut handles, &live, &BTreeSet::from(["11".to_string()]));
         assert_eq!(
             handles.keys().collect::<Vec<_>>(),
             [
@@ -3359,6 +3364,24 @@ mod tests {
                 "https://static.whatsapp.net/c.wasm"
             ],
             "the stale alias for a rebound id goes; an id the run never saw stays"
+        );
+
+        // ...and an id the run SAW but whose live binding the filter rejected loses its
+        // cached alias too: absence from `by_id` is not absence from the response.
+        let mut cached: BTreeMap<String, String> = [(
+            "https://static.whatsapp.net/a.wasm".to_string(),
+            "11".to_string(),
+        )]
+        .into_iter()
+        .collect();
+        drop_stale_aliases(
+            &mut cached,
+            &BTreeMap::new(),
+            &BTreeSet::from(["11".to_string()]),
+        );
+        assert!(
+            cached.is_empty(),
+            "the page rebound 11 to something refused; its cached URL must not survive"
         );
     }
 
