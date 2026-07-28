@@ -1556,6 +1556,12 @@ fn expand_helper(
         return Vec::new();
     };
     let (func, bound) = applied_helper(func);
+    // Same rebinding `inline_local` does, and for the same reason: from here the spans
+    // index `wrapped`, so a nested `local_call_source` slicing the module with them lands
+    // on unrelated text — in range, so nothing catches it. Only one of the two whole-body
+    // expansion paths had it, which is exactly how the first bug survived its own fix.
+    let formals = helper_formals(func);
+    let ctx = &ctx.nested(&wrapped, &formals);
     let mut merged: Vec<BranchFold> = Vec::new();
     for (shape, scope) in fn_result_shapes(func, &bound) {
         for action in expand_shape(wire_tag, shape, &scope, ctx, depth) {

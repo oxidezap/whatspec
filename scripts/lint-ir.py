@@ -121,18 +121,31 @@ def collect_proto_enums(path):
     except OSError:
         return set()
     out, stack = set(), []
+
+    def enclosing():
+        for name in reversed(stack):
+            if name is not None:
+                return name
+        return None
+
     for line in text.splitlines():
-        line = line.strip()
+        line = line.split("//")[0].strip()
+        opens, closes = line.count("{"), line.count("}")
         m = re.match(r"(message|enum)\s+(\w+)", line)
-        if m:
-            if m.group(1) == "enum" and stack:
-                out.add(f"{stack[-1]}.{m.group(2)}")
-            elif m.group(1) == "enum":
-                out.add(m.group(2))
-            stack.append(m.group(2))
-            continue
-        if line.startswith("}") and stack:
-            stack.pop()
+        if m and opens:
+            name = m.group(2)
+            if m.group(1) == "enum":
+                parent = enclosing()
+                out.add(f"{parent}.{name}" if parent else name)
+            stack.append(name)
+            opens -= 1
+        # `oneof`, options, anything else braced. Popping on their `}` as if it closed the
+        # enclosing MESSAGE was what made a nested enum come out unqualified — and a real
+        # `Outer.E` reference then read as dangling.
+        stack.extend([None] * opens)
+        for _ in range(closes):
+            if stack:
+                stack.pop()
     return out
 
 
@@ -270,6 +283,12 @@ def check_const_bytes(node, path, errors):
     cb = node.get("constBytes")
     if not isinstance(cb, str):
         return
+    # It IS the fixed value of byte content. The emitter honours it whatever `kind` says,
+    # so a `dynamic` or `const` node carrying one hands two consumers two different
+    # answers depending on which field they dispatch on.
+    kind = node.get("kind")
+    if kind is not None and kind != "bytes":
+        errors.append(f"{path}: constBytes on {kind!r} content, which is not bytes")
     if any(c not in "0123456789abcdef" for c in cb) or len(cb) % 2:
         errors.append(f"{path}: constBytes {cb!r} is not lowercase hex")
     elif "byteLength" in node and len(cb) != node["byteLength"] * 2:
@@ -438,6 +457,19 @@ def check_event_codes(data, domain, errors):
                 )
             else:
                 by_id[fid] = f.get("name")
+        # JS keeps only the LAST property of a repeated name, so two fields sharing one
+        # means the catalog no longer describes the runtime event — and the codegen
+        # silently invents a suffixed name rather than failing.
+        fnames = [
+            f.get("name")
+            for f in e.get("fields") or []
+            if isinstance(f, dict) and isinstance(f.get("name"), str)
+        ]
+        repeated = sorted({n for n in fnames if fnames.count(n) > 1})
+        if repeated:
+            errors.append(
+                f"{domain}: event {e.get('name')!r} defines field(s) {repeated} twice"
+            )
 
 
 def check_action_keys(node, path, errors):
@@ -512,17 +544,27 @@ def check_child_requiredness(node, path, errors):
         errors.append(f"{path}: mapped child does not say whether it is required")
 
 
-def check_variant_group(node, path, errors):
-    """A `WapVariantGroup` says exactly one of its alternatives applies.
+def check_variant_groups(node, path, errors):
+    """Each `WapVariantGroup` says exactly one of its alternatives applies.
 
     With none listed, a REQUIRED group promises a choice and supplies nothing to choose:
-    an emitter cannot construct the request, and the Rust generator emits a required field
+    an emitter cannot construct the request, and the generator emits a required field
     whose enum has no variants. An optional group with no alternatives is merely empty.
+
+    Driven from the `variantGroups` ARRAY rather than a group's own keys. `optional` is
+    skipped when false, so a required group never carries it — and the first version of
+    this, gated on that key being present, never ran on the very groups it was for.
     """
-    if "variants" not in node or "optional" not in node:
+    groups = node.get("variantGroups")
+    if not isinstance(groups, list):
         return
-    if not node.get("optional") and not node.get("variants"):
-        errors.append(f"{path}: required variant group offers no alternative")
+    for i, g in enumerate(groups):
+        if not isinstance(g, dict):
+            errors.append(f"{path}/variantGroups/{i}: not an object")
+        elif not g.get("optional") and not g.get("variants"):
+            errors.append(
+                f"{path}/variantGroups/{i}: required variant group offers no alternative"
+            )
 
 
 def check_assertion(a, path, errors):
@@ -534,6 +576,11 @@ def check_assertion(a, path, errors):
         # source of a rule it cannot apply to anything.
         if not a.get("name"):
             errors.append(f"{path}: reference assertion with no target attribute name")
+        # Its expected value comes FROM THE REQUEST, so it has none of its own. The
+        # reference codegen ignores `value`; another consumer could enforce it, and the
+        # two would disagree about the same response rule.
+        if a.get("value") is not None:
+            errors.append(f"{path}: reference assertion also pins a fixed value")
     if a.get("kind") == "attr" and not a.get("name"):
         errors.append(f"{path}: attr assertion with no attribute name")
     # `WapAttrKind::Const` is documented as "fixed literal value (carried in
@@ -601,7 +648,7 @@ def main() -> int:
             check_enum_ref(node, f"{domain}{path}", errors)
             check_const_bytes(node, f"{domain}{path}", errors)
             check_action_keys(node, f"{domain}{path}", errors)
-            check_variant_group(node, f"{domain}{path}", errors)
+            check_variant_groups(node, f"{domain}{path}", errors)
             check_child_requiredness(node, f"{domain}{path}", errors)
 
         walk(data, visit)

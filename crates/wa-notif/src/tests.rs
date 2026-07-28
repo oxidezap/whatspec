@@ -598,7 +598,7 @@ __d("WAWebHandleDeviceNotification",["WADeprecatedWapParser"],(function(t,n,r,o,
 __d("WAWebHandleGroupNotificationConst",[],(function(t,n,r,o,a,i,l){
   var cache={};
   cache.GROUP_NOTIFICATION_TAG={ADD:"WRONG_add",SUBJECT:"WRONG_subject"};
-  var e=Object.freeze({ADD:"add",SUBJECT:"subject",EPHEMERAL:"ephemeral",NOT_EPHEMERAL:"not_ephemeral",MODIFY:"modify",GROWTH_LOCKED:"growth_locked",INVITE:"invite",LINK:"link",ANNOUNCE:"announcement",LOCKED:"locked",REVOKE_INVITE:"revoke",DESC:"description",UNLINK:"unlink",MEMBERSHIP:"membership"});
+  var e=Object.freeze({ADD:"add",SUBJECT:"subject",EPHEMERAL:"ephemeral",NOT_EPHEMERAL:"not_ephemeral",MODIFY:"modify",GROWTH_LOCKED:"growth_locked",INVITE:"invite",LINK:"link",ANNOUNCE:"announcement",LOCKED:"locked",REVOKE_INVITE:"revoke",DESC:"description",UNLINK:"unlink",MEMBERSHIP:"membership",GROWTH_LOCKED2:"growth_locked2"});
   l.GROUP_NOTIFICATION_TAG=e;
 }), 1);
 __d("WAWebGroupApiConst",[],(function(t,n,r,o,a,i,l){
@@ -636,6 +636,8 @@ __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGr
   function y(e,t){ return t.mapChildrenWithTag("participant", function(p){
     return { id: p.attrUserJid("jid"), displayName: p.maybeAttrString("display_name"), kind: p.maybeAttrEnum("type", o("WAWebGroupApiConst").GROUP_PARTICIPANT_TYPES) };
   }); }
+  function innerWhole(e,v){ return {actionType:o("WAWebGroupType").GROUP_ACTIONS.RESTRICT, deepWhole:v}; }
+  function outerWhole(e,v){ return innerWhole(e,v); }
   function I(e){
     var t=e.attrString("unlink_type");
     if(t==="parent_group") return {actionType:o("WAWebGroupType").GROUP_ACTIONS.DESC_REMOVE, descId:e.attrString("id")};
@@ -679,6 +681,8 @@ __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGr
           var n;
           return {actionType:o("WAWebGroupType").GROUP_ACTIONS.RESTRICT, value:!0, threshold:(n=t.maybeAttrString("threshold"))!=null?n:void 0, seeded:thr};
         }
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.GROWTH_LOCKED2:
+          return outerWhole(t, t.attrString("deep_whole"));
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.UNLINK:
           return I(t);
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.MEMBERSHIP: {
@@ -954,6 +958,24 @@ fn a_mapped_child_is_optional_only_when_the_guard_admits_absence() {
     // The guard must not cost the child's contents.
     assert_eq!(child("anded").wire_tag, "anded_user");
     assert_eq!(child("anded").fields.len(), 1);
+}
+
+#[test]
+fn a_two_level_whole_result_helper_keeps_its_fields() {
+    // `expand_helper` re-parses into a synthetic buffer just as `inline_local` does, but
+    // only one of the two rebound the context to it — so at the second level the nested
+    // `local_call_source` sliced the module source with this buffer's offsets: in range,
+    // unguarded, and unrelated.
+    let ir = extract_notif(GROUP_ACTIONS_BUNDLE, "2.3000.test");
+    let arm = group_actions(&ir)
+        .into_iter()
+        .find(|a| a.wire_tag == "growth_locked2")
+        .expect("the delegating arm");
+    let names: Vec<&str> = arm.fields.iter().map(|f| f.name.as_str()).collect();
+    assert!(
+        names.contains(&"deepWhole"),
+        "the field survives two whole-result helpers: {names:?}"
+    );
 }
 
 #[test]
