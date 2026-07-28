@@ -2202,11 +2202,23 @@ fn pins_with_prior(
     wa_version: &str,
 ) -> Option<lock::BootloaderPins> {
     let mut pins = pins?;
-    let prior = fs::read_to_string(lock_path)
-        .ok()
-        .and_then(|raw| serde_json::from_str::<WasmLock>(&raw).ok())
-        .filter(|l| l.wa_version == wa_version)
-        .and_then(|l| l.bootloader);
+    // A lock that exists but cannot be parsed is NOT the same as one that is absent: the
+    // ids it held are about to be dropped, and the whole point of accumulating is that
+    // they must not be. Say so rather than let a corrupt file look like a first run.
+    let prior = match fs::read_to_string(lock_path) {
+        Ok(raw) => match serde_json::from_str::<WasmLock>(&raw) {
+            Ok(l) if l.wa_version == wa_version => l.bootloader,
+            Ok(_) => None,
+            Err(e) => {
+                eprintln!(
+                    "  {} is unreadable ({e}); its bootloader handles cannot be carried over",
+                    lock_path.display()
+                );
+                None
+            }
+        },
+        Err(_) => None,
+    };
     merge_prior_handles(&mut pins, prior.as_ref());
     Some(pins)
 }

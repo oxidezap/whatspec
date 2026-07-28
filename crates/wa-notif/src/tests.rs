@@ -621,6 +621,9 @@ __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGr
     if (e.hasChild("b")) return {actionType:o("WAWebGroupType").GROUP_ACTIONS.ANNOUNCE, rows:e.mapChildrenWithTag("row", function(x){ return {v:x.attrString("q")}; })};
     return {actionType:o("WAWebGroupType").GROUP_ACTIONS.ANNOUNCE, rows:e.mapChildrenWithTag("row", function(x){ return {v:x.attrString("p")}; })};
   }
+  function shadowedCb(x){ return {wrong:x.attrString("wrong")}; }
+  function helperKids(e){ return e.mapChildrenWithTag("helper_user", function(x){ return {id:x.attrUserJid("jid")}; }); }
+  function withShadow(e,shadowedCb){ return e.mapChildrenWithTag("shadow_user", shadowedCb); }
   function y(e,t){ return t.mapChildrenWithTag("participant", function(p){
     return { id: p.attrUserJid("jid"), displayName: p.maybeAttrString("display_name"), kind: p.maybeAttrEnum("type", o("WAWebGroupApiConst").GROUP_PARTICIPANT_TYPES) };
   }); }
@@ -673,7 +676,10 @@ __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGr
           return {actionType:o("WAWebGroupType").GROUP_ACTIONS.MEMBERSHIP,
             picked: t.hasChildren() ? t.mapChildrenWithTag("picked_user", function(x){ return {id:x.attrUserJid("jid")}; }) : [{id:"fallback"}],
             nulled: t.hasChild("opt") ? t.mapChildrenWithTag("nulled_user", function(x){ return {id:x.attrUserJid("jid")}; }) : null,
-            anded: t.hasChild("flag") && t.mapChildrenWithTag("anded_user", function(x){ return {id:x.attrUserJid("jid")}; })};
+            anded: t.hasChild("flag") && t.mapChildrenWithTag("anded_user", function(x){ return {id:x.attrUserJid("jid")}; }),
+            parend: (t.hasChild("p") ? t.mapChildrenWithTag("parend_user", function(x){ return {id:x.attrUserJid("jid")}; }) : null),
+            shadowed: withShadow(t, function(z){ return {right:z.attrString("right")}; }),
+            viaHelper: t.hasChild("h") && helperKids(t)};
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.REVOKE_INVITE:
           return {actionType:o("WAWebGroupType").GROUP_ACTIONS.REVOKE_INVITE, participants:t.mapChildrenWithTag("participant", function(p){ return {id:p.attrUserJid("jid"), expiration:p.attrInt("expiration")}; }), owners:t.mapChildrenWithTag("owner", p=>o("WAWebJidToWid").userJidToUserWid(p.maybeAttrPhoneUserJid("phone_number")))};
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.DESC:
@@ -825,6 +831,30 @@ fn a_mapped_child_is_optional_only_when_the_guard_admits_absence() {
         "`cond ? map(…) : null` may be absent"
     );
     assert!(!child("anded").required, "`cond && map(…)` may be absent");
+    assert!(
+        !child("parend").required,
+        "a paren around the guard must not hide it"
+    );
+    // A callback name that a caller binding SHADOWS must resolve to what the caller
+    // passed, not to the module function of the same name. Publishing the module one
+    // would report an unrelated element's fields as this child's.
+    let sh = child("shadowed");
+    assert_eq!(sh.wire_tag, "shadow_user");
+    let names: Vec<&str> = sh.fields.iter().map(|f| f.name.as_str()).collect();
+    assert_eq!(
+        names,
+        ["right"],
+        "the shadowing argument wins, not `shadowedCb`"
+    );
+
+    // A guard around a value-position HELPER belongs to the key, not to the helper: the
+    // inliner is handed the stripped expression, so the map inside looks unguarded.
+    assert!(
+        !child("viaHelper").required,
+        "`cond && helper(node)` may produce no collection"
+    );
+    assert_eq!(child("viaHelper").wire_tag, "helper_user");
+
     // The guard must not cost the child's contents.
     assert_eq!(child("anded").wire_tag, "anded_user");
     assert_eq!(child("anded").fields.len(), 1);

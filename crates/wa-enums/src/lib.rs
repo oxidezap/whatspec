@@ -358,6 +358,21 @@ impl<'a> Visit<'a> for NamedResolver {
             } else if let Some(id) = as_identifier(&a.right) {
                 self.pending.push((prop.to_string(), id.to_string()));
             }
+        } else if let Some(name) = a.left.get_identifier_name() {
+            // A bare `e = …` rebinding, which `visit_variable_declarator` never sees.
+            // Without this, only `var`-form rebindings reached `shadowed`, so a module
+            // that reassigns an operand before composing it still published the stale
+            // body — the same wrong closed set the shadow guard was added to prevent,
+            // reached through the one form it did not watch.
+            match enum_object(&a.right).and_then(parse_enum) {
+                Some(data) => self.bind_local(name, data),
+                // Rebound to something this pass cannot read: whatever `locals` still
+                // holds for the name is no longer what the runtime has, so the name is
+                // no more usable than an ambiguous one.
+                None => {
+                    self.shadowed.insert(name.to_string());
+                }
+            }
         }
         walk::walk_assignment_expression(self, a);
     }
@@ -595,6 +610,27 @@ mod tests {
             resolve_named_enum(module, "M", "ALIAS").is_none(),
             "`resolve_pending` reads the same rebound name"
         );
+        // A bare `e = …` rebinding is invisible to `visit_variable_declarator`, so only
+        // the `var` form reached `shadowed` at first — the same stale-body bug through
+        // the one write form the guard did not watch.
+        let assigned = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"};
+            function f(){e={X:"x"}}
+            var l=babelHelpers.extends({},e,{B:"b"});
+            i.WITH=l,i.ALIAS=e
+        }),1);"#;
+        assert!(resolve_named_enum(assigned, "M", "WITH").is_none());
+        assert!(resolve_named_enum(assigned, "M", "ALIAS").is_none());
+
+        // Rebound to something unreadable is no better: whatever `locals` still holds is
+        // not what the runtime has.
+        let opaque = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"};
+            function f(){e=computed()}
+            i.ALIAS=e
+        }),1);"#;
+        assert!(resolve_named_enum(opaque, "M", "ALIAS").is_none());
+
         // A name rebound to the SAME body is not ambiguous — refusing it would throw away
         // a resolvable enum for nothing.
         let same = r#"__d("M",[],(function(t,n,r,o,a,i){

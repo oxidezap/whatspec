@@ -1807,8 +1807,16 @@ fn fold_object<'b, 'a>(
             }
             // A helper whose result is a repeated element becomes this key's child list;
             // one that returns a flat object contributes its fields under their own names.
+            //
+            // The OUTER guard has to survive the inlining. `local_call_source` above is
+            // handed `strip_guard(value)`, so `participants: enabled && buildIt(node)`
+            // reaches the helper with the guard already gone, and the `mapped_child` inside
+            // sees an unguarded map — reporting a collection as always present when the
+            // falsy path produces none. The guard belongs to the key, not to the helper.
+            let outer_absent = guard_admits_absence(value);
             for mut c in nested.children {
                 c.name = key.to_string();
+                c.required &= !outer_absent;
                 write_key(def, key, KeyValue::Child(c));
             }
             for f in nested.fields {
@@ -1983,6 +1991,11 @@ fn value_selection<'b, 'a>(
 /// opposite: the falsy path yields no value at all.
 fn guard_admits_absence(e: &Expression) -> bool {
     match e {
+        // `(cond ? map(…) : null)` is a paren wrapping the guard, and matching on the
+        // wrapper would answer "no guard here" for a guard that is plainly there. The
+        // same wrapper has cost this file a field twice before; `strip_guard` unwraps it
+        // for exactly this reason, so the two must agree on what they are looking at.
+        Expression::ParenthesizedExpression(p) => guard_admits_absence(&p.expression),
         Expression::ConditionalExpression(c) => {
             is_nullish(strip_guard(&c.consequent)) || is_nullish(strip_guard(&c.alternate))
         }
@@ -2239,7 +2252,22 @@ fn collect_accessor_fields<'b, 'a>(
         // parseParticipant)` — is a function too. Rejecting the identifier before looking
         // at its body emitted the child with an empty field list, which tells a consumer
         // the element carries nothing.
-        if let Some(src) = as_identifier(e).and_then(|n| ctx.locals.get(n)) {
+        // The caller's own bindings come FIRST. A parameter or local of the same name as
+        // a module function shadows it, and the runtime calls what the caller bound — so
+        // reaching straight for `ctx.locals` would publish an unrelated function's fields
+        // as if they were this element's.
+        // Only when NOTHING in scope binds the name is the module-level function the one
+        // that runs. A name that is bound but resolves to no expression we can follow is
+        // refused rather than guessed at.
+        let resolved = deref_ident(e, outer);
+        if !std::ptr::eq(resolved, e) {
+            collect_accessor_fields(resolved, outer, ctx, out);
+            return;
+        }
+        if let Some(src) = as_identifier(e)
+            .filter(|n| outer.get(n).is_none())
+            .and_then(|n| ctx.locals.get(n))
+        {
             collect_named_callback_fields(src, ctx, out);
         }
         return;

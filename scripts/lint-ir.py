@@ -116,8 +116,15 @@ def check_field(f, path, errors, counts):
     if t == "union" and len(f.get("unionVariants") or []) < 2:
         errors.append(f"{path}: union carries fewer than two variants")
 
+    # Each pair is the two bounds of ONE range accessor. Inverted is a contradiction;
+    # so is half of one — the schema permits either key alone, but a consumer handed
+    # `intMin` with no `intMax` has a weaker constraint than the wire actually enforces
+    # and no way to know it lost the other end.
     for lo, hi in (("byteMin", "byteMax"), ("intMin", "intMax")):
-        if lo in f and hi in f and f[lo] > f[hi]:
+        if (lo in f) != (hi in f):
+            present, missing = (lo, hi) if lo in f else (hi, lo)
+            errors.append(f"{path}: {present} without {missing} is half a range")
+        elif lo in f and f[lo] > f[hi]:
             errors.append(f"{path}: {lo} {f[lo]} exceeds {hi} {f[hi]}")
 
     # An echo rule with no path says "this equals something in the request" and
@@ -182,8 +189,18 @@ def check_enum_catalog_refs(data, domain, errors):
     if not isinstance(catalog, list) or not catalog:
         return
     by_module = {}
-    for e in catalog:
-        if isinstance(e, dict) and "module" in e:
+    for i, e in enumerate(catalog):
+        if not isinstance(e, dict):
+            continue
+        # Checked directly, not only through a reference: `generated/enums/` is a catalog
+        # nothing in the document points at, so validating references alone left every one
+        # of its 326 definitions unexamined. A named enum with no values is the same
+        # broken promise whether or not this document happens to cite it.
+        if not e.get("variants"):
+            errors.append(
+                f"{domain}/enums/{i}: enum {e.get('name')!r} is defined with no values"
+            )
+        if "module" in e:
             by_module.setdefault(e["module"], []).append(e)
 
     def visit(node, path):
@@ -209,6 +226,15 @@ def check_assertion(a, path, errors):
         errors.append(f"{path}: reference assertion with no referencePath")
     if a.get("kind") == "attr" and not a.get("name"):
         errors.append(f"{path}: attr assertion with no attribute name")
+    # `WapAttrKind::Const` is documented as "fixed literal value (carried in
+    # `WapAttrDef::value`)", but `value` is optional in the schema. Without it the IR
+    # tells an emitter the value is fixed and then declines to say to what.
+    #
+    # Only this direction. `value` is NOT exclusive to const: `kind` is shared with the
+    # assertion vocabulary, where `attr` and `content` carry one legitimately (1781 nodes
+    # today), so rejecting `value` on non-const kinds would flag correct documents.
+    if a.get("kind") == "const" and a.get("value") is None:
+        errors.append(f"{path}: const attribute with no value")
 
 
 def main() -> int:
