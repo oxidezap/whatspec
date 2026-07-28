@@ -4475,6 +4475,36 @@
           },
           {
             "method": "child",
+            "name": "registration",
+            "type": "string",
+            "required": true,
+            "tag": "registration",
+            "children": [
+              {
+                "method": "contentUint",
+                "name": "content",
+                "type": "integer",
+                "required": true
+              }
+            ]
+          },
+          {
+            "method": "child",
+            "name": "type",
+            "type": "string",
+            "required": true,
+            "tag": "type",
+            "children": [
+              {
+                "method": "contentUint",
+                "name": "content",
+                "type": "integer",
+                "required": true
+              }
+            ]
+          },
+          {
+            "method": "child",
             "name": "identity",
             "type": "string",
             "required": true,
@@ -4486,6 +4516,21 @@
                 "type": "bytes",
                 "required": true,
                 "byteLength": 32
+              }
+            ]
+          },
+          {
+            "method": "child",
+            "name": "id",
+            "type": "string",
+            "required": true,
+            "tag": "id",
+            "children": [
+              {
+                "method": "contentUint",
+                "name": "content",
+                "type": "integer",
+                "required": true
               }
             ]
           },
@@ -4520,6 +4565,12 @@
                 "byteLength": 64
               }
             ]
+          },
+          {
+            "method": "contentUint",
+            "name": "content",
+            "type": "integer",
+            "required": true
           },
           {
             "method": "child",
@@ -4863,6 +4914,8 @@
                             "name": "typeElementValue",
                             "type": "bytes",
                             "required": true,
+                            "byteLength": 1,
+                            "literalValue": "05",
                             "sourcePath": [
                               "type"
                             ]
@@ -5310,6 +5363,8 @@
                                 "name": "typeElementValue",
                                 "type": "bytes",
                                 "required": true,
+                                "byteLength": 1,
+                                "literalValue": "05",
                                 "sourcePath": [
                                   "type"
                                 ]
@@ -6120,6 +6175,8 @@
                                 "name": "typeElementValue",
                                 "type": "bytes",
                                 "required": true,
+                                "byteLength": 1,
+                                "literalValue": "05",
                                 "sourcePath": [
                                   "type"
                                 ]
@@ -6541,6 +6598,8 @@
                                     "name": "typeElementValue",
                                     "type": "bytes",
                                     "required": true,
+                                    "byteLength": 1,
+                                    "literalValue": "05",
                                     "sourcePath": [
                                       "type"
                                     ]
@@ -8961,7 +9020,11 @@
             "method": "attrEnum",
             "name": "type",
             "type": "enum",
-            "required": true
+            "required": true,
+            "enumKeys": [
+              "error",
+              "result"
+            ]
           },
           {
             "method": "child",

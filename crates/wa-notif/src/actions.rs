@@ -472,29 +472,57 @@ fn fall_through_body<'b, 'a>(
     // may bind before falling through (`case A: var id = child.attrString("id"); case B:
     // return {id}`), and handing back only B's body drops `id` from A's scope.
     let mut run: Vec<&Statement> = Vec::new();
+    let mut produced = false;
     for case in cases {
         run.extend(case.consequent.iter());
-        if !arm_result_shapes(&case.consequent).is_empty() {
-            return Some(run);
-        }
+        produced |= !arm_result_shapes(&case.consequent).is_empty();
+        // Only a case that terminates on EVERY path stops the chain. A shape found here
+        // is not enough: `case A: if (cond) return X; case B: return Y;` legally produces
+        // either, and stopping at A published only X. Keep walking and let the collected
+        // shapes accumulate — `collect_returns` reads them all out of `run`.
         if terminates(&case.consequent) {
-            return None;
+            return produced.then_some(run);
         }
     }
-    None
+    produced.then_some(run)
 }
 
-/// Whether a case body ends its own control flow rather than falling through.
+/// Whether a case body ends its own control flow on **every** path rather than falling
+/// through.
+///
+/// "Every path" is what makes it safe for [`fall_through_body`] to stop here, and it is
+/// load-bearing now that a collected shape no longer stops the walk: `if (cond) return X;`
+/// leaves a path open and must fall through, while `switch (t) { case "a": return X;
+/// default: return Y }` closes them all and must not.
 fn terminates(stmts: &[Statement]) -> bool {
-    stmts.iter().any(|s| {
-        matches!(
-            s,
-            Statement::BreakStatement(_)
-                | Statement::ReturnStatement(_)
-                | Statement::ContinueStatement(_)
-                | Statement::ThrowStatement(_)
-        ) || matches!(s, Statement::BlockStatement(b) if terminates(&b.body))
-    })
+    stmts.iter().any(|s| stmt_exits(s, false))
+}
+
+/// Whether `s` exits the enclosing switch case on every path.
+///
+/// `nested` says whether a bare `break` would leave an inner breakable construct instead
+/// of the case — inside a nested `switch`, `break` returns control to the case and is not
+/// an exit at all.
+fn stmt_exits(s: &Statement, nested: bool) -> bool {
+    match s {
+        Statement::ReturnStatement(_) | Statement::ThrowStatement(_) => true,
+        Statement::BreakStatement(_) | Statement::ContinueStatement(_) => !nested,
+        Statement::BlockStatement(b) => b.body.iter().any(|s| stmt_exits(s, nested)),
+        // Both arms, or the statement after the `if` still runs.
+        Statement::IfStatement(i) => i
+            .alternate
+            .as_ref()
+            .is_some_and(|alt| stmt_exits(&i.consequent, nested) && stmt_exits(alt, nested)),
+        // Exhaustive only with a `default`; an empty case body falls into the next one,
+        // so it does not have to exit on its own.
+        Statement::SwitchStatement(sw) => {
+            sw.cases.iter().any(|c| c.test.is_none())
+                && sw.cases.iter().all(|c| {
+                    c.consequent.is_empty() || c.consequent.iter().any(|s| stmt_exits(s, true))
+                })
+        }
+        _ => false,
+    }
 }
 
 fn empty_action(wire_tag: String) -> NotifActionDef {
@@ -662,6 +690,26 @@ fn collect_returns<'b, 'a>(
                     if let (Some(name), Some(init)) = (d.id.get_identifier_name(), d.init.as_ref())
                     {
                         scope.insert(name.as_str(), init);
+                    }
+                }
+            }
+            // `x = child.attrString("lid")` — a reassignment, not a declaration. The
+            // minifier hoists a `var` to the top and assigns later, so handling only
+            // declarations left the *initializer* installed at every return below the
+            // assignment: the runtime read `lid` while the IR published `jid`.
+            //
+            // An assignment whose right-hand side is not a wire read REMOVES the binding
+            // rather than leaving the old one: the name no longer holds what it held, and
+            // reporting a value that has been overwritten is worse than reporting none.
+            Statement::ExpressionStatement(e) => {
+                if let Expression::AssignmentExpression(a) = &e.expression
+                    && let Some(name) = a.left.get_identifier_name()
+                {
+                    let reads_wire = find_accessor(strip_guard(&a.right), &scope).is_some();
+                    if reads_wire {
+                        scope.insert(name, &a.right);
+                    } else {
+                        scope.remove(name);
                     }
                 }
             }
@@ -973,30 +1021,58 @@ fn inline_local(fn_src: &str, def: &mut NotifActionDef, ctx: &ArmCtx, depth: u8)
 
 /// Fold a helper's contribution into the enclosing action, keeping what the enclosing
 /// object already stated and weakening nothing it owns.
+/// One key's value in an action shape, in whichever of the three forms it takes.
+///
+/// The three collections are three *representations* of one namespace — a shape's keys —
+/// not three independent namespaces. Modelling them separately is what let a key exist
+/// twice in different forms.
+enum KeyValue {
+    Field(NotifActionField),
+    Child(NotifActionChild),
+    Const(NotifConstValue),
+}
+
+/// Write `key` into `def`, last write wins across **all three** collections.
+///
+/// The eviction is the point. Each collection used to replace only within itself, so
+/// `extends({id: child.attrString("jid")}, {id: 0})` — which yields just `id: 0` at
+/// runtime — published a wire-read field *and* a constant both named `id`, and the
+/// reverse order left the stale constant behind. A later write does not merely shadow an
+/// earlier one; it replaces it, whatever form the earlier one took.
+fn write_key(def: &mut NotifActionDef, key: &str, value: KeyValue) {
+    def.fields.retain(|x| x.name != key);
+    def.children.retain(|x| x.name != key);
+    def.constant_fields.retain(|x| x.name != key);
+    match value {
+        KeyValue::Field(f) => def.fields.push(f),
+        KeyValue::Child(c) => def.children.push(c),
+        KeyValue::Const(v) => def.constant_fields.push(NotifActionConstant {
+            name: key.to_string(),
+            value: v,
+        }),
+    }
+}
+
+/// Fold a helper's result into `def` as an `babelHelpers.extends` operand.
+///
+/// A helper contributes at ITS position in the argument list, so everything it writes —
+/// `actionType` included — overrides what an earlier operand wrote, the same last-write
+/// rule an object literal follows. Keeping `actionType` on first-write meant
+/// `extends({actionType: A}, helper())` where the helper returns `B` dispatched as `A`.
 fn merge_into(def: &mut NotifActionDef, from: NotifActionDef) {
-    if def.action_type.is_none() {
+    if from.action_type.is_some() {
         def.action_type = from.action_type;
     }
-    // A helper folded in as an `extends` operand contributes at ITS position in the
-    // argument list, so what it writes overrides what an earlier operand wrote — the same
-    // last-write rule an object literal follows.
     for f in from.fields {
-        match def.fields.iter_mut().find(|x| x.name == f.name) {
-            Some(existing) => *existing = f,
-            None => def.fields.push(f),
-        }
+        let key = f.name.clone();
+        write_key(def, &key, KeyValue::Field(f));
     }
     for c in from.children {
-        match def.children.iter_mut().find(|x| x.name == c.name) {
-            Some(existing) => *existing = c,
-            None => def.children.push(c),
-        }
+        let key = c.name.clone();
+        write_key(def, &key, KeyValue::Child(c));
     }
     for c in from.constant_fields {
-        match def.constant_fields.iter_mut().find(|x| x.name == c.name) {
-            Some(existing) => *existing = c,
-            None => def.constant_fields.push(c),
-        }
+        write_key(def, &c.name.clone(), KeyValue::Const(c.value));
     }
 }
 
@@ -1038,13 +1114,11 @@ fn fold_object<'b, 'a>(
             continue;
         }
         if let Some(c) = const_value(value) {
-            push_constant(def, key, c);
+            write_key(def, key, KeyValue::Const(c));
             continue;
         }
         if let Some(child) = mapped_child(key, value, scope, ctx.consts) {
-            if !def.children.iter().any(|x| x.name == child.name) {
-                def.children.push(child);
-            }
+            write_key(def, key, KeyValue::Child(child));
             continue;
         }
         // A helper call in value position (`participants: y(chat, child, tag)`): inline
@@ -1058,16 +1132,11 @@ fn fold_object<'b, 'a>(
             // one that returns a flat object contributes its fields under their own names.
             for mut c in nested.children {
                 c.name = key.to_string();
-                match def.children.iter_mut().find(|x| x.name == c.name) {
-                    Some(existing) => *existing = c,
-                    None => def.children.push(c),
-                }
+                write_key(def, key, KeyValue::Child(c));
             }
             for f in nested.fields {
-                match def.fields.iter_mut().find(|x| x.name == f.name) {
-                    Some(existing) => *existing = f,
-                    None => def.fields.push(f),
-                }
+                let fkey = f.name.clone();
+                write_key(def, &fkey, KeyValue::Field(f));
             }
             continue;
         }
@@ -1077,22 +1146,8 @@ fn fold_object<'b, 'a>(
             // `extends({id: attrString("jid")}, {id: attrString("lid")})` yields `lid`.
             // (Between mutually exclusive BRANCHES the rule is the opposite: they merge,
             // and a genuine disagreement is refused. See `merge_fields`.)
-            match def.fields.iter_mut().find(|x| x.name == field.name) {
-                Some(existing) => *existing = field,
-                None => def.fields.push(field),
-            }
+            write_key(def, key, KeyValue::Field(field));
         }
-    }
-}
-
-fn push_constant(def: &mut NotifActionDef, name: &str, value: NotifConstValue) {
-    let c = NotifActionConstant {
-        name: name.to_string(),
-        value,
-    };
-    match def.constant_fields.iter_mut().find(|x| x.name == name) {
-        Some(existing) => *existing = c,
-        None => def.constant_fields.push(c),
     }
 }
 
@@ -1149,6 +1204,14 @@ fn read_field<'b, 'a>(
     consts: &ConstResolver,
 ) -> Option<NotifActionField> {
     let e = deref_ident(e, scope);
+    // A ternary between two REAL values is not a presence guard, and treating every
+    // conditional as one kept the consequent and threw the alternate away:
+    // `{id: cond ? child.attrString("jid") : child.attrString("lid")}` published an
+    // optional `jid` and lost `lid` entirely — or lost the field altogether when only
+    // the alternate read the wire.
+    if let Some(v) = value_selection(key, e, scope, consts) {
+        return v;
+    }
     let optional_by_guard = is_guarded(e);
     let acc = find_accessor(strip_guard(e), scope)?;
     Some(NotifActionField {
@@ -1159,6 +1222,78 @@ fn read_field<'b, 'a>(
         content: acc.content,
         enum_ref: acc.enum_arg.and_then(|a| consts.enum_ref(a)),
     })
+}
+
+/// Resolve a `cond ? a : b` whose branches are two real values rather than a value and
+/// an absence.
+///
+/// Returns `None` when this is not that shape (a plain guard, or not a ternary), so the
+/// caller falls through to its normal handling. `Some(None)` means the key is **refused**.
+///
+/// The three outcomes follow the rule the branch fold already uses elsewhere:
+/// * one side nullish → a presence guard, whichever side reads the wire, optional;
+/// * both sides the same wire read → that read;
+/// * two different wire reads → refused, because one output key cannot name two wire
+///   attributes and picking the consequent is a coin flip the IR would state as fact.
+fn value_selection<'b, 'a>(
+    key: &str,
+    e: &'b Expression<'a>,
+    scope: &Scope<'b, 'a>,
+    consts: &ConstResolver,
+) -> Option<Option<NotifActionField>> {
+    let Expression::ConditionalExpression(c) = e else {
+        return None;
+    };
+    // The null-coalesce idiom `(x = maybeAttrString("t")) != null ? x : void 0` hides the
+    // read in the TEST; `strip_guard` already resolves it, and it is a guard, not a
+    // selection. Leave it alone.
+    if as_identifier(strip_guard(&c.consequent))
+        .and_then(|n| assigned_in(&c.test, n))
+        .is_some()
+    {
+        return None;
+    }
+    let (a, b) = (strip_guard(&c.consequent), strip_guard(&c.alternate));
+    let (ra, rb) = (find_accessor(a, scope), find_accessor(b, scope));
+    match (ra, rb) {
+        // Only one side reads the wire: a presence guard in whichever direction it is
+        // written. `cond ? null : child.attrString("x")` is as common as the other order
+        // and used to lose the field completely.
+        (Some(acc), None) if is_nullish(b) => Some(Some(guarded_field(key, acc, consts))),
+        (None, Some(acc)) if is_nullish(a) => Some(Some(guarded_field(key, acc, consts))),
+        (Some(x), Some(y)) => {
+            if x.wire_name == y.wire_name && x.method == y.method && x.content == y.content {
+                None // same read on both paths — the plain path handles it
+            } else {
+                Some(None) // two sources for one key: refuse
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Whether the expression is a literal absence — the far side of a presence guard.
+fn is_nullish(e: &Expression) -> bool {
+    match e {
+        Expression::NullLiteral(_) => true,
+        Expression::Identifier(i) => i.name == "undefined",
+        // The minifier writes `undefined` as `void 0`.
+        Expression::UnaryExpression(u) => u.operator == oxc_ast::ast::UnaryOperator::Void,
+        _ => false,
+    }
+}
+
+/// The field an accessor yields when it sits behind a presence guard: always optional,
+/// because the guard exists precisely so the attribute may be absent.
+fn guarded_field(key: &str, acc: Accessor, consts: &ConstResolver) -> NotifActionField {
+    NotifActionField {
+        name: key.to_string(),
+        wire_name: acc.wire_name,
+        field_type: wap::method_field_type(&acc.method),
+        required: false,
+        content: acc.content,
+        enum_ref: acc.enum_arg.and_then(|a| consts.enum_ref(a)),
+    }
 }
 
 /// Whether the value is read behind a presence guard, so the attribute may be absent.
@@ -1381,19 +1516,27 @@ fn collect_accessor_fields<'b, 'a>(
     // A callback that returns a bare value rather than an object
     // (`p => userJidToUserWid(p.attrUserJid("jid"))`) has no property key to name the
     // field by, so the wire attribute names it — better than reporting no fields at all.
+    // It goes through `merge_fields` too, one field set per return shape. Appending each
+    // read directly bypassed the branch fold, so `p => cond ? p.attrString("jid") :
+    // p.attrString("lid")` reported BOTH as required when each execution reads one.
     if merged.is_empty() {
+        let mut bare = 0usize;
         for (shape, inner) in fn_result_shapes(e, &scope) {
-            if let Some(acc) = find_accessor(shape, &inner) {
-                merged.push(NotifActionField {
+            bare += 1;
+            let fields = find_accessor(shape, &inner)
+                .map(|acc| NotifActionField {
                     name: acc.wire_name.clone(),
                     wire_name: acc.wire_name,
                     field_type: wap::method_field_type(&acc.method),
                     required: !wap::is_optional_method(&acc.method),
                     content: acc.content,
                     enum_ref: acc.enum_arg.and_then(|a| consts.enum_ref(a)),
-                });
-            }
+                })
+                .into_iter()
+                .collect();
+            merge_fields(&mut merged, fields, bare == 1, &mut dead);
         }
+        apply_conflicts(&mut merged, &dead);
     }
     for f in merged {
         if !out.iter().any(|x| x.name == f.name) {

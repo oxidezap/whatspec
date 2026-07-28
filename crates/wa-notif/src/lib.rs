@@ -114,6 +114,11 @@ pub fn extract_notif_from_modules(
     // handler that yields no parser leaves `content` absent (degraded), never
     // dropping the catalog entry.
     let slice_by_name = module_slice_index(source, module_defs);
+    // The legacy parser leaves `o("Mod").ENUM` links pending — it reads one module at a
+    // time — so this domain runs the same cross-module post-pass the IQ scan does.
+    // Skipping it did not merely lose the link: the pending marker used to be an
+    // `enumRef` with no variants, published as "this field admits no value".
+    let mut enums = wa_scan::ResponseEnumLinker::new(module_defs, source);
     for n in &mut dispatch.notifications {
         let Some(module) = n.handler_module.clone() else {
             continue;
@@ -123,6 +128,9 @@ pub fn extract_notif_from_modules(
         };
         let notif_type = n.notif_type.clone();
         n.content = notification_content(slice, &notif_type);
+        if let Some(content) = &mut n.content {
+            enums.resolve(&format!("{module}::{notif_type}"), content);
+        }
     }
 
     // Phase 3: the payload action union. `content` describes the envelope; a handler

@@ -20,6 +20,7 @@ use std::collections::{HashMap, HashSet};
 use wa_ir::{AssertionKind, IncomingDef, IncomingTag};
 use wa_transform::ModuleDefinition;
 
+use crate::enum_link::ResponseEnumLinker;
 use crate::response::parse_module_wap_parsers;
 use crate::response_smax::{Resolver, analyze_module_exports};
 
@@ -42,6 +43,11 @@ fn incoming_tag(tag: &str) -> Option<IncomingTag> {
 pub fn scan_incoming_from_modules(source: &str, defs: &[ModuleDefinition]) -> Vec<IncomingDef> {
     let mut out = Vec::new();
     let mut seen = HashSet::new();
+    // The legacy parser records `o("Mod").ENUM` as a pending link because it reads one
+    // module at a time; this domain has the whole bundle, so it runs the same
+    // cross-module post-pass the IQ scan does. Without it the links were simply lost —
+    // `message.type`'s `STANZA_MSG_TYPES` and `ALL_NONE` among them.
+    let mut enums = ResponseEnumLinker::new(defs, source);
     for m in defs {
         let slice = &source[m.start..m.end];
         // Cheap pre-filter; the AST parse in `parse_module_wap_parsers` confirms the
@@ -49,7 +55,8 @@ pub fn scan_incoming_from_modules(source: &str, defs: &[ModuleDefinition]) -> Ve
         if !slice.contains("WADeprecatedWapParser") || !seen.insert(m.name.as_str()) {
             continue;
         }
-        for shape in parse_module_wap_parsers(slice) {
+        for mut shape in parse_module_wap_parsers(slice) {
+            enums.resolve(&format!("{}::{}", m.name, shape.parser_name), &mut shape);
             // The parser's `assertTag("…")` is the received stanza's tag.
             // `assertTag("receipt")` stores the tag in the assertion's `name`.
             let tag = shape

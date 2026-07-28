@@ -713,21 +713,36 @@ fn classify_call(
             }
             Binding::None
         }
-        // `contentLiteralBytes(node, [..])` pins the node's content to a fixed byte
-        // sequence and returns it — a real bytes field when named in `makeResult`.
-        "contentLiteralBytes" => Binding::Field {
-            method: wap::CONTENT_BYTES.to_string(),
-            field_type: ParsedFieldType::Bytes,
-            required: true,
-            byte_length: None,
-            byte_range: None,
-            int_range: None,
-            wire_name: None,
-            source_path,
-            literal_value: None,
-            enum_ref: None,
-            reference_path: None,
-        },
+        // `contentLiteralBytes(node, new Uint8Array([5]))` pins the node's content to a
+        // fixed byte sequence and returns it — a real bytes field when named in
+        // `makeResult`, but one where exactly one value is legal. Dropping the sequence
+        // published an unconstrained `bytes` field, telling an emitter any payload would
+        // do. The value rides as hex on `literalValue`, the same encoding the request
+        // side's `WapContent::const_bytes` uses, with its length on `byteLength`.
+        "contentLiteralBytes" => {
+            let bytes = args.get(1).and_then(arg_expr).and_then(static_byte_literal);
+            if bytes.is_none() {
+                resolver.drop_note_keyed(
+                    "contentLiteralBytes sequence not statically resolvable",
+                    site.to_string(),
+                );
+            }
+            Binding::Field {
+                method: wap::CONTENT_BYTES.to_string(),
+                field_type: ParsedFieldType::Bytes,
+                required: true,
+                byte_length: bytes.as_ref().map(|b| b.len() as u32),
+                byte_range: None,
+                int_range: None,
+                wire_name: None,
+                source_path,
+                literal_value: bytes
+                    .as_ref()
+                    .map(|b| b.iter().map(|x| format!("{x:02x}")).collect::<String>()),
+                enum_ref: None,
+                reference_path: None,
+            }
+        }
         // `optionalLiteral(ACC, node, "attr", "value")` pins the attr *when present* —
         // a present-or-absent marker, so it is NOT a variant discriminator (absence
         // satisfies every sibling) and deliberately records no assertion. The pinned
@@ -2015,6 +2030,35 @@ impl Resolver<'_> {
             .borrow_mut()
             .insert(format!("{module}::{func}"), Some(resolved));
     }
+}
+
+/// A compile-time byte sequence: `new Uint8Array([5])`, `Uint8Array.of(1, 2)`, or a bare
+/// `[0, 1]`. `None` for anything computed — the caller counts that as a dropped
+/// constraint rather than publishing the field as unconstrained.
+fn static_byte_literal(e: &Expression) -> Option<Vec<u8>> {
+    let elements = match e {
+        Expression::ArrayExpression(a) => a,
+        Expression::NewExpression(n) => {
+            // `new Uint8Array([...])` — the sequence is the sole argument. `new
+            // Uint8Array(4)` (a LENGTH, not a value) deliberately does not match: it pins
+            // no bytes, and reading `4` as the byte 0x04 would invent a constraint.
+            match arg_expr(n.arguments.first()?)? {
+                Expression::ArrayExpression(a) => a,
+                _ => return None,
+            }
+        }
+        _ => return None,
+    };
+    elements
+        .elements
+        .iter()
+        .map(|el| match el.as_expression()? {
+            Expression::NumericLiteral(n) if (0.0..=255.0).contains(&n.value) => {
+                Some(n.value as u8)
+            }
+            _ => None,
+        })
+        .collect()
 }
 
 #[cfg(test)]

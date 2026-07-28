@@ -160,12 +160,19 @@ pub(crate) struct ParserResult {
     pub fields: Vec<ParsedField>,
 }
 
-/// Accessors that read a value off a node, as the parser treats them: the shared
-/// attribute accessors ([`wap::is_attr_method`]) plus the `contentBytes` /
-/// `contentString` leaves. Broader than codegen's notion of an attr field — both
+/// Accessors that read a value off a node, as the parser treats them: every shared
+/// attribute accessor ([`wap::is_attr_method`]) plus every content leaf
+/// ([`wap::is_content_method`]). Broader than codegen's notion of an attr field — both
 /// draw method names from the shared [`wap`] vocabulary so they can't drift.
-fn is_attr_method(m: &str) -> bool {
-    wap::is_attr_method(m) || m == wap::CONTENT_BYTES || m == wap::CONTENT_STRING
+///
+/// Both halves are *derived*. Naming `contentBytes`/`contentString` here and nothing
+/// else was the enumerate-vs-derive bug a third time: `method_field_type` learned to
+/// decode `contentUint`, `contentEnum`, `contentBytesRange` and `contentLiteralBytes`,
+/// but this list did not, so on the legacy path those reads produced no typed field at
+/// all — only a coarse `contentType` on the parent, losing the integer, enum, range and
+/// literal constraints.
+fn is_value_method(m: &str) -> bool {
+    wap::is_attr_method(m) || wap::is_content_method(m)
 }
 
 fn is_assert_method(m: &str) -> bool {
@@ -209,30 +216,86 @@ fn mk_field(method: &str, name: &str, ftype: ParsedFieldType, required: bool) ->
 /// records the reference and [`crate::enum_link`] fills it in a post-pass, the same
 /// convention the request-attribute enums already use. Without this the field shipped as
 /// `"type": "enum"` with nothing saying which values are legal — 98 of them.
-fn pending_enum_ref(method: &str, call: &CallExpression) -> Option<wa_ir::AttrEnumRef> {
+fn pending_enum_ref(method: &str, call: &CallExpression, module_scope: &ModuleScope) -> EnumSource {
     if wap::method_field_type(method) != ParsedFieldType::Enum {
-        return None;
+        return EnumSource::NotAnEnum;
     }
-    let (obj, name) = call
-        .arguments
-        .iter()
-        .skip(1)
-        .filter_map(arg_expr)
-        .find_map(wa_oxc::as_member)?;
-    let module = wa_oxc::as_call(obj)
-        .and_then(|c| c.arguments.first())
-        .and_then(arg_expr)
-        .and_then(as_string_lit)?;
-    Some(wa_ir::AttrEnumRef {
-        name: name.to_string(),
-        module: module.to_string(),
-        variants: Vec::new(),
-    })
+    // A content accessor takes its table as the FIRST argument (`contentEnum(TABLE)`);
+    // an attribute one names the attribute first (`attrStringEnum("state", TABLE)`).
+    // Reading past the name unconditionally found nothing on the content spellings.
+    let skip = usize::from(!wap::is_content_method(method));
+    let Some(arg) = call.arguments.iter().skip(skip).filter_map(arg_expr).next() else {
+        return EnumSource::Unresolved;
+    };
+    // `attrEnumValues("type", o("Mod").CiphertextType.members())` — the allowed set is
+    // the enum's `.members()`, so the table is the *callee's object*, not the call.
+    let stripped = strip_members_call(arg);
+    let via_members = !std::ptr::eq(stripped, arg);
+    let arg = stripped;
+    // FORM A: a cross-module export. Recorded as pending; `enum_link` finishes it.
+    if let Some((obj, name)) = wa_oxc::as_member(arg)
+        && let Some(module) = wa_oxc::as_call(obj)
+            .and_then(|c| c.arguments.first())
+            .and_then(arg_expr)
+            .and_then(as_string_lit)
+    {
+        return EnumSource::Pending(wa_ir::AttrEnumRef {
+            name: name.to_string(),
+            module: module.to_string(),
+            variants: Vec::new(),
+        });
+    }
+    // FORM B: a module-local table (`attrEnumValues("mediatype", u.members())`, where
+    // `u = n("$InternalEnum")({Image: "image", …})`). The allowed set is already in this
+    // module, so it becomes `enumKeys` directly — no cross-module post-pass, and no
+    // `enumRef` named after a minified local.
+    if let Some(name) = as_identifier(arg) {
+        let table = if via_members {
+            module_scope.members.get(name)
+        } else {
+            module_scope.maps.get(name)
+        };
+        if let Some(values) = table.filter(|v| !v.is_empty()) {
+            return EnumSource::Keys(values.clone());
+        }
+    }
+    EnumSource::Unresolved
 }
 
-fn field_from_call(method: &str, call: &CallExpression) -> ParsedField {
+/// Where an enum accessor's allowed-value set came from.
+///
+/// `Unresolved` exists so an enum whose table is not structurally recoverable is
+/// *counted* rather than published as an unconstrained `"type": "enum"` — the same
+/// "missing beats wrong, but never silent" rule the rest of the scan follows.
+enum EnumSource {
+    NotAnEnum,
+    Pending(wa_ir::AttrEnumRef),
+    Keys(Vec<String>),
+    Unresolved,
+}
+
+/// Unwrap a trailing `.members()` / `.getMembers()` accessor, which WA uses to spell
+/// "the allowed values of this enum"; anything else is returned unchanged.
+fn strip_members_call<'b, 'a>(e: &'b Expression<'a>) -> &'b Expression<'a> {
+    wa_oxc::as_call(e)
+        .filter(|c| c.arguments.is_empty())
+        .and_then(|c| match callee_method(c) {
+            Some("members" | "getMembers") => callee_object(c),
+            _ => None,
+        })
+        .unwrap_or(e)
+}
+
+fn field_from_call(method: &str, call: &CallExpression, module_scope: &ModuleScope) -> ParsedField {
     let arg0 = call.arguments.first().and_then(arg_expr);
-    let field_name = arg0.and_then(as_string_lit).unwrap_or("content");
+    // A content accessor reads the element's content and names no attribute, so its
+    // first argument is never the field name — `contentEnum(TABLE)` would otherwise be
+    // named after nothing at all.
+    let field_name = if wap::is_content_method(method) {
+        "content"
+    } else {
+        arg0.and_then(as_string_lit).unwrap_or("content")
+    };
     let mut f = mk_field(
         method,
         field_name,
@@ -244,7 +307,12 @@ fn field_from_call(method: &str, call: &CallExpression) -> ParsedField {
     {
         f.byte_length = Some(n.value as u32);
     }
-    f.enum_ref = pending_enum_ref(method, call);
+    match pending_enum_ref(method, call, module_scope) {
+        EnumSource::Pending(er) => f.pending_enum_ref = Some(wa_ir::PendingEnum::Link(er)),
+        EnumSource::Keys(keys) => f.enum_keys = Some(keys),
+        EnumSource::Unresolved => f.pending_enum_ref = Some(wa_ir::PendingEnum::Unresolvable),
+        EnumSource::NotAnEnum => {}
+    }
     f
 }
 
@@ -449,13 +517,13 @@ impl ParserAnalyzer<'_, '_> {
         }
 
         // ── Attr/content accessor on the param directly ──
-        if is_attr_method(method) && obj_is_param {
-            self.fields.push(field_from_call(method, call));
+        if is_value_method(method) && obj_is_param {
+            self.fields.push(field_from_call(method, call, self.module));
             return;
         }
 
         // ── Attr method chained on a child() result: e.child("error").attrInt("code") ──
-        if is_attr_method(method)
+        if is_value_method(method)
             && let Some((parent_tag, inner_method)) = self.child_call_parent(obj)
         {
             let idx = find_or_create_field(
@@ -464,7 +532,11 @@ impl ParserAnalyzer<'_, '_> {
                 inner_method,
                 inner_method == "child",
             );
-            push_child_field(&mut self.fields, idx, field_from_call(method, call));
+            push_child_field(
+                &mut self.fields,
+                idx,
+                field_from_call(method, call, self.module),
+            );
             return;
         }
 
@@ -515,13 +587,17 @@ impl ParserAnalyzer<'_, '_> {
         }
 
         // ── Attr methods on a tracked child var: t.attrString("name") ──
-        if is_attr_method(method)
+        if is_value_method(method)
             && let Some(parent_tag) = as_identifier(obj)
                 .and_then(|n| self.child_vars.get(n))
                 .cloned()
         {
             let idx = find_or_create_field(&mut self.fields, &parent_tag, "child", true);
-            push_child_field(&mut self.fields, idx, field_from_call(method, call));
+            push_child_field(
+                &mut self.fields,
+                idx,
+                field_from_call(method, call, self.module),
+            );
         }
 
         // ── content methods on a tracked child var ──
@@ -651,6 +727,9 @@ struct ModuleScope {
     /// object-map name → its keys in source order — the allowed value set an enum accessor
     /// (`attrEnumOrNullIfUnknown("attr", map)`) validates a wire attr against.
     maps: HashMap<String, Vec<String>>,
+    /// The same maps by their string *values* — what `.members()` yields for a
+    /// module-local enum (`attrEnumValues("mediatype", u.members())`).
+    members: HashMap<String, Vec<String>>,
 }
 
 impl ModuleScope {
@@ -667,12 +746,14 @@ impl ModuleScope {
             module_source,
             functions: HashMap::new(),
             maps: HashMap::new(),
+            members: HashMap::new(),
             fn_depth: 0,
         };
         b.visit_program(&ret.program);
         Self {
             functions: b.functions,
             maps: b.maps,
+            members: b.members,
         }
     }
 }
@@ -681,6 +762,7 @@ struct ModuleScopeBuilder<'a> {
     module_source: &'a str,
     functions: HashMap<String, (Vec<String>, String)>,
     maps: HashMap<String, Vec<String>>,
+    members: HashMap<String, Vec<String>>,
     /// Number of function bodies we are currently inside. The bundle wraps every module
     /// in one factory (`__d("M",…,function(…){ <module body> })`), so a module-scope
     /// sibling helper — the only kind `try_helper_descent` may resolve a bare-identifier
@@ -741,14 +823,31 @@ impl<'a> Visit<'a> for ModuleScopeBuilder<'_> {
                         self.record_fn(name.as_str(), &f.params, body.span);
                     }
                 }
-                // `var name = { key: val, … }` — an enum value map.
+                // `var name = { key: val, … }` — an enum value map — or the same object
+                // wrapped in a one-argument factory, which is how WA declares a
+                // module-local enum: `var u = n("$InternalEnum")({Image: "image", …})`.
                 _ => {
-                    if let Some(obj) = wa_oxc::as_object(init) {
-                        self.maps
-                            .entry(name.as_str().to_string())
-                            .or_insert_with(|| {
-                                wa_oxc::obj_props(obj).map(|(k, _)| k.to_string()).collect()
-                            });
+                    let obj = wa_oxc::as_object(init).or_else(|| {
+                        wa_oxc::as_call(init)
+                            .filter(|c| c.arguments.len() == 1)
+                            .and_then(|c| arg_expr(&c.arguments[0]))
+                            .and_then(wa_oxc::as_object)
+                    });
+                    if let Some(obj) = obj {
+                        let n = name.as_str().to_string();
+                        // Keys and values are both allowed-value sets, for *different*
+                        // accessors: `attrEnumOrNullIfUnknown("t", map)` validates against
+                        // the keys, while `attrEnumValues("t", enum.members())` validates
+                        // against the members — the wire values. Recording only the keys
+                        // left every `.members()` table unresolvable.
+                        self.maps.entry(n.clone()).or_insert_with(|| {
+                            wa_oxc::obj_props(obj).map(|(k, _)| k.to_string()).collect()
+                        });
+                        self.members.entry(n).or_insert_with(|| {
+                            wa_oxc::obj_props(obj)
+                                .filter_map(|(_, v)| as_string_lit(v).map(str::to_string))
+                                .collect()
+                        });
                     }
                 }
             }
@@ -1330,5 +1429,72 @@ mod tests {
             type_fields[0].enum_keys.as_deref(),
             Some(["delivery", "read", "played"].map(String::from).as_slice())
         );
+    }
+
+    #[test]
+    fn a_typed_content_accessor_becomes_a_typed_field() {
+        // `contentUint` was outside the local attr/content list, so a read of it produced
+        // no field at all — only a coarse `contentType` on the parent. Both halves of the
+        // predicate are derived from `wap` now, so every spelling `method_field_type`
+        // decodes reaches field extraction.
+        let r = analyze_parser_ast(r#"{ e.child("registration").contentUint(); }"#, "e");
+        let parent = r
+            .fields
+            .iter()
+            .find(|f| f.tag.as_deref() == Some("registration"))
+            .expect("the <registration> child is recovered");
+        let leaf = parent
+            .children
+            .as_ref()
+            .and_then(|c| c.first())
+            .expect("its content read is a field");
+        assert_eq!(leaf.method, "contentUint");
+        assert_eq!(leaf.field_type, ParsedFieldType::Integer);
+        assert_eq!(leaf.name, "content", "a content read names no attribute");
+    }
+
+    #[test]
+    fn attr_enum_values_recovers_a_module_local_enums_members() {
+        // `attrEnumValues("mediatype", u.members())` where `u` is a module-local
+        // `$InternalEnum`. The table is neither an `o("Mod").ENUM` member (so the
+        // cross-module post-pass cannot see it) nor a bare map identifier — it is the
+        // enum's VALUES. Reading past the `.members()` call and taking the values is what
+        // turns an apparently unconstrained `"type": "enum"` into the legal set.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            var u=n("$InternalEnum")({Image:"image",Video:"video"});
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("message");
+                e.child("media").attrEnumValues("mediatype", u.members());
+                return {};
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let media = p
+            .fields
+            .iter()
+            .find(|f| f.tag.as_deref() == Some("media"))
+            .expect("the <media> child");
+        let field = media
+            .children
+            .as_ref()
+            .and_then(|c| c.iter().find(|f| f.name == "mediatype"))
+            .expect("the mediatype attr");
+        assert_eq!(
+            field.enum_keys.as_deref(),
+            Some(["image", "video"].map(String::from).as_slice()),
+            "`.members()` yields the enum's VALUES, not its keys"
+        );
+    }
+
+    #[test]
+    fn an_unresolvable_enum_table_is_marked_pending_not_silently_dropped() {
+        // An enum accessor whose table is a computed expression must be distinguishable
+        // from a field that is not an enum at all — the first is a constraint we failed
+        // to extract and belongs in `dropsByReason`.
+        let r = analyze_parser_ast(r#"{ e.attrStringEnum("state", pick()); }"#, "e");
+        let f = r.fields.iter().find(|f| f.name == "state").expect("field");
+        assert_eq!(f.pending_enum_ref, Some(wa_ir::PendingEnum::Unresolvable));
+        assert!(f.enum_keys.is_none() && f.enum_ref.is_none());
     }
 }

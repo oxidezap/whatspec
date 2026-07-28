@@ -398,6 +398,22 @@ pub struct UnionVariant {
     pub assertions: Vec<ResponseAssertion>,
 }
 
+/// Scanner-internal state for an enum accessor's allowed-value table, before the
+/// cross-module post-pass runs. Never serialized — see [`ParsedField::pending_enum_ref`].
+///
+/// The unresolvable case is a *variant*, not an absence, so it can be counted. An enum
+/// whose table the scan could not follow and a field that is simply not an enum must not
+/// look alike: the first is a constraint we failed to extract and belongs in
+/// `dropsByReason`, the second is nothing at all.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PendingEnum {
+    /// `o("Mod").ENUM` — a module export the bundle-wide index can finish resolving.
+    Link(AttrEnumRef),
+    /// A table that is not a structurally recoverable reference (a computed expression,
+    /// a runtime-composed set). Carries the wire attribute it constrains, for the report.
+    Unresolvable,
+}
+
 /// One field extracted from a response stanza by a parser.
 ///
 /// `method` is the parser accessor used (e.g. `attrString`, `maybeChild`,
@@ -456,10 +472,33 @@ pub struct ParsedField {
     /// [`WapAttrDef::enum_ref`]: WapAttrDef::enum_ref
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub enum_ref: Option<AttrEnumRef>,
+    /// Scanner-internal: an enum reference seen but not yet resolved.
+    ///
+    /// The legacy scanner reads one module at a time and cannot follow `o("Mod").ENUM`
+    /// to its definition, so it records the *reference* here and a cross-module post-pass
+    /// promotes it into [`enum_ref`] once the whole bundle index exists.
+    ///
+    /// It is a separate field, and never serialized, because the pending state must not
+    /// be expressible in the published IR. It previously lived in [`enum_ref`] with an
+    /// empty `variants`, and the two callers that skipped the post-pass shipped exactly
+    /// that: `incoming/index.json` told consumers `ALL_NONE` and `STANZA_MSG_TYPES` admit
+    /// **no** legal value. Now a caller that forgets can only lose the link, never
+    /// publish a false one.
+    ///
+    /// [`enum_ref`]: ParsedField::enum_ref
+    #[serde(skip)]
+    #[cfg_attr(feature = "schema", schemars(skip))]
+    pub pending_enum_ref: Option<PendingEnum>,
     /// The fixed value the parser pins this field to — `literal(attrString, participant,
     /// "type", "admin")` → `"admin"`, `literal(attrInt, error, "code", 429)` → `"429"`.
     /// Always the string form of the literal; [`field_type`] says how to read it (a
-    /// `code` field with `literalValue: "429"` is the integer 429 on the wire).
+    /// `code` field with `literalValue: "429"` is the integer 429 on the wire). On a
+    /// [`ParsedFieldType::Bytes`] field it is **lowercase hex** — the encoding
+    /// [`WapContent::const_bytes`] already uses on the request side —
+    /// and [`byte_length`] is its length: `contentLiteralBytes(node, new Uint8Array([5]))`
+    /// → `literalValue: "05"`, `byteLength: 1`.
+    ///
+    /// [`byte_length`]: ParsedField::byte_length
     ///
     /// [`required`] tells the two pinning forms apart, and the difference matters to an
     /// emitter: a **required** literal (`literal`) is a hard discriminator — the

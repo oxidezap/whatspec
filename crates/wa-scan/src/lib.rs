@@ -23,6 +23,7 @@ mod send_parser_index;
 mod srvreq;
 mod stanza;
 
+pub use enum_link::ResponseEnumLinker;
 pub use incoming::scan_incoming_from_modules;
 pub use mixin_index::MixinIndex;
 pub use module::{CrossModuleStat, DropReason, scan_module_outcome, scan_module_source};
@@ -264,18 +265,18 @@ pub fn scan_iq_with_diagnostics(
     // `o("Mod").Enum.VARIANT`, whose definition lives in another module, so it's
     // filled in cross-module after the scan. (IQ attrs are namespace/type only, so
     // links here come from the request children.)
-    let mut enum_drops: std::collections::BTreeSet<String> = Default::default();
     let mut enum_resolver = enum_link::EnumResolver::new(module_defs, source);
+    let mut enum_linker = ResponseEnumLinker::new(module_defs, source);
     for s in &mut stanzas {
         enum_resolver.resolve_tree(&mut s.request.children);
-        // The response side needs the same pass: the legacy parser records an
-        // `o("Mod").ENUM` reference without variants because it reads one module at a
-        // time, and only here is the whole bundle index available to fill it.
-        enum_resolver.resolve_fields(&mut s.response.fields, &mut enum_drops);
-        for v in &mut s.response.variants {
-            enum_resolver.resolve_fields(&mut v.fields, &mut enum_drops);
-        }
+        // The response side needs the same pass, and gets it from the shared linker so
+        // the fields/variants traversal is not re-derived here. The parser, not the enum,
+        // is the unit of loss: two parsers that both fail to resolve `ENUM_OFF_ON` on
+        // `state` are two unrecovered constraints.
+        let site = format!("{}::{}", s.module_name, s.response.parser_name);
+        enum_linker.resolve(&site, &mut s.response);
     }
+    let enum_drops = enum_linker.into_drops();
 
     // Normalize ordering by an intrinsic key so the output (index.json + the
     // grouped codegen) is independent of bundle/source order, matching every

@@ -26,7 +26,29 @@
             "method": "attrEnumValues",
             "name": "type",
             "type": "enum",
-            "required": true
+            "required": true,
+            "enumRef": {
+              "name": "CiphertextType",
+              "module": "WAWebBackendJobs.flow",
+              "variants": [
+                {
+                  "name": "Skmsg",
+                  "value": "skmsg"
+                },
+                {
+                  "name": "Pkmsg",
+                  "value": "pkmsg"
+                },
+                {
+                  "name": "Msg",
+                  "value": "msg"
+                },
+                {
+                  "name": "Msmsg",
+                  "value": "msmsg"
+                }
+              ]
+            }
           },
           {
             "method": "maybeAttrString",
@@ -111,7 +133,36 @@
             "enumRef": {
               "name": "STANZA_MSG_TYPES",
               "module": "WAWebHandleMsgCommon",
-              "variants": []
+              "variants": [
+                {
+                  "name": "text",
+                  "value": "text"
+                },
+                {
+                  "name": "media",
+                  "value": "media"
+                },
+                {
+                  "name": "medianotify",
+                  "value": "medianotify"
+                },
+                {
+                  "name": "pay",
+                  "value": "pay"
+                },
+                {
+                  "name": "poll",
+                  "value": "poll"
+                },
+                {
+                  "name": "reaction",
+                  "value": "reaction"
+                },
+                {
+                  "name": "event",
+                  "value": "event"
+                }
+              ]
             }
           },
           {
@@ -302,7 +353,18 @@
                     "method": "maybeAttrEnum",
                     "name": "type",
                     "type": "enum",
-                    "required": false
+                    "required": false,
+                    "enumKeys": [
+                      "delivery",
+                      "read",
+                      "played",
+                      "inactive",
+                      "server-error",
+                      "sender",
+                      "read-self",
+                      "played-self",
+                      "peer_msg"
+                    ]
                   },
                   {
                     "method": "attrUserJid",
@@ -425,6 +487,21 @@
           },
           {
             "method": "child",
+            "name": "id",
+            "type": "string",
+            "required": true,
+            "tag": "id",
+            "children": [
+              {
+                "method": "contentUint",
+                "name": "content",
+                "type": "integer",
+                "required": true
+              }
+            ]
+          },
+          {
+            "method": "child",
             "name": "value",
             "type": "string",
             "required": true,
@@ -473,7 +550,14 @@
             "type": "string",
             "required": true,
             "tag": "registration",
-            "children": []
+            "children": [
+              {
+                "method": "contentUint",
+                "name": "content",
+                "type": "integer",
+                "required": true
+              }
+            ]
           }
         ]
       }
@@ -2570,7 +2654,16 @@
             "enumRef": {
               "name": "ALL_NONE",
               "module": "WAWebPrivacySettings",
-              "variants": []
+              "variants": [
+                {
+                  "name": "all",
+                  "value": "all"
+                },
+                {
+                  "name": "none",
+                  "value": "none"
+                }
+              ]
             }
           }
         ]

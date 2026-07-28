@@ -8,7 +8,7 @@
         "errorArms": 645,
         "errorTexts": 38,
         "fieldEnumRefs": 150,
-        "fieldLiterals": 1782,
+        "fieldLiterals": 1784,
         "referenceConstraints": 584,
         "typedErrorVariants": 104
       },
@@ -56,12 +56,12 @@
     "incoming": {
       "file": "incoming/index.json",
       "schema": "schema/incoming.schema.json",
-      "sha256": "0c0f164b1fabd803d44fcc5b8f76e4288a04727066f344608662482b76ec6285"
+      "sha256": "f6714888d1385cd244830338821e0529240eddb7296f588ef59abceacfe6e174"
     },
     "iq": {
       "file": "iq/index.json",
       "schema": "schema/iq.schema.json",
-      "sha256": "4b862f391074732ad286fe4815e0dde7332f80c8624ca603c73b72c57cecaa12"
+      "sha256": "644607df3585822a944fe2dee3a08a7456d5cd00a7e5f07440a340051470dc86"
     },
     "mex": {
       "file": "mex/index.json",
@@ -71,7 +71,7 @@
     "notif": {
       "file": "notif/index.json",
       "schema": "schema/notif.schema.json",
-      "sha256": "6504509e29cb7b50790f7cf12434b9a75f22843b4240a4cb5423e0e645a9f926"
+      "sha256": "a4f868868e9689488e4dcbf58ebb09665421626acdbef1ee9ceab27d4f946883"
     },
     "proto": {
       "file": "proto/WAProto.proto",

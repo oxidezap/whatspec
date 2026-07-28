@@ -1209,3 +1209,153 @@ fn a_fall_through_label_contributes_its_own_bindings() {
         .expect("the binding from the fall-through label");
     assert_eq!(seeded.wire_name, "threshold");
 }
+
+/// A second `w:gp2` handler covering the shapes the real bundle does not exercise today.
+///
+/// Every behaviour below is **latent** against the pinned bundle — the constructs are
+/// legal, WA writes some of them elsewhere, and the extractor got them wrong — so a
+/// fixture is the only thing that can hold the fix in place. Without it a later
+/// refactor would silently restore the old answer and `generated/` would not move.
+const GROUP_ACTIONS_EDGE_BUNDLE: &str = r#"
+__d("WAWebCommsHandleLoggedInStanza",["WAWebHandleGroupNotification"],function(g,r,d,o,e,i,l){
+  l.handle = function(){ return (function*(e,t){
+    var n = e.attrs;
+    switch (e.tag) {
+      case "notification":
+        switch (n.type) {
+          case "w:gp2": return yield r("WAWebHandleGroupNotification")(e);
+        }
+    }
+  }); };
+}, 1);
+__d("WAWebHandleGroupNotificationConst",[],(function(t,n,r,o,a,i,l){
+  l.GROUP_NOTIFICATION_TAG=Object.freeze({EVICT:"evict",COND:"cond",REBIND:"rebind",PICK:"pick",BARE:"bare",HELPER:"helper"});
+}), 1);
+__d("WAWebGroupType",[],(function(t,n,r,o,a,i,l){
+  l.GROUP_ACTIONS=Object.freeze({FIRST:"first",SECOND:"second",THIRD:"third"});
+}), 1);
+__d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGroupType"],(function(t,n,r,o,a,i,l){
+  function hlp(e){ return {actionType:o("WAWebGroupType").GROUP_ACTIONS.SECOND, extra:e.attrString("extra")}; }
+  function h(e){
+    var x=e.mapChildrenWithTag("child", function(t){
+      switch (t.tag) {
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.EVICT:
+          return babelHelpers.extends({actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, id:t.attrString("jid")}, {id:0});
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.COND:
+          if (t.hasChild("early")) return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, a:t.attrString("a")};
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.PICK:
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.SECOND, b:t.attrString("b")};
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.REBIND: {
+          var v=t.attrString("jid");
+          v=t.attrString("lid");
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.THIRD, id:v};
+        }
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.BARE:
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.THIRD, who:t.mapChildrenWithTag("p", function(p){ return p.hasChild("z") ? p.attrString("jid") : p.attrString("lid"); })};
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.HELPER:
+          return babelHelpers.extends({actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST}, hlp(t));
+      }
+    });
+    return {actions:x};
+  }
+  l.handleGroupNotification=h;
+}), 1);
+"#;
+
+/// The single action arm for `tag` in the edge-case bundle.
+fn edge_action<'a>(ir: &'a wa_ir::NotifIr, tag: &str) -> &'a wa_ir::NotifActionDef {
+    let mut found = notif(ir, "w:gp2")
+        .actions
+        .iter()
+        .filter(|a| a.wire_tag == tag);
+    let a = found
+        .next()
+        .unwrap_or_else(|| panic!("no action arm for wire tag {tag:?}"));
+    assert!(found.next().is_none(), "expected one arm for {tag:?}");
+    a
+}
+
+#[test]
+fn a_later_write_evicts_the_key_from_every_collection() {
+    // `extends({id: attrString("jid")}, {id: 0})` yields only `id: 0` at runtime.
+    // Replacing within each collection separately published BOTH a wire-read field and a
+    // constant named `id` — a shape no execution produces.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let a = edge_action(&ir, "evict");
+    assert!(
+        !a.fields.iter().any(|f| f.name == "id"),
+        "the constant must evict the earlier wire read: {:?}",
+        a.fields
+    );
+    assert_eq!(
+        a.constant_fields.iter().filter(|c| c.name == "id").count(),
+        1,
+        "exactly one `id`, and it is the constant"
+    );
+}
+
+#[test]
+fn a_conditionally_returning_case_still_falls_through() {
+    // `case COND: if (cond) return FIRST; case PICK: return SECOND;` — tag `cond` can
+    // legally produce either. Stopping at the first shape published only FIRST.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let cond: Vec<&str> = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .filter(|a| a.wire_tag == "cond")
+        .filter_map(|a| a.action_type.as_deref())
+        .collect();
+    assert!(
+        cond.contains(&"second"),
+        "the fall-through target must be reachable from `cond`: {cond:?}"
+    );
+}
+
+#[test]
+fn a_reassignment_replaces_the_declared_binding() {
+    // `var v = attrString("jid"); v = attrString("lid"); return {id: v}` reads `lid`.
+    // Tracking declarations only left the initializer installed.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let a = edge_action(&ir, "rebind");
+    let id = a
+        .fields
+        .iter()
+        .find(|f| f.name == "id")
+        .expect("the `id` field survives the reassignment");
+    assert_eq!(
+        id.wire_name, "lid",
+        "the value at the return is the reassigned one"
+    );
+}
+
+#[test]
+fn a_bare_callback_read_is_optional_when_only_one_branch_takes_it() {
+    // `p => cond ? p.attrString("jid") : p.attrString("lid")` reads exactly one per
+    // element. The bare-value fallback bypassed the branch fold and marked both required.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let a = edge_action(&ir, "bare");
+    let child = a
+        .children
+        .iter()
+        .find(|c| c.name == "who")
+        .expect("the mapped child is recovered");
+    assert!(
+        child.fields.iter().all(|f| !f.required),
+        "a read taken on only one branch is not required: {:?}",
+        child.fields
+    );
+}
+
+#[test]
+fn a_helper_operand_replaces_the_earlier_action_type() {
+    // `extends({actionType: FIRST}, hlp(t))` where the helper returns SECOND yields
+    // SECOND at runtime. Copying the helper's `actionType` only into an empty slot
+    // dispatched the shape as FIRST.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let a = edge_action(&ir, "helper");
+    assert_eq!(
+        a.action_type.as_deref(),
+        Some("second"),
+        "the later operand wins, `actionType` included"
+    );
+}

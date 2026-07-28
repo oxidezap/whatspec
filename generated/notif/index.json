@@ -1341,7 +1341,12 @@
                         "method": "attrEnumValues",
                         "name": "mediatype",
                         "type": "enum",
-                        "required": true
+                        "required": true,
+                        "enumKeys": [
+                          "image",
+                          "video",
+                          "text"
+                        ]
                       },
                       {
                         "method": "contentBytes",
@@ -1374,7 +1379,12 @@
                 "method": "attrEnumValues",
                 "name": "mediatype",
                 "type": "enum",
-                "required": true
+                "required": true,
+                "enumKeys": [
+                  "image",
+                  "video",
+                  "text"
+                ]
               },
               {
                 "method": "contentBytes",
@@ -2854,7 +2864,11 @@
             "method": "attrEnum",
             "name": "type",
             "type": "enum",
-            "required": true
+            "required": true,
+            "enumKeys": [
+              "contacts",
+              "w:growth"
+            ]
           },
           {
             "method": "child",
