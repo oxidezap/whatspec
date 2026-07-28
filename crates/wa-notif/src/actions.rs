@@ -2261,7 +2261,14 @@ fn collect_accessor_fields<'b, 'a>(
         // refused rather than guessed at.
         let resolved = deref_ident(e, outer);
         if !std::ptr::eq(resolved, e) {
-            collect_accessor_fields(resolved, outer, ctx, out);
+            // Recurse ONLY into something that is no longer an identifier. `deref_ident`
+            // is bounded at four hops, so on an alias cycle whose length does not divide
+            // four (`a → b → c → a`) it returns a *different* identifier every time —
+            // and recursing on that walks the cycle forever until the stack goes. An
+            // unresolved chain is refused, which is what the hop limit was already for.
+            if as_identifier(resolved).is_none() {
+                collect_accessor_fields(resolved, outer, ctx, out);
+            }
             return;
         }
         if let Some(src) = as_identifier(e)

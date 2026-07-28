@@ -186,8 +186,12 @@ def check_enum_catalog_refs(data, domain, errors):
     domain adopting the same shape is covered without anyone remembering to add it here.
     """
     catalog = data.get("enums")
-    if not isinstance(catalog, list) or not catalog:
+    if not isinstance(catalog, list):
         return
+    # An EMPTY catalog is not "nothing to check" — it is the worst case. If extraction
+    # collapsed the list while the enum-typed fields remained, every reference in the
+    # document is dangling, and returning early here reported exactly that document as
+    # internally consistent. An empty list is an empty lookup; the walk still runs.
     by_module = {}
     for i, e in enumerate(catalog):
         if not isinstance(e, dict):
@@ -219,6 +223,30 @@ def check_enum_catalog_refs(data, domain, errors):
             errors.append(f"{domain}{path}: enum reference {module!r} resolves to no values")
 
     walk(data, visit)
+
+
+def check_event_codes(data, domain, errors):
+    """A WAM event's `code` is its wire identifier, so two events cannot share one.
+
+    The schema has no way to say "unique across the array". A consumer generating a
+    dispatch table by code would silently overwrite one of the pair, and one of the two
+    event shapes would then be unreachable — with nothing in the document indicating it.
+    """
+    events = data.get("events")
+    if not isinstance(events, list):
+        return
+    seen = {}
+    for e in events:
+        if not isinstance(e, dict) or "code" not in e:
+            continue
+        code = e["code"]
+        if code in seen:
+            errors.append(
+                f"{domain}: events {seen[code]!r} and {e.get('name')!r} "
+                f"share code {code}, which is the wire identifier"
+            )
+        else:
+            seen[code] = e.get("name")
 
 
 def check_assertion(a, path, errors):
@@ -278,6 +306,7 @@ def main() -> int:
         # Needs the whole document, not one node: the reference and its definition sit in
         # different subtrees.
         check_enum_catalog_refs(data, domain, errors)
+        check_event_codes(data, domain, errors)
 
     ok = True
     for name, observed in sorted(counts.items()):

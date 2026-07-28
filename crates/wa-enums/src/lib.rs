@@ -100,6 +100,15 @@ fn extract_from_module(slice: &str, module: &str) -> Vec<InternalEnumDef> {
     out
 }
 
+/// The identifier names a parameter list binds.
+fn param_names(params: &oxc_ast::ast::FormalParameters) -> HashSet<String> {
+    params
+        .items
+        .iter()
+        .filter_map(|p| p.pattern.get_identifier_name().map(|n| n.to_string()))
+        .collect()
+}
+
 /// Resolve `X.Name = local` bindings against the locals captured by var-init, filling
 /// `exports` (first binding wins). Shared by [`resolve_named_enum`] and the plain-object
 /// catalog pass so the two resolution sites can't drift.
@@ -214,6 +223,13 @@ struct NamedResolver {
     /// cannot be wrong, and no bundle in the pinned set has a single collision — so the
     /// choice costs nothing today and stays correct if that changes.
     shadowed: HashSet<String>,
+    /// Parameter names bound by the functions currently being visited, innermost last.
+    ///
+    /// A parameter shadows only INSIDE its own body, so unlike [`Self::shadowed`] this is
+    /// a stack rather than a module-wide set. Refusing such a name everywhere was measured
+    /// and costs real constraints — `STANZA_MSG_TYPES` resolves at module level in a
+    /// module that happens to reuse its local's name as a parameter elsewhere.
+    param_scopes: Vec<HashSet<String>>,
     exports: HashMap<String, EnumData>,
     pending: Vec<(String, String)>,
 }
@@ -223,6 +239,7 @@ impl NamedResolver {
         Self {
             locals: HashMap::new(),
             shadowed: HashSet::new(),
+            param_scopes: Vec::new(),
             exports: HashMap::new(),
             pending: Vec::new(),
         }
@@ -230,10 +247,16 @@ impl NamedResolver {
 
     /// The body bound to `name`, unless the module rebinds it to a different one.
     fn local(&self, name: &str) -> Option<&EnumData> {
-        if self.shadowed.contains(name) {
+        if self.shadowed.contains(name) || self.param_shadows(name) {
             return None;
         }
         self.locals.get(name)
+    }
+
+    /// Whether an enclosing function binds `name` as a parameter, so a read of it here
+    /// is that parameter and not the module local this pass recorded.
+    fn param_shadows(&self, name: &str) -> bool {
+        self.param_scopes.iter().any(|s| s.contains(name))
     }
 
     fn bind_local(&mut self, name: &str, data: EnumData) {
@@ -335,6 +358,22 @@ impl<'a> Visit<'a> for NamedResolver {
             }
         }
         walk::walk_variable_declarator(self, d);
+    }
+
+    fn visit_function(
+        &mut self,
+        f: &oxc_ast::ast::Function<'a>,
+        flags: oxc_syntax::scope::ScopeFlags,
+    ) {
+        self.param_scopes.push(param_names(&f.params));
+        walk::walk_function(self, f, flags);
+        self.param_scopes.pop();
+    }
+
+    fn visit_arrow_function_expression(&mut self, f: &oxc_ast::ast::ArrowFunctionExpression<'a>) {
+        self.param_scopes.push(param_names(&f.params));
+        walk::walk_arrow_function_expression(self, f);
+        self.param_scopes.pop();
     }
 
     fn visit_assignment_expression(&mut self, a: &AssignmentExpression<'a>) {
@@ -630,6 +669,27 @@ mod tests {
             i.ALIAS=e
         }),1);"#;
         assert!(resolve_named_enum(opaque, "M", "ALIAS").is_none());
+
+        // A PARAMETER binds the name for its whole body, which neither the declarator nor
+        // the assignment path sees.
+        let param = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"};
+            function f(e){ var l=babelHelpers.extends({},e,{B:"b"}); i.WITH=l }
+            f({X:"x"})
+        }),1);"#;
+        assert!(resolve_named_enum(param, "M", "WITH").is_none());
+
+        // ...but only INSIDE that body. Refusing the name module-wide was measured against
+        // the pinned bundles and lost a real constraint (`STANZA_MSG_TYPES`), so a merge
+        // outside the shadowing function must still resolve.
+        let outside = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"};
+            function f(e){ return e }
+            var l=babelHelpers.extends({},e,{B:"b"});
+            i.WITH=l
+        }),1);"#;
+        let def = resolve_named_enum(outside, "M", "WITH").expect("resolves outside the body");
+        assert_eq!(def.variants.len(), 2);
 
         // A name rebound to the SAME body is not ambiguous — refusing it would throw away
         // a resolvable enum for nothing.

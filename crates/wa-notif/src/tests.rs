@@ -672,14 +672,17 @@ __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGr
         }
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.UNLINK:
           return I(t);
-        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.MEMBERSHIP:
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.MEMBERSHIP: {
+          var cycA=cycB, cycB=cycC, cycC=cycA;
           return {actionType:o("WAWebGroupType").GROUP_ACTIONS.MEMBERSHIP,
             picked: t.hasChildren() ? t.mapChildrenWithTag("picked_user", function(x){ return {id:x.attrUserJid("jid")}; }) : [{id:"fallback"}],
             nulled: t.hasChild("opt") ? t.mapChildrenWithTag("nulled_user", function(x){ return {id:x.attrUserJid("jid")}; }) : null,
             anded: t.hasChild("flag") && t.mapChildrenWithTag("anded_user", function(x){ return {id:x.attrUserJid("jid")}; }),
             parend: (t.hasChild("p") ? t.mapChildrenWithTag("parend_user", function(x){ return {id:x.attrUserJid("jid")}; }) : null),
             shadowed: withShadow(t, function(z){ return {right:z.attrString("right")}; }),
-            viaHelper: t.hasChild("h") && helperKids(t)};
+            viaHelper: t.hasChild("h") && helperKids(t),
+            cyclic: t.mapChildrenWithTag("cyclic_user", cycA)};
+        }
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.REVOKE_INVITE:
           return {actionType:o("WAWebGroupType").GROUP_ACTIONS.REVOKE_INVITE, participants:t.mapChildrenWithTag("participant", function(p){ return {id:p.attrUserJid("jid"), expiration:p.attrInt("expiration")}; }), owners:t.mapChildrenWithTag("owner", p=>o("WAWebJidToWid").userJidToUserWid(p.maybeAttrPhoneUserJid("phone_number")))};
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.DESC:
@@ -854,6 +857,17 @@ fn a_mapped_child_is_optional_only_when_the_guard_admits_absence() {
         "`cond && helper(node)` may produce no collection"
     );
     assert_eq!(child("viaHelper").wire_tag, "helper_user");
+
+    // An alias CYCLE (`cycA → cycB → cycC → cycA`) must terminate. `deref_ident` caps at
+    // four hops, so on a 3-cycle it hands back a different identifier every time, and
+    // recursing on that walked the cycle until the stack went — reaching this assertion
+    // at all is most of the test.
+    let cyc = child("cyclic");
+    assert_eq!(cyc.wire_tag, "cyclic_user");
+    assert!(
+        cyc.fields.is_empty(),
+        "an unresolved callback contributes no fields"
+    );
 
     // The guard must not cost the child's contents.
     assert_eq!(child("anded").wire_tag, "anded_user");
