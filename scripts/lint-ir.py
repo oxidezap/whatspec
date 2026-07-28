@@ -549,7 +549,9 @@ def check_enum_catalog_refs(data, domain, errors):
         vals = [
             v.get("value")
             for v in e.get("variants") or []
-            if isinstance(v, dict) and isinstance(v.get("value"), int)
+            if isinstance(v, dict)
+            and isinstance(v.get("value"), int)
+            and not isinstance(v.get("value"), bool)
         ]
         dup_vals = sorted({v for v in vals if vals.count(v) > 1})
         if dup_vals:
@@ -559,13 +561,17 @@ def check_enum_catalog_refs(data, domain, errors):
         # `(module, name)` is the catalog identity — the extractor dedups on it, and a
         # consumer has no other way to select one definition of a repeated pair.
         ident = (e.get("module"), e.get("name"))
-        if ident in seen_defs:
+        if not all(isinstance(part, str) for part in ident):
+            errors.append(f"{domain}/enums/{i}: identity {ident!r} is not two strings")
+        elif ident in seen_defs:
             errors.append(
                 f"{domain}/enums/{i}: {ident} already defined at index {seen_defs[ident]}"
             )
         else:
             seen_defs[ident] = i
-        if "module" in e:
+        # Keyed only when it can BE a key: a dict or list `module` is unhashable and
+        # `setdefault` raises. The identity check above already reported it.
+        if isinstance(e.get("module"), str):
             by_module.setdefault(e["module"], []).append(e)
 
     def visit(node, path):
@@ -717,7 +723,9 @@ def check_abprops(data, domain, errors):
         # consumer no way to pick; the reference generator just suffixes the second and
         # puts both contradictory entries in `ALL`.
         ident = (c.get("module"), c.get("name"))
-        if ident in seen_ids:
+        if not all(isinstance(part, str) for part in ident):
+            errors.append(f"{domain}/configs/{i}: identity {ident!r} is not two strings")
+        elif ident in seen_ids:
             errors.append(
                 f"{domain}/configs/{i}: {ident} already defined at index {seen_ids[ident]}"
             )
@@ -776,7 +784,12 @@ def check_appstate_collections(data, domain, errors):
         if not isinstance(a, dict):
             continue
         used = a.get("collection", "regular")
-        if used not in known:
+        # Type-checked before the membership test. `known` holds strings; an unhashable
+        # value (a list, a dict) makes `in` raise and takes the whole run down. Fourth time
+        # this class has come up here, and it is always the error path, never the check.
+        if not isinstance(used, str):
+            errors.append(f"{domain}/actions/{name}: collection is {used!r}, not a string")
+        elif used not in known:
             errors.append(
                 f"{domain}/actions/{name}: collection {used!r} is not among "
                 f"{sorted(known)}"

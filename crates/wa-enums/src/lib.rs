@@ -114,13 +114,7 @@ fn collect_hoisted(stmts: &[oxc_ast::ast::Statement], out: &mut HashSet<String>)
                     out.insert(id.name.to_string());
                 }
             }
-            S::VariableDeclaration(d) => {
-                for decl in &d.declarations {
-                    for id in decl.id.get_binding_identifiers() {
-                        out.insert(id.name.to_string());
-                    }
-                }
-            }
+            S::VariableDeclaration(d) => collect_declared(d, out),
             S::BlockStatement(b) => collect_hoisted(&b.body, out),
             S::IfStatement(i) => {
                 collect_hoisted(std::slice::from_ref(&i.consequent), out);
@@ -128,9 +122,27 @@ fn collect_hoisted(stmts: &[oxc_ast::ast::Statement], out: &mut HashSet<String>)
                     collect_hoisted(std::slice::from_ref(alt), out);
                 }
             }
-            S::ForStatement(f) => collect_hoisted(std::slice::from_ref(&f.body), out),
-            S::ForInStatement(f) => collect_hoisted(std::slice::from_ref(&f.body), out),
-            S::ForOfStatement(f) => collect_hoisted(std::slice::from_ref(&f.body), out),
+            // The HEADER declares too, and `var` there is hoisted across the function
+            // exactly as one in the body is — scanning only the body left
+            // `for (var e of xs)` invisible.
+            S::ForStatement(f) => {
+                if let Some(oxc_ast::ast::ForStatementInit::VariableDeclaration(d)) = &f.init {
+                    collect_declared(d, out);
+                }
+                collect_hoisted(std::slice::from_ref(&f.body), out);
+            }
+            S::ForInStatement(f) => {
+                if let oxc_ast::ast::ForStatementLeft::VariableDeclaration(d) = &f.left {
+                    collect_declared(d, out);
+                }
+                collect_hoisted(std::slice::from_ref(&f.body), out);
+            }
+            S::ForOfStatement(f) => {
+                if let oxc_ast::ast::ForStatementLeft::VariableDeclaration(d) = &f.left {
+                    collect_declared(d, out);
+                }
+                collect_hoisted(std::slice::from_ref(&f.body), out);
+            }
             S::WhileStatement(w) => collect_hoisted(std::slice::from_ref(&w.body), out),
             S::DoWhileStatement(w) => collect_hoisted(std::slice::from_ref(&w.body), out),
             S::TryStatement(t) => {
@@ -149,6 +161,51 @@ fn collect_hoisted(stmts: &[oxc_ast::ast::Statement], out: &mut HashSet<String>)
             }
             S::LabeledStatement(l) => collect_hoisted(std::slice::from_ref(&l.body), out),
             _ => {}
+        }
+    }
+}
+
+/// Every plain identifier an assignment TARGET writes, however the pattern is spelled.
+fn assignment_target_names(target: &oxc_ast::ast::AssignmentTarget) -> Vec<String> {
+    let mut out = Vec::new();
+    // Cheap and textual on the AST: only the simple names matter here, because only a
+    // simple name can be an enum local this pass recorded.
+    if let Some(pattern) = target.as_assignment_target_pattern() {
+        use oxc_ast::ast::AssignmentTargetPattern as P;
+        match pattern {
+            P::ArrayAssignmentTarget(a) => {
+                for el in a.elements.iter().flatten() {
+                    if let Some(id) = el.identifier() {
+                        out.push(id.name.to_string());
+                    }
+                }
+            }
+            P::ObjectAssignmentTarget(o) => {
+                for prop in &o.properties {
+                    match prop {
+                        oxc_ast::ast::AssignmentTargetProperty::AssignmentTargetPropertyIdentifier(
+                            p,
+                        ) => out.push(p.binding.name.to_string()),
+                        oxc_ast::ast::AssignmentTargetProperty::AssignmentTargetPropertyProperty(
+                            p,
+                        ) => {
+                            if let Some(id) = p.binding.identifier() {
+                                out.push(id.name.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Every identifier one `var`/`let`/`const` declaration binds.
+fn collect_declared(d: &oxc_ast::ast::VariableDeclaration, out: &mut HashSet<String>) {
+    for decl in &d.declarations {
+        for id in decl.id.get_binding_identifiers() {
+            out.insert(id.name.to_string());
         }
     }
 }
@@ -348,6 +405,21 @@ impl NamedResolver {
     ///
     /// Later operands override earlier keys, as the runtime does. A single value kind is
     /// required, so a string enum merged with an int one resolves to nothing.
+    /// The local an `extends(target, …)` MUTATES, when the target is a bare name.
+    ///
+    /// `extends` writes into its first argument, so after `extends(e, {B:"b"})` the
+    /// runtime's `e` has `B` too. Recovering the pre-merge body would publish an enum
+    /// that rejects a value it accepts — which the refusal in `merge_extends` prevents
+    /// for the RESULT, and which this exists to prevent for the target itself.
+    fn mutated_extends_target<'e>(e: &'e Expression) -> Option<&'e str> {
+        let call = as_call(e)?;
+        let callee = wa_oxc::as_member(&call.callee)?;
+        if callee.1 != "extends" || as_identifier(callee.0) != Some("babelHelpers") {
+            return None;
+        }
+        as_identifier(arg_expr(call.arguments.first()?)?)
+    }
+
     fn merge_extends(&self, e: &Expression) -> Option<EnumData> {
         let call = as_call(e)?;
         let callee = wa_oxc::as_member(&call.callee)?;
@@ -407,6 +479,15 @@ impl NamedResolver {
 
 impl<'a> Visit<'a> for NamedResolver {
     fn visit_variable_declarator(&mut self, d: &VariableDeclarator<'a>) {
+        // `var x = extends(e, {B:"b"})` MUTATES `e`. `merge_extends` already refuses to
+        // publish `x`, but `e` itself kept its pre-merge body and a later `i.BASE = e`
+        // published an enum missing a member the runtime accepts.
+        if let Some(init) = &d.init
+            && let Some(target) = Self::mutated_extends_target(init)
+            && !self.param_shadows(target)
+        {
+            self.shadowed.insert(target.to_string());
+        }
         if d.id.get_identifier_name().is_none() {
             // A DESTRUCTURED declaration (`const {e} = obj`) binds `e` just as much as
             // `var e = …` does, and `get_identifier_name` sees none of it — so the whole
@@ -569,6 +650,15 @@ impl<'a> Visit<'a> for NamedResolver {
                 && !self.param_shadows(id)
             {
                 self.pending.push((prop.to_string(), id.to_string()));
+            }
+        } else if a.left.get_identifier_name().is_none() && a.left.as_member_expression().is_none()
+        {
+            // A destructuring ASSIGNMENT (`({e} = obj)`) rebinds without declaring, so no
+            // declarator ever runs and the cached body survived a write that replaced it.
+            for name in assignment_target_names(&a.left) {
+                if !self.param_shadows(&name) && self.locals.contains_key(name.as_str()) {
+                    self.shadowed.insert(name);
+                }
             }
         } else if let Some(name) = a.left.get_identifier_name() {
             // A bare `e = …` rebinding, which `visit_variable_declarator` never sees.
@@ -808,10 +898,15 @@ mod tests {
             i.BASE=e,i.WITH=l
         }),1);"#;
         assert!(resolve_named_enum(module, "M", "WITH").is_none());
-        // And the target keeps exactly what it was written with.
-        let base =
-            resolve_named_enum(module, "M", "BASE").expect("the plain export still resolves");
-        assert_eq!(base.variants.len(), 1);
+        // ...and the TARGET is refused too. This once asserted that `BASE` still resolved
+        // with its one written member — which is precisely the enum "claiming to reject a
+        // value it accepts" that the paragraph above calls out. The comment described the
+        // hazard and the assertion below it enshrined the hazard; refusing is the only
+        // answer consistent with both.
+        assert!(
+            resolve_named_enum(module, "M", "BASE").is_none(),
+            "`extends` wrote `B` into `e`, so the pre-merge body is not what the runtime has"
+        );
     }
 
     #[test]
@@ -1020,6 +1115,22 @@ mod tests {
                 .len(),
             2
         );
+
+        // A loop HEADER declares too, and `var` there hoists across the function.
+        let loop_header = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"};
+            function f(xs){ var x=babelHelpers.extends({},e,{B:"b"}); for (var e of xs) {} i.OUT=x }
+        }),1);"#;
+        assert!(resolve_named_enum(loop_header, "M", "OUT").is_none());
+
+        // A destructuring ASSIGNMENT rebinds without declaring, so no declarator runs.
+        let destructure_assign = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"};
+            ({e}=obj);
+            var x=babelHelpers.extends({},e,{B:"b"});
+            i.OUT=x
+        }),1);"#;
+        assert!(resolve_named_enum(destructure_assign, "M", "OUT").is_none());
 
         // A name rebound to the SAME body is not ambiguous — refusing it would throw away
         // a resolvable enum for nothing.

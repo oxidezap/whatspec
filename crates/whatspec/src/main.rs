@@ -281,6 +281,7 @@ fn update(args: &[String]) -> Result<()> {
         bundles,
         wasm,
         boot_pins,
+        live_handle_ids,
         authoritative,
     } = load_source(&opts)?;
     eprintln!("WhatsApp version: {wa_version}");
@@ -366,7 +367,7 @@ fn update(args: &[String]) -> Result<()> {
         // configuration `cargo test --workspace` never exercises.
         #[cfg(feature = "fetch")]
         if let Some(pins) = &boot_pins
-            && let Err(e) = update_lock_bootloader(&lock_path, pins, &wa_version)
+            && let Err(e) = update_lock_bootloader(&lock_path, pins, &wa_version, &live_handle_ids)
         {
             eprintln!("  wasm lock not updated with the bootloader map: {e:#}");
         }
@@ -378,7 +379,7 @@ fn update(args: &[String]) -> Result<()> {
         // endpoint subset still succeeds, and replacing the section with its own sample
         // would delete ids an earlier run resolved — the same shrink, just reached by a
         // productive run instead of a blocked one.
-        let boot_pins = pins_with_prior(&lock_path, boot_pins, &wa_version);
+        let boot_pins = pins_with_prior(&lock_path, boot_pins, &wa_version, &live_handle_ids);
         let lock = WasmLock::with_bootloader(&wa_version, wasm, boot_pins);
         fs::write(&lock_path, lock.to_pretty_json())
             .with_context(|| format!("write {}", lock_path.display()))?;
@@ -963,6 +964,10 @@ struct Loaded {
     /// [`lock::BootloaderPins`]. `None` for a local `--bundles` regen, which never
     /// asks the bootloader anything and must not clobber a recorded map with nothing.
     boot_pins: Option<lock::BootloaderPins>,
+    /// `bx` ids this run actually observed live, whether or not their binding survived
+    /// the CDN filter. Absence from the pins then means "rejected", not "never seen", and
+    /// the prior lock must not restore it.
+    live_handle_ids: BTreeSet<String>,
     /// `true` only for the fetch path, which knows every bundle's origin URL and is
     /// therefore the *authoritative* source of a full lockfile. The offline `--bundles`
     /// path fingerprints the same inputs (for `--check`) but never rewrites the lock,
@@ -989,6 +994,7 @@ fn load_source(opts: &Options) -> Result<Loaded> {
                 // lock is left untouched — see `authoritative`).
                 wasm: Vec::new(),
                 boot_pins: None,
+                live_handle_ids: BTreeSet::new(),
                 authoritative: false,
             })
         }
@@ -1102,7 +1108,7 @@ fn fetch_source(opts: &Options) -> Result<Loaded> {
                     bundles.len()
                 );
                 maybe_save_bundles(opts, &bundles)?;
-                let (wasm, boot_pins) =
+                let (wasm, boot_pins, live_handle_ids) =
                     load_wasm(opts, &discovered, Some(remote_version.as_str()))?;
                 return Ok(Loaded {
                     wa_version: version,
@@ -1110,6 +1116,7 @@ fn fetch_source(opts: &Options) -> Result<Loaded> {
                     bundles: bundle_ids(&bundles),
                     wasm,
                     boot_pins,
+                    live_handle_ids,
                     authoritative: true,
                 });
             }
@@ -1154,13 +1161,15 @@ fn fetch_source(opts: &Options) -> Result<Loaded> {
     // must never be able to cost the (expensive) JS download a retry.
     // The discovered version keys the cache; it does not gate the fetch. A run stamped
     // with `--wa-version` over an unreadable page still collects its payloads.
-    let (wasm, boot_pins) = load_wasm(opts, &discovered, discovered.wa_version.as_deref())?;
+    let (wasm, boot_pins, live_handle_ids) =
+        load_wasm(opts, &discovered, discovered.wa_version.as_deref())?;
     Ok(Loaded {
         wa_version: version,
         source: concat_bundles(&outcome.bundles),
         bundles: bundle_ids(&outcome.bundles),
         wasm,
         boot_pins,
+        live_handle_ids,
         authoritative: true,
     })
 }
@@ -1212,9 +1221,13 @@ fn load_wasm(
     opts: &Options,
     discovered: &wa_fetch::Discovered,
     remote_version: Option<&str>,
-) -> Result<(Vec<WasmLockEntry>, Option<lock::BootloaderPins>)> {
+) -> Result<(
+    Vec<WasmLockEntry>,
+    Option<lock::BootloaderPins>,
+    BTreeSet<String>,
+)> {
     if !opts.wasm {
-        return Ok((Vec::new(), None));
+        return Ok((Vec::new(), None, BTreeSet::new()));
     }
 
     // The cache is keyed by the *discovered* version. Without one it can't be used at all
@@ -1350,6 +1363,9 @@ fn load_wasm(
             ids.entry(id).or_insert(url);
         }
     }
+    // Every id the run OBSERVED, before the CDN/wasm filter drops any of them: absence
+    // from the pins then distinguishes "rejected" from "never seen".
+    let live_ids: BTreeSet<String> = resolution.by_id.keys().cloned().collect();
     let pins = bootloader_pins(&resolution, &ids);
 
     if payloads.is_empty() {
@@ -1357,7 +1373,7 @@ fn load_wasm(
         // previous run's payloads behind, or a runner would consume a set no lock
         // describes. Not an error — a blocked resolution must not fail a spec update.
         maybe_save_wasm(opts, &payloads)?;
-        return Ok((Vec::new(), Some(pins)));
+        return Ok((Vec::new(), Some(pins), live_ids));
     }
 
     // The wasm cache attaches to the JS cache for the same version; if that isn't there
@@ -1371,7 +1387,7 @@ fn load_wasm(
 
     let entries = wasm_entries(&payloads, &handles);
     maybe_save_wasm(opts, &payloads)?;
-    Ok((entries, Some(pins)))
+    Ok((entries, Some(pins), live_ids))
 }
 
 /// Give every payload a file name that is unique across the set and safe on disk, deriving
@@ -2191,6 +2207,7 @@ fn update_lock_bootloader(
     lock_path: &Path,
     pins: &lock::BootloaderPins,
     wa_version: &str,
+    seen_live: &BTreeSet<String>,
 ) -> Result<()> {
     let raw = fs::read_to_string(lock_path)?;
     let mut lock: WasmLock = serde_json::from_str(&raw)?;
@@ -2203,7 +2220,7 @@ fn update_lock_bootloader(
         return Ok(());
     }
     let mut pins = pins.clone();
-    merge_prior_handles(&mut pins, lock.bootloader.as_ref());
+    merge_prior_handles(&mut pins, lock.bootloader.as_ref(), seen_live);
     let pins = &pins;
     if lock.bootloader.as_ref() == Some(pins) {
         return Ok(());
@@ -2228,9 +2245,20 @@ fn update_lock_bootloader(
 /// to decide the whole map. Its ids are provenance, not identity — they do not enter
 /// `wasmSetHash` — so keeping one whose payload this run did not re-resolve costs nothing,
 /// while dropping it makes an unchanged release diff against itself.
-fn merge_prior_handles(pins: &mut lock::BootloaderPins, prior: Option<&lock::BootloaderPins>) {
+fn merge_prior_handles(
+    pins: &mut lock::BootloaderPins,
+    prior: Option<&lock::BootloaderPins>,
+    seen_live: &BTreeSet<String>,
+) {
     let Some(prior) = prior else { return };
     for (id, url) in &prior.wasm_handles {
+        // An id the run SAW but whose new binding the pins filtered out (rebound to a
+        // non-CDN or non-wasm URL) is absent from `pins` for a reason. Reading that
+        // absence as "never observed" restored the stale entry, so the lock kept
+        // provenance the page had explicitly replaced. `seen_live` is the tombstone.
+        if seen_live.contains(id) {
+            continue;
+        }
         pins.wasm_handles.entry(id.clone()).or_insert(url.clone());
     }
 }
@@ -2249,6 +2277,7 @@ fn pins_with_prior(
     lock_path: &Path,
     pins: Option<lock::BootloaderPins>,
     wa_version: &str,
+    seen_live: &BTreeSet<String>,
 ) -> Option<lock::BootloaderPins> {
     let mut pins = pins?;
     // A lock that exists but cannot be parsed is NOT the same as one that is absent: the
@@ -2268,7 +2297,7 @@ fn pins_with_prior(
         },
         Err(_) => None,
     };
-    merge_prior_handles(&mut pins, prior.as_ref());
+    merge_prior_handles(&mut pins, prior.as_ref(), seen_live);
     Some(pins)
 }
 
@@ -3186,6 +3215,7 @@ mod tests {
             &path,
             &pins(&[("22", "https://x/b.wasm")], 1, 1),
             "2.3000.test",
+            &BTreeSet::new(),
         )
         .expect("rewrite the section");
 
@@ -3207,6 +3237,7 @@ mod tests {
             &path,
             &pins(&[("33", "https://x/c.wasm")], 9, 9),
             "2.3000.next",
+            &BTreeSet::new(),
         )
         .expect("a stale lock is not an error");
         let untouched: lock::WasmLock =
@@ -3258,6 +3289,7 @@ mod tests {
                 ("33", "https://x/c.wasm"),
             ])),
             "2.3000.test",
+            &BTreeSet::new(),
         )
         .expect("pins were supplied");
         assert_eq!(
@@ -3272,9 +3304,25 @@ mod tests {
             &path,
             Some(pins(&[("33", "https://x/c.wasm")])),
             "2.3000.next",
+            &BTreeSet::new(),
         )
         .expect("pins were supplied");
         assert_eq!(isolated.wasm_handles.keys().collect::<Vec<_>>(), ["33"]);
+
+        // An id the run SAW but whose new binding the CDN filter dropped must not be
+        // restored from the prior lock: absent-from-pins means rejected, not unseen.
+        let tombstoned = pins_with_prior(
+            &path,
+            Some(pins(&[("22", "https://x/b.wasm")])),
+            "2.3000.test",
+            &BTreeSet::from(["11".to_string()]),
+        )
+        .expect("pins were supplied");
+        assert_eq!(
+            tombstoned.wasm_handles.keys().collect::<Vec<_>>(),
+            ["22"],
+            "the page rebound 11 to something the filter refused; the stale URL stays gone"
+        );
         fs::remove_dir_all(&dir).unwrap();
     }
 
