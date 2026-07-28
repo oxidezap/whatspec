@@ -273,6 +273,16 @@ def check_event_codes(data, domain, errors):
             )
         else:
             seen[code] = e.get("name")
+        # `[default, ring1, ring2]` — the positions ARE the meaning, so a short array does
+        # not lose the last ring, it shifts every ring that remains. The schema permits any
+        # length.
+        weights = e.get("weights")
+        if not isinstance(weights, list) or len(weights) != 3:
+            errors.append(
+                f"{domain}: event {e.get('name')!r} carries "
+                f"{len(weights) if isinstance(weights, list) else 'no'} sampling "
+                f"weight(s), not the three positions [default, ring1, ring2]"
+            )
         # A field's `id` is its wire identifier WITHIN the event, so the same rule applies
         # one level down: an encoder handed two fields sharing an id cannot tell them
         # apart. Scoped per event — ids repeat across events by design.
@@ -331,6 +341,10 @@ def check_assertion(a, path, errors):
     # `attr` assertion may legitimately assert only presence.
     if a.get("kind") == "content" and a.get("value") is None:
         errors.append(f"{path}: content assertion with no value to match")
+    # A `tag` assertion IS the expected tag; the incoming and server-request scanners read
+    # it from `name`. Without it the assertion can neither enforce nor dispatch a shape.
+    if a.get("kind") == "tag" and not a.get("name"):
+        errors.append(f"{path}: tag assertion with no tag name")
 
 
 def main() -> int:

@@ -1330,7 +1330,22 @@ fn load_wasm(
         handles.extend(cache.wasm_handles(remote_version.unwrap_or_default()));
     }
     handles.extend(resolution.handle_by_url());
-    let pins = bootloader_pins(&resolution, &handles);
+
+    // The PINS are built from the id → URL direction instead, because `handles` is
+    // URL-keyed and therefore already lossy: `invert`/`handle_by_url` keep the lowest id
+    // where several `bx` ids alias one wasm URL, and reversing that back recovers only
+    // that one. `wasm_handles` promises every id that resolved, and a JS reference using
+    // one of the dropped aliases would find nothing in the map. (The cache's own record
+    // is URL-keyed too, so its aliases were already lost when it was written; the two
+    // authoritative sources are not.)
+    let mut ids: BTreeMap<String, String> = discovered.bx_data.clone();
+    ids.extend(resolution.by_id.clone());
+    if let Some(cache) = &cache {
+        for (url, id) in cache.wasm_handles(remote_version.unwrap_or_default()) {
+            ids.entry(id).or_insert(url);
+        }
+    }
+    let pins = bootloader_pins(&resolution, &ids);
 
     if payloads.is_empty() {
         // Still sweep: an explicit `--wasm-out` that produced nothing must not leave the
@@ -1455,14 +1470,14 @@ fn truncate_on_char_boundary(s: &str, max_bytes: usize) -> &str {
 #[cfg(feature = "fetch")]
 fn bootloader_pins(
     resolution: &wa_fetch::WasmResolution,
-    handles: &BTreeMap<String, String>,
+    ids: &BTreeMap<String, String>,
 ) -> lock::BootloaderPins {
     lock::BootloaderPins {
         handles_from_page: resolution.from_page,
-        wasm_handles: handles
+        wasm_handles: ids
             .iter()
-            .filter(|(url, _)| wa_fetch::is_wasm_url(url))
-            .map(|(url, id)| (id.clone(), url.clone()))
+            .filter(|(_, url)| wa_fetch::is_wasm_url(url))
+            .map(|(id, url)| (id.clone(), url.clone()))
             .collect(),
         requests: resolution.requests,
         failed_requests: resolution.failed_requests,
@@ -3237,13 +3252,17 @@ mod tests {
         // three sources folded into `handles`. Pinning the lot broke the field's own
         // contract and swamped its diff signal with images that change far more often
         // than the wasm set does.
+        // id -> URL, the direction the page and the resolver actually record: two ids may
+        // alias one wasm URL, and the URL-keyed index this used to be built from kept only
+        // the lowest of them.
         let handles: BTreeMap<String, String> = [
-            ("https://x/a.wasm", "11"),
-            ("https://x/logo.png", "22"),
-            ("https://x/b.wasm?v=3", "33"),
+            ("11", "https://x/a.wasm"),
+            ("22", "https://x/logo.png"),
+            ("33", "https://x/b.wasm?v=3"),
+            ("44", "https://x/a.wasm"),
         ]
         .iter()
-        .map(|(u, i)| (u.to_string(), i.to_string()))
+        .map(|(i, u)| (i.to_string(), u.to_string()))
         .collect();
         let resolution = wa_fetch::WasmResolution {
             from_page: 1,
@@ -3254,8 +3273,9 @@ mod tests {
         let pins = bootloader_pins(&resolution, &handles);
         assert_eq!(
             pins.wasm_handles.keys().collect::<Vec<_>>(),
-            ["11", "33"],
-            "the image is dropped and a query string does not hide a .wasm"
+            ["11", "33", "44"],
+            "the image is dropped, a query string does not hide a .wasm, \
+             and an aliasing id is kept"
         );
         // The diagnostics still come from the resolution, untouched by the filter.
         assert_eq!((pins.handles_from_page, pins.requests), (1, 2));

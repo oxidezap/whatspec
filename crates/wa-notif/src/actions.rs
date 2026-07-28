@@ -1605,6 +1605,14 @@ fn local_call_source<'b, 'a>(
 ) -> Option<(String, Vec<String>)> {
     let call = as_call(e)?;
     let name = as_identifier(&call.callee)?;
+    // The CALLEE is subject to the caller's bindings too, not only the arguments below.
+    // `outer(h, node){ return h(node) }` calls the `h` it was handed; inlining the
+    // module-level `h` of the same name would publish an unrelated helper's fields, or
+    // even a different action. Refused rather than guessed at — the same rule the named
+    // mapped-callback path applies, and for the same reason.
+    if scope.get(name).is_some() {
+        return None;
+    }
     let src = ctx.locals.get(name).cloned()?;
     // The argument TEXT, so `inline_local` can bind the helper's formals. A span outside
     // the module source (a synthesized node) yields nothing for that position rather than
