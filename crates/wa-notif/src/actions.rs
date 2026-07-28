@@ -1435,7 +1435,7 @@ fn local_call_source(e: &Expression, ctx: &ArmCtx) -> Option<(String, Vec<String
         .iter()
         .map(|a| {
             arg_expr(a)
-                .map(|e| oxc_span::GetSpan::span(e))
+                .map(oxc_span::GetSpan::span)
                 .and_then(|sp| ctx.source.get(sp.start as usize..sp.end as usize))
                 .unwrap_or("")
                 .to_string()
