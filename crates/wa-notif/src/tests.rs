@@ -1229,7 +1229,7 @@ __d("WAWebCommsHandleLoggedInStanza",["WAWebHandleGroupNotification"],function(g
   }); };
 }, 1);
 __d("WAWebHandleGroupNotificationConst",[],(function(t,n,r,o,a,i,l){
-  l.GROUP_NOTIFICATION_TAG=Object.freeze({EVICT:"evict",COND:"cond",REBIND:"rebind",PICK:"pick",BARE:"bare",HELPER:"helper",ESCAPE:"escape",TAIL:"tail",JOIN:"join",SEQ:"seq",SUFFIX:"suffix",AFTER:"after",TRY:"try_tag",FIN:"fin",FINCOND:"fincond",FINTHROW:"finthrow",MULTI:"multi",MULTI3:"multi3",DEAD:"dead",LIT:"lit",LOOP:"loop_tag",FINTRY:"fintry",PARAM:"param",BLK:"blk",EXH:"exh",NFT:"nft",LATE:"late",DOW:"dow",SHADOW:"shadow",CATCHP:"catchp",DOWX:"dowx"});
+  l.GROUP_NOTIFICATION_TAG=Object.freeze({EVICT:"evict",COND:"cond",REBIND:"rebind",PICK:"pick",BARE:"bare",HELPER:"helper",ESCAPE:"escape",TAIL:"tail",JOIN:"join",SEQ:"seq",SUFFIX:"suffix",AFTER:"after",TRY:"try_tag",FIN:"fin",FINCOND:"fincond",FINTHROW:"finthrow",MULTI:"multi",MULTI3:"multi3",DEAD:"dead",LIT:"lit",LOOP:"loop_tag",FINTRY:"fintry",PARAM:"param",BLK:"blk",EXH:"exh",NFT:"nft",LATE:"late",DOW:"dow",SHADOW:"shadow",CATCHP:"catchp",DOWX:"dowx",SAME:"same",NEST:"nest",DOWB:"dowb",PVAL:"pval",SPREAD:"spread"});
 }), 1);
 __d("WAWebGroupType",[],(function(t,n,r,o,a,i,l){
   l.GROUP_ACTIONS=Object.freeze({FIRST:"first",SECOND:"second",THIRD:"third"});
@@ -1237,6 +1237,7 @@ __d("WAWebGroupType",[],(function(t,n,r,o,a,i,l){
 __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGroupType"],(function(t,n,r,o,a,i,l){
   function hlp(e){ return {actionType:o("WAWebGroupType").GROUP_ACTIONS.SECOND, extra:e.attrString("extra")}; }
   function norm(v){ return v == null ? null : v; }
+  function mk(v){ return {actionType:o("WAWebGroupType").GROUP_ACTIONS.THIRD, id:v}; }
   function h(e){
     var x=e.mapChildrenWithTag("child", function(t){
       switch (t.tag) {
@@ -1336,6 +1337,17 @@ __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGr
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.DOWX:
           do { return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, a:t.attrString("a")}; } while (t.hasChild("again"));
           return {actionType:o("WAWebGroupType").GROUP_ACTIONS.SECOND, b:t.attrString("b")};
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.SAME:
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, id:t.hasChild("q") ? t.attrString("jid") : t.attrString("jid")};
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.NEST:
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.SECOND, who:t.mapChildrenWithTag("p", function(p){ return {meta:{id:p.attrString("id")}, top:p.attrString("top")}; })};
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.DOWB: {
+          var db;
+          do { if (t.hasChild("skip")) break; db = t.attrString("lid"); } while (t.hasChild("again"));
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, id:db};
+        }
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.PVAL:
+          return mk(t.attrString("jid"));
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.SUFFIX:
           switch (t.attrString("k")) {
             case "a": t.attrString("setup");
@@ -1897,4 +1909,71 @@ fn nothing_after_an_exiting_do_while_is_reachable() {
         .filter_map(|a| a.action_type.as_deref())
         .collect();
     assert_eq!(got, ["first"], "only the reachable shape: {got:?}");
+}
+
+#[test]
+fn an_identical_read_on_both_ternary_branches_stays_required() {
+    // `c ? attrString("jid") : attrString("jid")` runs on every path and still rejects an
+    // absent `jid`. Falling through to the plain path made `read_field` see a conditional,
+    // call it a presence guard, and publish `required: false`.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let a = edge_action(&ir, "same");
+    let f = a
+        .fields
+        .iter()
+        .find(|f| f.name == "id")
+        .expect("the id field");
+    assert_eq!(f.wire_name, "jid");
+    assert!(f.required, "the accessor is required on every path: {f:?}");
+}
+
+#[test]
+fn a_nested_callback_object_is_not_flattened_into_the_child() {
+    // `{meta: {id: p.attrString("id")}, top: …}` — the element has `meta.id`, NOT a
+    // top-level `id`. Walking every property value reached the inner one and claimed it.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let a = edge_action(&ir, "nest");
+    let child = a
+        .children
+        .iter()
+        .find(|c| c.name == "who")
+        .expect("the child");
+    let names: Vec<&str> = child.fields.iter().map(|f| f.name.as_str()).collect();
+    assert!(
+        names.contains(&"top"),
+        "the real flat field survives: {names:?}"
+    );
+    assert!(
+        !names.contains(&"id"),
+        "the nested one is not hoisted: {names:?}"
+    );
+}
+
+#[test]
+fn a_do_while_that_can_break_early_is_not_a_definite_write() {
+    // `do { if (c) break; x = a("lid"); } while (…)` reaches the return without assigning
+    // `x` on the break path, so `lid` is not its one certain source.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let a = edge_action(&ir, "dowb");
+    assert!(
+        !a.fields.iter().any(|f| f.name == "id"),
+        "the early-exit path leaves it unbound: {:?}",
+        a.fields
+    );
+}
+
+#[test]
+fn a_helper_given_a_wire_read_binds_its_parameter() {
+    // `function mk(v){ return {actionType: THIRD, id: v} }` called as
+    // `mk(t.attrString("jid"))`. The helper reads no attribute of its own, so expanding it
+    // with an empty scope resolved `v` to nothing and lost `id`.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let a = edge_action(&ir, "pval");
+    assert_eq!(a.action_type.as_deref(), Some("third"));
+    let f = a
+        .fields
+        .iter()
+        .find(|f| f.name == "id")
+        .expect("the id field");
+    assert_eq!(f.wire_name, "jid");
 }

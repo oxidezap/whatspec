@@ -12,7 +12,7 @@
       "constraints": {
         "errorArms": 645,
         "errorTexts": 577,
-        "fieldEnumRefs": 150,
+        "fieldEnumRefs": 151,
         "fieldLiterals": 1784,
         "referenceConstraints": 584,
         "typedErrorVariants": 104

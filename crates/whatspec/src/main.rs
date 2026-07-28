@@ -823,6 +823,8 @@ struct IqConstraintCounts {
     /// `ParsedField`s carrying a pinned `literalValue`.
     field_literals: usize,
     /// Response fields whose enum argument resolved to a real variant set.
+    /// Response fields carrying a resolved wire-enum constraint, whether it arrived as a
+    /// cross-module `enumRef` or an in-module `enumKeys` set.
     field_enum_refs: usize,
     /// Response variants classified as a client or server error.
     typed_error_variants: usize,
@@ -849,7 +851,10 @@ fn iq_constraint_counts(ir: &wa_ir::IqIr) -> IqConstraintCounts {
             if f.reference_path.is_some() {
                 c.reference_constraints += 1;
             }
-            if f.enum_ref.is_some() {
+            // `enumKeys` is the SAME closed allowed-value constraint, just resolved
+            // in-module instead of cross-module. Counting only `enumRef` meant losing an
+            // `enumKeys` table left the floor unmoved — one such field is live today.
+            if f.enum_ref.is_some() || f.enum_keys.as_ref().is_some_and(|k| !k.is_empty()) {
                 c.field_enum_refs += 1;
             }
             if let Some(children) = &f.children {

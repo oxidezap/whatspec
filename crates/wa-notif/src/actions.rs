@@ -319,6 +319,14 @@ fn string_const_object(e: &Expression) -> Option<ConstMap> {
         // A single-argument wrapper call: `Object.freeze({…})`, `n("$InternalEnum")({…})`.
         None => wa_oxc::as_object(arg_expr(as_call(e)?.arguments.first()?)?)?,
     };
+    // A spread, a method or a computed key is SKIPPED by `obj_props`, so accepting the
+    // survivors publishes a partial map: `{ADD: "old", ...base}` resolves `ADD` to `old`
+    // when the runtime switch uses the spread's value, and a spread-only member vanishes.
+    // Either way the arm gets a `wireTag`/`actionType` the handler never produces —
+    // invented, not merely lost. Same rule as the response-side enum tables.
+    if obj.properties.len() != wa_oxc::obj_props(obj).count() {
+        return None;
+    }
     let mut map = ConstMap::new();
     for (key, value) in wa_oxc::obj_props(obj) {
         map.insert(key.to_string(), as_string_lit(value)?.to_string());
@@ -366,6 +374,7 @@ pub(crate) fn extract_actions(
     }
     let ctx = ArmCtx {
         consts,
+        source: handler_slice,
         locals: by_name
             .into_iter()
             .filter_map(|(n, src)| src.map(|s| (n, s)))
@@ -385,6 +394,10 @@ pub(crate) fn extract_actions(
 struct ArmCtx<'c, 'a> {
     consts: &'c ConstResolver<'a>,
     locals: HashMap<String, String>,
+    /// The handler module's source, so an inlined helper can be given the TEXT of the
+    /// arguments it was called with. The helper is re-parsed in its own allocator, so a
+    /// call-site AST reference cannot cross into it — its source can.
+    source: &'c str,
 }
 
 /// Collects `function name(…){…}` / `var name = function(…){…}` spans in a module.
@@ -1011,7 +1024,16 @@ fn collect_returns_into<'b, 'a>(
             // A `do…while` body runs AT LEAST once, so its writes are definite — the
             // ordinary loop merge tombstoned them and lost every field they bound.
             Statement::DoWhileStatement(d) => {
-                collect_returns_into(&[&d.body], scope, out);
+                // The body runs at least once, so its writes are definite — UNLESS a path
+                // leaves it early: `do { if (c) break; x = a("lid"); } while (…)` reaches
+                // the return without assigning `x`, and propagating unconditionally
+                // recorded `lid` as its one certain source.
+                if can_escape(&d.body, true) {
+                    collect_returns(&[&d.body], scope, out);
+                    tombstone_branch_writes(s, scope);
+                } else {
+                    collect_returns_into(&[&d.body], scope, out);
+                }
             }
             Statement::ForStatement(_)
             | Statement::ForInStatement(_)
@@ -1231,7 +1253,7 @@ fn expand_shape(
     if depth <= MAX_INLINE_DEPTH
         && let Some(src) = local_call_source(deref_ident(result, scope), ctx)
     {
-        let expanded = expand_helper(wire_tag, &src, ctx, depth + 1);
+        let expanded = expand_helper(wire_tag, &src.0, &src.1, ctx, depth + 1);
         if !expanded.is_empty() {
             return expanded;
         }
@@ -1239,11 +1261,82 @@ fn expand_shape(
     vec![read_action(wire_tag.to_string(), result, scope, ctx, depth)]
 }
 
+/// The helper source, immediately applied to its call-site arguments when one of them is
+/// itself a wire read.
+///
+/// Applied ONLY in that case. A helper handed the NODE (`y(chat, child, tag)` — the
+/// overwhelmingly common form) already works: its body reads off its own parameter and
+/// `find_accessor` finds that structurally. Binding those formals to call-site
+/// identifiers that do not exist in this parse resolves them to nothing, and doing it
+/// unconditionally cost 62 shape elements. The value-passing form is the one that needs
+/// the binding.
+fn apply_args(fn_src: &str, arg_srcs: &[String]) -> String {
+    let passes_a_read = arg_srcs
+        .iter()
+        .any(|a| a.contains(".attr") || a.contains(".maybeAttr") || a.contains(".content"));
+    if passes_a_read {
+        format!("(({fn_src})({}))", arg_srcs.join(", "))
+    } else {
+        format!("({fn_src})")
+    }
+}
+
+/// Split a parsed `((fn)(a, b))` into the function and a scope binding its formals to
+/// the call-site argument expressions.
+///
+/// Both live in the SAME allocator (the arguments were re-parsed from their source text
+/// alongside the helper), which is what makes the binding expressible at all — a
+/// call-site AST node from the enclosing parse could not cross into here.
+fn applied_helper<'b, 'a>(e: &'b Expression<'a>) -> (&'b Expression<'a>, Scope<'b, 'a>) {
+    let mut scope = Scope::new();
+    // The wrapper is `((fn)(args))`, so the outer parens hide the call.
+    let e = match e {
+        Expression::ParenthesizedExpression(p) => &p.expression,
+        other => other,
+    };
+    let Some(call) = as_call(e) else {
+        return (e, scope);
+    };
+    let func = &call.callee;
+    let params = match func {
+        Expression::ParenthesizedExpression(p) => function_params(&p.expression),
+        other => function_params(other),
+    };
+    for (i, name) in params.into_iter().enumerate() {
+        if let Some(arg) = call.arguments.get(i).and_then(arg_expr) {
+            scope.insert(name, arg);
+        }
+    }
+    match func {
+        Expression::ParenthesizedExpression(p) => (&p.expression, scope),
+        other => (other, scope),
+    }
+}
+
+/// The formal parameter names of a function expression / declaration.
+fn function_params<'b, 'a>(e: &'b Expression<'a>) -> Vec<&'b str> {
+    let items = match e {
+        Expression::FunctionExpression(f) => &f.params.items,
+        Expression::ArrowFunctionExpression(f) => &f.params.items,
+        _ => return Vec::new(),
+    };
+    items
+        .iter()
+        .filter_map(|p| p.pattern.get_identifier_name().map(|n| n.as_str()))
+        .collect()
+}
+
 /// Parse a helper and expand each of its result branches, inside this parse's own
 /// allocator (only the owned definitions escape).
-fn expand_helper(wire_tag: &str, fn_src: &str, ctx: &ArmCtx, depth: u8) -> Vec<NotifActionDef> {
+fn expand_helper(
+    wire_tag: &str,
+    fn_src: &str,
+    arg_srcs: &[String],
+    ctx: &ArmCtx,
+    depth: u8,
+) -> Vec<NotifActionDef> {
     let alloc = Allocator::default();
-    let wrapped = format!("({fn_src})");
+    let wrapped = apply_args(fn_src, arg_srcs);
     let ret = wa_oxc::parse_cjs(&alloc, &wrapped);
     if ret.panicked {
         return Vec::new();
@@ -1254,8 +1347,9 @@ fn expand_helper(wire_tag: &str, fn_src: &str, ctx: &ArmCtx, depth: u8) -> Vec<N
     }) else {
         return Vec::new();
     };
+    let (func, bound) = applied_helper(func);
     let mut merged: Vec<BranchFold> = Vec::new();
-    for (shape, scope) in fn_result_shapes(func, &Scope::new()) {
+    for (shape, scope) in fn_result_shapes(func, &bound) {
         for action in expand_shape(wire_tag, shape, &scope, ctx, depth) {
             match merged
                 .iter_mut()
@@ -1318,7 +1412,7 @@ fn fold_shape<'b, 'a>(
             if let Some(child) = mapped_child("", e, scope, ctx.consts) {
                 def.children.push(child);
             } else if let Some(src) = local_call_source(e, ctx) {
-                inline_local(&src, def, ctx, depth);
+                inline_local(&src.0, &src.1, def, ctx, depth);
             }
         }
     }
@@ -1329,20 +1423,45 @@ fn fold_shape<'b, 'a>(
 const MAX_INLINE_DEPTH: u8 = 3;
 
 /// The source of the module-local helper `e` calls, if it is one.
-fn local_call_source(e: &Expression, ctx: &ArmCtx) -> Option<String> {
+fn local_call_source(e: &Expression, ctx: &ArmCtx) -> Option<(String, Vec<String>)> {
     let call = as_call(e)?;
     let name = as_identifier(&call.callee)?;
-    ctx.locals.get(name).cloned()
+    let src = ctx.locals.get(name).cloned()?;
+    // The argument TEXT, so `inline_local` can bind the helper's formals. A span outside
+    // the module source (a synthesized node) yields nothing for that position rather than
+    // a wrong slice.
+    let args = call
+        .arguments
+        .iter()
+        .map(|a| {
+            arg_expr(a)
+                .map(|e| oxc_span::GetSpan::span(e))
+                .and_then(|sp| ctx.source.get(sp.start as usize..sp.end as usize))
+                .unwrap_or("")
+                .to_string()
+        })
+        .collect();
+    Some((src, args))
 }
 
 /// Re-parse a helper's source and fold each of its result branches into `def`.
 ///
 /// The inlining happens inside this parse's own allocator, so no AST reference escapes
 /// it — the helper's contribution is accumulated straight into `def`.
-fn inline_local(fn_src: &str, def: &mut NotifActionDef, ctx: &ArmCtx, depth: u8) {
+fn inline_local(
+    fn_src: &str,
+    arg_srcs: &[String],
+    def: &mut NotifActionDef,
+    ctx: &ArmCtx,
+    depth: u8,
+) {
     let alloc = Allocator::default();
-    // Wrapped in parens so a `function name(…){…}` declaration parses as an expression.
-    let wrapped = format!("({fn_src})");
+    // Wrapped in parens so a `function name(…){…}` declaration parses as an expression,
+    // and IMMEDIATELY APPLIED to the call site's argument text. A helper that only reads
+    // off a node it is handed works either way, but one that receives an already-read
+    // VALUE (`function h(v){ return {id: v} }` called as `h(child.attrString("jid"))`)
+    // resolves its parameter to nothing without this, and the field is lost.
+    let wrapped = apply_args(fn_src, arg_srcs);
     let ret = wa_oxc::parse_cjs(&alloc, &wrapped);
     if ret.panicked {
         return;
@@ -1353,13 +1472,14 @@ fn inline_local(fn_src: &str, def: &mut NotifActionDef, ctx: &ArmCtx, depth: u8)
     }) else {
         return;
     };
+    let (func, bound) = applied_helper(func);
     // Each of the helper's result branches is folded on its own and then MERGED, not
     // accumulated: a helper returning `{x: …}` in one branch and `{y: …}` in another
     // describes two legal shapes, and combining them would make the enclosing action
     // require both and reject either. `merge_action` weakens what only some branches
     // carry — the same rule the switch arms use.
     let mut branches: Vec<BranchFold> = Vec::new();
-    for (shape, scope) in fn_result_shapes(func, &Scope::new()) {
+    for (shape, scope) in fn_result_shapes(func, &bound) {
         let mut one = empty_action(String::new());
         fold_shape(shape, &scope, &mut one, ctx, depth + 1);
         match branches
@@ -1493,7 +1613,7 @@ fn fold_object<'b, 'a>(
             && depth < MAX_INLINE_DEPTH
         {
             let mut nested = empty_action(String::new());
-            inline_local(&src, &mut nested, ctx, depth);
+            inline_local(&src.0, &src.1, &mut nested, ctx, depth);
             // A helper that yields nothing is a helper the inliner cannot see through —
             // typically because the value arrives through a PARAMETER
             // (`reason: hasAttr("reason") ? S(t.attrString("reason")) : null`, where `S`
@@ -1646,7 +1766,18 @@ fn value_selection<'b, 'a>(
         (None, Some(acc)) if is_nullish(a) => Some(Some(guarded_field(key, acc, consts))),
         (Some(x), Some(y)) => {
             if x.wire_name == y.wire_name && x.method == y.method && x.content == y.content {
-                None // same read on both paths — the plain path handles it
+                // The SAME read on both paths runs on every execution, so it keeps the
+                // accessor's own requiredness. Falling through to the plain path made
+                // `read_field` see a conditional, call it a presence guard, and publish
+                // `required: false` for an accessor that still rejects an absent value.
+                Some(Some(NotifActionField {
+                    name: key.to_string(),
+                    required: !wap::is_optional_method(&x.method),
+                    field_type: wap::method_field_type(&x.method),
+                    wire_name: x.wire_name,
+                    content: x.content,
+                    enum_ref: x.enum_arg.and_then(|a| consts.enum_ref(a)),
+                }))
             } else {
                 Some(None) // two sources for one key: refuse
             }
@@ -1968,6 +2099,14 @@ fn collect_shape_fields<'b, 'a>(
                 && !self.out.iter().any(|f| f.name == field.name)
             {
                 self.out.push(field);
+            }
+            // Do NOT descend into a property whose value is itself an object literal:
+            // that is NESTING, not more of this shape. `{meta: {id: p.attrString("id")}}`
+            // has no top-level `id`, and walking in claimed each element had one. The walk
+            // still descends everything else, which is how it reaches the operands of a
+            // `babelHelpers.extends(…)` wrapper.
+            if wa_oxc::as_object(deref_ident(&p.value, self.scope)).is_some() {
+                return;
             }
             walk::walk_object_property(self, p);
         }
