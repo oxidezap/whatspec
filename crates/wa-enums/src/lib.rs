@@ -232,6 +232,28 @@ fn collect_target_names(target: &oxc_ast::ast::AssignmentTarget, out: &mut Vec<S
     }
 }
 
+/// The names a statement list binds LEXICALLY: `let`, `const` and `class`.
+///
+/// One helper for all four places that needed it — a function body, an arrow body, a
+/// block and a `switch`. Three hand-written copies had already drifted: the class arm was
+/// added to two of them and the third kept resolving over a class binding.
+fn collect_lexical(stmts: &[oxc_ast::ast::Statement], out: &mut HashSet<String>) {
+    use oxc_ast::ast::Statement as S;
+    for stmt in stmts {
+        match stmt {
+            S::VariableDeclaration(d) if !d.kind.is_var() => collect_declared(d, out),
+            // `class e {}` binds lexically over its whole scope exactly as `let` does.
+            S::ClassDeclaration(c) => {
+                if let Some(id) = &c.id {
+                    out.insert(id.name.to_string());
+                }
+            }
+            // `class e {}` binds lexically over its whole scope exactly as `let` does.
+            _ => {}
+        }
+    }
+}
+
 /// Every identifier one `var`/`let`/`const` declaration binds.
 fn collect_declared(d: &oxc_ast::ast::VariableDeclaration, out: &mut HashSet<String>) {
     for decl in &d.declarations {
@@ -480,13 +502,7 @@ impl NamedResolver {
                 collect_declared(d, &mut lexical);
             }
         }
-        for stmt in stmts {
-            if let oxc_ast::ast::Statement::VariableDeclaration(d) = stmt
-                && !d.kind.is_var()
-            {
-                collect_declared(d, &mut lexical);
-            }
-        }
+        collect_lexical(stmts, &mut lexical);
         lexical.retain(|n| self.locals.contains_key(n.as_str()));
         let pushed = !lexical.is_empty();
         if pushed {
@@ -691,13 +707,7 @@ impl<'a> Visit<'a> for NamedResolver {
         // block-scope visitor only sees nested blocks, so these needed collecting here.
         if let Some(body) = &f.body {
             let mut lexical = HashSet::new();
-            for stmt in &body.statements {
-                if let oxc_ast::ast::Statement::VariableDeclaration(d) = stmt
-                    && !d.kind.is_var()
-                {
-                    collect_declared(d, &mut lexical);
-                }
-            }
+            collect_lexical(&body.statements, &mut lexical);
             hoisted.extend(
                 lexical
                     .into_iter()
@@ -751,17 +761,9 @@ impl<'a> Visit<'a> for NamedResolver {
         // A `case` consequent is not a `BlockStatement`, so its `let` was invisible —
         // the same untracked-lexical hole as the loop headers below. The binding is
         // scoped to the whole switch body, which is what the runtime does too.
-        let stmts: Vec<oxc_ast::ast::Statement<'a>> = Vec::new();
-        let _ = &stmts;
         let mut lexical = HashSet::new();
         for case in &sw.cases {
-            for stmt in &case.consequent {
-                if let oxc_ast::ast::Statement::VariableDeclaration(d) = stmt
-                    && !d.kind.is_var()
-                {
-                    collect_declared(d, &mut lexical);
-                }
-            }
+            collect_lexical(&case.consequent, &mut lexical);
         }
         lexical.retain(|n| self.locals.contains_key(n.as_str()));
         let pushed = !lexical.is_empty();
@@ -814,13 +816,7 @@ impl<'a> Visit<'a> for NamedResolver {
         // block visitor never sees them either.
         let mut hoisted = param_names(&f.params);
         let mut declared = HashSet::new();
-        for stmt in &f.body.statements {
-            if let oxc_ast::ast::Statement::VariableDeclaration(d) = stmt
-                && !d.kind.is_var()
-            {
-                collect_declared(d, &mut declared);
-            }
-        }
+        collect_lexical(&f.body.statements, &mut declared);
         collect_hoisted(&f.body.statements, &mut declared);
         hoisted.extend(
             declared
@@ -1454,6 +1450,23 @@ mod tests {
             var f=()=>{ let e=get(); var x=babelHelpers.extends({},e,{B:"b"}); i.OUT=x };
         }),1);"#;
         assert!(resolve_named_enum(arrow_let, "M", "OUT").is_none());
+
+        // `class e {}` binds lexically over its scope exactly as `let` does.
+        for shape in [
+            "function g(){ class e {} var x=babelHelpers.extends({},e,{B:\"b\"}); i.OUT=x }",
+            "function g(){ { class e {} var x=babelHelpers.extends({},e,{B:\"b\"}); i.OUT=x } }",
+        ] {
+            let src = format!(
+                r#"__d("M",[],(function(t,n,r,o,a,i){{
+                    var e={{A:"a"}};
+                    {shape}
+                }}),1);"#
+            );
+            assert!(
+                resolve_named_enum(&src, "M", "OUT").is_none(),
+                "the class binding shadows: {shape}"
+            );
+        }
 
         // A name rebound to the SAME body is not ambiguous — refusing it would throw away
         // a resolvable enum for nothing.

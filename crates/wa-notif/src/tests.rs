@@ -703,7 +703,8 @@ __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGr
             nestedGuard: t.hasChild("ng") ? (t.hasChild("en") && t.mapChildrenWithTag("nested_user", function(x){ return {id:x.attrUserJid("jid")}; })) : [{id:"fb"}],
             fromFormal: outerH(t, realCb),
             falsyFallback: t.hasChild("ff") ? t.mapChildrenWithTag("falsy_user", function(x){ return {id:x.attrUserJid("jid")}; }) : !1,
-            bareFalse: t.hasChild("bf") ? t.mapChildrenWithTag("bare_user", function(x){ return {id:x.attrUserJid("jid")}; }) : false};
+            bareFalse: t.hasChild("bf") ? t.mapChildrenWithTag("bare_user", function(x){ return {id:x.attrUserJid("jid")}; }) : false,
+            scalarFb: t.hasChild("sf") ? t.mapChildrenWithTag("scalar_user", function(x){ return {id:x.attrUserJid("jid")}; }) : 0};
         }
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.REVOKE_INVITE:
           return {actionType:o("WAWebGroupType").GROUP_ACTIONS.REVOKE_INVITE, participants:t.mapChildrenWithTag("participant", function(p){ return {id:p.attrUserJid("jid"), expiration:p.attrInt("expiration")}; }), owners:t.mapChildrenWithTag("owner", p=>o("WAWebJidToWid").userJidToUserWid(p.maybeAttrPhoneUserJid("phone_number")))};
@@ -968,6 +969,11 @@ fn a_mapped_child_is_optional_only_when_the_guard_admits_absence() {
     assert!(
         !child("bareFalse").required,
         "the unminified `false` is the same absence"
+    );
+    // A scalar sentinel is no more a collection than `null` is.
+    assert!(
+        !child("scalarFb").required,
+        "`: 0` on the far side is an absent collection too"
     );
 
     // The guard must not cost the child's contents.

@@ -2111,6 +2111,11 @@ fn is_nullish(e: &Expression) -> bool {
         Expression::NullLiteral(_) => true,
         Expression::BooleanLiteral(b) => !b.value,
         Expression::Identifier(i) => i.name == "undefined",
+        // A scalar sentinel is no more a collection than `null` is: `enabled ? map(…) : 0`
+        // yields a number on the disabled path. Any literal that cannot be a list counts.
+        Expression::NumericLiteral(_) | Expression::StringLiteral(_) => true,
+        // A scalar sentinel is no more a collection than `null` is: `enabled ? map(…) : 0`
+        // yields a number on the disabled path. Any literal that cannot be a list counts.
         Expression::UnaryExpression(u) => match u.operator {
             // The minifier writes `undefined` as `void 0`.
             oxc_ast::ast::UnaryOperator::Void => true,
