@@ -1229,7 +1229,7 @@ __d("WAWebCommsHandleLoggedInStanza",["WAWebHandleGroupNotification"],function(g
   }); };
 }, 1);
 __d("WAWebHandleGroupNotificationConst",[],(function(t,n,r,o,a,i,l){
-  l.GROUP_NOTIFICATION_TAG=Object.freeze({EVICT:"evict",COND:"cond",REBIND:"rebind",PICK:"pick",BARE:"bare",HELPER:"helper",ESCAPE:"escape",TAIL:"tail",JOIN:"join",SEQ:"seq",SUFFIX:"suffix",AFTER:"after",TRY:"try_tag",FIN:"fin",FINCOND:"fincond",FINTHROW:"finthrow",MULTI:"multi",MULTI3:"multi3",DEAD:"dead",LIT:"lit",LOOP:"loop_tag",FINTRY:"fintry",PARAM:"param",BLK:"blk",EXH:"exh",NFT:"nft",LATE:"late",DOW:"dow",SHADOW:"shadow",CATCHP:"catchp",DOWX:"dowx",SAME:"same",NEST:"nest",DOWB:"dowb",PVAL:"pval",SPREAD:"spread",DOWBRK:"dowbrk",FINW:"finw",FORI:"fori",CONDW:"condw",SPRD:"sprd"});
+  l.GROUP_NOTIFICATION_TAG=Object.freeze({EVICT:"evict",COND:"cond",REBIND:"rebind",PICK:"pick",BARE:"bare",HELPER:"helper",ESCAPE:"escape",TAIL:"tail",JOIN:"join",SEQ:"seq",SUFFIX:"suffix",AFTER:"after",TRY:"try_tag",FIN:"fin",FINCOND:"fincond",FINTHROW:"finthrow",MULTI:"multi",MULTI3:"multi3",DEAD:"dead",LIT:"lit",LOOP:"loop_tag",FINTRY:"fintry",PARAM:"param",BLK:"blk",EXH:"exh",NFT:"nft",LATE:"late",DOW:"dow",SHADOW:"shadow",CATCHP:"catchp",DOWX:"dowx",SAME:"same",NEST:"nest",DOWB:"dowb",PVAL:"pval",SPREAD:"spread",DOWBRK:"dowbrk",FINW:"finw",FORI:"fori",CONDW:"condw",SPRD:"sprd",ALIAS:"alias",NAMEDCB:"namedcb",OPTCH:"optch"});
 }), 1);
 __d("WAWebGroupType",[],(function(t,n,r,o,a,i,l){
   l.GROUP_ACTIONS=Object.freeze({FIRST:"first",SECOND:"second",THIRD:"third"});
@@ -1238,6 +1238,7 @@ __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGr
   function hlp(e){ return {actionType:o("WAWebGroupType").GROUP_ACTIONS.SECOND, extra:e.attrString("extra")}; }
   function norm(v){ return v == null ? null : v; }
   function mk(v){ return {actionType:o("WAWebGroupType").GROUP_ACTIONS.THIRD, id:v}; }
+  function parseP(p){ return {id:p.attrString("jid"), nick:p.maybeAttrString("nick")}; }
   function h(e){
     var x=e.mapChildrenWithTag("child", function(t){
       switch (t.tag) {
@@ -1368,6 +1369,15 @@ __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGr
         }
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.SPRD:
           return babelHelpers.extends({actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST}, {id:t.attrString("jid"), ...base});
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.ALIAS: {
+          var av = t.attrString("jid");
+          return mk(av);
+        }
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.NAMEDCB:
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, who:t.mapChildrenWithTag("participant", parseP)};
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.OPTCH:
+          if (t.hasChild("full")) return {actionType:o("WAWebGroupType").GROUP_ACTIONS.SECOND, who:t.mapChildrenWithTag("p", function(p){ return {id:p.attrString("jid")}; })};
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.SECOND, other:t.attrString("o")};
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.SUFFIX:
           switch (t.attrString("k")) {
             case "a": t.attrString("setup");
@@ -2078,4 +2088,54 @@ fn an_action_object_with_a_spread_is_refused() {
         "no partial shape is published: {:?}",
         a.fields
     );
+}
+
+#[test]
+fn a_helper_given_an_aliased_read_binds_its_parameter() {
+    // The minifier hoists nearly every read into a local, so `var av = attrString("jid");
+    // mk(av)` passes the text `av` — no wire read in it, and meaningless inside the
+    // helper's own parse. Resolving the argument through the caller's scope first is what
+    // makes the alias form work; deciding on the raw text declined it.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let a = edge_action(&ir, "alias");
+    assert_eq!(a.action_type.as_deref(), Some("third"));
+    let f = a
+        .fields
+        .iter()
+        .find(|f| f.name == "id")
+        .expect("the id field");
+    assert_eq!(f.wire_name, "jid");
+}
+
+#[test]
+fn a_named_mapped_child_callback_is_read() {
+    // `mapChildrenWithTag("participant", parseP)` — a module-local callback by NAME is a
+    // function too. Rejecting the identifier before looking at its body emitted the child
+    // with no fields, telling a consumer the element carries nothing.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let a = edge_action(&ir, "namedcb");
+    let child = a
+        .children
+        .iter()
+        .find(|c| c.name == "who")
+        .expect("the child");
+    let names: Vec<&str> = child.fields.iter().map(|f| f.name.as_str()).collect();
+    assert!(
+        names.contains(&"id") && names.contains(&"nick"),
+        "fields: {names:?}"
+    );
+}
+
+#[test]
+fn a_child_only_one_branch_carries_is_optional() {
+    // Two branches, one action, and only one carries the collection. Claiming it is always
+    // present is the same over-assertion `required` prevents for a scalar, one level up.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let a = edge_action(&ir, "optch");
+    let child = a
+        .children
+        .iter()
+        .find(|c| c.name == "who")
+        .expect("the child survives");
+    assert!(!child.required, "a branch without it makes it optional");
 }

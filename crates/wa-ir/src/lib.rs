@@ -31,6 +31,20 @@ pub use abprops::*;
 pub use appstate::*;
 pub use enums::*;
 pub use incoming::*;
+/// `true` — the serde default for a flag whose absence means "yes".
+///
+/// Paired with [`is_true`] so the common case stays out of the document: a child that
+/// every branch carries serializes no `required` key at all, and only the exception is
+/// written down.
+pub fn default_true() -> bool {
+    true
+}
+
+/// Whether a flag is at its default, for `skip_serializing_if`.
+pub fn is_true(b: &bool) -> bool {
+    *b
+}
+
 pub use iq::*;
 pub use mex::*;
 pub use notif::*;

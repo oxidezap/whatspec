@@ -250,6 +250,17 @@ pub struct NotifActionChild {
     /// The fields read off each element.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fields: Vec<NotifActionField>,
+    /// Whether EVERY branch producing this action carries the collection.
+    ///
+    /// `if (c) return {actionType: A, participants: …}; return {actionType: A}` yields two
+    /// legal shapes for one action, and only one of them has `participants`. Without this
+    /// the metadata claimed the list is always present — the same over-assertion that
+    /// `required` on a scalar field exists to prevent, one level up.
+    #[serde(
+        default = "crate::default_true",
+        skip_serializing_if = "crate::is_true"
+    )]
+    pub required: bool,
 }
 
 /// The incoming-dispatch IR document: version stamp + the dispatcher module name +
