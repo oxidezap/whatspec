@@ -2,7 +2,10 @@
 //! versioned artifacts (IQ specs, WAProto.proto, mex operations, appstate
 //! schemas) to disk, ready to be committed — locally or from CI.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
+// Only the fetch path builds the bootloader pin map from it.
+#[cfg(feature = "fetch")]
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -357,6 +360,11 @@ fn update(args: &[String]) -> Result<()> {
         // here would lose the diagnostic precisely when it matters. The recorded payload
         // set is preserved (that is what the emptiness guard protects); only the
         // bootloader section is rewritten.
+        // Gated with the function it calls: without `fetch` there is no bootloader to
+        // have asked, and `boot_pins` is always `None`. The call site was NOT gated when
+        // the function was, so the no-default-features build stopped compiling — a
+        // configuration `cargo test --workspace` never exercises.
+        #[cfg(feature = "fetch")]
         if let Some(pins) = &boot_pins
             && let Err(e) = update_lock_bootloader(&lock_path, pins)
         {
