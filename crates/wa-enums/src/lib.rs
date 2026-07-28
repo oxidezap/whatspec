@@ -809,9 +809,18 @@ impl<'a> Visit<'a> for NamedResolver {
 
     fn visit_arrow_function_expression(&mut self, f: &oxc_ast::ast::ArrowFunctionExpression<'a>) {
         // A block-bodied arrow hoists exactly as a function does; only its parameters
-        // were being recorded.
+        // were being recorded. Its top-level `let`/`const` need the same treatment as a
+        // function body's: an arrow's `FunctionBody` is not a `BlockStatement`, so the
+        // block visitor never sees them either.
         let mut hoisted = param_names(&f.params);
         let mut declared = HashSet::new();
+        for stmt in &f.body.statements {
+            if let oxc_ast::ast::Statement::VariableDeclaration(d) = stmt
+                && !d.kind.is_var()
+            {
+                collect_declared(d, &mut declared);
+            }
+        }
         collect_hoisted(&f.body.statements, &mut declared);
         hoisted.extend(
             declared
@@ -1437,6 +1446,14 @@ mod tests {
             function f(){ var x=babelHelpers.extends({},e,{B:"b"}); let e=get(); i.OUT=x }
         }),1);"#;
         assert!(resolve_named_enum(body_let, "M", "OUT").is_none());
+
+        // An arrow's body is not a `BlockStatement` either, so its own top-level `let`
+        // was as invisible as a function body's was.
+        let arrow_let = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"};
+            var f=()=>{ let e=get(); var x=babelHelpers.extends({},e,{B:"b"}); i.OUT=x };
+        }),1);"#;
+        assert!(resolve_named_enum(arrow_let, "M", "OUT").is_none());
 
         // A name rebound to the SAME body is not ambiguous — refusing it would throw away
         // a resolvable enum for nothing.

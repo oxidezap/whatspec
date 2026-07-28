@@ -25,6 +25,7 @@ Usage: scripts/lint-ir.py [generated-dir]   (default: ./generated)
 import json
 import re
 import sys
+from collections import defaultdict
 from pathlib import Path
 
 # Counted states, with the value observed when this guard was introduced. Raising
@@ -45,161 +46,161 @@ BASELINE = {
 # 155 fields collapse to 30 identities. Adding one, dropping one, or changing a count all
 # fail; each is a deliberate act that costs one line here.
 UNRESOLVED_ENUMS = {
-    "incoming|ack|deprecatedEditMixin|edit|attrEnum",
-    "iq|AddParticipantsResponseSuccess|participant|addParticipant|addParticipantsParticipantAddedOrNonRegisteredWaUserParticipantErrorLidResponseMixinGroup|AddParticipantsParticipantAddedResponse|addParticipantsParticipantMixins|ParticipantGroupJoinRequest|membershipApprovalRequestError|maybeAttrEnum",
-    "iq|CreateCustomPaymentMethodResponseSuccess|custom_payment_method|accountCustomPaymentMethodCustomPaymentMethodMixin|p2mEligible|maybeAttrEnum",
-    "iq|CreateCustomPaymentMethodResponseSuccess|custom_payment_method|accountCustomPaymentMethodCustomPaymentMethodMixin|p2pEligible|maybeAttrEnum",
-    "iq|CreateResponseSuccess|description|groupDescription|error|maybeAttrEnum",
-    "iq|PromoteDemoteAdminResponseSuccessMultiAdmin|participant|adminParticipant|error|maybeAttrEnum",
-    "iq|PromoteDemoteResponseSuccessDemote|participant|demoteParticipant|error|maybeAttrEnum",
-    "iq|PromoteDemoteResponseSuccessPromote|participant|promoteParticipant|error|maybeAttrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|bank|bank|defaultCreditP2m|maybeAttrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|bank|bank|defaultCreditP2p|maybeAttrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|bank|bank|defaultCredit|attrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|bank|bank|defaultDebitP2m|maybeAttrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|bank|bank|defaultDebitP2p|maybeAttrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|bank|bank|defaultDebit|attrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|bank|bank|isAadhaarEnabled|maybeAttrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|bank|bank|isInternationalPayEnabled|maybeAttrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|bank|bank|isMpinSet|attrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|bank|bank|p2mEligible|maybeAttrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|bank|bank|p2pEligible|maybeAttrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|bank|bank|pinFormatVersion|attrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|automaticBinding|maybeAttrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|capabilitiesDefaultEligibleP2m|maybeAttrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|capabilitiesDefaultEligibleP2p|maybeAttrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|capabilitiesDefaultEligible|attrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|capabilitiesEditable|attrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|capabilitiesVerifiable|attrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|comboCardCapabilitiesMixin|capabilitiesP2mCreditEligible|attrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|comboCardCapabilitiesMixin|capabilitiesP2mDebitEligible|attrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|defaultCreditP2m|maybeAttrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|defaultCreditP2p|maybeAttrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|defaultCredit|attrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|defaultDebitP2m|maybeAttrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|defaultDebitP2p|maybeAttrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|defaultDebit|attrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|needsDeviceBinding|attrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|p2mEligible|maybeAttrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|p2pEligible|maybeAttrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|verified|attrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|ESCard|capabilitiesDefaultEligibleP2m|maybeAttrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|ESCard|capabilitiesDefaultEligibleP2p|maybeAttrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|ESCard|capabilitiesDefaultEligible|attrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|ESCard|capabilitiesEditable|attrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|ESCard|capabilitiesVerifiable|attrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|ESCard|defaultCreditP2m|maybeAttrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|ESCard|defaultCreditP2p|maybeAttrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|ESCard|defaultCredit|attrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|ESCard|defaultDebitP2m|maybeAttrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|ESCard|defaultDebitP2p|maybeAttrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|ESCard|defaultDebit|attrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|ESCard|p2mEligible|maybeAttrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|ESCard|p2pEligible|maybeAttrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|ESCard|verified|attrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|MXCard|capabilitiesDefaultEligibleP2m|maybeAttrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|MXCard|capabilitiesDefaultEligibleP2p|maybeAttrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|MXCard|capabilitiesDefaultEligible|attrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|MXCard|capabilitiesEditable|attrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|MXCard|capabilitiesVerifiable|attrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|MXCard|defaultCreditP2m|maybeAttrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|MXCard|defaultCreditP2p|maybeAttrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|MXCard|defaultCredit|attrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|MXCard|defaultDebitP2m|maybeAttrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|MXCard|defaultDebitP2p|maybeAttrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|MXCard|defaultDebit|attrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|MXCard|p2mEligible|maybeAttrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|MXCard|p2pEligible|maybeAttrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|MXCard|verified|attrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|custom_payment_method|customPaymentMethod|p2mEligible|maybeAttrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|custom_payment_method|customPaymentMethod|p2pEligible|maybeAttrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|merchant|merchant|canAddPayout|attrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|merchant|merchant|canPayout|attrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|merchant|merchant|canSell|attrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|merchant|merchant|p2mEligible|maybeAttrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|merchant|merchant|p2pEligible|maybeAttrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|merchant|merchant|payout|payout|payoutBankOrPrepaidCardMixinGroup|PayoutBank|p2mEligible|maybeAttrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|merchant|merchant|payout|payout|payoutBankOrPrepaidCardMixinGroup|PayoutBank|p2pEligible|maybeAttrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|merchant|merchant|payout|payout|payoutBankOrPrepaidCardMixinGroup|PayoutPrepaidCard|p2mEligible|maybeAttrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|merchant|merchant|payout|payout|payoutBankOrPrepaidCardMixinGroup|PayoutPrepaidCard|p2pEligible|maybeAttrEnum",
-    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|merchant|merchant|pixOnboardingState|maybeAttrEnum",
-    "iq|account|accountPaymentMethodsMixin|bank|bank|defaultCreditP2m|maybeAttrEnum",
-    "iq|account|accountPaymentMethodsMixin|bank|bank|defaultCreditP2p|maybeAttrEnum",
-    "iq|account|accountPaymentMethodsMixin|bank|bank|defaultCredit|attrEnum",
-    "iq|account|accountPaymentMethodsMixin|bank|bank|defaultDebitP2m|maybeAttrEnum",
-    "iq|account|accountPaymentMethodsMixin|bank|bank|defaultDebitP2p|maybeAttrEnum",
-    "iq|account|accountPaymentMethodsMixin|bank|bank|defaultDebit|attrEnum",
-    "iq|account|accountPaymentMethodsMixin|bank|bank|isAadhaarEnabled|maybeAttrEnum",
-    "iq|account|accountPaymentMethodsMixin|bank|bank|isInternationalPayEnabled|maybeAttrEnum",
-    "iq|account|accountPaymentMethodsMixin|bank|bank|isMpinSet|attrEnum",
-    "iq|account|accountPaymentMethodsMixin|bank|bank|p2mEligible|maybeAttrEnum",
-    "iq|account|accountPaymentMethodsMixin|bank|bank|p2pEligible|maybeAttrEnum",
-    "iq|account|accountPaymentMethodsMixin|bank|bank|pinFormatVersion|attrEnum",
-    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|automaticBinding|maybeAttrEnum",
-    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|capabilitiesDefaultEligibleP2m|maybeAttrEnum",
-    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|capabilitiesDefaultEligibleP2p|maybeAttrEnum",
-    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|capabilitiesDefaultEligible|attrEnum",
-    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|capabilitiesEditable|attrEnum",
-    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|capabilitiesVerifiable|attrEnum",
-    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|comboCardCapabilitiesMixin|capabilitiesP2mCreditEligible|attrEnum",
-    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|comboCardCapabilitiesMixin|capabilitiesP2mDebitEligible|attrEnum",
-    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|defaultCreditP2m|maybeAttrEnum",
-    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|defaultCreditP2p|maybeAttrEnum",
-    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|defaultCredit|attrEnum",
-    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|defaultDebitP2m|maybeAttrEnum",
-    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|defaultDebitP2p|maybeAttrEnum",
-    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|defaultDebit|attrEnum",
-    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|needsDeviceBinding|attrEnum",
-    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|p2mEligible|maybeAttrEnum",
-    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|p2pEligible|maybeAttrEnum",
-    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|verified|attrEnum",
-    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|ESCard|capabilitiesDefaultEligibleP2m|maybeAttrEnum",
-    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|ESCard|capabilitiesDefaultEligibleP2p|maybeAttrEnum",
-    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|ESCard|capabilitiesDefaultEligible|attrEnum",
-    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|ESCard|capabilitiesEditable|attrEnum",
-    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|ESCard|capabilitiesVerifiable|attrEnum",
-    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|ESCard|defaultCreditP2m|maybeAttrEnum",
-    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|ESCard|defaultCreditP2p|maybeAttrEnum",
-    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|ESCard|defaultCredit|attrEnum",
-    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|ESCard|defaultDebitP2m|maybeAttrEnum",
-    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|ESCard|defaultDebitP2p|maybeAttrEnum",
-    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|ESCard|defaultDebit|attrEnum",
-    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|ESCard|p2mEligible|maybeAttrEnum",
-    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|ESCard|p2pEligible|maybeAttrEnum",
-    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|ESCard|verified|attrEnum",
-    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|MXCard|capabilitiesDefaultEligibleP2m|maybeAttrEnum",
-    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|MXCard|capabilitiesDefaultEligibleP2p|maybeAttrEnum",
-    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|MXCard|capabilitiesDefaultEligible|attrEnum",
-    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|MXCard|capabilitiesEditable|attrEnum",
-    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|MXCard|capabilitiesVerifiable|attrEnum",
-    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|MXCard|defaultCreditP2m|maybeAttrEnum",
-    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|MXCard|defaultCreditP2p|maybeAttrEnum",
-    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|MXCard|defaultCredit|attrEnum",
-    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|MXCard|defaultDebitP2m|maybeAttrEnum",
-    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|MXCard|defaultDebitP2p|maybeAttrEnum",
-    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|MXCard|defaultDebit|attrEnum",
-    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|MXCard|p2mEligible|maybeAttrEnum",
-    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|MXCard|p2pEligible|maybeAttrEnum",
-    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|MXCard|verified|attrEnum",
-    "iq|account|accountPaymentMethodsMixin|custom_payment_method|customPaymentMethod|p2mEligible|maybeAttrEnum",
-    "iq|account|accountPaymentMethodsMixin|custom_payment_method|customPaymentMethod|p2pEligible|maybeAttrEnum",
-    "iq|account|accountPaymentMethodsMixin|merchant|merchant|canAddPayout|attrEnum",
-    "iq|account|accountPaymentMethodsMixin|merchant|merchant|canPayout|attrEnum",
-    "iq|account|accountPaymentMethodsMixin|merchant|merchant|canSell|attrEnum",
-    "iq|account|accountPaymentMethodsMixin|merchant|merchant|p2mEligible|maybeAttrEnum",
-    "iq|account|accountPaymentMethodsMixin|merchant|merchant|p2pEligible|maybeAttrEnum",
-    "iq|account|accountPaymentMethodsMixin|merchant|merchant|payout|payout|payoutBankOrPrepaidCardMixinGroup|PayoutBank|p2mEligible|maybeAttrEnum",
-    "iq|account|accountPaymentMethodsMixin|merchant|merchant|payout|payout|payoutBankOrPrepaidCardMixinGroup|PayoutBank|p2pEligible|maybeAttrEnum",
-    "iq|account|accountPaymentMethodsMixin|merchant|merchant|payout|payout|payoutBankOrPrepaidCardMixinGroup|PayoutPrepaidCard|p2mEligible|maybeAttrEnum",
-    "iq|account|accountPaymentMethodsMixin|merchant|merchant|payout|payout|payoutBankOrPrepaidCardMixinGroup|PayoutPrepaidCard|p2pEligible|maybeAttrEnum",
-    "iq|account|accountPaymentMethodsMixin|merchant|merchant|pixOnboardingState|maybeAttrEnum",
-    "iq|custom_payment_method|accountCustomPaymentMethodCustomPaymentMethodMixin|p2mEligible|maybeAttrEnum",
-    "iq|custom_payment_method|accountCustomPaymentMethodCustomPaymentMethodMixin|p2pEligible|maybeAttrEnum",
-    "iq|description|groupDescription|error|maybeAttrEnum",
-    "iq|participant|addParticipant|addParticipantsParticipantAddedOrNonRegisteredWaUserParticipantErrorLidResponseMixinGroup|AddParticipantsParticipantAddedResponse|addParticipantsParticipantMixins|ParticipantGroupJoinRequest|membershipApprovalRequestError|maybeAttrEnum",
-    "iq|participant|adminParticipant|error|maybeAttrEnum",
-    "iq|participant|promoteParticipant|error|maybeAttrEnum",
-    "notif|create|reason|",
+    "incoming|ack|deprecatedEditMixin|edit|attrEnum": 1,
+    "iq|AddParticipantsResponseSuccess|participant|addParticipant|addParticipantsParticipantAddedOrNonRegisteredWaUserParticipantErrorLidResponseMixinGroup|AddParticipantsParticipantAddedResponse|addParticipantsParticipantMixins|ParticipantGroupJoinRequest|membershipApprovalRequestError|maybeAttrEnum": 1,
+    "iq|CreateCustomPaymentMethodResponseSuccess|custom_payment_method|accountCustomPaymentMethodCustomPaymentMethodMixin|p2mEligible|maybeAttrEnum": 1,
+    "iq|CreateCustomPaymentMethodResponseSuccess|custom_payment_method|accountCustomPaymentMethodCustomPaymentMethodMixin|p2pEligible|maybeAttrEnum": 1,
+    "iq|CreateResponseSuccess|description|groupDescription|error|maybeAttrEnum": 1,
+    "iq|PromoteDemoteAdminResponseSuccessMultiAdmin|participant|adminParticipant|error|maybeAttrEnum": 1,
+    "iq|PromoteDemoteResponseSuccessDemote|participant|demoteParticipant|error|maybeAttrEnum": 1,
+    "iq|PromoteDemoteResponseSuccessPromote|participant|promoteParticipant|error|maybeAttrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|bank|bank|defaultCreditP2m|maybeAttrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|bank|bank|defaultCreditP2p|maybeAttrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|bank|bank|defaultCredit|attrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|bank|bank|defaultDebitP2m|maybeAttrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|bank|bank|defaultDebitP2p|maybeAttrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|bank|bank|defaultDebit|attrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|bank|bank|isAadhaarEnabled|maybeAttrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|bank|bank|isInternationalPayEnabled|maybeAttrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|bank|bank|isMpinSet|attrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|bank|bank|p2mEligible|maybeAttrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|bank|bank|p2pEligible|maybeAttrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|bank|bank|pinFormatVersion|attrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|automaticBinding|maybeAttrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|capabilitiesDefaultEligibleP2m|maybeAttrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|capabilitiesDefaultEligibleP2p|maybeAttrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|capabilitiesDefaultEligible|attrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|capabilitiesEditable|attrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|capabilitiesVerifiable|attrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|comboCardCapabilitiesMixin|capabilitiesP2mCreditEligible|attrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|comboCardCapabilitiesMixin|capabilitiesP2mDebitEligible|attrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|defaultCreditP2m|maybeAttrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|defaultCreditP2p|maybeAttrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|defaultCredit|attrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|defaultDebitP2m|maybeAttrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|defaultDebitP2p|maybeAttrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|defaultDebit|attrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|needsDeviceBinding|attrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|p2mEligible|maybeAttrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|p2pEligible|maybeAttrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|verified|attrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|ESCard|capabilitiesDefaultEligibleP2m|maybeAttrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|ESCard|capabilitiesDefaultEligibleP2p|maybeAttrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|ESCard|capabilitiesDefaultEligible|attrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|ESCard|capabilitiesEditable|attrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|ESCard|capabilitiesVerifiable|attrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|ESCard|defaultCreditP2m|maybeAttrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|ESCard|defaultCreditP2p|maybeAttrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|ESCard|defaultCredit|attrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|ESCard|defaultDebitP2m|maybeAttrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|ESCard|defaultDebitP2p|maybeAttrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|ESCard|defaultDebit|attrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|ESCard|p2mEligible|maybeAttrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|ESCard|p2pEligible|maybeAttrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|ESCard|verified|attrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|MXCard|capabilitiesDefaultEligibleP2m|maybeAttrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|MXCard|capabilitiesDefaultEligibleP2p|maybeAttrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|MXCard|capabilitiesDefaultEligible|attrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|MXCard|capabilitiesEditable|attrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|MXCard|capabilitiesVerifiable|attrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|MXCard|defaultCreditP2m|maybeAttrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|MXCard|defaultCreditP2p|maybeAttrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|MXCard|defaultCredit|attrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|MXCard|defaultDebitP2m|maybeAttrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|MXCard|defaultDebitP2p|maybeAttrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|MXCard|defaultDebit|attrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|MXCard|p2mEligible|maybeAttrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|MXCard|p2pEligible|maybeAttrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|MXCard|verified|attrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|custom_payment_method|customPaymentMethod|p2mEligible|maybeAttrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|custom_payment_method|customPaymentMethod|p2pEligible|maybeAttrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|merchant|merchant|canAddPayout|attrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|merchant|merchant|canPayout|attrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|merchant|merchant|canSell|attrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|merchant|merchant|p2mEligible|maybeAttrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|merchant|merchant|p2pEligible|maybeAttrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|merchant|merchant|payout|payout|payoutBankOrPrepaidCardMixinGroup|PayoutBank|p2mEligible|maybeAttrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|merchant|merchant|payout|payout|payoutBankOrPrepaidCardMixinGroup|PayoutBank|p2pEligible|maybeAttrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|merchant|merchant|payout|payout|payoutBankOrPrepaidCardMixinGroup|PayoutPrepaidCard|p2mEligible|maybeAttrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|merchant|merchant|payout|payout|payoutBankOrPrepaidCardMixinGroup|PayoutPrepaidCard|p2pEligible|maybeAttrEnum": 1,
+    "iq|RemoveCustomPaymentMethodResponseSuccess|account|accountPaymentMethodsMixin|merchant|merchant|pixOnboardingState|maybeAttrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|bank|bank|defaultCreditP2m|maybeAttrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|bank|bank|defaultCreditP2p|maybeAttrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|bank|bank|defaultCredit|attrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|bank|bank|defaultDebitP2m|maybeAttrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|bank|bank|defaultDebitP2p|maybeAttrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|bank|bank|defaultDebit|attrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|bank|bank|isAadhaarEnabled|maybeAttrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|bank|bank|isInternationalPayEnabled|maybeAttrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|bank|bank|isMpinSet|attrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|bank|bank|p2mEligible|maybeAttrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|bank|bank|p2pEligible|maybeAttrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|bank|bank|pinFormatVersion|attrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|automaticBinding|maybeAttrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|capabilitiesDefaultEligibleP2m|maybeAttrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|capabilitiesDefaultEligibleP2p|maybeAttrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|capabilitiesDefaultEligible|attrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|capabilitiesEditable|attrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|capabilitiesVerifiable|attrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|comboCardCapabilitiesMixin|capabilitiesP2mCreditEligible|attrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|comboCardCapabilitiesMixin|capabilitiesP2mDebitEligible|attrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|defaultCreditP2m|maybeAttrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|defaultCreditP2p|maybeAttrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|defaultCredit|attrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|defaultDebitP2m|maybeAttrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|defaultDebitP2p|maybeAttrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|defaultDebit|attrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|needsDeviceBinding|attrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|p2mEligible|maybeAttrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|p2pEligible|maybeAttrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|BRCard|verified|attrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|ESCard|capabilitiesDefaultEligibleP2m|maybeAttrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|ESCard|capabilitiesDefaultEligibleP2p|maybeAttrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|ESCard|capabilitiesDefaultEligible|attrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|ESCard|capabilitiesEditable|attrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|ESCard|capabilitiesVerifiable|attrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|ESCard|defaultCreditP2m|maybeAttrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|ESCard|defaultCreditP2p|maybeAttrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|ESCard|defaultCredit|attrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|ESCard|defaultDebitP2m|maybeAttrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|ESCard|defaultDebitP2p|maybeAttrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|ESCard|defaultDebit|attrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|ESCard|p2mEligible|maybeAttrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|ESCard|p2pEligible|maybeAttrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|ESCard|verified|attrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|MXCard|capabilitiesDefaultEligibleP2m|maybeAttrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|MXCard|capabilitiesDefaultEligibleP2p|maybeAttrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|MXCard|capabilitiesDefaultEligible|attrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|MXCard|capabilitiesEditable|attrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|MXCard|capabilitiesVerifiable|attrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|MXCard|defaultCreditP2m|maybeAttrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|MXCard|defaultCreditP2p|maybeAttrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|MXCard|defaultCredit|attrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|MXCard|defaultDebitP2m|maybeAttrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|MXCard|defaultDebitP2p|maybeAttrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|MXCard|defaultDebit|attrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|MXCard|p2mEligible|maybeAttrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|MXCard|p2pEligible|maybeAttrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|card|card|bROrMXOrESCardMixinGroup|MXCard|verified|attrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|custom_payment_method|customPaymentMethod|p2mEligible|maybeAttrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|custom_payment_method|customPaymentMethod|p2pEligible|maybeAttrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|merchant|merchant|canAddPayout|attrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|merchant|merchant|canPayout|attrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|merchant|merchant|canSell|attrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|merchant|merchant|p2mEligible|maybeAttrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|merchant|merchant|p2pEligible|maybeAttrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|merchant|merchant|payout|payout|payoutBankOrPrepaidCardMixinGroup|PayoutBank|p2mEligible|maybeAttrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|merchant|merchant|payout|payout|payoutBankOrPrepaidCardMixinGroup|PayoutBank|p2pEligible|maybeAttrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|merchant|merchant|payout|payout|payoutBankOrPrepaidCardMixinGroup|PayoutPrepaidCard|p2mEligible|maybeAttrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|merchant|merchant|payout|payout|payoutBankOrPrepaidCardMixinGroup|PayoutPrepaidCard|p2pEligible|maybeAttrEnum": 1,
+    "iq|account|accountPaymentMethodsMixin|merchant|merchant|pixOnboardingState|maybeAttrEnum": 1,
+    "iq|custom_payment_method|accountCustomPaymentMethodCustomPaymentMethodMixin|p2mEligible|maybeAttrEnum": 1,
+    "iq|custom_payment_method|accountCustomPaymentMethodCustomPaymentMethodMixin|p2pEligible|maybeAttrEnum": 1,
+    "iq|description|groupDescription|error|maybeAttrEnum": 1,
+    "iq|participant|addParticipant|addParticipantsParticipantAddedOrNonRegisteredWaUserParticipantErrorLidResponseMixinGroup|AddParticipantsParticipantAddedResponse|addParticipantsParticipantMixins|ParticipantGroupJoinRequest|membershipApprovalRequestError|maybeAttrEnum": 1,
+    "iq|participant|adminParticipant|error|maybeAttrEnum": 1,
+    "iq|participant|promoteParticipant|error|maybeAttrEnum": 1,
+    "notif|create|reason|": 1,
 }
 
 
@@ -210,6 +211,10 @@ WIDTH_BEARING = {"contentUint"}
 # `WamChannel`. Anything else is mapped to `Regular` by the reference generator rather
 # than preserved, so an unknown value loses the channel silently instead of failing.
 WAM_CHANNELS = {"regular", "realtime", "private"}
+
+# The protobuf message appstate actions nest under. Their `protoEnum`/`valueEnumFields`
+# paths are written relative to it, so it is the one prefix that may be elided.
+APPSTATE_ROOT = "SyncActionValue"
 
 # What the extractor emits for an integer pin, and what a consumer must be able to parse.
 DECIMAL = re.compile(r"-?[0-9]+")
@@ -260,7 +265,7 @@ def collect_unresolved_enums(data, domain, proto_enums, out):
                 and not node.get("enumKeys")
                 and not (node.get("protoEnum") and node["protoEnum"] in proto_enums)
             ):
-                out.add("|".join([domain, *here, str(node.get("method", ""))]))
+                out["|".join([domain, *here, str(node.get("method", ""))])] += 1
             for k, v in node.items():
                 if k in ("tag", "wireTag", "name"):
                     continue
@@ -302,9 +307,17 @@ def collect_proto_enums(path):
                 # is written `Outer.Inner.E` in the IR, and emitting only `Inner.E` made a
                 # real reference read as dangling (`WASARootSecretAction.RootSecretEntry.
                 # Status` was the case that surfaced it).
+                # The full path, plus the one form the IR actually writes: appstate paths
+                # are relative to `SyncActionValue`, the message every action nests under.
+                #
+                # Registering EVERY suffix instead was permissive — a bare `Status`
+                # resolved — and registering only the absolute path was wrong the other
+                # way, since the IR never spells `SyncActionValue`. Exactly these two.
                 named = [n for n in stack if n is not None]
-                for i in range(len(named) + 1):
-                    out.add(".".join([*named[i:], name]))
+                full = [*named, name]
+                out.add(".".join(full))
+                if full[0] == APPSTATE_ROOT and len(full) > 1:
+                    out.add(".".join(full[1:]))
             stack.append(name)
             opens -= 1
         # `oneof`, options, anything else braced. Popping on their `}` as if it closed the
@@ -666,6 +679,14 @@ def check_event_codes(data, domain, errors):
             errors.append(
                 f"{domain}: event {e.get('name')!r} has channel {channel!r}, "
                 f"not one of {sorted(WAM_CHANNELS)}"
+            )
+        # The WAM codec defines this global only for the private channel, so an id on a
+        # `regular`/`realtime` event is metadata that cannot be applied where the event
+        # says it is sent.
+        if e.get("privateStatsId") is not None and channel != "private":
+            errors.append(
+                f"{domain}: event {e.get('name')!r} declares a privateStatsId on the "
+                f"{channel!r} channel"
             )
         weights = e.get("weights")
         if not isinstance(weights, list) or len(weights) != 3:
@@ -1032,7 +1053,7 @@ def main() -> int:
     root = Path(sys.argv[1] if len(sys.argv) > 1 else "generated")
     errors: list[str] = []
     counts = dict.fromkeys(BASELINE, 0)
-    unresolved: set[str] = set()
+    unresolved: dict[str, int] = defaultdict(int)
 
     # The protobuf enums an appstate `protoEnum` may name. A path that resolves to
     # nothing is not a constraint — it only looks like one because the string is present,
@@ -1101,14 +1122,25 @@ def main() -> int:
     ok = True
     # Set difference in BOTH directions, plus the multiplicities. A gain that offsets a
     # loss keeps the total at 155 and is exactly what a scalar cannot see.
-    for ident in sorted(unresolved - UNRESOLVED_ENUMS):
-        print(f"REGRESSION  newly unresolved enum: {ident}")
+    # COUNTS, not just membership: the semantic trail omits array indices for reorder
+    # stability, so two sibling fields can share an identity — and with a set, one of them
+    # losing its `enumRef` left the set unchanged and passed.
+    for ident in sorted(set(unresolved) | set(UNRESOLVED_ENUMS)):
+        now, was = unresolved.get(ident, 0), UNRESOLVED_ENUMS.get(ident, 0)
+        if now == was:
+            continue
         ok = False
-    for ident in sorted(UNRESOLVED_ENUMS - unresolved):
-        print(f"IMPROVED    enum now resolved: {ident} — drop it from the baseline")
-        ok = False
+        if was == 0:
+            print(f"REGRESSION  newly unresolved enum: {ident} (x{now})")
+        elif now == 0:
+            print(f"IMPROVED    enum now resolved: {ident} — drop it from the baseline")
+        else:
+            print(f"CHANGED     {ident}: {was} -> {now} — update the baseline")
     if ok:
-        print(f"ok          unresolved enums: {len(unresolved)}, exactly as pinned")
+        print(
+            f"ok          unresolved enums: {sum(unresolved.values())} across "
+            f"{len(unresolved)} identities, exactly as pinned"
+        )
 
     for name, observed in sorted(counts.items()):
         allowed = BASELINE[name]
