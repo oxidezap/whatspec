@@ -1229,7 +1229,7 @@ __d("WAWebCommsHandleLoggedInStanza",["WAWebHandleGroupNotification"],function(g
   }); };
 }, 1);
 __d("WAWebHandleGroupNotificationConst",[],(function(t,n,r,o,a,i,l){
-  l.GROUP_NOTIFICATION_TAG=Object.freeze({EVICT:"evict",COND:"cond",REBIND:"rebind",PICK:"pick",BARE:"bare",HELPER:"helper",ESCAPE:"escape",TAIL:"tail",JOIN:"join",SEQ:"seq",SUFFIX:"suffix",AFTER:"after",TRY:"try_tag",FIN:"fin",FINCOND:"fincond",FINTHROW:"finthrow",MULTI:"multi",MULTI3:"multi3",DEAD:"dead",LIT:"lit",LOOP:"loop_tag",FINTRY:"fintry",PARAM:"param",BLK:"blk",EXH:"exh",NFT:"nft",LATE:"late",DOW:"dow",SHADOW:"shadow",CATCHP:"catchp",DOWX:"dowx",SAME:"same",NEST:"nest",DOWB:"dowb",PVAL:"pval",SPREAD:"spread"});
+  l.GROUP_NOTIFICATION_TAG=Object.freeze({EVICT:"evict",COND:"cond",REBIND:"rebind",PICK:"pick",BARE:"bare",HELPER:"helper",ESCAPE:"escape",TAIL:"tail",JOIN:"join",SEQ:"seq",SUFFIX:"suffix",AFTER:"after",TRY:"try_tag",FIN:"fin",FINCOND:"fincond",FINTHROW:"finthrow",MULTI:"multi",MULTI3:"multi3",DEAD:"dead",LIT:"lit",LOOP:"loop_tag",FINTRY:"fintry",PARAM:"param",BLK:"blk",EXH:"exh",NFT:"nft",LATE:"late",DOW:"dow",SHADOW:"shadow",CATCHP:"catchp",DOWX:"dowx",SAME:"same",NEST:"nest",DOWB:"dowb",PVAL:"pval",SPREAD:"spread",DOWBRK:"dowbrk",FINW:"finw",FORI:"fori",CONDW:"condw",SPRD:"sprd"});
 }), 1);
 __d("WAWebGroupType",[],(function(t,n,r,o,a,i,l){
   l.GROUP_ACTIONS=Object.freeze({FIRST:"first",SECOND:"second",THIRD:"third"});
@@ -1348,6 +1348,26 @@ __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGr
         }
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.PVAL:
           return mk(t.attrString("jid"));
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.DOWBRK:
+          do { break; } while (t.hasChild("x"));
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.SECOND, b:t.attrString("b")};
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.FINW: {
+          var fw;
+          try { fw = t.attrString("jid"); } finally { fw = t.attrString("lid"); }
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, id:fw};
+        }
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.FORI: {
+          var fi = t.attrString("jid");
+          for (fi = t.attrString("lid"); t.hasChild("y"); ) return {actionType:o("WAWebGroupType").GROUP_ACTIONS.SECOND, id:fi};
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.THIRD, z:t.attrString("z")};
+        }
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.CONDW: {
+          var cw = t.attrString("jid");
+          t.hasChild("c") && (cw = t.attrString("lid"));
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, id:cw};
+        }
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.SPRD:
+          return babelHelpers.extends({actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST}, {id:t.attrString("jid"), ...base});
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.SUFFIX:
           switch (t.attrString("k")) {
             case "a": t.attrString("setup");
@@ -1976,4 +1996,86 @@ fn a_helper_given_a_wire_read_binds_its_parameter() {
         .find(|f| f.name == "id")
         .expect("the id field");
     assert_eq!(f.wire_name, "jid");
+}
+
+#[test]
+fn a_break_consumed_by_a_do_while_does_not_end_the_case() {
+    // `do { break; } while (c); return B` reaches B — the `break` leaves the LOOP, not the
+    // case. Passing the enclosing `nested` down made `stmt_exits` treat it as an exit.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let got: Vec<&str> = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .filter(|a| a.wire_tag == "dowbrk")
+        .filter_map(|a| a.action_type.as_deref())
+        .collect();
+    assert_eq!(
+        got,
+        ["second"],
+        "the statement after the loop is reachable: {got:?}"
+    );
+}
+
+#[test]
+fn a_finalizer_write_is_definite() {
+    // A `finally` runs on every path, so what it assigns is certain at the return.
+    // Tombstoning the whole `try` statement removed the finalizer's own writes too.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let a = edge_action(&ir, "finw");
+    let f = a
+        .fields
+        .iter()
+        .find(|f| f.name == "id")
+        .expect("the id field");
+    assert_eq!(
+        f.wire_name, "lid",
+        "the finalizer's write is what reaches the return"
+    );
+}
+
+#[test]
+fn a_for_initializer_runs_before_the_body() {
+    // `for (x = a("lid"); c; ) return {id: x}` always reads `lid`; analyzing the body
+    // against the pre-loop scope published the stale `jid`.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let second: Vec<_> = notif(&ir, "w:gp2")
+        .actions
+        .iter()
+        .filter(|a| a.wire_tag == "fori" && a.action_type.as_deref() == Some("second"))
+        .collect();
+    assert_eq!(second.len(), 1);
+    let f = second[0]
+        .fields
+        .iter()
+        .find(|f| f.name == "id")
+        .expect("id");
+    assert_eq!(f.wire_name, "lid");
+}
+
+#[test]
+fn a_conditional_expression_write_tombstones_the_binding() {
+    // `cond && (x = a("lid"))` runs on some paths only, so `x` no longer has one known
+    // source. Ignoring the nested assignment left the pre-expression `jid` asserted.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let a = edge_action(&ir, "condw");
+    assert!(
+        !a.fields
+            .iter()
+            .any(|f| f.name == "id" && f.wire_name == "jid"),
+        "the stale source must not be published: {:?}",
+        a.fields
+    );
+}
+
+#[test]
+fn an_action_object_with_a_spread_is_refused() {
+    // `obj_props` skips the spread, so folding the survivors would publish a partial
+    // shape. A shape that cannot be read whole is refused, like the tables.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let a = edge_action(&ir, "sprd");
+    assert!(
+        !a.fields.iter().any(|f| f.name == "id"),
+        "no partial shape is published: {:?}",
+        a.fields
+    );
 }

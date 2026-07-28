@@ -684,7 +684,9 @@ fn stmt_exits(s: &Statement, nested: bool) -> bool {
         // A `do…while` body runs at least once, so if it exits on every path the loop
         // does. `do { return A } while (c); return B` was collecting A and then walking
         // on to publish the unreachable B.
-        Statement::DoWhileStatement(d) => stmt_exits(&d.body, nested),
+        // The body's own `break`/`continue` are consumed by THIS loop, so they cannot
+        // prove it exits its caller: `do { break; } while (c); return B` reaches B.
+        Statement::DoWhileStatement(d) => !can_escape(&d.body, true) && stmt_exits(&d.body, nested),
         Statement::SwitchStatement(sw) => {
             sw.cases.iter().any(|c| c.test.is_none())
                 && (0..sw.cases.len()).all(|i| {
@@ -890,6 +892,13 @@ fn collect_returns_into<'b, 'a>(
             // `SequenceExpression`; matching only a bare assignment skipped those
             // entirely and left the stale initializer installed.
             Statement::ExpressionStatement(e) => {
+                // A write buried in a short-circuit or ternary runs on SOME paths only:
+                // `cond && (x = attrString("lid"))` leaves `x` holding either value, so
+                // the name no longer has one known source and is tombstoned. Ignoring it
+                // left the pre-expression binding installed and published it as fact.
+                for name in conditional_writes(&e.expression) {
+                    scope.remove(name);
+                }
                 let mut ops = Vec::new();
                 flatten_sequence(&e.expression, &mut ops);
                 for a in ops {
@@ -991,8 +1000,15 @@ fn collect_returns_into<'b, 'a>(
                     out.extend(paths);
                 }
                 out.extend(finalizer);
-                // A `try` body may have run in part; nothing it wrote is certain after it.
+                // A `try` body may have run in part; nothing IT wrote is certain after it.
+                // The FINALIZER is different: it runs on every path, so its writes are
+                // definite and tombstoning them lost fields the return always reads.
+                // Uncertain try/catch writes are dropped first, then the finalizer's are
+                // replayed over the result.
                 tombstone_branch_writes(s, scope);
+                if let Some(f) = &t.finalizer {
+                    replay_writes(&f.body, scope);
+                }
             }
             // A nested `switch` inside an arm (or a helper body) is how THAT arm picks
             // its shape — `case LINK: switch (linkType) { case "parent": return {…};
@@ -1039,8 +1055,38 @@ fn collect_returns_into<'b, 'a>(
             | Statement::ForInStatement(_)
             | Statement::ForOfStatement(_)
             | Statement::WhileStatement(_) => {
+                // A `for` INITIALIZER runs before every path that enters the body, so it
+                // is a definite write for the body's scope — `for (x = a("lid"); …;)
+                // return {id: x}` always reads `lid`, and analyzing the body against the
+                // pre-loop scope published the stale source.
+                let mut entry = scope.clone();
+                if let Statement::ForStatement(f) = s {
+                    match &f.init {
+                        Some(oxc_ast::ast::ForStatementInit::VariableDeclaration(d)) => {
+                            for decl in &d.declarations {
+                                if let (Some(n), Some(init)) =
+                                    (decl.id.get_identifier_name(), decl.init.as_ref())
+                                {
+                                    entry.insert(n.as_str(), init);
+                                }
+                            }
+                        }
+                        Some(init) => {
+                            if let Some(e) = init.as_expression() {
+                                let mut ops = Vec::new();
+                                flatten_sequence(e, &mut ops);
+                                for a in ops {
+                                    if let Some(n) = a.left.get_identifier_name() {
+                                        entry.insert(n, &a.right);
+                                    }
+                                }
+                            }
+                        }
+                        None => {}
+                    }
+                }
                 if let Some(body) = loop_body(s) {
-                    collect_returns(&[body], scope, out);
+                    collect_returns(&[body], &entry, out);
                 }
                 tombstone_branch_writes(s, scope);
             }
@@ -1101,6 +1147,70 @@ fn flatten_sequence<'b, 'a>(
         }
         Expression::ParenthesizedExpression(p) => flatten_sequence(&p.expression, out),
         _ => {}
+    }
+}
+
+/// Names assigned inside a CONDITIONAL part of an expression — an operand of `&&`/`||`
+/// or either arm of a ternary. Definite top-level writes are excluded; [`flatten_sequence`]
+/// handles those.
+fn conditional_writes<'b>(e: &'b Expression) -> Vec<&'b str> {
+    fn walk<'b>(e: &'b Expression, guarded: bool, out: &mut Vec<&'b str>) {
+        match e {
+            Expression::AssignmentExpression(a) => {
+                if guarded && let Some(n) = a.left.get_identifier_name() {
+                    out.push(n);
+                }
+                walk(&a.right, guarded, out);
+            }
+            Expression::LogicalExpression(l) => {
+                walk(&l.left, guarded, out);
+                walk(&l.right, true, out);
+            }
+            Expression::ConditionalExpression(c) => {
+                walk(&c.test, guarded, out);
+                walk(&c.consequent, true, out);
+                walk(&c.alternate, true, out);
+            }
+            Expression::SequenceExpression(seq) => {
+                for sub in &seq.expressions {
+                    walk(sub, guarded, out);
+                }
+            }
+            Expression::ParenthesizedExpression(p) => walk(&p.expression, guarded, out),
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    walk(e, false, &mut out);
+    out
+}
+
+/// Re-apply the writes a statement list performs, for a construct that runs on EVERY
+/// path (a `finally`). Only top-level declarations and assignments; anything conditional
+/// inside stays out, which is what keeps this from re-asserting an uncertain value.
+fn replay_writes<'b, 'a>(stmts: &'b [Statement<'a>], scope: &mut Scope<'b, 'a>) {
+    for st in stmts {
+        match st {
+            Statement::VariableDeclaration(d) => {
+                for decl in &d.declarations {
+                    if let (Some(n), Some(init)) =
+                        (decl.id.get_identifier_name(), decl.init.as_ref())
+                    {
+                        scope.insert(n.as_str(), init);
+                    }
+                }
+            }
+            Statement::ExpressionStatement(e) => {
+                let mut ops = Vec::new();
+                flatten_sequence(&e.expression, &mut ops);
+                for a in ops {
+                    if let Some(n) = a.left.get_identifier_name() {
+                        scope.insert(n, &a.right);
+                    }
+                }
+            }
+            _ => {}
+        }
     }
 }
 
@@ -1576,6 +1686,13 @@ fn fold_object<'b, 'a>(
     let Some(o) = wa_oxc::as_object(obj) else {
         return;
     };
+    // `obj_props` skips a spread, so folding the survivors publishes a partial shape:
+    // `{id: attrString("jid"), ...{id: attrString("lid")}}` yields `lid` at runtime and
+    // `jid` here. Same rule the constant tables and the enum tables already follow — a
+    // shape that cannot be read whole is refused rather than half-reported.
+    if o.properties.len() != wa_oxc::obj_props(o).count() {
+        return;
+    }
     for (key, value) in wa_oxc::obj_props(o) {
         // The normalised action identity. Resolved through the const table, so the
         // many-to-one mapping (`not_ephemeral` → `ephemeral`) is recorded as WA means
