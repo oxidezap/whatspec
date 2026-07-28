@@ -350,7 +350,18 @@ fn update(args: &[String]) -> Result<()> {
     // `update` (no `--wasm`) must leave a previously committed wasm lock alone rather
     // than truncate it to an empty set it never looked for.
     if authoritative && opts.wasm && wasm.is_empty() {
-        warn_if_wasm_lock_is_now_stale(&opts.out.join(WASM_LOCK_NAME), &wa_version);
+        let lock_path = opts.out.join(WASM_LOCK_NAME);
+        warn_if_wasm_lock_is_now_stale(&lock_path, &wa_version);
+        // A blocked or changed bootloader is EXACTLY the state the pins were added to
+        // record, and it is also the state that yields no payloads — so dropping them
+        // here would lose the diagnostic precisely when it matters. The recorded payload
+        // set is preserved (that is what the emptiness guard protects); only the
+        // bootloader section is rewritten.
+        if let Some(pins) = &boot_pins
+            && let Err(e) = update_lock_bootloader(&lock_path, pins)
+        {
+            eprintln!("  wasm lock not updated with the bootloader map: {e:#}");
+        }
     }
     if authoritative && !wasm.is_empty() {
         let lock_path = opts.out.join(WASM_LOCK_NAME);
@@ -2060,6 +2071,34 @@ struct NotifCounts {
     actions: usize,
     action_shapes: usize,
     drops: std::collections::BTreeMap<String, usize>,
+}
+
+/// Rewrite only the bootloader section of an existing wasm lock, leaving the payload set
+/// it records untouched.
+///
+/// Used when a run resolved no payloads: the emptiness guard exists so an unproductive
+/// run cannot truncate the committed set, but the bootloader outcome from that same run
+/// is the diagnostic worth keeping. A missing or unreadable lock is left alone — there is
+/// no payload set to preserve, and inventing one from an empty run is what the guard
+/// forbids.
+#[cfg(feature = "fetch")]
+fn update_lock_bootloader(lock_path: &Path, pins: &lock::BootloaderPins) -> Result<()> {
+    let raw = fs::read_to_string(lock_path)?;
+    let mut lock: WasmLock = serde_json::from_str(&raw)?;
+    if lock.bootloader.as_ref() == Some(pins) {
+        return Ok(());
+    }
+    lock.bootloader = Some(pins.clone());
+    fs::write(lock_path, lock.to_pretty_json())
+        .with_context(|| format!("write {}", lock_path.display()))?;
+    eprintln!(
+        "updated {} bootloader map ({} wasm handle(s), {} request(s), {} failed)",
+        lock_path.display(),
+        pins.wasm_handles.len(),
+        pins.requests,
+        pins.failed_requests
+    );
+    Ok(())
 }
 
 /// Emit the incoming content-stanza read-shape catalog (`incoming/index.json`) — the

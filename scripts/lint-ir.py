@@ -38,8 +38,18 @@ BASELINE = {
 # for one; `contentUint(N)` reads N big-endian bytes and must always carry it.
 WIDTH_BEARING = {"contentUint"}
 
-# The `ParsedFieldType` vocabulary, mirroring `wa_ir::ParsedFieldType`. A value
-# outside it in a `type` position is itself worth reporting.
+# Keys only a response field carries. They identify a `ParsedField` independently of
+# whether its `type` is one we know — which is what lets an unrecognized type be
+# REPORTED instead of skipped. Deliberately excludes `name`/`type` alone: appstate has
+# its own vocabulary (`literal`, `boolString`, `jidOrZero`, proto type names) and the
+# notification envelope carries `type` as the notification kind, so keying on those
+# would flag correct documents.
+FIELD_MARKERS = {
+    "method", "wireName", "enumRef", "enumKeys", "literalValue", "byteLength",
+    "byteMin", "byteMax", "intMin", "intMax", "unionVariants", "referencePath",
+}
+
+# The `ParsedFieldType` vocabulary, mirroring `wa_ir::ParsedFieldType`.
 FIELD_TYPES = {
     "string", "integer", "timestamp", "timestamp_millis", "enum", "bytes",
     "jid", "user_jid", "lid_user_jid", "device_jid", "lid_device_jid",
@@ -130,11 +140,22 @@ def main() -> int:
         domain = doc.parent.name
 
         def visit(node, path, domain=domain):
-            # Recognised by the TYPE VOCABULARY, not by auxiliary keys. Keying on
-            # `method`/`wireName` looked right and silently skipped the appstate
-            # fields, which carry neither — the linter would have reported a clean
-            # count while missing a whole domain.
-            if node.get("type") in FIELD_TYPES:
+            # A field is anything with a KNOWN type, or anything carrying a key only a
+            # response field has. The first clause reaches the appstate fields, which
+            # carry no `method`/`wireName`; the second is what makes an unrecognized type
+            # reportable rather than invisible — keying on the vocabulary alone meant a
+            # typo in `type` silently excused the field from every other check.
+            # A marker only counts when the object HAS a type: an assertion carries
+            # `referencePath` too, and flagging those as untyped fields was the first
+            # version of this check reporting four contradictions that were not.
+            known = node.get("type") in FIELD_TYPES
+            marked = "type" in node and any(k in node for k in FIELD_MARKERS)
+            if known or marked:
+                if not known:
+                    errors.append(
+                        f"{domain}{path}: field type {node.get('type')!r} is not in the "
+                        f"ParsedFieldType vocabulary"
+                    )
                 check_field(node, f"{domain}{path}", errors, counts)
             if "kind" in node and "reference_path" not in node:
                 check_assertion(node, f"{domain}{path}", errors)

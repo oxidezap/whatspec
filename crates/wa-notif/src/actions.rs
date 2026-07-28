@@ -795,6 +795,11 @@ impl BranchFold {
                 // Same output name and the same element: their field sets are
                 // alternatives and merge under the rule above.
                 Some(existing) if existing.wire_tag == c.wire_tag => {
+                    // `from` may itself be a FOLD of several branches, and already know
+                    // the child is absent from one of them. Merging only the fields kept
+                    // `existing.required` true and re-asserted a presence the incoming
+                    // side had already disproved.
+                    existing.required &= c.required;
                     let dead = self.dead_child_fields.entry(c.name.clone()).or_default();
                     merge_fields(&mut existing.fields, c.fields, false, dead);
                 }
