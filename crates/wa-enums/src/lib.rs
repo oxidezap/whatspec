@@ -413,8 +413,14 @@ impl<'a> Visit<'a> for NamedResolver {
             // branch below was skipped and the outer body stayed usable. Refused on
             // collision only, the same rule an unreadable initializer follows: a
             // destructuring that shadows nothing costs nothing to ignore.
+            //
+            // The hoisted prescan already marks these LEXICALLY, so writing them into the
+            // module-wide set as well outlived the body that binds them and refused a
+            // later, unrelated outer composition. Same guard the simple-identifier path
+            // takes, for the same reason.
             for ident in d.id.get_binding_identifiers() {
-                if self.locals.contains_key(ident.name.as_str()) {
+                if !self.param_shadows(&ident.name) && self.locals.contains_key(ident.name.as_str())
+                {
                     self.shadowed.insert(ident.name.to_string());
                 }
             }
@@ -998,6 +1004,22 @@ mod tests {
             var f=function e(){ var x=babelHelpers.extends({},e,{B:"b"}); i.OUT=x };
         }),1);"#;
         assert!(resolve_named_enum(self_named, "M", "OUT").is_none());
+
+        // A destructured shadow is LEXICAL: after the body that binds it, an unrelated
+        // outer composition must still resolve.
+        let outer_after_destructure = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"};
+            function f(obj){ var {e}=obj; return e }
+            var l=babelHelpers.extends({},e,{B:"b"});
+            i.OUT=l
+        }),1);"#;
+        assert_eq!(
+            resolve_named_enum(outer_after_destructure, "M", "OUT")
+                .expect("the outer composition never sees the inner binding")
+                .variants
+                .len(),
+            2
+        );
 
         // A name rebound to the SAME body is not ambiguous — refusing it would throw away
         // a resolvable enum for nothing.

@@ -1330,6 +1330,11 @@ fn load_wasm(
         handles.extend(cache.wasm_handles(remote_version.unwrap_or_default()));
     }
     handles.extend(resolution.handle_by_url());
+    // A handle the live response REBOUND now names a different URL, and the cache's old
+    // `A -> 11` would otherwise sit beside the new `B -> 11`: `wasm_entries` would stamp
+    // `bxId: 11` on both payloads while the pins say 11 resolves to B — a lock that
+    // contradicts itself. The live map wins, so any other URL claiming a live id goes.
+    drop_stale_aliases(&mut handles, &resolution.by_id);
 
     // The PINS are built from the id → URL direction instead, because `handles` is
     // URL-keyed and therefore already lossy: `invert`/`handle_by_url` keep the lowest id
@@ -1491,6 +1496,23 @@ fn bootloader_pins(
         failed_requests: resolution.failed_requests,
         degradations: resolution.failures.len(),
     }
+}
+
+#[cfg(feature = "fetch")]
+/// Remove URL → id entries whose id the live response has REBOUND to another URL.
+///
+/// The cache's `A -> 11` would otherwise sit beside a fresh `B -> 11`: `wasm_entries`
+/// stamps `bxId: 11` on both payloads while the pins, built from the id side where the
+/// live value wins, say 11 is B — a lock that contradicts itself. An id this run never
+/// saw is left alone; it is still the best record there is.
+fn drop_stale_aliases(
+    handles: &mut BTreeMap<String, String>,
+    live_by_id: &BTreeMap<String, String>,
+) {
+    handles.retain(|url, id| match live_by_id.get(id) {
+        Some(live_url) => live_url == url,
+        None => true,
+    });
 }
 
 /// `bx` id → URI inverted into URI → `bx` id, lowest id winning on a shared URI (the
@@ -3254,6 +3276,38 @@ mod tests {
         .expect("pins were supplied");
         assert_eq!(isolated.wasm_handles.keys().collect::<Vec<_>>(), ["33"]);
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[cfg(feature = "fetch")]
+    #[test]
+    fn a_rebound_handle_drops_its_stale_url() {
+        // The cache says 11 resolved A; the live response says 11 resolves B. Keeping both
+        // `A -> 11` and `B -> 11` in the URL-keyed map would stamp `bxId: 11` on two
+        // payloads while the pins — built from the id side, where the live value wins —
+        // say 11 is B. The lock would contradict itself.
+        let live: BTreeMap<String, String> = [(
+            "11".to_string(),
+            "https://static.whatsapp.net/b.wasm".to_string(),
+        )]
+        .into_iter()
+        .collect();
+        let mut handles: BTreeMap<String, String> = [
+            ("https://static.whatsapp.net/a.wasm", "11"),
+            ("https://static.whatsapp.net/b.wasm", "11"),
+            ("https://static.whatsapp.net/c.wasm", "22"),
+        ]
+        .iter()
+        .map(|(u, i)| (u.to_string(), i.to_string()))
+        .collect();
+        drop_stale_aliases(&mut handles, &live);
+        assert_eq!(
+            handles.keys().collect::<Vec<_>>(),
+            [
+                "https://static.whatsapp.net/b.wasm",
+                "https://static.whatsapp.net/c.wasm"
+            ],
+            "the stale alias for a rebound id goes; an id the run never saw stays"
+        );
     }
 
     #[cfg(feature = "fetch")]

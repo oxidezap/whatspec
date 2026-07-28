@@ -494,6 +494,7 @@ def check_enum_catalog_refs(data, domain, errors):
     # document is dangling, and returning early here reported exactly that document as
     # internally consistent. An empty list is an empty lookup; the walk still runs.
     by_module = {}
+    seen_defs = {}
     for i, e in enumerate(catalog):
         if not isinstance(e, dict):
             continue
@@ -555,6 +556,15 @@ def check_enum_catalog_refs(data, domain, errors):
             errors.append(
                 f"{domain}/enums/{i}: enum {e.get('name')!r} reuses value(s) {dup_vals}"
             )
+        # `(module, name)` is the catalog identity — the extractor dedups on it, and a
+        # consumer has no other way to select one definition of a repeated pair.
+        ident = (e.get("module"), e.get("name"))
+        if ident in seen_defs:
+            errors.append(
+                f"{domain}/enums/{i}: {ident} already defined at index {seen_defs[ident]}"
+            )
+        else:
+            seen_defs[ident] = i
         if "module" in e:
             by_module.setdefault(e["module"], []).append(e)
 
@@ -750,6 +760,18 @@ def check_appstate_collections(data, domain, errors):
     if not isinstance(declared, list) or not isinstance(actions, dict):
         return
     known = {c for c in declared if isinstance(c, str)}
+    # `render_collection_enum` runs each through `pascal_case` without deduplicating, so
+    # two wire names that normalise alike emit the same variant twice and will not compile.
+    by_variant = {}
+    for c in sorted(known):
+        variant = "".join(part.capitalize() for part in c.replace("-", "_").split("_"))
+        if variant in by_variant:
+            errors.append(
+                f"{domain}/collections: {c!r} and {by_variant[variant]!r} both become "
+                f"{variant!r}"
+            )
+        else:
+            by_variant[variant] = c
     for name, a in sorted(actions.items()):
         if not isinstance(a, dict):
             continue
@@ -758,6 +780,19 @@ def check_appstate_collections(data, domain, errors):
             errors.append(
                 f"{domain}/actions/{name}: collection {used!r} is not among "
                 f"{sorted(known)}"
+            )
+        # Position zero of the sync index IS the wire action name. Anything else has the
+        # encoder identify the action by one name and build its index under another.
+        parts = a.get("indexParts")
+        first = parts[0] if isinstance(parts, list) and parts else None
+        if not isinstance(first, dict) or first.get("type") != "literal":
+            errors.append(
+                f"{domain}/actions/{name}: indexParts does not begin with a literal"
+            )
+        elif first.get("value") != a.get("name"):
+            errors.append(
+                f"{domain}/actions/{name}: index begins with {first.get('value')!r}, "
+                f"not the action name {a.get('name')!r}"
             )
 
 
