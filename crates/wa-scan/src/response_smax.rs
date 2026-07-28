@@ -821,6 +821,8 @@ fn classify_call(
                 Some((m, ft, bl)) => {
                     let (field_type, int_range) = int_range_and_type(inner, args, ft);
                     let (cbl, byte_range) = content_byte_length(inner, args);
+                    let enum_ref =
+                        enum_arg_ref(inner, args, resolver, site, source_path.as_deref());
                     Binding::Field {
                         method: optional_variant(&m),
                         field_type,
@@ -831,7 +833,7 @@ fn classify_call(
                         wire_name,
                         source_path,
                         literal_value: None,
-                        enum_ref: enum_arg_ref(inner, args, resolver, site),
+                        enum_ref,
                         reference_path: None,
                     }
                 }
@@ -852,6 +854,8 @@ fn classify_call(
             Some((m, ft, bl)) => {
                 let (field_type, int_range) = int_range_and_type(Some(other), args, ft);
                 let (cbl, byte_range) = content_byte_length(Some(other), args);
+                let enum_ref =
+                    enum_arg_ref(Some(other), args, resolver, site, source_path.as_deref());
                 Binding::Field {
                     method: m,
                     field_type,
@@ -862,7 +866,7 @@ fn classify_call(
                     wire_name,
                     source_path,
                     literal_value: None,
-                    enum_ref: enum_arg_ref(Some(other), args, resolver, site),
+                    enum_ref,
                     reference_path: None,
                 }
             }
@@ -1003,6 +1007,7 @@ fn enum_arg_ref(
     args: &[Argument],
     resolver: &Resolver,
     site: &str,
+    source_path: Option<&[String]>,
 ) -> Option<AttrEnumRef> {
     // Gated on the CLASSIFIER, not a local list of spellings. Whitelisting
     // `attrStringEnum`/`contentStringEnum` left `attrEnum`, `maybeAttrEnum`, `contentEnum`
@@ -1015,10 +1020,13 @@ fn enum_arg_ref(
     // is an identifier / `X.value`, the attr a string, and — in the `optional(ACC, …)`
     // form — the leading accessor ref is itself `o("WASmaxParseUtils").attrStringEnum`,
     // excluded by requiring a non-`WASmaxParse*` owner module).
-    // The wire attribute the accessor reads, as the occurrence discriminator: two fields
-    // validating against the same unresolvable enum are two lost constraints.
+    // The occurrence discriminator is the node PATH plus the attribute name: two fields
+    // validating against the same unresolvable enum are two lost constraints, and one
+    // parser reading `state` off both `<current>` and `<previous>` is two of them. The
+    // attribute alone collapsed those into one.
     let occurrence = format!(
-        "{site}:{}",
+        "{site}:{}:{}",
+        source_path.map(|p| p.join("/")).unwrap_or_default(),
         args.iter()
             .filter_map(arg_expr)
             .find_map(as_string_lit)

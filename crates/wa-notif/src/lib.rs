@@ -203,7 +203,17 @@ pub fn extract_notif_with_diagnostics(
         }
     }
 
-    let drops = enums.into_drop_counts();
+    let mut drops = enums.into_drop_counts();
+    // The action path has no linker to drain a pending marker, so it reports its own
+    // unresolvable allowed-value tables here. Without this the `w:gp2` `create.reason`
+    // field shipped as `"type": "enum"` with no values and nothing anywhere saying a
+    // constraint had been lost.
+    let action_enum_drops = consts.take_enum_drops();
+    if action_enum_drops > 0 {
+        *drops
+            .entry("action enum table not structurally resolvable".to_string())
+            .or_default() += action_enum_drops;
+    }
     (
         NotifIr {
             wa_version: wa_version.to_string(),

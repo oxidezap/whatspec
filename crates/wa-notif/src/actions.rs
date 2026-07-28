@@ -50,6 +50,15 @@ pub(crate) struct ConstResolver<'a> {
     /// per enum-accessor field — including a second time by the bare-value fallback, which
     /// re-walks the same shapes.
     enums: std::cell::RefCell<HashMap<(String, String), Option<wa_ir::AttrEnumRef>>>,
+    /// Enum-valued action fields whose allowed-value table could not be named, keyed
+    /// `wireName@table` so two fields losing the same constraint count twice and one
+    /// field seen twice counts once.
+    ///
+    /// The action path has no linker to drain a pending marker, so it reports here. The
+    /// `w:gp2` `create.reason` field shipped as `"type": "enum"` with no values and no
+    /// signal anywhere — the exact "lost or absent?" ambiguity the rest of the change
+    /// exists to remove.
+    enum_drops: std::cell::RefCell<std::collections::BTreeSet<String>>,
 }
 
 impl<'a> ConstResolver<'a> {
@@ -58,6 +67,7 @@ impl<'a> ConstResolver<'a> {
             slices,
             cache: std::cell::RefCell::new(HashMap::new()),
             enums: std::cell::RefCell::new(HashMap::new()),
+            enum_drops: Default::default(),
         }
     }
 
@@ -90,6 +100,33 @@ impl<'a> ConstResolver<'a> {
         let resolved = self.resolve_enum_uncached(module, name);
         self.enums.borrow_mut().insert(key, resolved.clone());
         resolved
+    }
+
+    /// The enum an action field validates against, reporting the loss when there is a
+    /// table but it is not a nameable `o("Mod").ENUM` reference (a module-local object,
+    /// a computed set). `wire_name` identifies the occurrence in the report.
+    fn action_enum_ref(
+        &self,
+        method: &str,
+        arg: Option<&Expression>,
+        wire_name: &str,
+    ) -> Option<wa_ir::AttrEnumRef> {
+        if wap::method_field_type(method) != wa_ir::ParsedFieldType::Enum {
+            return None;
+        }
+        let resolved = arg.and_then(|a| self.enum_ref(a));
+        if resolved.is_none() {
+            self.enum_drops
+                .borrow_mut()
+                .insert(format!("{wire_name}@{method}"));
+        }
+        resolved
+    }
+
+    /// The allowed-value tables seen on action fields and not recoverable, for
+    /// `diagnostics.notif.dropsByReason`.
+    pub(crate) fn take_enum_drops(&self) -> usize {
+        self.enum_drops.borrow().len()
     }
 
     fn resolve_enum_uncached(&self, module: &str, name: &str) -> Option<wa_ir::AttrEnumRef> {
@@ -816,17 +853,23 @@ fn collect_returns<'b, 'a>(
                 if let Some(h) = &t.handler {
                     collect_returns(&as_refs(&h.body.body), &scope, &mut paths);
                 }
-                // A `finally` that returns discards whatever `try`/`catch` produced —
-                // it is the only shape the statement can yield.
+                // What the finalizer does to the earlier shapes is a control-flow
+                // question, not a "did it yield anything" one. Emptiness gets both ends
+                // wrong: `finally { if (c) return B }` keeps A legal when `c` is false,
+                // and `finally { throw e }` yields nothing at all yet leaves the vector
+                // empty. Only a finalizer that leaves on EVERY path replaces them.
                 let mut finalizer = Vec::new();
                 if let Some(f) = &t.finalizer {
                     collect_returns(&as_refs(&f.body), &scope, &mut finalizer);
                 }
-                out.extend(if finalizer.is_empty() {
-                    paths
-                } else {
-                    finalizer
-                });
+                let finalizer_settles = t
+                    .finalizer
+                    .as_ref()
+                    .is_some_and(|f| list_exits(&f.body, false));
+                if !finalizer_settles {
+                    out.extend(paths);
+                }
+                out.extend(finalizer);
                 // A `try` body may have run in part; nothing it wrote is certain after it.
                 tombstone_branch_writes(s, &mut scope);
             }
@@ -1410,13 +1453,14 @@ fn read_field<'b, 'a>(
     }
     let optional_by_guard = is_guarded(e);
     let acc = find_accessor(strip_guard(e), scope)?;
+    let enum_ref = consts.action_enum_ref(&acc.method, acc.enum_arg, &acc.wire_name);
     Some(NotifActionField {
         name: key.to_string(),
         wire_name: acc.wire_name,
         field_type: wap::method_field_type(&acc.method),
         required: !optional_by_guard && !wap::is_optional_method(&acc.method),
         content: acc.content,
-        enum_ref: acc.enum_arg.and_then(|a| consts.enum_ref(a)),
+        enum_ref,
     })
 }
 
@@ -1482,13 +1526,14 @@ fn is_nullish(e: &Expression) -> bool {
 /// The field an accessor yields when it sits behind a presence guard: always optional,
 /// because the guard exists precisely so the attribute may be absent.
 fn guarded_field(key: &str, acc: Accessor, consts: &ConstResolver) -> NotifActionField {
+    let enum_ref = consts.action_enum_ref(&acc.method, acc.enum_arg, &acc.wire_name);
     NotifActionField {
         name: key.to_string(),
         wire_name: acc.wire_name,
         field_type: wap::method_field_type(&acc.method),
         required: false,
         content: acc.content,
-        enum_ref: acc.enum_arg.and_then(|a| consts.enum_ref(a)),
+        enum_ref,
     }
 }
 
@@ -1636,10 +1681,26 @@ fn find_accessor_at<'b, 'a>(
         }
     }
     // A wrapper call (`userJidToUserWid(…)`, a local normaliser): look inside.
-    call.arguments
+    //
+    // Exactly one argument may read the wire. `combine(c.attrString("a"),
+    // c.attrString("b"))` derives its value from both, and a `NotifActionField` names one
+    // `wireName` with one requiredness — so taking whichever came first would state as
+    // fact something the IR cannot express. Refused instead, the same rule a key bound to
+    // two different reads across branches already follows.
+    let mut found = call
+        .arguments
         .iter()
         .filter_map(arg_expr)
-        .find_map(|a| find_accessor_at(a, scope, depth + 1))
+        .filter_map(|a| find_accessor_at(a, scope, depth + 1));
+    let first = found.next()?;
+    match found.next() {
+        // A repeated read of the SAME attribute is not ambiguous — a normaliser given the
+        // same value twice still has one source.
+        Some(second) if second.wire_name != first.wire_name || second.method != first.method => {
+            None
+        }
+        _ => Some(first),
+    }
 }
 
 /// The enum table an enum-valued accessor validates against.
@@ -1720,13 +1781,17 @@ fn collect_accessor_fields<'b, 'a>(
         for (shape, inner) in fn_result_shapes(e, &scope) {
             bare += 1;
             let fields = find_accessor(shape, &inner)
-                .map(|acc| NotifActionField {
-                    name: acc.wire_name.clone(),
-                    wire_name: acc.wire_name,
-                    field_type: wap::method_field_type(&acc.method),
-                    required: !wap::is_optional_method(&acc.method),
-                    content: acc.content,
-                    enum_ref: acc.enum_arg.and_then(|a| consts.enum_ref(a)),
+                .map(|acc| {
+                    let enum_ref =
+                        consts.action_enum_ref(&acc.method, acc.enum_arg, &acc.wire_name);
+                    NotifActionField {
+                        name: acc.wire_name.clone(),
+                        wire_name: acc.wire_name,
+                        field_type: wap::method_field_type(&acc.method),
+                        required: !wap::is_optional_method(&acc.method),
+                        content: acc.content,
+                        enum_ref,
+                    }
                 })
                 .into_iter()
                 .collect();
