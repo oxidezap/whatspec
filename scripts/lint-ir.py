@@ -273,6 +273,43 @@ def check_event_codes(data, domain, errors):
             )
         else:
             seen[code] = e.get("name")
+        # A field's `id` is its wire identifier WITHIN the event, so the same rule applies
+        # one level down: an encoder handed two fields sharing an id cannot tell them
+        # apart. Scoped per event — ids repeat across events by design.
+        by_id = {}
+        for f in e.get("fields") or []:
+            if not isinstance(f, dict) or "id" not in f:
+                continue
+            fid = f["id"]
+            if fid in by_id:
+                errors.append(
+                    f"{domain}: in event {e.get('name')!r}, fields {by_id[fid]!r} and "
+                    f"{f.get('name')!r} share id {fid}"
+                )
+            else:
+                by_id[fid] = f.get("name")
+
+
+def check_action_keys(node, path, errors):
+    """`fields`, `constantFields` and `children` are three representations of ONE object
+    key namespace, so a name may appear in only one of them.
+
+    Runtime cannot produce two values for one key, and a consumer handed both a wire-read
+    `reason` and a constant `reason` has a shape that contradicts itself. Each array is
+    internally consistent by construction; nothing compared them to each other.
+    """
+    arrays = [k for k in ("fields", "constantFields", "children") if isinstance(node.get(k), list)]
+    if len(arrays) < 2:
+        return
+    names = [
+        it["name"]
+        for k in arrays
+        for it in node[k]
+        if isinstance(it, dict) and "name" in it
+    ]
+    repeated = sorted({n for n in names if names.count(n) > 1})
+    if repeated:
+        errors.append(f"{path}: one key filled twice across fields/constantFields/children: {repeated}")
 
 
 def check_assertion(a, path, errors):
@@ -332,6 +369,7 @@ def main() -> int:
             # Independent of the field gate — see each function's note.
             check_enum_ref(node, f"{domain}{path}", errors)
             check_const_bytes(node, f"{domain}{path}", errors)
+            check_action_keys(node, f"{domain}{path}", errors)
 
         walk(data, visit)
         # Needs the whole document, not one node: the reference and its definition sit in

@@ -102,11 +102,25 @@ fn extract_from_module(slice: &str, module: &str) -> Vec<InternalEnumDef> {
 
 /// The identifier names a parameter list binds.
 fn param_names(params: &oxc_ast::ast::FormalParameters) -> HashSet<String> {
-    params
-        .items
-        .iter()
-        .filter_map(|p| p.pattern.get_identifier_name().map(|n| n.to_string()))
-        .collect()
+    // EVERY identifier a parameter list binds, not just the plainly-named ones. A
+    // destructured parameter (`function f({e})`) binds `e` exactly as much as
+    // `function f(e)` does, and the rest element is not in `items` at all — both were
+    // invisible, so a composition inside such a function still resolved the module-level
+    // operand. `get_binding_identifiers` is the same traversal `wa_scan::shadow_params`
+    // uses for its own shadowing, rather than a second hand-rolled walk to drift from.
+    let mut out = HashSet::new();
+    let mut add = |pattern: &oxc_ast::ast::BindingPattern| {
+        for ident in pattern.get_binding_identifiers() {
+            out.insert(ident.name.to_string());
+        }
+    };
+    for p in &params.items {
+        add(&p.pattern);
+    }
+    if let Some(rest) = &params.rest {
+        add(&rest.rest.argument);
+    }
+    out
 }
 
 /// Resolve `X.Name = local` bindings against the locals captured by var-init, filling
@@ -720,6 +734,21 @@ mod tests {
             f({X:"x"})
         }),1);"#;
         assert!(resolve_named_enum(deferred, "M", "OUT").is_none());
+
+        // A DESTRUCTURED parameter binds its names too, and a rest element is not even
+        // in `items` — both were invisible to the plain-name lookup.
+        let destructured = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"};
+            function f({e}){ var x=babelHelpers.extends({},e,{B:"b"}); i.OUT=x }
+            f({e:{X:"x"}})
+        }),1);"#;
+        assert!(resolve_named_enum(destructured, "M", "OUT").is_none());
+
+        let rest = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"};
+            function f(q, ...e){ var x=babelHelpers.extends({},e,{B:"b"}); i.OUT=x }
+        }),1);"#;
+        assert!(resolve_named_enum(rest, "M", "OUT").is_none());
 
         // A name rebound to the SAME body is not ambiguous — refusing it would throw away
         // a resolvable enum for nothing.

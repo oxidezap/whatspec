@@ -404,13 +404,14 @@ pub(crate) fn extract_actions(
             }
         }
     }
+    let locals: HashMap<String, String> = by_name
+        .into_iter()
+        .filter_map(|(n, src)| src.map(|s| (n, s)))
+        .collect();
     let ctx = ArmCtx {
         consts,
         source: handler_slice,
-        locals: by_name
-            .into_iter()
-            .filter_map(|(n, src)| src.map(|s| (n, s)))
-            .collect(),
+        locals: &locals,
     };
     let mut finder = SwitchFinder {
         ctx: &ctx,
@@ -425,11 +426,27 @@ pub(crate) fn extract_actions(
 /// module's local helper functions, as re-parsable source (keyed by name).
 struct ArmCtx<'c, 'a> {
     consts: &'c ConstResolver<'a>,
-    locals: HashMap<String, String>,
-    /// The handler module's source, so an inlined helper can be given the TEXT of the
-    /// arguments it was called with. The helper is re-parsed in its own allocator, so a
-    /// call-site AST reference cannot cross into it — its source can.
+    locals: &'c HashMap<String, String>,
+    /// The source THIS context's spans index into, so an inlined helper can be given the
+    /// TEXT of the arguments it was called with. The helper is re-parsed in its own
+    /// allocator, so a call-site AST reference cannot cross into it — its source can.
+    ///
+    /// Borrowed rather than fixed to the module, because nested inlining re-parses a
+    /// SYNTHETIC buffer: the spans of nodes in it are offsets into that buffer, and
+    /// slicing the module with them lands on unrelated text — in range, so the bounds
+    /// check never fires, just wrong. `inline_local` rebinds this to the buffer it parsed.
     source: &'c str,
+}
+
+impl<'c, 'a> ArmCtx<'c, 'a> {
+    /// The same context reading a different source buffer.
+    fn with_source(&self, source: &'c str) -> ArmCtx<'c, 'a> {
+        ArmCtx {
+            consts: self.consts,
+            locals: self.locals,
+            source,
+        }
+    }
 }
 
 /// Collects `function name(…){…}` / `var name = function(…){…}` spans in a module.
@@ -1641,6 +1658,11 @@ fn inline_local(
         return;
     };
     let (func, bound) = applied_helper(func);
+    // From here the spans belong to `wrapped`, not to whatever this context was reading.
+    // Folding with the outer source would slice the module at this buffer's offsets: in
+    // range and therefore unguarded, but unrelated text — which cost the field a second
+    // helper level down (`mk2(v){ return mk(v) }`).
+    let ctx = &ctx.with_source(&wrapped);
     // Each of the helper's result branches is folded on its own and then MERGED, not
     // accumulated: a helper returning `{x: …}` in one branch and `{y: …}` in another
     // describes two legal shapes, and combining them would make the enclosing action

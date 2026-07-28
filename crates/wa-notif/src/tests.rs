@@ -622,6 +622,8 @@ __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGr
     return {actionType:o("WAWebGroupType").GROUP_ACTIONS.ANNOUNCE, rows:e.mapChildrenWithTag("row", function(x){ return {v:x.attrString("p")}; })};
   }
   function shadowedCb(x){ return {wrong:x.attrString("wrong")}; }
+  function mk(v){ return {chained:v}; }
+  function mk2(v){ return mk(v); }
   function helperKids(e){ return e.mapChildrenWithTag("helper_user", function(x){ return {id:x.attrUserJid("jid")}; }); }
   function withShadow(e,shadowedCb){ return e.mapChildrenWithTag("shadow_user", shadowedCb); }
   function y(e,t){ return t.mapChildrenWithTag("participant", function(p){
@@ -681,7 +683,8 @@ __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGr
             parend: (t.hasChild("p") ? t.mapChildrenWithTag("parend_user", function(x){ return {id:x.attrUserJid("jid")}; }) : null),
             shadowed: withShadow(t, function(z){ return {right:z.attrString("right")}; }),
             viaHelper: t.hasChild("h") && helperKids(t),
-            cyclic: t.mapChildrenWithTag("cyclic_user", cycA)};
+            cyclic: t.mapChildrenWithTag("cyclic_user", cycA),
+            twoDeep: mk2(t.attrString("deep_jid"))};
         }
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.REVOKE_INVITE:
           return {actionType:o("WAWebGroupType").GROUP_ACTIONS.REVOKE_INVITE, participants:t.mapChildrenWithTag("participant", function(p){ return {id:p.attrUserJid("jid"), expiration:p.attrInt("expiration")}; }), owners:t.mapChildrenWithTag("owner", p=>o("WAWebJidToWid").userJidToUserWid(p.maybeAttrPhoneUserJid("phone_number")))};
@@ -868,6 +871,16 @@ fn a_mapped_child_is_optional_only_when_the_guard_admits_absence() {
         cyc.fields.is_empty(),
         "an unresolved callback contributes no fields"
     );
+
+    // A value threaded through TWO helpers: the second inlining re-parses a synthetic
+    // buffer, so its spans index that buffer — slicing the module with them lands on
+    // unrelated text, in range and therefore unguarded, and the field vanishes.
+    let deep = arm
+        .fields
+        .iter()
+        .find(|f| f.name == "chained")
+        .expect("a field threaded through two helpers survives");
+    assert_eq!(deep.wire_name, "deep_jid");
 
     // The guard must not cost the child's contents.
     assert_eq!(child("anded").wire_tag, "anded_user");
