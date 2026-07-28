@@ -1360,6 +1360,13 @@ fn load_wasm(
     ids.extend(resolution.by_id.clone());
     if let Some(cache) = &cache {
         for (url, id) in cache.wasm_handles(remote_version.unwrap_or_default()) {
+            // Skipped when the run SAW this id: `by_id` above already inserted the live
+            // binding if it survived, and if it did not, the cache's URL is the one the
+            // response replaced. `live_handle_ids` can only suppress the prior-LOCK
+            // merge, so an entry inserted here would reach the pins unchallenged.
+            if resolution.observed_ids.contains(&id) {
+                continue;
+            }
             ids.entry(id).or_insert(url);
         }
     }
