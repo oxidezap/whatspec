@@ -33,6 +33,12 @@ from pathlib import Path
 # recover is now being lost, and the number has to be updated with a reason.
 BASELINE = {
     "content integer with no byte width": 0,
+    # The extractor flattens a shape discriminated by an attribute — `privacyParser` reads
+    # `<category name="last" value=…>` into ten sibling `value` fields, losing both the
+    # discriminator and the runtime's output names (`lastSeen`, `callAdd`, …). A consumer
+    # gets one key with ten contradictory constraints. Recorded rather than certified;
+    # fixing the shape is an extractor change, not a linter one.
+    "object key filled twice in one array": 15,
 }
 
 # The enums no extraction path could resolve, by IDENTITY rather than by total.
@@ -848,7 +854,7 @@ def check_event_codes(data, domain, errors):
             )
 
 
-def check_action_keys(node, path, errors):
+def check_action_keys(node, path, errors, counts):
     """`fields`, `constantFields` and `children` are three representations of ONE object
     key namespace, so a name may appear in only one of them.
 
@@ -857,13 +863,21 @@ def check_action_keys(node, path, errors):
     internally consistent by construction; nothing compared them to each other.
     """
     arrays = [k for k in ("fields", "constantFields", "children") if isinstance(node.get(k), list)]
-    # Deliberately ACROSS arrays only. Widening this to catch a repeat within a single
-    # array was tried and reverted: it fires 15 times on the committed IR, and the cases
-    # are not contradictions. `iq/stanzas/49/response` carries ten `value` fields whose
-    # `enumRef`s differ per privacy category — alternatives the extractor models on
-    # purpose, not one key answered twice. A guard that fails CI on correct data is worse
-    # than the gap it closes; the shape those ten represent is a modelling question, and
-    # it is recorded in the PR rather than silently enforced here.
+    # Two questions, two answers. ACROSS arrays a repeat is a contradiction and fails.
+    # WITHIN one array it is the extractor FLATTENING a discriminated shape — ten `value`
+    # fields in `privacyParser`, one per `<category name=…>`, with the discriminator and
+    # the output names dropped — so it is a known loss held to a baseline, not an error.
+    #
+    # It was briefly checked as an error, found these 15, and switched off as "alternatives
+    # modelled on purpose". Reading the source showed that was wrong. Recording the loss is
+    # what this file is for; silently certifying it is what it exists to prevent.
+    for key in arrays:
+        names_in = [
+            it["name"] for it in node[key] if isinstance(it, dict) and "name" in it
+        ]
+        if len(set(names_in)) < len(names_in):
+            counts["object key filled twice in one array"] += 1
+
     if len(arrays) < 2:
         return
     names = [
@@ -1293,7 +1307,7 @@ def main() -> int:
             # Independent of the field gate — see each function's note.
             check_enum_ref(node, f"{domain}{path}", errors, seen_refs)
             check_const_bytes(node, f"{domain}{path}", errors)
-            check_action_keys(node, f"{domain}{path}", errors)
+            check_action_keys(node, f"{domain}{path}", errors, counts)
             check_variant_groups(node, f"{domain}{path}", errors)
             check_child_requiredness(node, f"{domain}{path}", errors)
 
