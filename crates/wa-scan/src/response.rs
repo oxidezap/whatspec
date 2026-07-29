@@ -18,6 +18,7 @@ use oxc_syntax::scope::ScopeFlags;
 use wa_ir::wap;
 use wa_ir::{
     AssertionKind, ContentType, ParsedField, ParsedFieldType, ParsedResponse, ResponseAssertion,
+    UnionVariant,
 };
 
 use wa_oxc::{arg_expr, as_call, as_identifier, as_string_lit, callee_method, callee_object};
@@ -1631,6 +1632,198 @@ fn merge_or_push(into: &mut Vec<ParsedField>, f: ParsedField) {
     }
 }
 
+/// Collects the arms of a dispatch on `subject`, wherever they sit — the minified form
+/// wraps them in a labelled block, but nothing here depends on that.
+struct ArmCollector<'s> {
+    subject: &'s str,
+    /// The literals an arm accepts, and the source range of what it then does.
+    arms: Vec<(Vec<String>, Span)>,
+}
+
+impl<'a> Visit<'a> for ArmCollector<'_> {
+    fn visit_if_statement(&mut self, stmt: &oxc_ast::ast::IfStatement<'a>) {
+        let mut lits = Vec::new();
+        equality_literals(&stmt.test, self.subject, &mut lits);
+        if !lits.is_empty() {
+            let owned = lits.into_iter().map(str::to_string).collect();
+            self.arms.push((owned, stmt.consequent.span()));
+        }
+        walk::walk_if_statement(self, stmt);
+    }
+}
+
+/// Finds the attribute a dispatch reads once and then branches on.
+struct DiscriminatorFinder<'s> {
+    param: &'s str,
+    /// The name it was bound to, and the wire attribute it read.
+    found: Option<(String, String)>,
+}
+
+impl<'a> Visit<'a> for DiscriminatorFinder<'_> {
+    fn visit_variable_declaration(&mut self, decl: &VariableDeclaration<'a>) {
+        for d in &decl.declarations {
+            if self.found.is_none()
+                && let (Some(bound), Some(init)) = (d.id.get_identifier_name(), d.init.as_ref())
+                && let Some(call) = as_call(init)
+                && let Some(method) = callee_method(call)
+                && wap::is_attr_method(method)
+                && callee_object(call).and_then(as_identifier) == Some(self.param)
+                && let Some(wire) = arg_str(call, 0)
+            {
+                self.found = Some((bound.as_str().to_string(), wire.to_string()));
+            }
+        }
+        walk::walk_variable_declaration(self, decl);
+    }
+}
+
+/// Every string literal `name` is compared against with `===` in `test`, through `||`.
+fn equality_literals<'b>(test: &'b Expression<'_>, name: &str, out: &mut Vec<&'b str>) {
+    match test {
+        Expression::ParenthesizedExpression(p) => equality_literals(&p.expression, name, out),
+        Expression::LogicalExpression(l)
+            if l.operator == oxc_syntax::operator::LogicalOperator::Or =>
+        {
+            equality_literals(&l.left, name, out);
+            equality_literals(&l.right, name, out);
+        }
+        Expression::BinaryExpression(b)
+            if b.operator == oxc_ast::ast::BinaryOperator::StrictEquality =>
+        {
+            let pair = [(&b.left, &b.right), (&b.right, &b.left)];
+            for (a, other) in pair {
+                if as_identifier(a) == Some(name)
+                    && let Some(lit) = as_string_lit(other)
+                {
+                    out.push(lit);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+/// The property a variant's value is assigned to — `readReceipts` in
+/// `t.readReceipts = r`. That is the name the runtime gives the field, and it is not
+/// recoverable from the wire, where every arm reads the same `value`.
+fn assigned_property(src: &str) -> Option<String> {
+    let alloc = Allocator::default();
+    let ret = wa_oxc::parse_cjs(&alloc, src);
+    if ret.panicked {
+        return None;
+    }
+    #[derive(Default)]
+    struct Finder {
+        name: Option<String>,
+    }
+    impl<'a> Visit<'a> for Finder {
+        fn visit_assignment_expression(&mut self, e: &oxc_ast::ast::AssignmentExpression<'a>) {
+            if self.name.is_none()
+                && let oxc_ast::ast::AssignmentTarget::StaticMemberExpression(m) = &e.left
+            {
+                self.name = Some(m.property.name.as_str().to_string());
+            }
+            walk::walk_assignment_expression(self, e);
+        }
+    }
+    let mut f = Finder::default();
+    f.visit_program(&ret.program);
+    f.name
+}
+
+/// Read a `<category name="…" value="…">` dispatch: one attribute picks both the enum the
+/// value is validated against and the name the runtime gives it.
+///
+/// Extracted flat, the ten arms became ten sibling `value` fields, each with a different
+/// enum and none saying which `name` selects it — the linkage and the output names were
+/// both gone. As a union the arms stay apart, each pinned by the attribute that chooses it.
+fn discriminated_children(
+    body_src: &str,
+    param: &str,
+    module: &ModuleScope,
+) -> Option<Vec<ParsedField>> {
+    let alloc = Allocator::default();
+    let ret = wa_oxc::parse_cjs(&alloc, body_src);
+    if ret.panicked {
+        return None;
+    }
+
+    // `var n = param.attrString("name")` — the discriminator, read once, up front. The
+    // callback's body arrives wrapped in its own braces, so this is not a top-level
+    // statement of the slice.
+    let mut finder = DiscriminatorFinder { param, found: None };
+    finder.visit_program(&ret.program);
+    let (bound, wire) = finder.found?;
+    let disc_field = {
+        let method = "attrString";
+        mk_field(method, &wire, method_to_field_type(method), true)
+    };
+
+    let mut collector = ArmCollector {
+        subject: &bound,
+        arms: Vec::new(),
+    };
+    collector.visit_program(&ret.program);
+
+    let mut variants: Vec<UnionVariant> = Vec::new();
+    let mut common: Vec<ParsedField> = Vec::new();
+    for (lits, span) in &collector.arms {
+        let arm_src = &body_src[span.start as usize..span.end as usize];
+        let arm = analyze_with_scope(arm_src, param, module);
+        let runtime_name = assigned_property(arm_src);
+        // Only the leaf the arm selects belongs to the variant. Anything structural it
+        // also reads — the `<error>` the reporting helper picks up — is the element's,
+        // common to every arm that can fail, and stays beside the union.
+        let (leaves, structural): (Vec<_>, Vec<_>) = arm
+            .fields
+            .iter()
+            .cloned()
+            .partition(|f| f.children.is_none());
+        for f in structural {
+            if !common.iter().any(|c: &ParsedField| c.name == f.name) {
+                common.push(f);
+            }
+        }
+        for lit in lits {
+            let fields = leaves
+                .iter()
+                .cloned()
+                .map(|mut f| {
+                    // The wire name is the same for every arm; the runtime's is not.
+                    if let Some(n) = runtime_name.as_deref() {
+                        f.wire_name = Some(f.name.clone());
+                        f.name = n.to_string();
+                    }
+                    f
+                })
+                .collect();
+            variants.push(UnionVariant {
+                name: lit.to_string(),
+                fields,
+                assertions: vec![ResponseAssertion {
+                    kind: AssertionKind::Attr,
+                    name: Some(wire.clone()),
+                    value: Some(lit.to_string()),
+                    reference_path: None,
+                }],
+            });
+        }
+    }
+    // One arm is a plain dispatch, not a discriminated shape.
+    if variants.len() < 2 {
+        return None;
+    }
+
+    let mut union = mk_field("dispatch", &wire, ParsedFieldType::Union, true);
+    union.wire_name = None;
+    union.name = format!("{wire}_dispatch");
+    union.union_variants = Some(variants);
+    let mut out = vec![disc_field];
+    out.extend(common);
+    out.push(union);
+    Some(out)
+}
+
 /// The bound name and body source of a child callback, written either as
 /// `function (n) {…}` or as an arrow — including the expression-bodied `n => n.attrString(…)`.
 fn callback_scope<'c>(expr: &Expression<'_>, code: &'c str) -> Option<(String, &'c str, Span)> {
@@ -1699,7 +1892,11 @@ fn process_child_method_at(
 
             let mut f = mk_field(method, child_tag, ParsedFieldType::String, true);
             f.tag = Some(child_tag.to_string());
-            f.children = Some(child_result.fields);
+            // A body that dispatches on one of its own attributes describes alternatives,
+            // not a flat record: keep them apart rather than as same-named siblings.
+            f.children = Some(
+                discriminated_children(cb_body, &cb_param, module).unwrap_or(child_result.fields),
+            );
             f.repeats = Some(true);
             // What the child's own scope could not resolve is still a loss for the parser.
             sink.unresolved.extend(child_result.unresolved);
@@ -2375,6 +2572,45 @@ mod tests {
             Some(vec!["content"]),
         );
         assert!(r.unresolved.is_empty(), "nothing lost: {:?}", r.unresolved);
+    }
+
+    #[test]
+    fn an_attribute_dispatch_becomes_a_union_not_same_named_siblings() {
+        // `privacyParser` reads `<category name value>`, where `name` picks both the enum
+        // `value` is validated against and what the runtime calls the field. Flat, that was
+        // ten sibling `value` fields with ten different enums and nothing saying which
+        // `name` chose which — the linkage and the output names both gone.
+        let r = analyze_parser_ast(
+            r#"{ e.child("privacy").forEachChildWithTag("category", function(e){
+                   var n = e.attrString("name");
+                   x: {
+                     if (n === "readreceipts") { var a = e.attrString("value"); t.readReceipts = a; break x }
+                     if (n === "calladd") { var b = e.attrString("value"); t.callAdd = b; break x }
+                     if (n === "stickers" || n === "cover_photo") break x;
+                   }
+                 }); }"#,
+            "e",
+        );
+        let cat = r.fields[0].children.as_ref().unwrap()[0].clone();
+        let kids = cat.children.as_ref().unwrap();
+        assert_eq!(
+            kids.iter().map(|f| f.name.as_str()).collect::<Vec<_>>(),
+            ["name", "name_dispatch"],
+            "the discriminator stays a field; the arms become one union"
+        );
+        let variants = kids[1].union_variants.as_ref().expect("union variants");
+        assert_eq!(
+            variants.iter().map(|v| v.name.as_str()).collect::<Vec<_>>(),
+            ["readreceipts", "calladd", "stickers", "cover_photo"],
+        );
+        // Each arm says which `name` selects it …
+        assert_eq!(variants[1].assertions[0].name.as_deref(), Some("name"));
+        assert_eq!(variants[1].assertions[0].value.as_deref(), Some("calladd"));
+        // … and carries the runtime's name for the wire's `value`.
+        assert_eq!(variants[1].fields[0].name, "callAdd");
+        assert_eq!(variants[1].fields[0].wire_name.as_deref(), Some("value"));
+        // A name accepted without a value is a variant that carries nothing.
+        assert!(variants[2].fields.is_empty());
     }
 
     #[test]

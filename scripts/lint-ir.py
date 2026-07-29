@@ -57,7 +57,6 @@ FLATTENED_KEYS = {
     "incoming/incoming/0/shape/fields|verified_name": 1,
     "incoming/incoming/3/shape/fields/5/children/0/children|type": 1,
     "incoming/incoming/4/shape/fields|id": 1,
-    "iq/stanzas/49/response/fields/0/children/0/children|value": 9,
     "iq/stanzas/50/response/fields/0/children/0/children|value": 1,
     "notif/notifications/12/content/fields|id": 1,
     "notif/notifications/17/content/fields|from,t": 3,

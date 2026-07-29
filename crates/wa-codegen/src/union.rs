@@ -53,6 +53,11 @@ pub(crate) enum UnionShape {
     /// Struct-variant enum read off the SAME node, chosen by first-success over the
     /// variants' required attrs.
     SameNode { arms: Vec<ValueArm> },
+    /// Struct-variant enum read off the SAME node, chosen by the VALUE of one pinned
+    /// attribute rather than by which attributes happen to be present. `<category
+    /// name="calladd" value=…>`: the name picks both the enum the value is validated
+    /// against and what the variant is called.
+    AttrDiscriminated { attr: String, arms: Vec<AttrArm> },
     /// Newtype enum over per-variant structs, read off one node (all variants share the
     /// node's tag). Variants may carry nested children/unions, so each becomes its own
     /// generated struct; the parser tries them in first-success order, gated by each
@@ -68,6 +73,14 @@ pub(crate) enum UnionShape {
 pub(crate) struct TagArm {
     pub variant: String,
     pub attr_values: Vec<(String, String)>,
+    pub fields: Vec<ParsedField>,
+}
+
+/// An attr-discriminated arm: the discriminator holding `value` selects `variant`,
+/// which carries the leaves that arm reads (none, for an accepted-but-empty name).
+pub(crate) struct AttrArm {
+    pub variant: String,
+    pub value: String,
     pub fields: Vec<ParsedField>,
 }
 
@@ -113,6 +126,7 @@ pub(crate) fn classify_union(f: &ParsedField) -> Option<UnionShape> {
         return None;
     }
     classify_content(f, variants)
+        .or_else(|| classify_attr_discriminated(f, variants))
         .or_else(|| classify_same_node(f, variants))
         .or_else(|| classify_tag_discriminated(f, variants))
 }
@@ -297,6 +311,53 @@ fn content_descend(f: &ParsedField, variants: &[UnionVariant]) -> Option<Vec<Str
 
 /// Same-node value: every variant reads attr leaves off the same node (no descent,
 /// no tag, no content pin), separable by required-attr presence.
+/// Attr-discriminated: every variant pins the SAME attribute to a DIFFERENT value, and
+/// carries only leaves read off that same node (or nothing at all). Unlike
+/// [`classify_same_node`], which tells arms apart by which attributes are present, this
+/// reads one attribute and matches its value — so arms that read the very same wire
+/// attribute stay distinguishable.
+fn classify_attr_discriminated(f: &ParsedField, variants: &[UnionVariant]) -> Option<UnionShape> {
+    if f.source_path.as_ref().is_some_and(|s| !s.is_empty()) {
+        return None; // a descent isn't a same-node read
+    }
+    let mut attr: Option<String> = None;
+    let mut seen: BTreeSet<String> = BTreeSet::new();
+    let mut arms = Vec::new();
+    for v in variants {
+        if tag_assert(&v.assertions).is_some() || content_assert(&v.assertions).is_some() {
+            return None;
+        }
+        if !v.fields.iter().all(is_simple_leaf) {
+            return None;
+        }
+        // Exactly one pinned attr, and the same one across the union.
+        let pins: Vec<(&str, &str)> = v
+            .assertions
+            .iter()
+            .filter(|a| a.kind == AssertionKind::Attr)
+            .filter_map(|a| Some((a.name.as_deref()?, a.value.as_deref()?)))
+            .collect();
+        let [(name, value)] = pins[..] else {
+            return None;
+        };
+        match &attr {
+            Some(a) if a != name => return None,
+            Some(_) => {}
+            None => attr = Some(name.to_string()),
+        }
+        // Two arms on the same value would shadow each other.
+        if !seen.insert(value.to_string()) {
+            return None;
+        }
+        arms.push(AttrArm {
+            variant: v.name.clone(),
+            value: value.to_string(),
+            fields: v.fields.clone(),
+        });
+    }
+    Some(UnionShape::AttrDiscriminated { attr: attr?, arms })
+}
+
 fn classify_same_node(f: &ParsedField, variants: &[UnionVariant]) -> Option<UnionShape> {
     if f.source_path.as_ref().is_some_and(|s| !s.is_empty()) {
         return None; // a descent isn't a same-node read
@@ -401,6 +462,18 @@ pub(crate) fn collect_union(
             };
             Some((field, vec![e], Vec::new()))
         }
+        UnionShape::AttrDiscriminated { arms, .. } => {
+            let variants = arms
+                .iter()
+                .map(|a| value_variant(&a.variant, &a.fields))
+                .collect();
+            let e = RustEnum {
+                name,
+                doc,
+                variants,
+            };
+            Some((field, vec![e], Vec::new()))
+        }
         UnionShape::SameNode { arms } => {
             let variants = arms
                 .iter()
@@ -477,6 +550,9 @@ pub(crate) fn emit_union_read(
             indent,
             &mut lines,
         ),
+        UnionShape::AttrDiscriminated { attr, arms } => {
+            emit_attr_discriminated(&name, &field, node_var, &attr, &arms, indent, &mut lines)
+        }
         UnionShape::SameNode { arms } => {
             emit_same_node(&name, &field, node_var, &arms, indent, &mut lines)
         }
@@ -612,6 +688,34 @@ fn emit_content(
 
 /// Emit a same-node value union read: try each arm in first-success order by its
 /// required attrs; an arm with no required attr is the unconditional fallback.
+/// Emit an attr-discriminated read: take the discriminator once, then match its value.
+/// An unrecognized value decodes to `None`, so a name this bundle did not know about
+/// leaves the field empty rather than failing the whole response.
+#[allow(clippy::too_many_arguments)]
+fn emit_attr_discriminated(
+    enum_name: &str,
+    field: &str,
+    node_var: &str,
+    attr: &str,
+    arms: &[AttrArm],
+    indent: &str,
+    lines: &mut Vec<String>,
+) {
+    lines.push(format!(
+        "{indent}let {field} = match {node_var}.get_attr({}).as_deref() {{",
+        rust_lit(attr)
+    ));
+    for a in arms {
+        lines.push(format!(
+            "{indent}    Some({}) => Some({}),",
+            rust_lit(&a.value),
+            value_payload(enum_name, &a.variant, &a.fields, node_var)
+        ));
+    }
+    lines.push(format!("{indent}    _ => None,"));
+    lines.push(format!("{indent}}};"));
+}
+
 fn emit_same_node(
     enum_name: &str,
     field: &str,
@@ -778,6 +882,73 @@ mod tests {
                              "wireName": "subject", "type": "string", "required": false}]}
             ]
         }))
+    }
+
+    /// The privacy-settings shape: one attribute picks both the variant and what the
+    /// runtime calls the value read beside it.
+    fn category_union() -> ParsedField {
+        union_field(serde_json::json!({
+            "method": "dispatch", "name": "name_dispatch", "type": "union", "required": true,
+            "unionVariants": [
+                {"name": "readreceipts",
+                 "assertions": [{"kind": "attr", "name": "name", "value": "readreceipts"}],
+                 "fields": [{"method": "attrString", "name": "readReceipts",
+                             "wireName": "value", "type": "string", "required": true}]},
+                {"name": "calladd",
+                 "assertions": [{"kind": "attr", "name": "name", "value": "calladd"}],
+                 "fields": [{"method": "attrString", "name": "callAdd",
+                             "wireName": "value", "type": "string", "required": true}]},
+                {"name": "stickers",
+                 "assertions": [{"kind": "attr", "name": "name", "value": "stickers"}],
+                 "fields": []}
+            ]
+        }))
+    }
+
+    #[test]
+    fn attr_discriminated_union_matches_on_the_pinned_value() {
+        // Every arm reads the same wire attribute, so a presence test cannot tell them
+        // apart — only the discriminator's value can.
+        let f = category_union();
+        let (field, enums, structs) = collect_union(&f, "Spec").expect("classified");
+        assert_eq!(field.rust_type, "Option<SpecNameDispatch>");
+        assert!(structs.is_empty(), "leaves need no per-variant struct");
+        let variants = &enums[0].variants;
+        assert_eq!(
+            variants.iter().map(|v| v.name.as_str()).collect::<Vec<_>>(),
+            ["Readreceipts", "Calladd", "Stickers"]
+        );
+        assert_eq!(variants[0].fields[0].name, "read_receipts");
+        assert!(
+            variants[2].fields.is_empty(),
+            "an accepted name with no value"
+        );
+
+        let (lines, _) = emit_union_read(&f, "node", "Spec", "").expect("emitted");
+        let src = lines.join("\n");
+        assert!(
+            src.contains("match node.get_attr(\"name\").as_deref()"),
+            "reads the discriminator once: {src}"
+        );
+        assert!(src.contains("Some(\"calladd\") => Some(SpecNameDispatch::Calladd {"));
+        assert!(
+            src.contains("Some(\"stickers\") => Some(SpecNameDispatch::Stickers)"),
+            "a valueless name is a unit variant: {src}"
+        );
+        assert!(
+            src.contains("_ => None"),
+            "an unknown name decodes to None rather than failing: {src}"
+        );
+    }
+
+    #[test]
+    fn attr_discriminated_union_refuses_two_arms_on_one_value() {
+        // Two arms pinned to the same value would shadow each other; the field is skipped
+        // rather than emitted with an unreachable arm.
+        let mut f = category_union();
+        let vs = f.union_variants.as_mut().unwrap();
+        vs[1].assertions[0].value = Some("readreceipts".to_string());
+        assert!(classify_union(&f).is_none());
     }
 
     #[test]

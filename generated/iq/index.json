@@ -34838,30 +34838,6 @@
                     "required": true
                   },
                   {
-                    "method": "attrEnum",
-                    "name": "value",
-                    "type": "enum",
-                    "required": true,
-                    "enumRef": {
-                      "name": "ALL_NONE_WITH_ERROR",
-                      "module": "WAWebPrivacySettings",
-                      "variants": [
-                        {
-                          "name": "all",
-                          "value": "all"
-                        },
-                        {
-                          "name": "none",
-                          "value": "none"
-                        },
-                        {
-                          "name": "error",
-                          "value": "error"
-                        }
-                      ]
-                    }
-                  },
-                  {
                     "method": "maybeChild",
                     "name": "error",
                     "type": "string",
@@ -34883,256 +34859,484 @@
                     ]
                   },
                   {
-                    "method": "attrEnum",
-                    "name": "value",
-                    "type": "enum",
+                    "method": "dispatch",
+                    "name": "name_dispatch",
+                    "type": "union",
                     "required": true,
-                    "enumRef": {
-                      "name": "VISIBILITY_WITH_ERROR",
-                      "module": "WAWebPrivacySettings",
-                      "variants": [
-                        {
-                          "name": "all",
-                          "value": "all"
-                        },
-                        {
-                          "name": "contacts",
-                          "value": "contacts"
-                        },
-                        {
-                          "name": "contact_blacklist",
-                          "value": "contact_blacklist"
-                        },
-                        {
-                          "name": "none",
-                          "value": "none"
-                        },
-                        {
-                          "name": "error",
-                          "value": "error"
-                        }
-                      ]
-                    }
-                  },
-                  {
-                    "method": "attrEnum",
-                    "name": "value",
-                    "type": "enum",
-                    "required": true,
-                    "enumRef": {
-                      "name": "ONLINE_VISIBILITY_WITH_ERROR",
-                      "module": "WAWebPrivacySettings",
-                      "variants": [
-                        {
-                          "name": "all",
-                          "value": "all"
-                        },
-                        {
-                          "name": "match_last_seen",
-                          "value": "match_last_seen"
-                        },
-                        {
-                          "name": "error",
-                          "value": "error"
-                        }
-                      ]
-                    }
-                  },
-                  {
-                    "method": "attrEnum",
-                    "name": "value",
-                    "type": "enum",
-                    "required": true,
-                    "enumRef": {
-                      "name": "VISIBILITY_WITH_ERROR",
-                      "module": "WAWebPrivacySettings",
-                      "variants": [
-                        {
-                          "name": "all",
-                          "value": "all"
-                        },
-                        {
-                          "name": "contacts",
-                          "value": "contacts"
-                        },
-                        {
-                          "name": "contact_blacklist",
-                          "value": "contact_blacklist"
-                        },
-                        {
-                          "name": "none",
-                          "value": "none"
-                        },
-                        {
-                          "name": "error",
-                          "value": "error"
-                        }
-                      ]
-                    }
-                  },
-                  {
-                    "method": "attrEnum",
-                    "name": "value",
-                    "type": "enum",
-                    "required": true,
-                    "enumRef": {
-                      "name": "VISIBILITY_WITH_ERROR",
-                      "module": "WAWebPrivacySettings",
-                      "variants": [
-                        {
-                          "name": "all",
-                          "value": "all"
-                        },
-                        {
-                          "name": "contacts",
-                          "value": "contacts"
-                        },
-                        {
-                          "name": "contact_blacklist",
-                          "value": "contact_blacklist"
-                        },
-                        {
-                          "name": "none",
-                          "value": "none"
-                        },
-                        {
-                          "name": "error",
-                          "value": "error"
-                        }
-                      ]
-                    }
-                  },
-                  {
-                    "method": "attrEnum",
-                    "name": "value",
-                    "type": "enum",
-                    "required": true,
-                    "enumRef": {
-                      "name": "VISIBILITY_WITH_ERROR",
-                      "module": "WAWebPrivacySettings",
-                      "variants": [
-                        {
-                          "name": "all",
-                          "value": "all"
-                        },
-                        {
-                          "name": "contacts",
-                          "value": "contacts"
-                        },
-                        {
-                          "name": "contact_blacklist",
-                          "value": "contact_blacklist"
-                        },
-                        {
-                          "name": "none",
-                          "value": "none"
-                        },
-                        {
-                          "name": "error",
-                          "value": "error"
-                        }
-                      ]
-                    }
-                  },
-                  {
-                    "method": "attrEnum",
-                    "name": "value",
-                    "type": "enum",
-                    "required": true,
-                    "enumRef": {
-                      "name": "CALL_ADD_WITH_ERROR",
-                      "module": "WAWebPrivacySettings",
-                      "variants": [
-                        {
-                          "name": "all",
-                          "value": "all"
-                        },
-                        {
-                          "name": "known",
-                          "value": "known"
-                        },
-                        {
-                          "name": "contacts",
-                          "value": "contacts"
-                        },
-                        {
-                          "name": "error",
-                          "value": "error"
-                        }
-                      ]
-                    }
-                  },
-                  {
-                    "method": "attrEnum",
-                    "name": "value",
-                    "type": "enum",
-                    "required": true,
-                    "enumRef": {
-                      "name": "ALL_CONTACTS",
-                      "module": "WAWebPrivacySettings",
-                      "variants": [
-                        {
-                          "name": "all",
-                          "value": "all"
-                        },
-                        {
-                          "name": "contacts",
-                          "value": "contacts"
-                        }
-                      ]
-                    }
-                  },
-                  {
-                    "method": "attrEnum",
-                    "name": "value",
-                    "type": "enum",
-                    "required": true,
-                    "enumRef": {
-                      "name": "DEFENSE_MODE_STATE",
-                      "module": "WAWebPrivacySettings",
-                      "variants": [
-                        {
-                          "name": "off",
-                          "value": "off"
-                        },
-                        {
-                          "name": "on_standard",
-                          "value": "on_standard"
-                        }
-                      ]
-                    }
-                  },
-                  {
-                    "method": "attrEnum",
-                    "name": "value",
-                    "type": "enum",
-                    "required": true,
-                    "enumRef": {
-                      "name": "VISIBILITY_WITH_ERROR",
-                      "module": "WAWebPrivacySettings",
-                      "variants": [
-                        {
-                          "name": "all",
-                          "value": "all"
-                        },
-                        {
-                          "name": "contacts",
-                          "value": "contacts"
-                        },
-                        {
-                          "name": "contact_blacklist",
-                          "value": "contact_blacklist"
-                        },
-                        {
-                          "name": "none",
-                          "value": "none"
-                        },
-                        {
-                          "name": "error",
-                          "value": "error"
-                        }
-                      ]
-                    }
+                    "unionVariants": [
+                      {
+                        "name": "readreceipts",
+                        "fields": [
+                          {
+                            "method": "attrEnum",
+                            "name": "readReceipts",
+                            "wireName": "value",
+                            "type": "enum",
+                            "required": true,
+                            "enumRef": {
+                              "name": "ALL_NONE_WITH_ERROR",
+                              "module": "WAWebPrivacySettings",
+                              "variants": [
+                                {
+                                  "name": "all",
+                                  "value": "all"
+                                },
+                                {
+                                  "name": "none",
+                                  "value": "none"
+                                },
+                                {
+                                  "name": "error",
+                                  "value": "error"
+                                }
+                              ]
+                            }
+                          }
+                        ],
+                        "assertions": [
+                          {
+                            "kind": "attr",
+                            "name": "name",
+                            "value": "readreceipts"
+                          }
+                        ]
+                      },
+                      {
+                        "name": "last",
+                        "fields": [
+                          {
+                            "method": "attrEnum",
+                            "name": "lastSeen",
+                            "wireName": "value",
+                            "type": "enum",
+                            "required": true,
+                            "enumRef": {
+                              "name": "VISIBILITY_WITH_ERROR",
+                              "module": "WAWebPrivacySettings",
+                              "variants": [
+                                {
+                                  "name": "all",
+                                  "value": "all"
+                                },
+                                {
+                                  "name": "contacts",
+                                  "value": "contacts"
+                                },
+                                {
+                                  "name": "contact_blacklist",
+                                  "value": "contact_blacklist"
+                                },
+                                {
+                                  "name": "none",
+                                  "value": "none"
+                                },
+                                {
+                                  "name": "error",
+                                  "value": "error"
+                                }
+                              ]
+                            }
+                          }
+                        ],
+                        "assertions": [
+                          {
+                            "kind": "attr",
+                            "name": "name",
+                            "value": "last"
+                          }
+                        ]
+                      },
+                      {
+                        "name": "online",
+                        "fields": [
+                          {
+                            "method": "attrEnum",
+                            "name": "online",
+                            "wireName": "value",
+                            "type": "enum",
+                            "required": true,
+                            "enumRef": {
+                              "name": "ONLINE_VISIBILITY_WITH_ERROR",
+                              "module": "WAWebPrivacySettings",
+                              "variants": [
+                                {
+                                  "name": "all",
+                                  "value": "all"
+                                },
+                                {
+                                  "name": "match_last_seen",
+                                  "value": "match_last_seen"
+                                },
+                                {
+                                  "name": "error",
+                                  "value": "error"
+                                }
+                              ]
+                            }
+                          }
+                        ],
+                        "assertions": [
+                          {
+                            "kind": "attr",
+                            "name": "name",
+                            "value": "online"
+                          }
+                        ]
+                      },
+                      {
+                        "name": "profile",
+                        "fields": [
+                          {
+                            "method": "attrEnum",
+                            "name": "profilePicture",
+                            "wireName": "value",
+                            "type": "enum",
+                            "required": true,
+                            "enumRef": {
+                              "name": "VISIBILITY_WITH_ERROR",
+                              "module": "WAWebPrivacySettings",
+                              "variants": [
+                                {
+                                  "name": "all",
+                                  "value": "all"
+                                },
+                                {
+                                  "name": "contacts",
+                                  "value": "contacts"
+                                },
+                                {
+                                  "name": "contact_blacklist",
+                                  "value": "contact_blacklist"
+                                },
+                                {
+                                  "name": "none",
+                                  "value": "none"
+                                },
+                                {
+                                  "name": "error",
+                                  "value": "error"
+                                }
+                              ]
+                            }
+                          }
+                        ],
+                        "assertions": [
+                          {
+                            "kind": "attr",
+                            "name": "name",
+                            "value": "profile"
+                          }
+                        ]
+                      },
+                      {
+                        "name": "status",
+                        "fields": [
+                          {
+                            "method": "attrEnum",
+                            "name": "about",
+                            "wireName": "value",
+                            "type": "enum",
+                            "required": true,
+                            "enumRef": {
+                              "name": "VISIBILITY_WITH_ERROR",
+                              "module": "WAWebPrivacySettings",
+                              "variants": [
+                                {
+                                  "name": "all",
+                                  "value": "all"
+                                },
+                                {
+                                  "name": "contacts",
+                                  "value": "contacts"
+                                },
+                                {
+                                  "name": "contact_blacklist",
+                                  "value": "contact_blacklist"
+                                },
+                                {
+                                  "name": "none",
+                                  "value": "none"
+                                },
+                                {
+                                  "name": "error",
+                                  "value": "error"
+                                }
+                              ]
+                            }
+                          }
+                        ],
+                        "assertions": [
+                          {
+                            "kind": "attr",
+                            "name": "name",
+                            "value": "status"
+                          }
+                        ]
+                      },
+                      {
+                        "name": "groupadd",
+                        "fields": [
+                          {
+                            "method": "attrEnum",
+                            "name": "groupAdd",
+                            "wireName": "value",
+                            "type": "enum",
+                            "required": true,
+                            "enumRef": {
+                              "name": "VISIBILITY_WITH_ERROR",
+                              "module": "WAWebPrivacySettings",
+                              "variants": [
+                                {
+                                  "name": "all",
+                                  "value": "all"
+                                },
+                                {
+                                  "name": "contacts",
+                                  "value": "contacts"
+                                },
+                                {
+                                  "name": "contact_blacklist",
+                                  "value": "contact_blacklist"
+                                },
+                                {
+                                  "name": "none",
+                                  "value": "none"
+                                },
+                                {
+                                  "name": "error",
+                                  "value": "error"
+                                }
+                              ]
+                            }
+                          }
+                        ],
+                        "assertions": [
+                          {
+                            "kind": "attr",
+                            "name": "name",
+                            "value": "groupadd"
+                          }
+                        ]
+                      },
+                      {
+                        "name": "calladd",
+                        "fields": [
+                          {
+                            "method": "attrEnum",
+                            "name": "callAdd",
+                            "wireName": "value",
+                            "type": "enum",
+                            "required": true,
+                            "enumRef": {
+                              "name": "CALL_ADD_WITH_ERROR",
+                              "module": "WAWebPrivacySettings",
+                              "variants": [
+                                {
+                                  "name": "all",
+                                  "value": "all"
+                                },
+                                {
+                                  "name": "known",
+                                  "value": "known"
+                                },
+                                {
+                                  "name": "contacts",
+                                  "value": "contacts"
+                                },
+                                {
+                                  "name": "error",
+                                  "value": "error"
+                                }
+                              ]
+                            }
+                          }
+                        ],
+                        "assertions": [
+                          {
+                            "kind": "attr",
+                            "name": "name",
+                            "value": "calladd"
+                          }
+                        ]
+                      },
+                      {
+                        "name": "messages",
+                        "fields": [
+                          {
+                            "method": "attrEnum",
+                            "name": "messages",
+                            "wireName": "value",
+                            "type": "enum",
+                            "required": true,
+                            "enumRef": {
+                              "name": "ALL_CONTACTS",
+                              "module": "WAWebPrivacySettings",
+                              "variants": [
+                                {
+                                  "name": "all",
+                                  "value": "all"
+                                },
+                                {
+                                  "name": "contacts",
+                                  "value": "contacts"
+                                }
+                              ]
+                            }
+                          }
+                        ],
+                        "assertions": [
+                          {
+                            "kind": "attr",
+                            "name": "name",
+                            "value": "messages"
+                          }
+                        ]
+                      },
+                      {
+                        "name": "defense",
+                        "fields": [
+                          {
+                            "method": "attrEnum",
+                            "name": "defenseMode",
+                            "wireName": "value",
+                            "type": "enum",
+                            "required": true,
+                            "enumRef": {
+                              "name": "DEFENSE_MODE_STATE",
+                              "module": "WAWebPrivacySettings",
+                              "variants": [
+                                {
+                                  "name": "off",
+                                  "value": "off"
+                                },
+                                {
+                                  "name": "on_standard",
+                                  "value": "on_standard"
+                                }
+                              ]
+                            }
+                          }
+                        ],
+                        "assertions": [
+                          {
+                            "kind": "attr",
+                            "name": "name",
+                            "value": "defense"
+                          }
+                        ]
+                      },
+                      {
+                        "name": "pix",
+                        "fields": [
+                          {
+                            "method": "attrEnum",
+                            "name": "pix",
+                            "wireName": "value",
+                            "type": "enum",
+                            "required": true,
+                            "enumRef": {
+                              "name": "VISIBILITY_WITH_ERROR",
+                              "module": "WAWebPrivacySettings",
+                              "variants": [
+                                {
+                                  "name": "all",
+                                  "value": "all"
+                                },
+                                {
+                                  "name": "contacts",
+                                  "value": "contacts"
+                                },
+                                {
+                                  "name": "contact_blacklist",
+                                  "value": "contact_blacklist"
+                                },
+                                {
+                                  "name": "none",
+                                  "value": "none"
+                                },
+                                {
+                                  "name": "error",
+                                  "value": "error"
+                                }
+                              ]
+                            }
+                          }
+                        ],
+                        "assertions": [
+                          {
+                            "kind": "attr",
+                            "name": "name",
+                            "value": "pix"
+                          }
+                        ]
+                      },
+                      {
+                        "name": "linked_profiles",
+                        "fields": [],
+                        "assertions": [
+                          {
+                            "kind": "attr",
+                            "name": "name",
+                            "value": "linked_profiles"
+                          }
+                        ]
+                      },
+                      {
+                        "name": "stickers",
+                        "fields": [],
+                        "assertions": [
+                          {
+                            "kind": "attr",
+                            "name": "name",
+                            "value": "stickers"
+                          }
+                        ]
+                      },
+                      {
+                        "name": "dependentaccountmessages",
+                        "fields": [],
+                        "assertions": [
+                          {
+                            "kind": "attr",
+                            "name": "name",
+                            "value": "dependentaccountmessages"
+                          }
+                        ]
+                      },
+                      {
+                        "name": "cover_photo",
+                        "fields": [],
+                        "assertions": [
+                          {
+                            "kind": "attr",
+                            "name": "name",
+                            "value": "cover_photo"
+                          }
+                        ]
+                      },
+                      {
+                        "name": "dependent_account_calling",
+                        "fields": [],
+                        "assertions": [
+                          {
+                            "kind": "attr",
+                            "name": "name",
+                            "value": "dependent_account_calling"
+                          }
+                        ]
+                      },
+                      {
+                        "name": "groupcreation",
+                        "fields": [],
+                        "assertions": [
+                          {
+                            "kind": "attr",
+                            "name": "name",
+                            "value": "groupcreation"
+                          }
+                        ]
+                      }
+                    ]
                   }
                 ],
                 "repeats": true
