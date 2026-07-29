@@ -486,7 +486,17 @@ impl NamedResolver {
         if self.factory_params.is_empty() {
             return true;
         }
-        as_identifier(e).is_some_and(|n| self.factory_params.contains(n))
+        let Some(name) = as_identifier(e) else {
+            return false;
+        };
+        if !self.factory_params.contains(name) {
+            return false;
+        }
+        // Spelling is not enough: `function f(i) { i.OUT = {…} }` writes to the NESTED
+        // parameter, not to the module's export object. Frame 0 is the module factory
+        // itself — its parameters ARE the receivers — so a rebinding is any frame after
+        // it that carries the name.
+        !self.param_scopes.iter().skip(1).any(|s| s.contains(name))
     }
 
     /// Push a lexical scope for `stmts`' own `let`/`const`, if any collide with a local.
@@ -1485,6 +1495,23 @@ mod tests {
                 "the class binding shadows: {shape}"
             );
         }
+
+        // A nested function that SHADOWS the export receiver writes to its own parameter.
+        let shadowed_receiver = r#"__d("M",[],(function(t,n,r,o,a,i){
+            function f(i){ i.OUT={A:"a",B:"b"} }
+        }),1);"#;
+        assert!(resolve_named_enum(shadowed_receiver, "M", "OUT").is_none());
+        // ...while the module's own receiver still exports.
+        let real = r#"__d("M",[],(function(t,n,r,o,a,i){
+            function f(){ i.OUT={A:"a",B:"b"} }
+        }),1);"#;
+        assert_eq!(
+            resolve_named_enum(real, "M", "OUT")
+                .expect("the module's export object still works from a nested function")
+                .variants
+                .len(),
+            2
+        );
 
         // A name rebound to the SAME body is not ambiguous — refusing it would throw away
         // a resolvable enum for nothing.
