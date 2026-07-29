@@ -464,8 +464,16 @@ struct BoundNames {
 
 impl BoundNames {
     /// Collect over a function body, whose own span bounds any top-level `let`/`const`.
-    fn of(params: &oxc_ast::ast::FormalParameters, body: &oxc_ast::ast::FunctionBody) -> Self {
+    fn of(
+        own_name: Option<&str>,
+        params: &oxc_ast::ast::FormalParameters,
+        body: &oxc_ast::ast::FunctionBody,
+    ) -> Self {
         let mut c = Self::default();
+        // A named function expression binds its own name inside itself, and nowhere else.
+        if let Some(n) = own_name {
+            c.names.insert(n.to_string());
+        }
         c.visit_formal_parameters(params);
         c.blocks.push(body.span);
         c.visit_function_body(body);
@@ -545,7 +553,12 @@ impl<'a> Visit<'a> for BoundNames {
     // the name it introduces here does. Descending would let an inner binding pass for an
     // outer one and discount reads that are genuinely the enclosing node's.
     fn visit_function(&mut self, func: &Function<'a>, _flags: ScopeFlags) {
-        if let Some(id) = func.id.as_ref() {
+        // Only a *declaration* introduces its name here — a named function expression binds
+        // it inside itself, and claiming it out here would discount reads through a capture
+        // of the same name.
+        if func.r#type == oxc_ast::ast::FunctionType::FunctionDeclaration
+            && let Some(id) = func.id.as_ref()
+        {
             self.names.insert(id.name.as_str().to_string());
         }
     }
@@ -620,7 +633,8 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
             walk::walk_function(self, func, flags);
             return;
         };
-        self.scopes.push(BoundNames::of(&func.params, body));
+        let own = func.id.as_ref().map(|i| i.name.as_str());
+        self.scopes.push(BoundNames::of(own, &func.params, body));
         walk::walk_function(self, func, flags);
         self.scopes.pop();
     }
@@ -629,7 +643,8 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
         &mut self,
         func: &oxc_ast::ast::ArrowFunctionExpression<'a>,
     ) {
-        self.scopes.push(BoundNames::of(&func.params, &func.body));
+        self.scopes
+            .push(BoundNames::of(None, &func.params, &func.body));
         walk::walk_arrow_function_expression(self, func);
         self.scopes.pop();
     }
@@ -1030,8 +1045,14 @@ impl ParserAnalyzer<'_, '_> {
             return;
         };
         // An argument that is a tracked child var — cheap to check before any re-parse.
+        // Only an argument still naming the node it was bound to: an enclosing callback may
+        // have re-bound the name, and descending on the stale entry would hang the helper's
+        // fields off whatever node that name used to mean.
         let Some((arg_idx, tag)) = call.arguments.iter().enumerate().find_map(|(i, a)| {
             let id = arg_expr(a).and_then(as_identifier)?;
+            if self.bound_by_inner_scope(id, call.span) {
+                return None;
+            }
             self.child_vars.get(id).map(|t| (i, t.clone()))
         }) else {
             return;
@@ -1836,6 +1857,26 @@ mod tests {
     }
 
     #[test]
+    fn a_named_callback_binds_its_own_name_inside_itself() {
+        // `function x(row){…}` binds `x` throughout its body, so the read is of the
+        // function, not of the captured `<meta>` node it happens to be named after.
+        let r = analyze_parser_ast(
+            r#"{ var x = e.child("meta");
+                 e.mapChildrenWithTag("row", function x(row){ x.attrString("bad"); }); }"#,
+            "e",
+        );
+        assert!(
+            r.fields
+                .iter()
+                .find(|f| f.name == "meta")
+                .and_then(|f| f.children.as_ref())
+                .is_none_or(|c| c.iter().all(|f| f.name != "bad")),
+            "the callback's own name is not the captured node: {:?}",
+            r.fields
+        );
+    }
+
+    #[test]
     fn a_recursed_callback_is_not_also_reported_as_a_loss() {
         // The callback re-binds `e`, so the shadow check would discount its reads — but
         // `process_child_method` already read them in their own scope. Only what no
@@ -2188,6 +2229,49 @@ mod tests {
                 .is_some_and(|c| c.iter().any(|g| g.tag.as_deref() == Some("user"))),
             "helper descent still reaches the captured node: {:?}",
             participants.children
+        );
+    }
+
+    #[test]
+    fn helper_descent_skips_an_argument_a_callback_re_bound() {
+        // Both `x` and `y` are tracked, but the callback re-binds `x`. Picking the first
+        // name found in the map descended on the stale entry and hung the helper's fields
+        // off `<xx>`, a node this call never mentions.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function d(a,b){
+                a.mapChildrenWithTag("ua", function(u){ u.attrString("p"); });
+                b.mapChildrenWithTag("ub", function(u){ u.attrString("q"); });
+            }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                var x=e.child("xx");
+                var y=e.maybeChild("participants");
+                e.mapChildrenWithTag("row", function(row){ var x=row.child("inner"); d(x, y); });
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let kids = |tag: &str| {
+            p.fields
+                .iter()
+                .find(|f| f.tag.as_deref() == Some(tag))
+                .and_then(|f| f.children.as_ref())
+                .map(|c| {
+                    c.iter()
+                        .filter_map(|g| g.tag.as_deref())
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default()
+        };
+        assert!(
+            !kids("xx").contains(&"ua"),
+            "nothing is invented under the re-bound name: {:?}",
+            kids("xx")
+        );
+        assert!(
+            kids("participants").contains(&"ub"),
+            "and the argument that still names its node is the one descended on: {:?}",
+            kids("participants")
         );
     }
 
