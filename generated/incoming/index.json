@@ -107,7 +107,7 @@
                 "method": "contentBytes",
                 "name": "content",
                 "type": "bytes",
-                "required": true
+                "required": false
               }
             ],
             "contentType": "bytes"
@@ -141,7 +141,7 @@
                 "method": "attrString",
                 "name": "biz_bot",
                 "type": "string",
-                "required": true
+                "required": false
               },
               {
                 "method": "maybeAttrString",
@@ -161,7 +161,7 @@
             "method": "attrDeviceJid",
             "name": "participant",
             "type": "device_jid",
-            "required": true
+            "required": false
           },
           {
             "method": "maybeChild",
@@ -235,7 +235,7 @@
                 "method": "attrEnumOrNullIfUnknown",
                 "name": "polltype",
                 "type": "enum",
-                "required": true,
+                "required": false,
                 "enumRef": {
                   "name": "POLL_TYPES",
                   "module": "WAWebHandleMsgCommon",
@@ -440,7 +440,7 @@
                     "method": "contentBytes",
                     "name": "content",
                     "type": "bytes",
-                    "required": true
+                    "required": false
                   }
                 ],
                 "contentType": "bytes"
@@ -457,14 +457,14 @@
             "method": "child",
             "name": "verified_name",
             "type": "string",
-            "required": true,
+            "required": false,
             "tag": "verified_name",
             "children": [
               {
                 "method": "contentBytes",
                 "name": "content",
                 "type": "bytes",
-                "required": true
+                "required": false
               }
             ]
           },
@@ -496,7 +496,7 @@
             "method": "attrInt",
             "name": "verified_name",
             "type": "integer",
-            "required": true
+            "required": false
           },
           {
             "method": "maybeChild",
@@ -541,7 +541,7 @@
             "method": "child",
             "name": "pay",
             "type": "string",
-            "required": true,
+            "required": false,
             "tag": "pay",
             "children": []
           },
@@ -549,7 +549,7 @@
             "method": "child",
             "name": "transaction",
             "type": "string",
-            "required": true,
+            "required": false,
             "tag": "transaction",
             "children": []
           },
@@ -557,7 +557,7 @@
             "method": "attrString",
             "name": "recipient",
             "type": "string",
-            "required": true
+            "required": false
           },
           {
             "method": "maybeChild",
@@ -725,7 +725,7 @@
                 "method": "attrString",
                 "name": "biz_bot",
                 "type": "string",
-                "required": true
+                "required": false
               },
               {
                 "method": "maybeAttrString",
@@ -751,7 +751,7 @@
             "method": "attrDeviceJid",
             "name": "participant",
             "type": "device_jid",
-            "required": true
+            "required": false
           }
         ]
       }
@@ -934,7 +934,7 @@
                     "method": "attrUserJid",
                     "name": "participant_pn",
                     "type": "user_jid",
-                    "required": true
+                    "required": false
                   },
                   {
                     "method": "maybeAttrString",
@@ -974,7 +974,7 @@
                     "method": "attrUserJid",
                     "name": "participant_pn",
                     "type": "user_jid",
-                    "required": true
+                    "required": false
                   },
                   {
                     "method": "maybeAttrString",
@@ -1023,13 +1023,13 @@
                     "method": "attrString",
                     "name": "server_id",
                     "type": "string",
-                    "required": true
+                    "required": false
                   },
                   {
                     "method": "attrString",
                     "name": "id",
                     "type": "string",
-                    "required": true
+                    "required": false
                   }
                 ],
                 "repeats": true
@@ -1118,7 +1118,7 @@
             "method": "attrDeviceJid",
             "name": "participant",
             "type": "device_jid",
-            "required": true
+            "required": false
           },
           {
             "method": "attrString",
@@ -1130,7 +1130,7 @@
             "method": "attrDeviceJid",
             "name": "recipient",
             "type": "device_jid",
-            "required": true
+            "required": false
           },
           {
             "method": "child",
@@ -1165,14 +1165,14 @@
             "method": "child",
             "name": "identity",
             "type": "string",
-            "required": true,
+            "required": false,
             "tag": "identity",
             "children": [
               {
                 "method": "contentBytes",
                 "name": "content",
                 "type": "bytes",
-                "required": true,
+                "required": false,
                 "byteLength": 32
               }
             ]
@@ -1181,14 +1181,14 @@
             "method": "child",
             "name": "id",
             "type": "string",
-            "required": true,
+            "required": false,
             "tag": "id",
             "children": [
               {
                 "method": "contentUint",
                 "name": "content",
                 "type": "integer",
-                "required": true,
+                "required": false,
                 "byteLength": 3
               }
             ]
@@ -1197,14 +1197,14 @@
             "method": "child",
             "name": "value",
             "type": "string",
-            "required": true,
+            "required": false,
             "tag": "value",
             "children": [
               {
                 "method": "contentBytes",
                 "name": "content",
                 "type": "bytes",
-                "required": true,
+                "required": false,
                 "byteLength": 32
               }
             ]
@@ -1213,14 +1213,14 @@
             "method": "child",
             "name": "signature",
             "type": "string",
-            "required": true,
+            "required": false,
             "tag": "signature",
             "children": [
               {
                 "method": "contentBytes",
                 "name": "content",
                 "type": "bytes",
-                "required": true,
+                "required": false,
                 "byteLength": 64
               }
             ]
@@ -1365,7 +1365,7 @@
             "method": "attrJidWithType",
             "name": "sender_lid",
             "type": "jid_typed",
-            "required": true
+            "required": false
           },
           {
             "method": "maybeAttrString",
@@ -1446,13 +1446,13 @@
             "method": "attrDeviceJid",
             "name": "participant",
             "type": "device_jid",
-            "required": true
+            "required": false
           },
           {
             "method": "attrUserJid",
             "name": "recipient",
             "type": "user_jid",
-            "required": true
+            "required": false
           }
         ]
       }
@@ -3308,7 +3308,7 @@
             "method": "attrEnum",
             "name": "readreceipts",
             "type": "enum",
-            "required": true,
+            "required": false,
             "enumRef": {
               "name": "ALL_NONE",
               "module": "WAWebPrivacySettings",
@@ -3361,7 +3361,7 @@
             "method": "attrString",
             "name": "refresh_lid",
             "type": "string",
-            "required": true
+            "required": false
           },
           {
             "method": "maybeAttrString",

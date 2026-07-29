@@ -91,14 +91,14 @@
             "method": "child",
             "name": "status",
             "type": "string",
-            "required": true,
+            "required": false,
             "tag": "status",
             "children": [
               {
                 "method": "attrString",
                 "name": "action",
                 "type": "string",
-                "required": true
+                "required": false
               }
             ]
           },
@@ -106,32 +106,32 @@
             "method": "child",
             "name": "text_status",
             "type": "string",
-            "required": true,
+            "required": false,
             "tag": "text_status",
             "children": [
               {
                 "method": "attrString",
                 "name": "action",
                 "type": "string",
-                "required": true
+                "required": false
               },
               {
                 "method": "attrString",
                 "name": "text",
                 "type": "string",
-                "required": true
+                "required": false
               },
               {
                 "method": "attrInt",
                 "name": "ephemeral_duration_sec",
                 "type": "integer",
-                "required": true
+                "required": false
               },
               {
                 "method": "attrString",
                 "name": "last_update_time",
                 "type": "string",
-                "required": true
+                "required": false
               }
             ]
           },
@@ -139,7 +139,7 @@
             "method": "child",
             "name": "devices",
             "type": "string",
-            "required": true,
+            "required": false,
             "tag": "devices",
             "children": []
           },
@@ -147,7 +147,7 @@
             "method": "child",
             "name": "blocklist",
             "type": "string",
-            "required": true,
+            "required": false,
             "tag": "blocklist",
             "children": [
               {
@@ -178,7 +178,7 @@
             "method": "child",
             "name": "tos",
             "type": "string",
-            "required": true,
+            "required": false,
             "tag": "tos",
             "children": [
               {
@@ -209,26 +209,26 @@
             "method": "child",
             "name": "disappearing_mode",
             "type": "string",
-            "required": true,
+            "required": false,
             "tag": "disappearing_mode",
             "children": [
               {
                 "method": "attrString",
                 "name": "action",
                 "type": "string",
-                "required": true
+                "required": false
               },
               {
                 "method": "attrInt",
                 "name": "duration",
                 "type": "integer",
-                "required": true
+                "required": false
               },
               {
                 "method": "attrInt",
                 "name": "t",
                 "type": "integer",
-                "required": true
+                "required": false
               }
             ]
           },
@@ -236,14 +236,14 @@
             "method": "child",
             "name": "notice",
             "type": "string",
-            "required": true,
+            "required": false,
             "tag": "notice",
             "children": [
               {
                 "method": "attrString",
                 "name": "id",
                 "type": "string",
-                "required": true
+                "required": false
               },
               {
                 "method": "maybeAttrString",
@@ -261,7 +261,7 @@
                 "method": "attrInt",
                 "name": "t",
                 "type": "integer",
-                "required": true
+                "required": false
               }
             ]
           },
@@ -269,7 +269,7 @@
             "method": "child",
             "name": "user",
             "type": "string",
-            "required": true,
+            "required": false,
             "tag": "user",
             "children": [
               {
@@ -284,7 +284,7 @@
             "method": "child",
             "name": "biz_opt_out_list",
             "type": "string",
-            "required": true,
+            "required": false,
             "tag": "biz_opt_out_list",
             "children": [
               {
@@ -360,7 +360,7 @@
             "method": "child",
             "name": "remove",
             "type": "string",
-            "required": true,
+            "required": false,
             "tag": "remove",
             "children": []
           },
@@ -368,7 +368,7 @@
             "method": "child",
             "name": "verified_name",
             "type": "string",
-            "required": true,
+            "required": false,
             "tag": "verified_name",
             "children": []
           },
@@ -376,7 +376,7 @@
             "method": "child",
             "name": "profile",
             "type": "string",
-            "required": true,
+            "required": false,
             "tag": "profile",
             "children": [
               {
@@ -391,7 +391,7 @@
             "method": "child",
             "name": "product_catalog",
             "type": "string",
-            "required": true,
+            "required": false,
             "tag": "product_catalog",
             "children": []
           }
@@ -471,20 +471,20 @@
             "method": "child",
             "name": "update",
             "type": "string",
-            "required": true,
+            "required": false,
             "tag": "update",
             "children": [
               {
                 "method": "attrUserJid",
                 "name": "jid",
                 "type": "user_jid",
-                "required": true
+                "required": false
               },
               {
                 "method": "attrString",
                 "name": "hash",
                 "type": "string",
-                "required": true
+                "required": false
               }
             ]
           },
@@ -492,14 +492,14 @@
             "method": "child",
             "name": "add",
             "type": "string",
-            "required": true,
+            "required": false,
             "tag": "add",
             "children": [
               {
                 "method": "contentBytes",
                 "name": "content",
                 "type": "bytes",
-                "required": true
+                "required": false
               }
             ],
             "contentType": "bytes"
@@ -508,14 +508,14 @@
             "method": "child",
             "name": "remove",
             "type": "string",
-            "required": true,
+            "required": false,
             "tag": "remove",
             "children": [
               {
                 "method": "attrUserJid",
                 "name": "jid",
                 "type": "user_jid",
-                "required": true
+                "required": false
               }
             ]
           },
@@ -523,20 +523,20 @@
             "method": "child",
             "name": "modify",
             "type": "string",
-            "required": true,
+            "required": false,
             "tag": "modify",
             "children": [
               {
                 "method": "attrUserJid",
                 "name": "new",
                 "type": "user_jid",
-                "required": true
+                "required": false
               },
               {
                 "method": "attrUserJid",
                 "name": "old",
                 "type": "user_jid",
-                "required": true
+                "required": false
               },
               {
                 "method": "maybeAttrUserJid",
@@ -548,7 +548,7 @@
                 "method": "attrLidUserJid",
                 "name": "new_lid",
                 "type": "lid_user_jid",
-                "required": true
+                "required": false
               },
               {
                 "method": "maybeAttrUserJid",
@@ -560,7 +560,7 @@
                 "method": "attrLidUserJid",
                 "name": "old_lid",
                 "type": "lid_user_jid",
-                "required": true
+                "required": false
               }
             ]
           },
@@ -568,14 +568,14 @@
             "method": "child",
             "name": "sync",
             "type": "string",
-            "required": true,
+            "required": false,
             "tag": "sync",
             "children": [
               {
                 "method": "attrTime",
                 "name": "after",
                 "type": "integer",
-                "required": true
+                "required": false
               }
             ]
           }
@@ -676,7 +676,7 @@
             "method": "child",
             "name": "remove",
             "type": "string",
-            "required": true,
+            "required": false,
             "tag": "remove",
             "children": []
           },
@@ -684,7 +684,7 @@
             "method": "child",
             "name": "add",
             "type": "string",
-            "required": true,
+            "required": false,
             "tag": "add",
             "children": []
           },
@@ -692,7 +692,7 @@
             "method": "child",
             "name": "update",
             "type": "string",
-            "required": true,
+            "required": false,
             "tag": "update",
             "children": []
           },
@@ -712,7 +712,7 @@
             "method": "attrLidDeviceJid",
             "name": "lid",
             "type": "lid_device_jid",
-            "required": true
+            "required": false
           }
         ]
       }
@@ -858,7 +858,7 @@
                 "method": "attrInt",
                 "name": "code",
                 "type": "integer",
-                "required": true
+                "required": false
               }
             ]
           },
@@ -878,7 +878,7 @@
             "method": "attrString",
             "name": "id",
             "type": "string",
-            "required": true
+            "required": false
           },
           {
             "method": "child",
@@ -1103,7 +1103,7 @@
             "method": "child",
             "name": "delete",
             "type": "string",
-            "required": true,
+            "required": false,
             "tag": "delete",
             "children": []
           },
@@ -1111,7 +1111,7 @@
             "method": "child",
             "name": "set",
             "type": "string",
-            "required": true,
+            "required": false,
             "tag": "set",
             "children": []
           },
@@ -1119,7 +1119,7 @@
             "method": "child",
             "name": "request",
             "type": "string",
-            "required": true,
+            "required": false,
             "tag": "request",
             "children": []
           },
@@ -1127,7 +1127,7 @@
             "method": "child",
             "name": "set_avatar",
             "type": "string",
-            "required": true,
+            "required": false,
             "tag": "set_avatar",
             "children": []
           },
@@ -1141,31 +1141,31 @@
             "method": "attrChatJid",
             "name": "from",
             "type": "jid",
-            "required": true
+            "required": false
           },
           {
             "method": "attrTime",
             "name": "t",
             "type": "integer",
-            "required": true
+            "required": false
           },
           {
             "method": "attrString",
             "name": "t",
             "type": "string",
-            "required": true
+            "required": false
           },
           {
             "method": "attrUserJid",
             "name": "from",
             "type": "user_jid",
-            "required": true
+            "required": false
           },
           {
             "method": "attrTime",
             "name": "t",
             "type": "integer",
-            "required": true
+            "required": false
           }
         ]
       }
@@ -1510,31 +1510,31 @@
             "method": "attrUserJid",
             "name": "from",
             "type": "user_jid",
-            "required": true
+            "required": false
           },
           {
             "method": "attrString",
             "name": "notify",
             "type": "string",
-            "required": true
+            "required": false
           },
           {
             "method": "attrTime",
             "name": "t",
             "type": "integer",
-            "required": true
+            "required": false
           },
           {
             "method": "attrUserJid",
             "name": "from",
             "type": "user_jid",
-            "required": true
+            "required": false
           },
           {
             "method": "attrString",
             "name": "from",
             "type": "string",
-            "required": true
+            "required": false
           }
         ]
       }
@@ -1556,7 +1556,7 @@
             "method": "attrString",
             "name": "to",
             "type": "string",
-            "required": true
+            "required": false
           },
           {
             "method": "attrGroupJid",
@@ -1568,7 +1568,7 @@
             "method": "attrUserJid",
             "name": "participant",
             "type": "user_jid",
-            "required": true
+            "required": false
           },
           {
             "method": "maybeAttrPhoneUserJid",
@@ -1586,19 +1586,19 @@
             "method": "attrString",
             "name": "addressing_mode",
             "type": "string",
-            "required": true
+            "required": false
           },
           {
             "method": "attrString",
             "name": "participant_username",
             "type": "string",
-            "required": true
+            "required": false
           },
           {
             "method": "attrString",
             "name": "participant_country_code",
             "type": "string",
-            "required": true
+            "required": false
           },
           {
             "method": "mapChildren",
@@ -1707,7 +1707,7 @@
                             "method": "contentString",
                             "name": "content",
                             "type": "string",
-                            "required": true
+                            "required": false
                           }
                         ],
                         "contentType": "string"
@@ -1716,7 +1716,7 @@
                         "method": "attrString",
                         "name": "id",
                         "type": "string",
-                        "required": true
+                        "required": false
                       }
                     ]
                   },
@@ -1724,7 +1724,7 @@
                     "method": "attrUserJid",
                     "name": "creator",
                     "type": "user_jid",
-                    "required": true
+                    "required": false
                   },
                   {
                     "method": "child",
@@ -1737,7 +1737,7 @@
                         "method": "attrInt",
                         "name": "expiration",
                         "type": "integer",
-                        "required": true
+                        "required": false
                       },
                       {
                         "method": "maybeAttrString",
@@ -1757,19 +1757,19 @@
                     "method": "attrUserJid",
                     "name": "creator_pn",
                     "type": "user_jid",
-                    "required": true
+                    "required": false
                   },
                   {
                     "method": "attrString",
                     "name": "creator_country_code",
                     "type": "string",
-                    "required": true
+                    "required": false
                   },
                   {
                     "method": "attrString",
                     "name": "creator_username",
                     "type": "string",
-                    "required": true
+                    "required": false
                   },
                   {
                     "method": "attrTime",
@@ -1781,13 +1781,13 @@
                     "method": "attrUserJid",
                     "name": "s_o",
                     "type": "user_jid",
-                    "required": true
+                    "required": false
                   },
                   {
                     "method": "attrUserJid",
                     "name": "s_o_pn",
                     "type": "user_jid",
-                    "required": true
+                    "required": false
                   },
                   {
                     "method": "maybeAttrString",
@@ -1819,7 +1819,7 @@
                 "method": "attrGroupJid",
                 "name": "context_group_jid",
                 "type": "group_jid",
-                "required": true
+                "required": false
               },
               {
                 "method": "maybeAttrEnum",
@@ -1922,19 +1922,19 @@
                 "method": "attrString",
                 "name": "reason",
                 "type": "string",
-                "required": true
+                "required": false
               },
               {
                 "method": "attrString",
                 "name": "reason",
                 "type": "string",
-                "required": true
+                "required": false
               },
               {
                 "method": "attrString",
                 "name": "reason",
                 "type": "string",
-                "required": true
+                "required": false
               },
               {
                 "method": "attrString",
@@ -1946,13 +1946,13 @@
                 "method": "attrUserJid",
                 "name": "s_o",
                 "type": "user_jid",
-                "required": true
+                "required": false
               },
               {
                 "method": "attrUserJid",
                 "name": "s_o_pn",
                 "type": "user_jid",
-                "required": true
+                "required": false
               },
               {
                 "method": "maybeAttrString",
@@ -1970,26 +1970,26 @@
                 "method": "attrString",
                 "name": "id",
                 "type": "string",
-                "required": true
+                "required": false
               },
               {
                 "method": "attrString",
                 "name": "id",
                 "type": "string",
-                "required": true
+                "required": false
               },
               {
                 "method": "child",
                 "name": "body",
                 "type": "string",
-                "required": true,
+                "required": false,
                 "tag": "body",
                 "children": [
                   {
                     "method": "contentString",
                     "name": "content",
                     "type": "string",
-                    "required": true
+                    "required": false
                   }
                 ]
               },
@@ -2009,19 +2009,19 @@
                 "method": "attrInt",
                 "name": "expiration",
                 "type": "integer",
-                "required": true
+                "required": false
               },
               {
                 "method": "attrInt",
                 "name": "trigger",
                 "type": "integer",
-                "required": true
+                "required": false
               },
               {
                 "method": "attrInt",
                 "name": "expiration",
                 "type": "integer",
-                "required": true
+                "required": false
               },
               {
                 "method": "attrInt",
@@ -2079,7 +2079,7 @@
                 "method": "attrString",
                 "name": "unlink_reason",
                 "type": "string",
-                "required": true
+                "required": false
               },
               {
                 "method": "child",
@@ -2093,7 +2093,7 @@
                 "method": "attrString",
                 "name": "triggered",
                 "type": "string",
-                "required": true
+                "required": false
               },
               {
                 "method": "attrString",
@@ -2105,19 +2105,19 @@
                 "method": "attrGroupJid",
                 "name": "parent_group_jid",
                 "type": "group_jid",
-                "required": true
+                "required": false
               },
               {
                 "method": "attrString",
                 "name": "triggered",
                 "type": "string",
-                "required": true
+                "required": false
               },
               {
                 "method": "attrString",
                 "name": "triggered",
                 "type": "string",
-                "required": true
+                "required": false
               },
               {
                 "method": "attrString",
@@ -2129,7 +2129,7 @@
                 "method": "attrGroupJid",
                 "name": "parent_group_jid",
                 "type": "group_jid",
-                "required": true
+                "required": false
               },
               {
                 "method": "mapChildrenWithTag",
@@ -2148,13 +2148,13 @@
                     "method": "attrString",
                     "name": "username",
                     "type": "string",
-                    "required": true
+                    "required": false
                   },
                   {
                     "method": "attrUserJid",
                     "name": "phone_number",
                     "type": "user_jid",
-                    "required": true
+                    "required": false
                   }
                 ],
                 "repeats": true
@@ -2224,7 +2224,7 @@
                             "method": "contentString",
                             "name": "content",
                             "type": "string",
-                            "required": true
+                            "required": false
                           }
                         ],
                         "contentType": "string"
@@ -2242,7 +2242,7 @@
                         "method": "contentString",
                         "name": "content",
                         "type": "string",
-                        "required": true
+                        "required": false
                       }
                     ],
                     "contentType": "string"
@@ -2258,7 +2258,7 @@
                         "method": "contentInt",
                         "name": "content",
                         "type": "integer",
-                        "required": true
+                        "required": false
                       }
                     ],
                     "contentType": "integer"
@@ -2288,7 +2288,7 @@
                     "method": "attrString",
                     "name": "reason",
                     "type": "string",
-                    "required": true
+                    "required": false
                   }
                 ],
                 "repeats": true
@@ -3498,7 +3498,7 @@
             "method": "child",
             "name": "invite",
             "type": "string",
-            "required": true,
+            "required": false,
             "tag": "invite",
             "children": [
               {
@@ -3512,13 +3512,13 @@
                     "method": "attrUserJid",
                     "name": "user",
                     "type": "user_jid",
-                    "required": true
+                    "required": false
                   },
                   {
                     "method": "attrString",
                     "name": "reason",
                     "type": "string",
-                    "required": true
+                    "required": false
                   }
                 ]
               }

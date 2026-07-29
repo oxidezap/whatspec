@@ -888,6 +888,17 @@ impl ParserAnalyzer<'_, '_> {
         Some(path)
     }
 
+    /// A read, with the accessor's requiredness tempered by where it sits: guarded by
+    /// `hasChild(…) ? … : null` it is not required of every element, however unconditional
+    /// the accessor itself looks.
+    fn read_field(&mut self, method: &str, call: &CallExpression) -> ParsedField {
+        let mut f = field_from_call(method, call, self.module, &mut self.unresolved);
+        if self.conditional_depth > 0 {
+            f.required = false;
+        }
+        f
+    }
+
     fn note_unfollowable_bindings(&mut self, decl: &VariableDeclaration) {
         let Some(extent) = self.scopes.last().map(|s| s.extent) else {
             return;
@@ -1041,12 +1052,8 @@ impl ParserAnalyzer<'_, '_> {
 
         // ── Attr/content accessor on the param directly ──
         if is_value_method(method) && obj_is_param {
-            self.fields.push(field_from_call(
-                method,
-                call,
-                self.module,
-                &mut self.unresolved,
-            ));
+            let read = self.read_field(method, call);
+            self.fields.push(read);
             return;
         }
 
@@ -1054,17 +1061,11 @@ impl ParserAnalyzer<'_, '_> {
         if is_value_method(method)
             && let Some((parent_tag, inner_method)) = self.child_call_parent(obj)
         {
-            let idx = find_or_create_field(
-                &mut self.fields,
-                &parent_tag,
-                inner_method,
-                inner_method == "child",
-            );
-            push_child_field(
-                &mut self.fields,
-                idx,
-                field_from_call(method, call, self.module, &mut self.unresolved),
-            );
+            let parent_required = inner_method == "child" && self.conditional_depth == 0;
+            let idx =
+                find_or_create_field(&mut self.fields, &parent_tag, inner_method, parent_required);
+            let read = self.read_field(method, call);
+            push_child_field(&mut self.fields, idx, read);
             return;
         }
 
@@ -1076,7 +1077,10 @@ impl ParserAnalyzer<'_, '_> {
                 .iter()
                 .any(|f| f.method == method && f.tag.as_deref() == Some(tag))
             {
-                let mut f = mk_field(method, tag, ParsedFieldType::String, method == "child");
+                // `hasChild(t) ? e.child(t)… : null` reads a `child`, but only when the
+                // element carries one.
+                let required = method == "child" && self.conditional_depth == 0;
+                let mut f = mk_field(method, tag, ParsedFieldType::String, required);
                 f.tag = Some(tag.to_string());
                 f.children = Some(Vec::new());
                 self.fields.push(f);
@@ -1165,7 +1169,7 @@ impl ParserAnalyzer<'_, '_> {
                 .and_then(|n| self.child_vars.get(n))
                 .cloned()
         {
-            let read = field_from_call(method, call, self.module, &mut self.unresolved);
+            let read = self.read_field(method, call);
             if let Some(node) = node_at_mut(&mut self.fields, &path) {
                 let kids = node.children.get_or_insert_with(Vec::new);
                 if !kids
@@ -1779,6 +1783,14 @@ struct ArmCollector<'s> {
     subject: &'s str,
     /// The literals an arm accepts, and the source range of what it then does.
     arms: Vec<(Vec<String>, Span)>,
+    /// Enclosing `if`s that test something else. A comparison under one runs only when
+    /// that guard holds, and a union keyed on the discriminator alone would claim
+    /// otherwise.
+    guarded: u32,
+    /// Whether the discriminator binding is written to after it is read. Later branches
+    /// then compare a different value, and pinning them to the original attribute names
+    /// the wrong variant.
+    reassigned: bool,
     /// Whether a recognized arm ends in a plain `else`. Its reads belong to no value, and
     /// folding them beside the union would require them of the arms that never carry them.
     has_fallback: bool,
@@ -1790,10 +1802,24 @@ impl<'a> Visit<'a> for ArmCollector<'_> {
     fn visit_function(&mut self, _f: &Function<'a>, _flags: ScopeFlags) {}
     fn visit_arrow_function_expression(&mut self, _f: &oxc_ast::ast::ArrowFunctionExpression<'a>) {}
 
+    fn visit_assignment_expression(&mut self, e: &oxc_ast::ast::AssignmentExpression<'a>) {
+        if let oxc_ast::ast::AssignmentTarget::AssignmentTargetIdentifier(id) = &e.left
+            && id.name == self.subject
+        {
+            self.reassigned = true;
+        }
+        walk::walk_assignment_expression(self, e);
+    }
+
     fn visit_if_statement(&mut self, stmt: &oxc_ast::ast::IfStatement<'a>) {
         if let Some(lits) = equality_literals(&stmt.test, self.subject)
             && !lits.is_empty()
         {
+            if self.guarded > 0 {
+                // Reached only when something else holds — not a plain alternative.
+                self.reassigned = true;
+                return;
+            }
             let owned = lits.into_iter().map(str::to_string).collect();
             self.arms.push((owned, stmt.consequent.span()));
             // `else if` continues the chain; a bare `else` is an alternative this shape
@@ -1805,8 +1831,16 @@ impl<'a> Visit<'a> for ArmCollector<'_> {
             {
                 self.has_fallback = true;
             }
+            walk::walk_if_statement(self, stmt);
+            return;
         }
-        walk::walk_if_statement(self, stmt);
+        self.visit_expression(&stmt.test);
+        self.guarded += 1;
+        self.visit_statement(&stmt.consequent);
+        if let Some(alt) = &stmt.alternate {
+            self.visit_statement(alt);
+        }
+        self.guarded -= 1;
     }
 }
 
@@ -1980,6 +2014,15 @@ fn assigned_names(src: &str, param: &str) -> HashMap<String, String> {
         named: HashMap<String, String>,
     }
     impl<'a> Visit<'a> for Finder<'_> {
+        // A nested callback reusing the parameter's name reads a different node; its
+        // assignment would claim the wire name first and rename the field after it.
+        fn visit_function(&mut self, _f: &Function<'a>, _flags: ScopeFlags) {}
+        fn visit_arrow_function_expression(
+            &mut self,
+            _f: &oxc_ast::ast::ArrowFunctionExpression<'a>,
+        ) {
+        }
+
         fn visit_variable_declaration(&mut self, decl: &VariableDeclaration<'a>) {
             for d in &decl.declarations {
                 if let (Some(bound), Some(init)) = (d.id.get_identifier_name(), d.init.as_ref())
@@ -2078,10 +2121,12 @@ fn discriminated_children(
     let mut collector = ArmCollector {
         subject: &bound,
         arms: Vec::new(),
+        guarded: 0,
+        reassigned: false,
         has_fallback: false,
     };
     collector.visit_program(&ret.program);
-    if collector.has_fallback {
+    if collector.has_fallback || collector.reassigned {
         return None;
     }
 
@@ -3350,6 +3395,75 @@ mod tests {
                 .is_none_or(|c| c.iter().all(|f| f.name != "from_module")),
             "the local declaration wins: {:?}",
             meta.and_then(|f| f.children.as_ref())
+        );
+    }
+
+    #[test]
+    fn a_guarded_read_is_not_required_of_every_element() {
+        // `hasChild(t) ? … : null` reads a `child`, but only when the element carries one.
+        // Taking the accessor at face value had the IR demand both of these of every
+        // message, when the source asks for neither.
+        let r = analyze_parser_ast(
+            r#"{ var c = e.hasChild("verified_name") ? e.child("verified_name").contentBytes() : null;
+                 var m = e.hasAttr("verified_name") ? e.attrInt("verified_name") : -1;
+                 e.attrString("id"); }"#,
+            "e",
+        );
+        let by = |n: &str, meth: &str| {
+            r.fields
+                .iter()
+                .find(|f| f.name == n && f.method == meth)
+                .unwrap_or_else(|| panic!("{n}/{meth} in {:?}", r.fields))
+        };
+        assert!(
+            !by("verified_name", "child").required,
+            "guarded by hasChild"
+        );
+        assert!(
+            !by("verified_name", "attrInt").required,
+            "guarded by hasAttr"
+        );
+        assert!(by("id", "attrString").required, "this one is not guarded");
+    }
+
+    #[test]
+    fn an_arm_under_an_unrelated_guard_is_not_a_dispatch() {
+        // `if (enabled) { if (kind === "a") … }` runs only when `enabled`; keyed on `kind`
+        // alone the union would decode an `a` element that the parser never handles.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   if (enabled) { if (n === "a") { var x = e.attrString("value"); t.alpha = x; } }
+                   if (n === "b") { var y = e.attrString("value"); t.beta = y; }
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        assert!(
+            kids.iter().all(|f| f.field_type != ParsedFieldType::Union),
+            "left flat: {:?}",
+            kids.iter().map(|f| f.name.as_str()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_reassigned_discriminator_is_not_a_dispatch() {
+        // The later branch compares a different attribute; pinning it to the first would
+        // name the wrong variant for both kinds of element.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var k = e.attrString("kind");
+                   if (k === "a") { var x = e.attrString("value"); t.alpha = x; }
+                   k = e.attrString("status");
+                   if (k === "b") { var y = e.attrString("value"); t.beta = y; }
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        assert!(
+            kids.iter().all(|f| f.field_type != ParsedFieldType::Union),
+            "left flat: {:?}",
+            kids.iter().map(|f| f.name.as_str()).collect::<Vec<_>>()
         );
     }
 

@@ -4671,20 +4671,20 @@
                     "method": "child",
                     "name": "error",
                     "type": "string",
-                    "required": true,
+                    "required": false,
                     "tag": "error",
                     "children": [
                       {
                         "method": "attrInt",
                         "name": "code",
                         "type": "integer",
-                        "required": true
+                        "required": false
                       },
                       {
                         "method": "attrString",
                         "name": "text",
                         "type": "string",
-                        "required": true
+                        "required": false
                       }
                     ]
                   },
@@ -4692,14 +4692,14 @@
                     "method": "child",
                     "name": "type",
                     "type": "string",
-                    "required": true,
+                    "required": false,
                     "tag": "type",
                     "children": [
                       {
                         "method": "contentBytes",
                         "name": "content",
                         "type": "bytes",
-                        "required": true,
+                        "required": false,
                         "byteLength": 1
                       }
                     ]
@@ -4708,14 +4708,14 @@
                     "method": "child",
                     "name": "identity",
                     "type": "string",
-                    "required": true,
+                    "required": false,
                     "tag": "identity",
                     "children": [
                       {
                         "method": "contentBytes",
                         "name": "content",
                         "type": "bytes",
-                        "required": true,
+                        "required": false,
                         "byteLength": 32
                       }
                     ]
@@ -4724,7 +4724,7 @@
                     "method": "attrDeviceJid",
                     "name": "jid",
                     "type": "device_jid",
-                    "required": true
+                    "required": false
                   }
                 ],
                 "repeats": true
@@ -12122,7 +12122,7 @@
                     "method": "contentString",
                     "name": "content",
                     "type": "string",
-                    "required": true
+                    "required": false
                   }
                 ],
                 "contentType": "string"
@@ -12138,7 +12138,7 @@
                     "method": "contentString",
                     "name": "content",
                     "type": "string",
-                    "required": true
+                    "required": false
                   }
                 ],
                 "contentType": "string"
@@ -12149,7 +12149,7 @@
             "method": "child",
             "name": "error",
             "type": "string",
-            "required": true,
+            "required": false,
             "tag": "error",
             "children": []
           },
@@ -12187,14 +12187,14 @@
             "method": "child",
             "name": "greetingMessageBody",
             "type": "string",
-            "required": true,
+            "required": false,
             "tag": "greetingMessageBody",
             "children": [
               {
                 "method": "contentString",
                 "name": "content",
                 "type": "string",
-                "required": true
+                "required": false
               }
             ]
           },
@@ -12202,14 +12202,14 @@
             "method": "child",
             "name": "automatedGreetingMessageShown",
             "type": "string",
-            "required": true,
+            "required": false,
             "tag": "automatedGreetingMessageShown",
             "children": [
               {
                 "method": "contentString",
                 "name": "content",
                 "type": "string",
-                "required": true
+                "required": false
               }
             ]
           }
@@ -35466,20 +35466,20 @@
                     "method": "child",
                     "name": "error",
                     "type": "string",
-                    "required": true,
+                    "required": false,
                     "tag": "error",
                     "children": [
                       {
                         "method": "attrInt",
                         "name": "code",
                         "type": "integer",
-                        "required": true
+                        "required": false
                       },
                       {
                         "method": "attrString",
                         "name": "text",
                         "type": "string",
-                        "required": true
+                        "required": false
                       }
                     ]
                   },
@@ -40545,14 +40545,14 @@
             "method": "child",
             "name": "settings",
             "type": "string",
-            "required": true,
+            "required": false,
             "tag": "settings",
             "children": [
               {
                 "method": "attrString",
                 "name": "webserverkey",
                 "type": "string",
-                "required": true
+                "required": false
               }
             ]
           },
@@ -44824,7 +44824,7 @@
                         "method": "contentString",
                         "name": "content",
                         "type": "string",
-                        "required": true
+                        "required": false
                       }
                     ],
                     "contentType": "string"
@@ -44840,7 +44840,7 @@
                         "method": "contentString",
                         "name": "content",
                         "type": "string",
-                        "required": true
+                        "required": false
                       }
                     ],
                     "contentType": "string"
@@ -96187,14 +96187,14 @@
             "method": "child",
             "name": "picture",
             "type": "string",
-            "required": true,
+            "required": false,
             "tag": "picture",
             "children": [
               {
                 "method": "attrInt",
                 "name": "id",
                 "type": "integer",
-                "required": true
+                "required": false
               }
             ]
           }
