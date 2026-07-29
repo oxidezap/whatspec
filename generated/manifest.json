@@ -68,7 +68,7 @@
     "incoming": {
       "file": "incoming/index.json",
       "schema": "schema/incoming.schema.json",
-      "sha256": "fdbb3d148c4c2da6a18ca95484cf9550d4dbe1d18aae38a5f56efe52006a29dc"
+      "sha256": "bb2c756b6e5abaad53fefb7b8d887df8c5535261c6abb7596e773cff7bf92eac"
     },
     "iq": {
       "file": "iq/index.json",

@@ -550,7 +550,7 @@ struct ParserAnalyzer<'src, 'ms> {
     /// Identities a conditional helper descent weakened, in visit order. A helper called on
     /// both sides of a branch runs on every path, so what it reads is required after all —
     /// the same intersection the assertions get, which the fields were never given.
-    relaxed_by_branch: Vec<(String, String, Option<String>)>,
+    relaxed_by_branch: Vec<RelaxedId>,
     /// How many occurrences of each assertion this scope only reaches down a branch. By
     /// count, not by value: the same guard made once inside an `if` and once outside is
     /// enforced on every path, and filtering by equality dropped both.
@@ -748,13 +748,9 @@ impl ParserAnalyzer<'_, '_> {
     /// A helper called on both sides of a branch runs on every path, so what it reads is
     /// required after all — two weakened copies OR to weak, and the field ended up optional
     /// where the parser always demands it.
-    fn restore_branch_intersection(
-        &mut self,
-        then_weak: &[(String, String, Option<String>)],
-        else_weak: &[(String, String, Option<String>)],
-    ) {
+    fn restore_branch_intersection(&mut self, then_weak: &[RelaxedId], else_weak: &[RelaxedId]) {
         for id in then_weak.iter().filter(|i| else_weak.contains(i)) {
-            promote_required(&mut self.fields, id);
+            promote_required(&mut self.fields, id, "");
         }
     }
 
@@ -1286,8 +1282,16 @@ impl ParserAnalyzer<'_, '_> {
             self.helper_depth + 1,
         );
         if self.conditional_depth > 0 {
+            // In the parser's coordinates, not the helper's: these land UNDER `tag`, while
+            // the promotion walks from the root. Recording them as if they sat at the top
+            // meant a claim both branches establish never found its field again.
+            let at = tag
+                .iter()
+                .map(|s| s.tag.as_str())
+                .collect::<Vec<_>>()
+                .join("/");
             for f in &mut recovered {
-                note_relaxed(f, &mut self.relaxed_by_branch);
+                note_relaxed(f, &at, &mut self.relaxed_by_branch);
                 relax_deeply(f);
             }
         }
@@ -1371,7 +1375,7 @@ impl ParserAnalyzer<'_, '_> {
         // requiring it would have consumers reject the elements the other branch accepts.
         if self.conditional_depth > 0 {
             for f in &mut recovered {
-                note_relaxed(f, &mut self.relaxed_by_branch);
+                note_relaxed(f, "", &mut self.relaxed_by_branch);
                 relax_deeply(f);
             }
         }
@@ -1857,23 +1861,39 @@ fn count_paths(f: &ParsedField, path: &str, out: &mut std::collections::HashSet<
 }
 
 /// What a shape claims, by identity, so an intersection of branches can put it back.
-fn note_relaxed(f: &ParsedField, out: &mut Vec<(String, String, Option<String>)>) {
+fn note_relaxed(f: &ParsedField, at: &str, out: &mut Vec<RelaxedId>) {
     if f.required {
         out.push((
+            at.to_string(),
             f.method.clone(),
             f.wire_name.clone().unwrap_or_else(|| f.name.clone()),
             f.tag.clone(),
         ));
     }
+    let below = below(at, f);
     for k in f.children.iter().flatten() {
-        note_relaxed(k, out);
+        note_relaxed(k, &below, out);
+    }
+}
+
+/// Where a field sits, not merely what it is called. Two branches whose helpers read an
+/// `id` under different children produced the same identity, and intersecting them
+/// promoted both — requiring an attribute neither branch enforces on every path.
+type RelaxedId = (String, String, String, Option<String>);
+
+fn below(at: &str, f: &ParsedField) -> String {
+    if at.is_empty() {
+        f.name.clone()
+    } else {
+        format!("{at}/{}", f.name)
     }
 }
 
 /// Put a claim back on the field it belongs to, wherever it sits.
-fn promote_required(fields: &mut [ParsedField], id: &(String, String, Option<String>)) {
+fn promote_required(fields: &mut [ParsedField], id: &RelaxedId, at: &str) {
     for f in fields.iter_mut() {
         let here = (
+            at.to_string(),
             f.method.clone(),
             f.wire_name.clone().unwrap_or_else(|| f.name.clone()),
             f.tag.clone(),
@@ -1881,8 +1901,9 @@ fn promote_required(fields: &mut [ParsedField], id: &(String, String, Option<Str
         if here == *id {
             f.required = true;
         }
+        let below = below(at, f);
         if let Some(kids) = f.children.as_mut() {
-            promote_required(kids, id);
+            promote_required(kids, id, &below);
         }
     }
 }
@@ -2702,7 +2723,14 @@ fn fold_unaccounted(
     let accounted: std::collections::HashSet<(String, String, Option<String>)> =
         dispatched.iter().map(identity).collect();
     for f in outside {
-        if !accounted.contains(&identity(&f)) {
+        // A leaf whose identity is already there was renamed by its arm, and merging would
+        // push a second copy under the wire name. A structural field is different: the
+        // dispatch holds the same child, and skipping it whole dropped everything the
+        // callback reads on that child outside the arms.
+        let mergeable = dispatched.iter().any(|g| {
+            g.method == f.method && g.tag == f.tag && g.name == f.name && g.wire_name == f.wire_name
+        });
+        if !accounted.contains(&identity(&f)) || (f.children.is_some() && mergeable) {
             merge_or_push(&mut dispatched, f, lost);
         }
     }
@@ -2828,7 +2856,10 @@ fn discriminated_children(
     // Counted over the values, not the branches: two arms handling one value merge into one
     // variant, and a denominator of two made a child both of them require look optional.
     let mut distinct_values: std::collections::HashSet<String> = Default::default();
-    let mut structural_seen: HashMap<String, usize> = HashMap::new();
+    // The VALUES a child is read under, not the branches that read it: two arms testing the
+    // same literal merge into one variant, and counting each of them made a child only that
+    // variant carries look required of every variant.
+    let mut structural_cover: std::collections::HashSet<(String, String)> = Default::default();
     for (lits, span) in &collector.arms {
         let arm_src = &body_src[span.start as usize..span.end as usize];
         let arm = analyze_seeded(
@@ -2849,9 +2880,6 @@ fn discriminated_children(
         for lit in lits {
             distinct_values.insert(lit.clone());
         }
-        // Each value the arm accepts is a variant it covers; counting the arm once made a
-        // child every variant requires look optional.
-        let covers = lits.len().max(1);
         // Once per arm: an arm reading `<detail>` both as a child and as a mapped element
         // still only proves that ONE arm reaches it.
         let mut in_this_arm: std::collections::HashSet<String> = Default::default();
@@ -2860,7 +2888,9 @@ fn discriminated_children(
             merge_or_push(&mut common, f, lost);
         }
         for path in in_this_arm {
-            *structural_seen.entry(path).or_default() += covers;
+            for lit in lits {
+                structural_cover.insert((lit.clone(), path.clone()));
+            }
         }
         for lit in lits {
             // Each leaf takes the name of the property ITS value is assigned to, and one
@@ -2929,6 +2959,10 @@ fn discriminated_children(
     // carry it. The same goes for what is INSIDE it — arms reading `detail.a` and
     // `detail.b` share the `<detail>` but not its contents, and requiring both would
     // reject the elements either arm accepts.
+    let mut structural_seen: HashMap<String, usize> = HashMap::new();
+    for (_, path) in structural_cover {
+        *structural_seen.entry(path).or_default() += 1;
+    }
     for f in &mut common {
         let path = f.name.clone();
         relax_absent_from_some_arm(f, &path, &structural_seen, distinct_values.len());
@@ -5597,6 +5631,129 @@ mod tests {
             kids.iter().all(|f| f.field_type != ParsedFieldType::Union),
             "left flat: {:?}",
             kids.iter().map(|f| f.name.as_str()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_claim_both_branches_establish_below_a_child_survives() {
+        // The paths are recorded in the parser's coordinates. Written in the helper's, a
+        // claim both branches establish never found its field again, and reads no guard
+        // protects came out optional — the shape of the real receipt parser.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function d(e,t){ return t.mapChildrenWithTag("user", function(e){ return e.attrTime("t"); }); }
+            function m(t,n){ n.forEachChildWithTag("user", function(t){ t.attrTime("t"); }); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                var i = e.maybeChild("participants");
+                var l = i.hasAttr("message_id");
+                return l ? m(n,i) : d(r,i);
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let participants = p
+            .fields
+            .iter()
+            .find(|f| f.name == "participants")
+            .expect("participants");
+        let users: Vec<&ParsedField> = participants
+            .children
+            .iter()
+            .flatten()
+            .filter(|f| f.name == "user")
+            .collect();
+        assert_eq!(users.len(), 2, "one <user> read per branch");
+        for u in users {
+            let t = u
+                .children
+                .iter()
+                .flatten()
+                .find(|f| f.name == "t")
+                .expect("t under user");
+            assert!(
+                t.required,
+                "both branches read it with no guard, so every path enforces it"
+            );
+        }
+    }
+
+    #[test]
+    fn two_arms_on_one_literal_cover_one_variant_not_two() {
+        // Two branches testing the same value merge into one variant. Counting each of them
+        // made `<detail>` look required of every variant, and `b` elements were rejected.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   if (n === "a") { e.child("detail").attrString("x"); }
+                   if (n === "a") { e.child("detail").attrString("y"); }
+                   if (n === "b") { e.attrString("vb"); }
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        let detail = kids
+            .iter()
+            .find(|f| f.name == "detail")
+            .expect("hoisted beside the union");
+        assert!(
+            !detail.required,
+            "only the `a` variant carries it, so `b` must still decode"
+        );
+    }
+
+    #[test]
+    fn same_named_leaves_under_different_children_do_not_share_a_claim() {
+        // The branch intersection identified fields by (method, wire, tag) alone, so an
+        // `id` under `<a>` and an `id` under `<b>` looked like one field and each branch
+        // appeared to establish the other's.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function pa(p){ p.child("a").attrString("id"); }
+            function pb(p){ p.child("b").attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                if (flag) { pa(e); } else { pb(e); }
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        for tag in ["a", "b"] {
+            let node = p.fields.iter().find(|f| f.name == tag).expect(tag);
+            let id = node
+                .children
+                .as_ref()
+                .and_then(|c| c.iter().find(|f| f.name == "id"))
+                .expect("id under it");
+            assert!(
+                !id.required,
+                "<{tag}> is read only down one branch, so its id is not enforced everywhere"
+            );
+        }
+    }
+
+    #[test]
+    fn a_child_the_dispatch_and_the_callback_both_read_keeps_both_reads() {
+        // The outside pass matched the arm's `<detail>` by identity and dropped its whole
+        // subtree, so the read the element always does disappeared.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   if (n === "a") { e.child("detail").attrString("arm"); }
+                   if (n === "b") { e.attrString("vb"); }
+                   e.child("detail").attrString("common");
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        let detail = kids.iter().find(|f| f.name == "detail").expect("detail");
+        let names: Vec<&str> = detail
+            .children
+            .iter()
+            .flatten()
+            .map(|f| f.name.as_str())
+            .collect();
+        assert!(
+            names.contains(&"common"),
+            "the unconditional read survives the merge: {names:?}"
         );
     }
 
