@@ -353,6 +353,19 @@ fn field_from_call(
                 _ => unresolved.push(format!("contentBytesRange@{field_name}")),
             }
         }
+        // `attrIntRange("count", 1, 10)` — the band the accessor enforces. The smax path
+        // records these (it spells the call with the node first); the WAP path did not, so
+        // a union arm reading one could only guard on whether the value parses and took a
+        // `count="99"` the source turns away. An open bound stays open: WA writes
+        // `attrIntRange(e, "t", 0, void 0)` for "no upper limit".
+        "attrIntRange" => {
+            let bound = |i: usize| match call.arguments.get(i).and_then(arg_expr) {
+                Some(Expression::NumericLiteral(n)) => Some(n.value as i64),
+                _ => None,
+            };
+            f.int_min = bound(1);
+            f.int_max = bound(2);
+        }
         _ => {}
     }
     match pending_enum_ref(method, call, module_scope) {
@@ -7212,6 +7225,35 @@ mod tests {
         assert!(
             a.fields.iter().any(|f| f.name == "first"),
             "and the earlier read is still recorded: {names:?}"
+        );
+    }
+    #[test]
+    fn a_wap_bounded_integer_keeps_the_band_it_enforces() {
+        // The smax path records these; the WAP path did not, so a union arm reading one
+        // could only guard on whether the value parses.
+        let r = analyze_parser_ast(r#"{ e.attrIntRange("count", 1, 10); }"#, "e");
+        let f = r
+            .fields
+            .iter()
+            .find(|f| f.name == "count")
+            .expect("the field");
+        assert_eq!(
+            (f.int_min, f.int_max),
+            (Some(1), Some(10)),
+            "the accessor's band is carried"
+        );
+    }
+
+    #[test]
+    fn an_open_upper_bound_stays_open() {
+        // `attrIntRange(e, "t", 0, void 0)` is WA's spelling for "no upper limit"; a
+        // fabricated max would reject timestamps the parser accepts.
+        let r = analyze_parser_ast(r#"{ e.attrIntRange("t", 0, void 0); }"#, "e");
+        let f = r.fields.iter().find(|f| f.name == "t").expect("the field");
+        assert_eq!(
+            (f.int_min, f.int_max),
+            (Some(0), None),
+            "only the bound it spells"
         );
     }
 }
