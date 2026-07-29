@@ -1953,12 +1953,20 @@ fn mapped_child<'b, 'a>(
     // matching on the wrapper answers "not a conditional". Third time this wrapper has
     // cost this file something.
     let unwrapped = strip_parens(e);
+    // Each candidate is filtered BEFORE falling back. Filtering the combined result made
+    // `or_else` fire only when the consequent was not a call at all, so
+    // `cond ? otherCall() : map(…)` discarded the wrong call and never looked at the
+    // alternate — and the tests, whose consequent was `0`, could not see it.
+    let is_map =
+        |c: &&oxc_ast::ast::CallExpression| callee_method(c) == Some(wap::MAP_CHILDREN_WITH_TAG);
     let call = as_call(strip_guard(unwrapped))
+        .filter(is_map)
         .or_else(|| match unwrapped {
-            Expression::ConditionalExpression(c) => as_call(strip_guard(&c.alternate)),
+            Expression::ConditionalExpression(c) => {
+                as_call(strip_guard(&c.alternate)).filter(is_map)
+            }
             _ => None,
-        })
-        .filter(|c| callee_method(c) == Some(wap::MAP_CHILDREN_WITH_TAG))?;
+        })?;
     let wire_tag = arg_expr(call.arguments.first()?).and_then(as_string_lit)?;
     let mut fields = Vec::new();
     for arg in &call.arguments {
@@ -2131,9 +2139,9 @@ fn is_nullish(e: &Expression) -> bool {
         // the disabled path exactly as `: false` does. Neither is a collection.
         Expression::BooleanLiteral(_) => true,
         Expression::Identifier(i) => i.name == "undefined",
+        Expression::NumericLiteral(_) | Expression::StringLiteral(_) => true,
         // A scalar sentinel is no more a collection than `null` is: `enabled ? map(…) : 0`
         // yields a number on the disabled path. Any literal that cannot be a list counts.
-        Expression::NumericLiteral(_) | Expression::StringLiteral(_) => true,
         // A scalar sentinel is no more a collection than `null` is: `enabled ? map(…) : 0`
         // yields a number on the disabled path. Any literal that cannot be a list counts.
         Expression::UnaryExpression(u) => match u.operator {

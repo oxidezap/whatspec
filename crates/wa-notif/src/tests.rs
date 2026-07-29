@@ -627,6 +627,7 @@ __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGr
   function parseP(x){ return {aliased:x.attrString("via_alias")}; }
   function hx(e){ return {wrongFormal:e.attrString("nope")}; }
   function realCb(e){ return {rightFormal:e.attrString("ok2")}; }
+  function other(e){ return null; }
   function outerH(node, hx){ return hx(node); }
   function mk(v){ return {chained:v}; }
   function mk2(v){ return mk(v); }
@@ -706,7 +707,8 @@ __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGr
             bareFalse: t.hasChild("bf") ? t.mapChildrenWithTag("bare_user", function(x){ return {id:x.attrUserJid("jid")}; }) : false,
             scalarFb: t.hasChild("sf") ? t.mapChildrenWithTag("scalar_user", function(x){ return {id:x.attrUserJid("jid")}; }) : 0,
             reversed_: t.hasChild("rv") ? 0 : t.mapChildrenWithTag("reversed_user", function(x){ return {id:x.attrUserJid("jid")}; }),
-            parenRev: (t.hasChild("pr") ? 0 : t.mapChildrenWithTag("paren_rev_user", function(x){ return {id:x.attrUserJid("jid")}; }))};
+            parenRev: (t.hasChild("pr") ? 0 : t.mapChildrenWithTag("paren_rev_user", function(x){ return {id:x.attrUserJid("jid")}; })),
+            callRev: t.hasChild("cr") ? other(t) : t.mapChildrenWithTag("call_rev_user", function(x){ return {id:x.attrUserJid("jid")}; })};
         }
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.REVOKE_INVITE:
           return {actionType:o("WAWebGroupType").GROUP_ACTIONS.REVOKE_INVITE, participants:t.mapChildrenWithTag("participant", function(p){ return {id:p.attrUserJid("jid"), expiration:p.attrInt("expiration")}; }), owners:t.mapChildrenWithTag("owner", p=>o("WAWebJidToWid").userJidToUserWid(p.maybeAttrPhoneUserJid("phone_number")))};
@@ -983,7 +985,17 @@ fn a_mapped_child_is_optional_only_when_the_guard_admits_absence() {
     assert_eq!(rev.wire_tag, "reversed_user");
     assert!(!rev.required, "the scalar consequent is the absent path");
     // ...and a paren around it must not hide the conditional from the branch search.
-    assert_eq!(child("parenRev").wire_tag, "paren_rev_user");
+    // A CALL consequent is the case the `0` fixtures could not reach: filtering the
+    // combined result made the fallback fire only when the consequent was not a call.
+    assert_eq!(child("callRev").wire_tag, "call_rev_user");
+
+    let paren_rev = child("parenRev");
+    assert_eq!(paren_rev.wire_tag, "paren_rev_user");
+    assert!(
+        !paren_rev.required,
+        "the paren must not cost the absence either — asserting only the tag would pass \
+         with the collection wrongly marked always-present"
+    );
 
     // The guard must not cost the child's contents.
     assert_eq!(child("anded").wire_tag, "anded_user");
