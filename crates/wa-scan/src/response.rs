@@ -936,9 +936,9 @@ impl ParserAnalyzer<'_, '_> {
         let mut f = field_from_call(method, call, self.module, &mut self.unresolved);
         let wire = f.wire_name.clone().unwrap_or_else(|| f.name.clone());
         let node = callee_object(call)
-            .and_then(base_identifier)
-            .unwrap_or(self.param);
-        if self.presence_guarded(node, &wire) {
+            .and_then(receiver_path)
+            .unwrap_or_else(|| self.param.to_string());
+        if self.presence_guarded(&node, &wire) {
             f.required = false;
         }
         f
@@ -2088,6 +2088,24 @@ impl DispatchChain {
 /// The wire names a guard asks about — `hasAttr("x")`, `hasChild("x")` — through `&&`,
 /// `||` and parentheses. Only these say a field may be absent; any other condition is
 /// about something else entirely.
+/// How a receiver names its node: the identifier it bottoms out at, plus the tags of any
+/// `child`/`maybeChild` steps. `e.child("detail")` is `e/detail`, so a guard on it is not
+/// mistaken for a guard on `e` — nor discarded for not being a bare name.
+fn receiver_path(expr: &Expression<'_>) -> Option<String> {
+    if let Some(n) = as_identifier(expr) {
+        return Some(n.to_string());
+    }
+    let call = as_call(expr)?;
+    let step = match callee_method(call)? {
+        m @ ("child" | "maybeChild") => {
+            let _ = m;
+            arg_str(call, 0)?
+        }
+        _ => return None,
+    };
+    Some(format!("{}/{step}", receiver_path(callee_object(call)?)?))
+}
+
 fn presence_tested(test: &Expression<'_>) -> Vec<(String, String)> {
     let mut out = Vec::new();
     fn walk(e: &Expression<'_>, out: &mut Vec<(String, String)>) {
@@ -2108,10 +2126,10 @@ fn presence_tested(test: &Expression<'_>) -> Vec<(String, String)> {
             _ => {
                 if let Some(call) = as_call(e)
                     && matches!(callee_method(call), Some(wap::HAS_ATTR) | Some("hasChild"))
-                    && let Some(node) = callee_object(call).and_then(as_identifier)
+                    && let Some(node) = callee_object(call).and_then(receiver_path)
                     && let Some(name) = arg_str(call, 0)
                 {
-                    out.push((node.to_string(), name.to_string()));
+                    out.push((node, name.to_string()));
                 }
             }
         }
@@ -2126,16 +2144,30 @@ fn presence_tested(test: &Expression<'_>) -> Vec<(String, String)> {
 struct AllBindings {
     /// Bound at the top of the analysed source, so in scope throughout it.
     names: std::collections::HashSet<String>,
-    /// Bound inside a nested function, with the extent it covers. A sibling callback that
-    /// happens to bind the same short name does not shadow a helper called out here.
+    /// Bound inside a nested function or a block, with the extent it covers. A sibling
+    /// callback — or a block — that happens to bind the same short name does not shadow a
+    /// helper called outside it.
     scoped: Vec<(Span, String)>,
     fns: Vec<Span>,
+    blocks: Vec<Span>,
+    /// Whether the binding being collected reaches past its block: a parameter, a `var`,
+    /// or a function declaration. `let`, `const`, a class and a `catch` parameter stop at
+    /// the block — the same split `BoundNames` keeps, which this collector was missing.
+    hoists: bool,
 }
 
 impl AllBindings {
-    fn bind(&mut self, name: &str) {
-        match self.fns.last() {
-            Some(&extent) => self.scoped.push((extent, name.to_string())),
+    fn bind(&mut self, name: &str, hoists: bool) {
+        let extent = if hoists {
+            self.fns.last().copied()
+        } else {
+            self.blocks
+                .last()
+                .copied()
+                .or_else(|| self.fns.last().copied())
+        };
+        match extent {
+            Some(e) => self.scoped.push((e, name.to_string())),
             None => {
                 self.names.insert(name.to_string());
             }
@@ -2145,17 +2177,39 @@ impl AllBindings {
 
 impl<'a> Visit<'a> for AllBindings {
     fn visit_binding_identifier(&mut self, id: &oxc_ast::ast::BindingIdentifier<'a>) {
-        self.bind(id.name.as_str());
+        self.bind(id.name.as_str(), self.hoists);
+    }
+
+    fn visit_variable_declaration(&mut self, decl: &VariableDeclaration<'a>) {
+        let outer = self.hoists;
+        self.hoists = !decl.kind.is_lexical();
+        walk::walk_variable_declaration(self, decl);
+        self.hoists = outer;
+    }
+
+    fn visit_block_statement(&mut self, block: &oxc_ast::ast::BlockStatement<'a>) {
+        self.blocks.push(block.span);
+        walk::walk_block_statement(self, block);
+        self.blocks.pop();
+    }
+
+    fn visit_catch_clause(&mut self, clause: &oxc_ast::ast::CatchClause<'a>) {
+        self.blocks.push(clause.span);
+        walk::walk_catch_clause(self, clause);
+        self.blocks.pop();
     }
 
     fn visit_function(&mut self, func: &Function<'a>, flags: ScopeFlags) {
         // A declaration binds its name in the scope it sits in — recorded against its own
         // body, a call beside it would not see the local and would resolve the module's.
         if let Some(id) = func.id.as_ref() {
-            self.bind(id.name.as_str());
+            self.bind(id.name.as_str(), true);
         }
         self.fns.push(func.span);
+        let outer = self.hoists;
+        self.hoists = true;
         walk::walk_function(self, func, flags);
+        self.hoists = outer;
         self.fns.pop();
     }
 
@@ -2206,13 +2260,16 @@ fn all_bindings(program: &oxc_ast::ast::Program<'_>) -> Bindings {
 /// Finds the attribute a dispatch reads once and then branches on.
 struct DiscriminatorFinder<'s> {
     param: &'s str,
-    /// Every attribute a local is bound to, in source order: the name, the wire attribute,
-    /// and the accessor. The accessor matters — a dispatch on `maybeAttrString` admits
-    /// elements carrying no discriminator, and rewriting it as required would have
-    /// consumers reject those. Which of these drives the dispatch is not knowable here;
-    /// taking the first meant an unrelated `var id = e.attrString("id")` read before it
-    /// sank the whole transformation.
-    found: Vec<(String, String, String, u32)>,
+    /// The scope the reads are resolved against, for the constraint tables an accessor
+    /// may name.
+    module: &'s ModuleScope,
+    /// Every attribute a local is bound to, in source order: the name, the field the read
+    /// produces, and where the accessor ends. The field, not just its accessor — a
+    /// dispatch on `attrEnum` pins a value table, and rebuilding the discriminator from
+    /// the method alone dropped it while `fold_unaccounted` removed the populated copy.
+    /// Which of these drives the dispatch is not knowable here; taking the first meant an
+    /// unrelated `var id = e.attrString("id")` read before it sank the whole thing.
+    found: Vec<(String, ParsedField, u32)>,
 }
 
 impl<'a> Visit<'a> for DiscriminatorFinder<'_> {
@@ -2230,12 +2287,12 @@ impl<'a> Visit<'a> for DiscriminatorFinder<'_> {
                 && callee_object(call).and_then(as_identifier) == Some(self.param)
                 && let Some(wire) = arg_str(call, 0)
             {
-                self.found.push((
-                    bound.as_str().to_string(),
-                    wire.to_string(),
-                    method.to_string(),
-                    call.span.end,
-                ));
+                let mut discard = Vec::new();
+                let mut f = field_from_call(method, call, self.module, &mut discard);
+                f.name = wire.to_string();
+                f.wire_name = None;
+                self.found
+                    .push((bound.as_str().to_string(), f, call.span.end));
             }
         }
         walk::walk_variable_declaration(self, decl);
@@ -2318,6 +2375,24 @@ fn assigned_names(src: &str, param: &str) -> HashMap<String, String> {
         }
 
         fn visit_assignment_expression(&mut self, e: &oxc_ast::ast::AssignmentExpression<'a>) {
+            // `x = e.attrString("other")` makes `x` name the other attribute — or, if the
+            // new value is not a wire read at all, nothing this can follow. Left alone,
+            // the property was being attached to whatever `x` used to hold.
+            if let oxc_ast::ast::AssignmentTarget::AssignmentTargetIdentifier(id) = &e.left {
+                let name = id.name.as_str().to_string();
+                let rebound = as_call(&e.right).filter(|c| {
+                    callee_method(c).is_some_and(is_value_method)
+                        && callee_object(c).and_then(as_identifier) == Some(self.param)
+                });
+                match rebound.and_then(|c| arg_str(c, 0)) {
+                    Some(wire) => {
+                        self.from_wire.insert(name, wire.to_string());
+                    }
+                    None => {
+                        self.from_wire.remove(&name);
+                    }
+                }
+            }
             if let oxc_ast::ast::AssignmentTarget::StaticMemberExpression(m) = &e.left {
                 // Either spelling: through a temporary, or the accessor written straight
                 // into the result — `t.callAdd = e.attrEnum("value", …)`.
@@ -2404,21 +2479,16 @@ fn discriminated_children(
     // statement of the slice.
     let mut finder = DiscriminatorFinder {
         param,
+        module,
         found: Vec::new(),
     };
     finder.visit_program(&ret.program);
     // The one a chain is actually built on.
-    let (_bound, wire, disc_method, collector) =
-        finder.found.into_iter().find_map(|(b, w, m, at)| {
-            let chain = DispatchChain::read(&ret.program.body, &b, at)?;
-            Some((b, w, m, chain))
-        })?;
-    let disc_field = mk_field(
-        &disc_method,
-        &wire,
-        method_to_field_type(&disc_method),
-        is_method_required(&disc_method),
-    );
+    let (_bound, disc_field, collector) = finder.found.into_iter().find_map(|(b, f, at)| {
+        let chain = DispatchChain::read(&ret.program.body, &b, at)?;
+        Some((b, f, chain))
+    })?;
+    let wire = disc_field.name.clone();
 
     let mut variants: Vec<UnionVariant> = Vec::new();
     let mut common: Vec<ParsedField> = Vec::new();
@@ -2466,6 +2536,12 @@ fn discriminated_children(
             if let Some(existing) = variants.iter_mut().find(|v| v.name == *lit) {
                 for f in fields {
                     merge_or_push(&mut existing.fields, f);
+                }
+                // Both branches run for this value, so both branches' guards hold.
+                for a in &arm.assertions {
+                    if !existing.assertions.contains(a) {
+                        existing.assertions.push(a.clone());
+                    }
                 }
                 continue;
             }
@@ -4313,6 +4389,151 @@ mod tests {
         // The form that does.
         let r = analyze_parser_ast(r#"{ if (e.hasAttr("id")) { e.attrString("id"); } }"#, "e");
         assert!(!r.fields.iter().find(|f| f.name == "id").unwrap().required);
+    }
+
+    #[test]
+    fn the_discriminator_keeps_what_its_accessor_pins() {
+        // Rebuilt from the method alone it lost the value table, and `fold_unaccounted`
+        // then removed the populated copy — so an unknown `kind` decoded to nothing where
+        // the source accessor rejects it.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            var KINDS = { A: "a", B: "b" };
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                e.forEachChildWithTag("row", function(e){
+                    var n = e.attrEnumValues("kind", KINDS);
+                    if (n === "a") { var x = e.attrString("value"); t.alpha = x; }
+                    if (n === "b") { var y = e.attrString("value"); t.beta = y; }
+                });
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let kind = p
+            .fields
+            .iter()
+            .find(|f| f.tag.as_deref() == Some("row"))
+            .and_then(|f| f.children.as_ref())
+            .and_then(|c| c.iter().find(|f| f.name == "kind"))
+            .expect("the discriminator");
+        assert!(
+            kind.enum_keys.is_some() || kind.enum_ref.is_some() || kind.pending_enum_ref.is_some(),
+            "the table it was read against survives: {kind:?}"
+        );
+    }
+
+    #[test]
+    fn two_branches_on_one_value_contribute_both_their_guards() {
+        // Both run for that value, so both hold; merging only the fields let an element
+        // through that the second branch asserts against.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   if (n === "a") { var x = e.attrString("value"); t.alpha = x; }
+                   if (n === "b") { var y = e.attrString("value"); t.beta = y; }
+                   if (n === "a") { e.assertAttr("status", "ok"); }
+                 }); }"#,
+            "e",
+        );
+        let union = r.fields[0]
+            .children
+            .as_ref()
+            .unwrap()
+            .iter()
+            .find(|f| f.field_type == ParsedFieldType::Union)
+            .expect("a union");
+        let a = union
+            .union_variants
+            .as_ref()
+            .unwrap()
+            .iter()
+            .find(|v| v.name == "a")
+            .unwrap();
+        assert!(
+            a.assertions
+                .iter()
+                .any(|x| x.name.as_deref() == Some("status")),
+            "the later branch's guard is on the variant too: {:?}",
+            a.assertions
+        );
+    }
+
+    #[test]
+    fn a_reassigned_alias_no_longer_names_what_it_was_declared_with() {
+        // `x` holds the other attribute by the time it is assigned, so naming the `value`
+        // field after that property attaches it to the wrong read.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   if (n === "a") { var x = e.attrString("value"); x = e.attrString("other"); t.foo = x; }
+                   if (n === "b") { var y = e.attrString("value"); t.beta = y; }
+                 }); }"#,
+            "e",
+        );
+        let union = r.fields[0]
+            .children
+            .as_ref()
+            .unwrap()
+            .iter()
+            .find(|f| f.field_type == ParsedFieldType::Union)
+            .expect("a union");
+        let a = &union.union_variants.as_ref().unwrap()[0];
+        let value = a
+            .fields
+            .iter()
+            .find(|f| f.wire_name.as_deref() == Some("value") || f.name == "value");
+        assert!(
+            value.is_some_and(|f| f.name == "value"),
+            "`value` is not renamed after a property fed by something else: {:?}",
+            a.fields
+                .iter()
+                .map(|f| (f.name.as_str(), f.wire_name.as_deref()))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_guard_on_a_chained_node_is_still_a_guard() {
+        // Requiring the receiver to be a bare name discarded the test, leaving `id`
+        // required of every `<detail>` the parser is happy to find without one.
+        let r = analyze_parser_ast(
+            r#"{ if (e.child("detail").hasAttr("id")) { e.child("detail").attrString("id"); } }"#,
+            "e",
+        );
+        let id = r
+            .fields
+            .iter()
+            .find(|f| f.name == "detail")
+            .and_then(|f| f.children.as_ref())
+            .and_then(|c| c.iter().find(|f| f.name == "id"))
+            .expect("under detail");
+        assert!(!id.required, "the guard was about this node");
+    }
+
+    #[test]
+    fn a_block_local_name_does_not_shadow_a_helper_called_after_it() {
+        // Treating every binding outside a nested function as function-wide made a
+        // block-scoped `let` swallow the module helper for the rest of the parser.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("from_module"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                { let parse = 1; }
+                var t = e.child("meta");
+                parse(t);
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        assert!(
+            p.fields
+                .iter()
+                .find(|f| f.tag.as_deref() == Some("meta"))
+                .and_then(|f| f.children.as_ref())
+                .is_some_and(|c| c.iter().any(|f| f.name == "from_module")),
+            "the block's binding ended with the block: {:?}",
+            p.fields
+        );
     }
 
     #[test]
