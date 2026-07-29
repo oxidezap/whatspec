@@ -429,9 +429,7 @@ fn analyze_with_scope(code: &str, param: &str, module: &ModuleScope) -> ParserRe
         pending_enum_keys: HashMap::new(),
         unresolved_enum_attrs: Default::default(),
         unresolved: Vec::new(),
-        outer_aliases: Vec::new(),
-        blocks: Vec::new(),
-        shadowed_vars: Vec::new(),
+        unfollowable: Vec::new(),
         helper_depth: 0,
     };
     a.visit_program(&ret.program);
@@ -596,6 +594,11 @@ impl<'a> Visit<'a> for BoundNames {
 /// parameter and that no recursion covered.
 const SHADOWED_READ: &str = "shadowedCallbackRead";
 
+/// The `dropsByReason` key for a wire read whose receiver this scope cannot resolve to a
+/// node — a name bound here from something outside the scope, most often a callback that
+/// aliased one of the parser's own nodes.
+const UNKNOWN_RECEIVER: &str = "readThroughUnknownNode";
+
 struct ParserAnalyzer<'src, 'ms> {
     code: &'src str,
     param: &'src str,
@@ -645,19 +648,12 @@ struct ParserAnalyzer<'src, 'ms> {
     /// `dropsByReason` keys. Parked on the produced [`ParsedResponse`] for whoever
     /// finishes it, since the legacy scanner has no diagnostics channel of its own.
     unresolved: Vec<String>,
-    /// Names a callback bound to a node from outside it, each with the extent the binding
-    /// is good for. `function (row) { var x = e.child("meta"); x.attrString("id") }` owns
-    /// `x`, but `x` is `<meta>` — and the recursion, which starts with no bindings, cannot
-    /// resolve the `e` it came from. Scoped, so the alias cannot outlive its callback the
-    /// way a bare entry in `child_vars` would.
-    outer_aliases: Vec<(Span, String)>,
-    /// Blocks enclosing the node being walked, innermost last — the extent a `let` alias is
-    /// good for, which is shorter than the callback that contains it.
-    blocks: Vec<Span>,
-    /// What a lexical alias overwrote in [`Self::child_vars`], to put back when its block
-    /// ends. `var` needs no entry here: it reaches the whole function, and the function's
-    /// own restore covers it.
-    shadowed_vars: Vec<(Span, String, Option<String>)>,
+    /// Names a callback bound to a node it reached from outside itself, with the extent
+    /// they cover. Recorded for the diagnostic only — never resolved, because following
+    /// them means keeping `child_vars` lexically correct, and every attempt at that
+    /// attached fields to whichever node the name meant somewhere else. Knowing the read
+    /// is lost is worth more than guessing where it belongs.
+    unfollowable: Vec<(Span, String)>,
     /// Recursion guard for module-scope helper descent (`m(n,i)` → analyze `m`'s body).
     helper_depth: u32,
 }
@@ -690,29 +686,15 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
         self.scopes.pop();
     }
 
-    fn visit_block_statement(&mut self, block: &oxc_ast::ast::BlockStatement<'a>) {
-        self.blocks.push(block.span);
-        walk::walk_block_statement(self, block);
-        self.blocks.pop();
-        // A `let` alias stops meaning its node here, so whatever it displaced comes back.
-        while self
-            .shadowed_vars
-            .last()
-            .is_some_and(|(e, ..)| *e == block.span)
-        {
-            let (_, name, prev) = self.shadowed_vars.pop().expect("just checked");
-            match prev {
-                Some(tag) => self.child_vars.insert(name, tag),
-                None => self.child_vars.remove(&name),
-            };
-        }
-    }
-
     fn visit_variable_declaration(&mut self, decl: &VariableDeclaration<'a>) {
         // A descendant bound inside a callback that has its own scope — whether the
         // recursion read it or the shadow check will discount it — must not rebind the
         // outer name, or later reads land against the wrong node.
-        let inner_owns_it = self.inside_recursed(decl.span) || self.param_shadowed(decl.span);
+        if self.inside_recursed(decl.span) || self.param_shadowed(decl.span) {
+            self.note_unfollowable_bindings(decl);
+            walk::walk_variable_declaration(self, decl);
+            return;
+        }
         for d in &decl.declarations {
             // Track `var t = param.child("tag")` (or chained off another child var).
             if let (Some(name), Some(init)) = (d.id.get_identifier_name(), d.init.as_ref())
@@ -724,38 +706,15 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
                     let on_param = as_identifier(obj) == Some(self.param);
                     let on_child_var =
                         as_identifier(obj).is_some_and(|n| self.child_vars.contains_key(n));
-                    // Only through a name that still means what it was bound to — an
-                    // enclosing callback may have re-bound it.
-                    let reaches_outer = as_identifier(obj)
-                        .is_some_and(|n| !self.bound_by_inner_scope(n, decl.span))
-                        || as_identifier(obj).is_some_and(|n| self.aliases_outer(n, decl.span));
                     if (on_param || on_child_var)
-                        && (!inner_owns_it || reaches_outer)
                         && let Some(tag) = call
                             .arguments
                             .first()
                             .and_then(arg_expr)
                             .and_then(as_string_lit)
                     {
-                        let prev = self
-                            .child_vars
+                        self.child_vars
                             .insert(name.as_str().to_string(), tag.to_string());
-                        // Bound inside a callback but naming a node from outside it: the
-                        // read through it is the parser's, for as long as that binding is —
-                        // its block when it is `let` or `const`, the whole callback when it
-                        // is `var`.
-                        let extent = if decl.kind.is_lexical() {
-                            self.blocks.last().copied()
-                        } else {
-                            self.scopes.last().map(|s| s.extent)
-                        };
-                        if inner_owns_it && let Some(extent) = extent {
-                            self.outer_aliases.push((extent, name.as_str().to_string()));
-                            if decl.kind.is_lexical() {
-                                self.shadowed_vars
-                                    .push((extent, name.as_str().to_string(), prev));
-                            }
-                        }
                     }
                 }
             }
@@ -771,6 +730,8 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
                 self.handle_call(call);
             } else if self.passes_an_outer_node(call) {
                 self.try_helper_descent(call);
+            } else {
+                self.note_unknown_receiver(call);
             }
         } else if self.param_shadowed(call.span) {
             if self.reads_an_outer_node(call) {
@@ -837,24 +798,64 @@ impl ParserAnalyzer<'_, '_> {
     }
 
     /// Whether `name`, at `span`, still means the node it was bound to outside every
-    /// enclosing callback — either because none of them re-bound it, or because the one
-    /// that did bound it to an outer node.
+    /// enclosing callback.
     fn names_an_outer_node(&self, name: &str, span: Span) -> bool {
-        !self.bound_by_inner_scope(name, span) || self.aliases_outer(name, span)
-    }
-
-    /// Whether `name`, at `span`, is a callback's own binding standing for a node from
-    /// outside it. The binding belongs to the callback; the node it names does not.
-    fn aliases_outer(&self, name: &str, span: Span) -> bool {
-        self.outer_aliases
-            .iter()
-            .any(|(e, n)| n == name && span.start >= e.start && span.end <= e.end)
+        !self.bound_by_inner_scope(name, span)
     }
 
     /// Count a wire read the outer walk cannot place: it sits in a callback that re-binds
     /// the parser's parameter, so the name it reads through is not the node it names here.
     /// Keeping it would publish a field at the wrong level; dropping it quietly would let
     /// coverage shrink unnoticed.
+    /// Count a wire read this scope has no node for. A callback analysed on its own starts
+    /// with no bindings, so `var x = e.child("meta"); x.attrString("id")` reads through a
+    /// name it cannot follow — and resolving it against the enclosing walk's map is what
+    /// kept attaching fields to whichever node that name meant elsewhere.
+    /// Note a name a callback binds to a node it reached from outside itself. The binding
+    /// stays the callback's — this only remembers that reads through it have nowhere to go,
+    /// so they can be counted instead of vanishing.
+    fn note_unfollowable_bindings(&mut self, decl: &VariableDeclaration) {
+        let Some(extent) = self.scopes.last().map(|s| s.extent) else {
+            return;
+        };
+        for d in &decl.declarations {
+            if let (Some(name), Some(init)) = (d.id.get_identifier_name(), d.init.as_ref())
+                && let Some(call) = as_call(init)
+                && matches!(callee_method(call), Some("child") | Some("maybeChild"))
+                && callee_object(call)
+                    .and_then(base_identifier)
+                    .is_some_and(|n| {
+                        (n == self.param || self.child_vars.contains_key(n))
+                            && !self.bound_by_inner_scope(n, decl.span)
+                    })
+            {
+                self.unfollowable.push((extent, name.as_str().to_string()));
+            }
+        }
+    }
+
+    fn note_unknown_receiver(&mut self, call: &CallExpression) {
+        let Some(method) = callee_method(call) else {
+            return;
+        };
+        if !(is_value_method(method) || is_child_method(method)) {
+            return;
+        }
+        let Some(node) = callee_object(call).and_then(base_identifier) else {
+            return;
+        };
+        if !self
+            .unfollowable
+            .iter()
+            .any(|(e, n)| n == node && call.span.start >= e.start && call.span.end <= e.end)
+        {
+            return;
+        }
+        let what = arg_str(call, 0).unwrap_or("?");
+        self.unresolved
+            .push(format!("{UNKNOWN_RECEIVER}@{method}:{node}.{what}"));
+    }
+
     fn note_shadowed_read(&mut self, call: &CallExpression) {
         let Some(method) = callee_method(call) else {
             return;
@@ -1444,9 +1445,7 @@ fn analyze_child_node(
         pending_enum_keys: HashMap::new(),
         unresolved_enum_attrs: Default::default(),
         unresolved: Vec::new(),
-        outer_aliases: Vec::new(),
-        blocks: Vec::new(),
-        shadowed_vars: Vec::new(),
+        unfollowable: Vec::new(),
         helper_depth: depth,
     };
     a.visit_program(&ret.program);
@@ -2083,30 +2082,6 @@ mod tests {
     }
 
     #[test]
-    fn a_callback_may_bind_a_name_to_the_parser_node() {
-        // `x` is the callback's binding, but it names `<meta>` off the parser's own node.
-        // The recursion starts with no bindings and cannot follow the `e` it came from, so
-        // refusing to record it here dropped `id` while still creating `meta`.
-        let r = analyze_parser_ast(
-            r#"{ e.mapChildrenWithTag("row", function(row){
-                   var x = e.child("meta");
-                   x.attrString("id");
-                 }); }"#,
-            "e",
-        );
-        assert_eq!(
-            r.fields
-                .iter()
-                .find(|f| f.name == "meta")
-                .and_then(|f| f.children.as_ref())
-                .map(|c| c.iter().map(|f| f.name.as_str()).collect::<Vec<_>>()),
-            Some(vec!["id"]),
-            "the alias reaches the node it was bound to: {:?}",
-            r.fields
-        );
-    }
-
-    #[test]
     fn a_block_function_declaration_shadows_only_its_block() {
         // In a strict bundle a `function` declared in a nested block binds only there.
         let r = analyze_parser_ast(
@@ -2148,103 +2123,6 @@ mod tests {
                 .map(|c| c.iter().map(|f| f.name.as_str()).collect::<Vec<_>>()),
             Some(vec!["a", "b"]),
             "both arms' nested reads survive"
-        );
-    }
-
-    #[test]
-    fn an_alias_does_not_outlive_the_callback_that_bound_it() {
-        // The alias registers under the same name as an outer child var. Its own extent
-        // expires, but the entry it overwrote in `child_vars` would not have — so the read
-        // after the callback attached under `inner` instead of `meta`.
-        let r = analyze_parser_ast(
-            r#"{ var x = e.child("meta");
-                 e.mapChildrenWithTag("row", function(row){ var x = e.child("inner"); x.attrString("a"); });
-                 x.attrString("b"); }"#,
-            "e",
-        );
-        let kids = |n: &str| {
-            r.fields
-                .iter()
-                .find(|f| f.name == n)
-                .and_then(|f| f.children.as_ref())
-                .map(|c| c.iter().map(|g| g.name.as_str()).collect::<Vec<_>>())
-        };
-        assert_eq!(kids("meta"), Some(vec!["b"]), "the outer binding is back");
-        assert_eq!(
-            kids("inner"),
-            Some(vec!["a"]),
-            "and the alias kept its own read"
-        );
-    }
-
-    #[test]
-    fn a_lexical_alias_gives_the_name_back_at_the_end_of_its_block() {
-        // Restoring only when the callback exits left the overwrite standing for the rest
-        // of the body, so the read after the block attached under `inner`, not `meta`.
-        let r = analyze_parser_ast(
-            r#"{ var x = e.child("meta");
-                 e.mapChildrenWithTag("row", function(row){
-                   { let x = e.child("inner"); x.attrString("a"); }
-                   x.attrString("b");
-                 }); }"#,
-            "e",
-        );
-        let kids = |n: &str| {
-            r.fields
-                .iter()
-                .find(|f| f.name == n)
-                .and_then(|f| f.children.as_ref())
-                .map(|c| c.iter().map(|g| g.name.as_str()).collect::<Vec<_>>())
-        };
-        assert_eq!(kids("inner"), Some(vec!["a"]), "the block's own read");
-        assert_eq!(
-            kids("meta"),
-            Some(vec!["b"]),
-            "and the outer name is back after it"
-        );
-    }
-
-    #[test]
-    fn a_var_alias_still_reaches_past_its_block() {
-        // `var` is function-scoped: declared in a block, it goes on meaning its node for
-        // the rest of the callback, so the block boundary must not put anything back.
-        let r = analyze_parser_ast(
-            r#"{ var x = e.child("meta");
-                 e.mapChildrenWithTag("row", function(row){
-                   { var x = e.child("inner"); }
-                   x.attrString("a");
-                 }); }"#,
-            "e",
-        );
-        assert_eq!(
-            r.fields
-                .iter()
-                .find(|f| f.name == "inner")
-                .and_then(|f| f.children.as_ref())
-                .map(|c| c.iter().map(|g| g.name.as_str()).collect::<Vec<_>>()),
-            Some(vec!["a"]),
-        );
-    }
-
-    #[test]
-    fn an_alias_reaches_helper_descent_too() {
-        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
-            function d(b){ b.mapChildrenWithTag("user", function(u){ u.attrString("jid"); }); }
-            var c=new(r("WADeprecatedWapParser"))("p", function(e){
-                e.assertTag("receipt");
-                e.mapChildrenWithTag("row", function(row){ var x=e.child("meta"); d(x); });
-            });
-        }),1);"#;
-        let out = parse_module_wap_parsers(module);
-        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
-        assert!(
-            p.fields
-                .iter()
-                .find(|f| f.tag.as_deref() == Some("meta"))
-                .and_then(|f| f.children.as_ref())
-                .is_some_and(|c| c.iter().any(|g| g.tag.as_deref() == Some("user"))),
-            "the helper's fields hang off the aliased node: {:?}",
-            p.fields
         );
     }
 
@@ -2313,6 +2191,38 @@ mod tests {
                 .and_then(|f| f.children.as_ref())
                 .map(|c| c.iter().map(|f| f.name.as_str()).collect::<Vec<_>>()),
             Some(vec!["kind"]),
+        );
+    }
+
+    #[test]
+    fn a_name_a_callback_binds_is_the_callbacks_own() {
+        // A callback-local binding is not resolved against the outer map, even when its
+        // initializer reads the parser's node — `x` is the callback's, and following it
+        // here needs a lexical model of `child_vars` this walk deliberately does without.
+        // The read is not invented under the wrong node, and it is not lost either.
+        let r = analyze_parser_ast(
+            r#"{ e.mapChildrenWithTag("row", function(row){
+                   var x = e.child("meta");
+                   x.attrString("id");
+                 }); }"#,
+            "e",
+        );
+        // `<meta>` is read off the parser's node, so it is there — but empty, because the
+        // accessor went through a name only the callback knows.
+        assert_eq!(
+            r.fields
+                .iter()
+                .find(|f| f.name == "meta")
+                .and_then(|f| f.children.as_ref())
+                .map(Vec::len),
+            Some(0),
+        );
+        assert!(
+            r.unresolved
+                .iter()
+                .any(|u| u == "readThroughUnknownNode@attrString:x.id"),
+            "and the read it could not place is counted: {:?}",
+            r.unresolved
         );
     }
 
