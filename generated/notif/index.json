@@ -1219,6 +1219,18 @@
                     "name": "type",
                     "type": "string",
                     "required": true
+                  },
+                  {
+                    "method": "contentBytes",
+                    "name": "content",
+                    "type": "bytes",
+                    "required": true
+                  },
+                  {
+                    "method": "attrTime",
+                    "name": "t",
+                    "type": "integer",
+                    "required": true
                   }
                 ],
                 "repeats": true
@@ -1595,6 +1607,266 @@
             "required": true,
             "children": [
               {
+                "method": "child",
+                "name": "group",
+                "type": "string",
+                "required": true,
+                "tag": "group",
+                "children": [
+                  {
+                    "method": "mapChildrenWithTag",
+                    "name": "participant",
+                    "type": "string",
+                    "required": true,
+                    "tag": "participant",
+                    "children": [
+                      {
+                        "method": "maybeAttrEnum",
+                        "name": "type",
+                        "type": "enum",
+                        "required": false,
+                        "enumRef": {
+                          "name": "GROUP_PARTICIPANT_TYPES",
+                          "module": "WAWebGroupApiConst",
+                          "variants": [
+                            {
+                              "name": "superadmin",
+                              "value": "superadmin"
+                            },
+                            {
+                              "name": "admin",
+                              "value": "admin"
+                            },
+                            {
+                              "name": "participant",
+                              "value": "participant"
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "method": "maybeAttrLidUserJid",
+                        "name": "lid",
+                        "type": "lid_user_jid",
+                        "required": false
+                      },
+                      {
+                        "method": "maybeAttrPhoneUserJid",
+                        "name": "phone_number",
+                        "type": "user_jid",
+                        "required": false
+                      },
+                      {
+                        "method": "maybeAttrString",
+                        "name": "display_name",
+                        "type": "string",
+                        "required": false
+                      },
+                      {
+                        "method": "attrUserJid",
+                        "name": "jid",
+                        "type": "user_jid",
+                        "required": true
+                      },
+                      {
+                        "method": "maybeAttrString",
+                        "name": "username",
+                        "type": "string",
+                        "required": false
+                      },
+                      {
+                        "method": "maybeAttrTime",
+                        "name": "join_time",
+                        "type": "integer",
+                        "required": false
+                      },
+                      {
+                        "method": "maybeAttrString",
+                        "name": "group_history_sent_state",
+                        "type": "string",
+                        "required": false
+                      }
+                    ],
+                    "repeats": true
+                  },
+                  {
+                    "method": "attrUserJid",
+                    "name": "creator",
+                    "type": "user_jid",
+                    "required": true
+                  },
+                  {
+                    "method": "attrString",
+                    "name": "subject",
+                    "type": "string",
+                    "required": true
+                  },
+                  {
+                    "method": "attrUserJid",
+                    "name": "creator_pn",
+                    "type": "user_jid",
+                    "required": true
+                  },
+                  {
+                    "method": "attrString",
+                    "name": "creator_country_code",
+                    "type": "string",
+                    "required": true
+                  },
+                  {
+                    "method": "attrString",
+                    "name": "creator_username",
+                    "type": "string",
+                    "required": true
+                  },
+                  {
+                    "method": "attrTime",
+                    "name": "creation",
+                    "type": "integer",
+                    "required": true
+                  },
+                  {
+                    "method": "attrUserJid",
+                    "name": "s_o",
+                    "type": "user_jid",
+                    "required": true
+                  },
+                  {
+                    "method": "attrUserJid",
+                    "name": "s_o_pn",
+                    "type": "user_jid",
+                    "required": true
+                  },
+                  {
+                    "method": "maybeAttrString",
+                    "name": "s_o_username",
+                    "type": "string",
+                    "required": false
+                  },
+                  {
+                    "method": "maybeAttrTime",
+                    "name": "s_t",
+                    "type": "integer",
+                    "required": false
+                  },
+                  {
+                    "method": "maybeAttrInt",
+                    "name": "size",
+                    "type": "integer",
+                    "required": false
+                  }
+                ]
+              },
+              {
+                "method": "attrString",
+                "name": "type",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "attrGroupJid",
+                "name": "context_group_jid",
+                "type": "group_jid",
+                "required": true
+              },
+              {
+                "method": "maybeAttrEnum",
+                "name": "reason",
+                "type": "enum",
+                "required": false,
+                "enumKeys": [
+                  "invite",
+                  "linked_group_join",
+                  "auto_add",
+                  "default_sub_group_admin_add",
+                  "default_sub_group_promote",
+                  "invite_auto_add",
+                  "general_chat_auto_add"
+                ]
+              },
+              {
+                "method": "mapChildrenWithTag",
+                "name": "participant",
+                "type": "string",
+                "required": true,
+                "tag": "participant",
+                "children": [
+                  {
+                    "method": "maybeAttrEnum",
+                    "name": "type",
+                    "type": "enum",
+                    "required": false,
+                    "enumRef": {
+                      "name": "GROUP_PARTICIPANT_TYPES",
+                      "module": "WAWebGroupApiConst",
+                      "variants": [
+                        {
+                          "name": "superadmin",
+                          "value": "superadmin"
+                        },
+                        {
+                          "name": "admin",
+                          "value": "admin"
+                        },
+                        {
+                          "name": "participant",
+                          "value": "participant"
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "method": "maybeAttrLidUserJid",
+                    "name": "lid",
+                    "type": "lid_user_jid",
+                    "required": false
+                  },
+                  {
+                    "method": "maybeAttrPhoneUserJid",
+                    "name": "phone_number",
+                    "type": "user_jid",
+                    "required": false
+                  },
+                  {
+                    "method": "maybeAttrString",
+                    "name": "display_name",
+                    "type": "string",
+                    "required": false
+                  },
+                  {
+                    "method": "attrUserJid",
+                    "name": "jid",
+                    "type": "user_jid",
+                    "required": true
+                  },
+                  {
+                    "method": "maybeAttrString",
+                    "name": "username",
+                    "type": "string",
+                    "required": false
+                  },
+                  {
+                    "method": "maybeAttrTime",
+                    "name": "join_time",
+                    "type": "integer",
+                    "required": false
+                  },
+                  {
+                    "method": "maybeAttrString",
+                    "name": "group_history_sent_state",
+                    "type": "string",
+                    "required": false
+                  },
+                  {
+                    "method": "attrInt",
+                    "name": "expiration",
+                    "type": "integer",
+                    "required": true
+                  }
+                ],
+                "repeats": true
+              },
+              {
                 "method": "attrString",
                 "name": "reason",
                 "type": "string",
@@ -1700,28 +1972,6 @@
                 "required": true
               },
               {
-                "method": "mapChildrenWithTag",
-                "name": "participant",
-                "type": "string",
-                "required": true,
-                "tag": "participant",
-                "children": [
-                  {
-                    "method": "attrUserJid",
-                    "name": "jid",
-                    "type": "user_jid",
-                    "required": true
-                  },
-                  {
-                    "method": "attrInt",
-                    "name": "expiration",
-                    "type": "integer",
-                    "required": true
-                  }
-                ],
-                "repeats": true
-              },
-              {
                 "method": "attrInt",
                 "name": "expiration",
                 "type": "integer",
@@ -1766,6 +2016,18 @@
                   }
                 ],
                 "repeats": true
+              },
+              {
+                "method": "attrString",
+                "name": "unlink_type",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "attrString",
+                "name": "unlink_reason",
+                "type": "string",
+                "required": true
               },
               {
                 "method": "child",
@@ -1850,6 +2112,81 @@
                 "name": "suppress_sys_msg",
                 "type": "string",
                 "required": false
+              },
+              {
+                "method": "child",
+                "name": "sub_group_suggestion",
+                "type": "string",
+                "required": true,
+                "tag": "sub_group_suggestion",
+                "children": [
+                  {
+                    "method": "attrGroupJid",
+                    "name": "jid",
+                    "type": "group_jid",
+                    "required": true
+                  },
+                  {
+                    "method": "attrUserJid",
+                    "name": "creator",
+                    "type": "user_jid",
+                    "required": true
+                  },
+                  {
+                    "method": "attrTime",
+                    "name": "creation",
+                    "type": "integer",
+                    "required": true
+                  }
+                ]
+              },
+              {
+                "method": "child",
+                "name": "subject",
+                "type": "string",
+                "required": true,
+                "tag": "subject",
+                "children": [
+                  {
+                    "method": "contentString",
+                    "name": "content",
+                    "type": "string",
+                    "required": true
+                  }
+                ],
+                "contentType": "string"
+              },
+              {
+                "method": "child",
+                "name": "is_existing_group",
+                "type": "string",
+                "required": true,
+                "tag": "is_existing_group",
+                "children": [
+                  {
+                    "method": "contentString",
+                    "name": "content",
+                    "type": "string",
+                    "required": true
+                  }
+                ],
+                "contentType": "string"
+              },
+              {
+                "method": "child",
+                "name": "participant_count",
+                "type": "string",
+                "required": true,
+                "tag": "participant_count",
+                "children": [
+                  {
+                    "method": "contentInt",
+                    "name": "content",
+                    "type": "integer",
+                    "required": true
+                  }
+                ],
+                "contentType": "integer"
               },
               {
                 "method": "mapChildrenWithTag",

@@ -744,6 +744,7 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
         } else {
             self.handle_call(call);
             self.try_helper_descent(call);
+            self.try_own_node_helper_descent(call);
         }
         // Always descend: chained calls expose both inner and outer nodes.
         walk::walk_call_expression(self, call);
@@ -814,6 +815,22 @@ impl ParserAnalyzer<'_, '_> {
     /// Note a name a callback binds to a node it reached from outside itself. The binding
     /// stays the callback's — this only remembers that reads through it have nowhere to go,
     /// so they can be counted instead of vanishing.
+    /// The tags naming the node `base.child(chained)` denotes, outermost first — `["digest",
+    /// "list"]` for `t.child("list")` where `t` tracks `<digest>`. `None` when `base` is not
+    /// a node this scope can name.
+    fn node_path(&self, base: &str, chained: &str, at: Span) -> Option<Vec<String>> {
+        if base == self.param {
+            return Some(vec![chained.to_string()]);
+        }
+        if !self.names_an_outer_node(base, at) {
+            return None;
+        }
+        Some(vec![
+            self.child_vars.get(base)?.clone(),
+            chained.to_string(),
+        ])
+    }
+
     fn note_unfollowable_bindings(&mut self, decl: &VariableDeclaration) {
         let Some(extent) = self.scopes.last().map(|s| s.extent) else {
             return;
@@ -1032,19 +1049,25 @@ impl ParserAnalyzer<'_, '_> {
             return;
         }
 
-        // ── Chained: param.child("tag").<childMethod>(...) ──
+        // ── Chained: <node>.child("tag").<childMethod>(...) ──
+        //
+        // The node is the parser's own or one a var already tracks: `digestResponseParser`
+        // writes `t.child("list").mapChildren(…)` off `var t = e.child("digest")`, and only
+        // the first spelling was recognized — the mapped element went unbuilt and its reads
+        // were counted as unplaceable rather than extracted.
         if is_child_method(method)
             && let Some(inner) = as_call(obj)
             && let Some(inner_method) = callee_method(inner)
             && (inner_method == "child" || inner_method == "maybeChild")
-            && callee_object(inner).and_then(as_identifier) == Some(param)
-            && let Some(parent_tag) = arg_str(inner, 0)
+            && let Some(base) = callee_object(inner).and_then(as_identifier)
+            && let Some(chained) = arg_str(inner, 0)
+            && let Some(path) = self.node_path(base, chained, call.span)
         {
-            let pt = parent_tag.to_string();
-            process_child_method(
+            let borrowed: Vec<&str> = path.iter().map(String::as_str).collect();
+            process_child_method_at(
                 method,
                 call,
-                &pt,
+                &borrowed,
                 &mut ChildSink {
                     fields: &mut self.fields,
                     unresolved: &mut self.unresolved,
@@ -1176,6 +1199,43 @@ impl ParserAnalyzer<'_, '_> {
             self.helper_depth + 1,
         );
         merge_child_shape(&mut self.fields, &tag, recovered);
+    }
+
+    /// Descend into a helper handed *this* node — `mapChildrenWithTag("row", function (row)
+    /// { parse(row) })`, where `row` is the scope's own parameter rather than a tracked
+    /// child. `try_helper_descent` recognizes arguments only through `child_vars`, so the
+    /// helper's reads were never entered and the element came out empty and undiagnosed.
+    fn try_own_node_helper_descent(&mut self, call: &CallExpression) {
+        if self.helper_depth >= 2 || self.module.functions.is_empty() || self.param.is_empty() {
+            return;
+        }
+        let Some(name) = as_identifier(&call.callee) else {
+            return;
+        };
+        let Some(arg_idx) = call.arguments.iter().position(|a| {
+            arg_expr(a)
+                .and_then(as_identifier)
+                .is_some_and(|id| id == self.param && !self.bound_by_inner_scope(id, call.span))
+        }) else {
+            return;
+        };
+        let Some((params, body_src)) = self.module.functions.get(name) else {
+            return;
+        };
+        let Some(bound_param) = params.get(arg_idx) else {
+            return;
+        };
+        let recovered =
+            analyze_node_helper(body_src, bound_param, self.module, self.helper_depth + 1);
+        for f in recovered {
+            if !self
+                .fields
+                .iter()
+                .any(|c| c.tag == f.tag && c.name == f.name)
+            {
+                self.fields.push(f);
+            }
+        }
     }
 
     /// Attach each stashed `attrEnumOrNullIfUnknown` key set to the top-level attr field
@@ -1419,6 +1479,40 @@ impl<'a> Visit<'a> for ModuleScopeBuilder<'_> {
 /// Analyze a helper `body_src`, treating `node_param` as a child node tagged `tag` (its
 /// `mapChildrenWithTag`/`forEachChildWithTag`/attr accessors become fields under `tag`).
 /// Returns the recovered children of that `<tag>` node.
+/// Re-analyse a module-scope helper that was handed the node being read *itself*, with its
+/// parameter standing for that node. The fields come back belonging to the caller's node —
+/// there is no tag to nest them under, because the helper was given no child.
+fn analyze_node_helper(
+    body_src: &str,
+    bound_param: &str,
+    module: &ModuleScope,
+    depth: u32,
+) -> Vec<ParsedField> {
+    let alloc = Allocator::default();
+    let ret = wa_oxc::parse_cjs(&alloc, body_src);
+    if ret.panicked {
+        return Vec::new();
+    }
+    let mut a = ParserAnalyzer {
+        code: body_src,
+        param: bound_param,
+        module,
+        recursed: Vec::new(),
+        scopes: Vec::new(),
+        assertions: Vec::new(),
+        fields: Vec::new(),
+        child_vars: HashMap::new(),
+        pending_enum_keys: HashMap::new(),
+        unresolved_enum_attrs: Default::default(),
+        unresolved: Vec::new(),
+        unfollowable: Vec::new(),
+        helper_depth: depth,
+    };
+    a.visit_program(&ret.program);
+    a.attach_pending_enum_keys();
+    a.fields
+}
+
 fn analyze_child_node(
     body_src: &str,
     node_param: &str,
@@ -1501,13 +1595,18 @@ fn arg_str<'b>(call: &'b CallExpression, n: usize) -> Option<&'b str> {
 /// the response root. Only the chained and child-var forms were handled, so for those
 /// parsers the child was never built at all and its reads survived only by being
 /// misattributed to the root — flat, unrepeated, and one level too high.
-fn place(fields: &mut Vec<ParsedField>, parent_tag: &str, f: ParsedField) {
-    if parent_tag.is_empty() {
+/// Put `f` under the chain of tags `path`, creating the nodes on the way.
+///
+/// `t.child("list").mapChildren(…)` names two levels — the tag `t` was bound to and the one
+/// chained off it — and hanging the result off only the last would put a `<list>` beside
+/// `<digest>` instead of inside it.
+fn place_at(fields: &mut Vec<ParsedField>, path: &[&str], f: ParsedField) {
+    let Some((tag, rest)) = path.split_first() else {
         merge_or_push(fields, f);
         return;
-    }
-    let idx = find_or_create_field(fields, parent_tag, "child", true);
-    merge_or_push(fields[idx].children.get_or_insert_with(Vec::new), f);
+    };
+    let idx = find_or_create_field(fields, tag, "child", true);
+    place_at(fields[idx].children.get_or_insert_with(Vec::new), rest, f);
 }
 
 /// Add `f`, folding it into a field that already maps the same tag the same way.
@@ -1568,6 +1667,22 @@ fn process_child_method(
     code: &str,
     module: &ModuleScope,
 ) {
+    let path: &[&str] = if parent_tag.is_empty() {
+        &[]
+    } else {
+        std::slice::from_ref(&parent_tag)
+    };
+    process_child_method_at(method, call, path, sink, code, module);
+}
+
+fn process_child_method_at(
+    method: &str,
+    call: &CallExpression,
+    path: &[&str],
+    sink: &mut ChildSink,
+    code: &str,
+    module: &ModuleScope,
+) {
     match method {
         "forEachChildWithTag" | "mapChildrenWithTag" => {
             let Some(child_tag) = arg_str(call, 0) else {
@@ -1588,7 +1703,7 @@ fn process_child_method(
             f.repeats = Some(true);
             // What the child's own scope could not resolve is still a loss for the parser.
             sink.unresolved.extend(child_result.unresolved);
-            place(sink.fields, parent_tag, f);
+            place_at(sink.fields, path, f);
         }
         "mapChildren" => {
             let Some(cb) = call.arguments.first().and_then(arg_expr) else {
@@ -1604,7 +1719,7 @@ fn process_child_method(
             f.children = Some(child_result.fields);
             f.repeats = Some(true);
             sink.unresolved.extend(child_result.unresolved);
-            place(sink.fields, parent_tag, f);
+            place_at(sink.fields, path, f);
         }
         _ => {}
     }
@@ -2034,7 +2149,7 @@ mod tests {
         // accessor name made two lost fields indistinguishable — and the ratchet could not
         // move when a third went missing.
         let r = analyze_parser_ast(
-            r#"{ var t = e.child("d"); t.child("l").mapChildren(function(e){ e.attrString("a"); e.attrString("b"); }); }"#,
+            r#"{ var t = e.child("d"); rows.forEach(function(e){ e.attrString("a"); e.attrString("b"); }); }"#,
             "e",
         );
         let mut shadowed: Vec<&str> = r
@@ -2131,7 +2246,7 @@ mod tests {
         // Counting only the inner `child` left the outer accessor invisible, so adding or
         // removing the lost `id` moved no number.
         let r = analyze_parser_ast(
-            r#"{ var t = e.child("d"); t.child("l").mapChildren(function(e){ e.child("x").attrString("id"); }); }"#,
+            r#"{ var t = e.child("d"); rows.forEach(function(e){ e.child("x").attrString("id"); }); }"#,
             "e",
         );
         let mut got: Vec<&str> = r
@@ -2227,6 +2342,42 @@ mod tests {
     }
 
     #[test]
+    fn a_child_method_chained_off_a_tracked_var_nests_under_both_tags() {
+        // `digestResponseParser` writes `t.child("list").mapChildren(…)` off
+        // `var t = e.child("digest")`. Only the `param.child("x").<childMethod>()` spelling
+        // was recognized, so this one built nothing and its reads were counted as
+        // unplaceable. The chain names two levels, and the result belongs under both.
+        let r = analyze_parser_ast(
+            r#"{ var t = e.child("digest"); t.child("list").mapChildren(function(n){ n.contentUint(3); }); }"#,
+            "e",
+        );
+        assert_eq!(
+            r.fields.iter().map(|f| f.name.as_str()).collect::<Vec<_>>(),
+            ["digest"],
+            "nothing beside the node the var tracks"
+        );
+        let list = r.fields[0]
+            .children
+            .as_ref()
+            .and_then(|c| c.iter().find(|f| f.name == "list"))
+            .expect("`list` sits inside `digest`");
+        let mapped = list
+            .children
+            .as_ref()
+            .and_then(|c| c.first())
+            .expect("the mapped element");
+        assert_eq!(mapped.repeats, Some(true));
+        assert_eq!(
+            mapped
+                .children
+                .as_ref()
+                .map(|c| c.iter().map(|f| f.name.as_str()).collect::<Vec<_>>()),
+            Some(vec!["content"]),
+        );
+        assert!(r.unresolved.is_empty(), "nothing lost: {:?}", r.unresolved);
+    }
+
+    #[test]
     fn a_recursed_callback_is_not_also_reported_as_a_loss() {
         // The callback re-binds `e`, so the shadow check would discount its reads — but
         // `process_child_method` already read them in their own scope. Only what no
@@ -2253,12 +2404,11 @@ mod tests {
 
     #[test]
     fn a_shadowed_read_no_recursion_covered_is_counted_not_kept() {
-        // `digestResponseParser` writes `t.child("list").mapChildren(function(e){…})` — a
-        // child method chained off a tracked var, a form `process_child_method` does not
-        // descend into. The callback re-binds `e`, so its read is not a read of the
-        // parser's own node; publishing it at the root put `content` beside `digest`.
+        // A callback the recursion has no reason to enter — this one is not a child method's
+        // at all. It re-binds `e`, so its read is not a read of the parser's own node;
+        // publishing it at the root would put `content` beside `digest`.
         let r = analyze_parser_ast(
-            r#"{ var t = e.child("digest"); t.child("list").mapChildren(function(e){ return e.contentUint(3); }); }"#,
+            r#"{ var t = e.child("digest"); rows.forEach(function(e){ return e.contentUint(3); }); }"#,
             "e",
         );
         let names: Vec<&str> = r.fields.iter().map(|f| f.name.as_str()).collect();
@@ -2622,6 +2772,34 @@ mod tests {
             kids("participants").contains(&"ub"),
             "and the argument that still names its node is the one descended on: {:?}",
             kids("participants")
+        );
+    }
+
+    #[test]
+    fn descends_into_a_helper_handed_the_mapped_node_itself() {
+        // The callback delegates its own element to a module-scope helper. Helper descent
+        // recognized arguments only through `child_vars`, and a mapped child's parameter is
+        // not one — so `<row>` came out empty with nothing reported lost.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("id"); p.attrTime("t"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                e.mapChildrenWithTag("row", function(row){ parse(row); });
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let row = p
+            .fields
+            .iter()
+            .find(|f| f.tag.as_deref() == Some("row"))
+            .expect("row field");
+        assert_eq!(
+            row.children
+                .as_ref()
+                .map(|c| c.iter().map(|f| f.name.as_str()).collect::<Vec<_>>()),
+            Some(vec!["id", "t"]),
+            "the helper's reads belong to the element it was handed"
         );
     }
 

@@ -28,7 +28,7 @@
         "iq builder substring present but no AST iq call": 5,
         "mixin fragment (folded into requests, not a standalone stanza)": 66,
         "response enum argument not structurally resolvable": 33,
-        "shadowedCallbackRead": 6
+        "shadowedCallbackRead": 5
       },
       "excludedFragments": 66,
       "stanzas": 143,
@@ -67,12 +67,12 @@
     "incoming": {
       "file": "incoming/index.json",
       "schema": "schema/incoming.schema.json",
-      "sha256": "9f5bd37d7ee117444d3e454ebeb34ec4239098621037aa33b32793cc9b2619b3"
+      "sha256": "6ca2c44005c516459be990bab9210769ec91d5dbae386aa18d399d4dfc29b943"
     },
     "iq": {
       "file": "iq/index.json",
       "schema": "schema/iq.schema.json",
-      "sha256": "e8ceb7a840fd6ddfaff0c5fa075a147000b22cc1a50189b457fa6d0113a23b79"
+      "sha256": "cc0437d571a8b97f65aa4a368286c34ecb4630d6347fd404aa427dff90e4b648"
     },
     "mex": {
       "file": "mex/index.json",
@@ -82,7 +82,7 @@
     "notif": {
       "file": "notif/index.json",
       "schema": "schema/notif.schema.json",
-      "sha256": "37f3f25e5d6ee409f09d33d34d07c772bd5c61490fb862565aff07c0c36763b7"
+      "sha256": "a97217e422fce28a8e852813cd21a474736c6840b075f43133fb0e195bf4fa37"
     },
     "proto": {
       "file": "proto/WAProto.proto",

@@ -4471,7 +4471,33 @@
             "type": "string",
             "required": true,
             "tag": "digest",
-            "children": []
+            "children": [
+              {
+                "method": "child",
+                "name": "list",
+                "type": "string",
+                "required": true,
+                "tag": "list",
+                "children": [
+                  {
+                    "method": "mapChildren",
+                    "name": "children",
+                    "type": "string",
+                    "required": true,
+                    "children": [
+                      {
+                        "method": "contentUint",
+                        "name": "content",
+                        "type": "integer",
+                        "required": true,
+                        "byteLength": 3
+                      }
+                    ],
+                    "repeats": true
+                  }
+                ]
+              }
+            ]
           },
           {
             "method": "child",
@@ -34834,6 +34860,27 @@
                         }
                       ]
                     }
+                  },
+                  {
+                    "method": "maybeChild",
+                    "name": "error",
+                    "type": "string",
+                    "required": false,
+                    "tag": "error",
+                    "children": [
+                      {
+                        "method": "maybeAttrString",
+                        "name": "code",
+                        "type": "string",
+                        "required": false
+                      },
+                      {
+                        "method": "maybeAttrString",
+                        "name": "text",
+                        "type": "string",
+                        "required": false
+                      }
+                    ]
                   },
                   {
                     "method": "attrEnum",
