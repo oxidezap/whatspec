@@ -2199,6 +2199,11 @@ fn exits_unconditionally(stmt: &Statement<'_>) -> bool {
         // without stopping it, and a finalizer that returns of its own leaves on every
         // path. With a `catch`, the try block's exit is not the only outcome, so the
         // handler has to reach one too.
+        // `do { return r; } while (c)` runs its body before the test, so an exit in the
+        // first iteration is an exit full stop — unlike `while`/`for`, whose body may
+        // never run. That asymmetry is why the naming pass treats `do`/`while` as
+        // unconditional too.
+        Statement::DoWhileStatement(d) => exits_unconditionally(&d.body),
         Statement::TryStatement(t) => {
             let finalizer = t
                 .finalizer
@@ -8210,6 +8215,33 @@ mod tests {
             !kids.iter().any(|f| f.field_type == ParsedFieldType::Union),
             "declined rather than publishing one arm's band for both: {:?}",
             kids.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+    }
+    #[test]
+    fn a_do_while_that_returns_ends_that_value() {
+        // The body runs before the test, so an exit in the first iteration is an exit —
+        // unlike `while`/`for`, whose body may never run at all.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   if (n === "a") { t.alpha = e.attrString("va");
+                     do { return t; } while (c); }
+                   if (n === "b") { t.beta = e.attrString("vb"); }
+                   if (n === "a") { t.gamma = e.attrString("vc"); }
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        let a_fields: Vec<String> = kids
+            .iter()
+            .find(|f| f.field_type == ParsedFieldType::Union)
+            .and_then(|f| f.union_variants.as_ref())
+            .and_then(|vs| vs.iter().find(|v| v.name == "a"))
+            .map(|v| v.fields.iter().map(|f| f.name.clone()).collect())
+            .unwrap_or_default();
+        assert!(
+            !a_fields.iter().any(|n| n == "gamma"),
+            "the unreachable arm is not part of the variant: {a_fields:?}"
         );
     }
 }

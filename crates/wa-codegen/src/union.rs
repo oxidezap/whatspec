@@ -775,147 +775,7 @@ fn emit_attr_discriminated(
             .filter(|f| {
                 f.required || enum_values(f).is_some() || is_typed(f) || f.literal_value.is_some()
             })
-            .filter_map(|f| {
-                // Decoding, not just presence: an unparseable `attrInt` or a malformed JID
-                // would otherwise reach `unwrap_or_default` and become a fabricated value
-                // where ordinary required-field parsing would have failed. An enum decodes
-                // by membership, which `field_expr` reads as a plain string — so it is
-                // checked here rather than left to accept anything.
-                if let Some(values) = enum_values(f) {
-                    // Absence stays allowed for an optional leaf; a value that IS there
-                    // still has to be one the accessor accepts.
-                    let mut arms: Vec<String> = Vec::new();
-                    if !f.required {
-                        arms.push("None".to_string());
-                    }
-                    arms.extend(values.iter().map(|v| format!("Some({})", rust_lit(v))));
-                    // Content first: a `contentEnum` is validated against the node's text,
-                    // and looking for an attribute of that name found nothing.
-                    if wap::is_content_method(&f.method) {
-                        return Some(format!(
-                            "matches!({node_var}.content_str().as_deref(), {})",
-                            arms.join(" | ")
-                        ));
-                    }
-                    let wire = f.wire_name.as_deref().unwrap_or(&f.name);
-                    return Some(format!(
-                        "matches!({node_var}.get_attr({}).map(|x| x.as_str()).as_deref(), {})",
-                        rust_lit(wire),
-                        arms.join(" | ")
-                    ));
-                }
-                if wap::is_content_method(&f.method) {
-                    // The content decoders all end in `unwrap_or_default`, so the value
-                    // they hand back cannot be asked whether it is there. Probe the raw
-                    // accessor, and where a length is pinned check that too.
-                    let raw = match wap::method_field_type(&f.method) {
-                        ParsedFieldType::Bytes | ParsedFieldType::Integer
-                            if f.method == "contentBytes" || f.method == "contentUint" =>
-                        {
-                            "content_bytes()"
-                        }
-                        ParsedFieldType::Bytes => "content_bytes()",
-                        _ => "content_str()",
-                    };
-                    // A range is as much a constraint as a fixed length; checking only
-                    // the latter let a payload outside the band decode.
-                    // Text that decodes to a number: any content at all passed, and the
-                    // decoder then turned `abc` into `0` where the accessor rejects it.
-                    // `u64` because that is what the field materializes as.
-                    let decodes = if raw == "content_str()"
-                        && wap::method_field_type(&f.method) == ParsedFieldType::Integer
-                    {
-                        format!(
-                            "{node_var}.content_str().and_then(|s| s.parse::<u64>().ok()).is_some()"
-                        )
-                    } else {
-                        match (f.byte_length, f.byte_min, f.byte_max) {
-                            (Some(n), _, _) => {
-                                format!("{node_var}.{raw}.is_some_and(|b| b.len() == {n})")
-                            }
-                            (None, Some(lo), Some(hi)) => format!(
-                                "{node_var}.{raw}.is_some_and(|b| ({lo}..={hi}).contains(&b.len()))"
-                            ),
-                            (None, Some(lo), None) => {
-                                format!("{node_var}.{raw}.is_some_and(|b| b.len() >= {lo})")
-                            }
-                            (None, None, Some(hi)) => {
-                                format!("{node_var}.{raw}.is_some_and(|b| b.len() <= {hi})")
-                            }
-                            // Nothing pinned: presence is the whole of it.
-                            (None, None, None) => {
-                                // An arm the parser enters without reading the content is
-                                // not selected by carrying one — and gating on presence
-                                // turned an absent payload the source accepts into no
-                                // variant at all.
-                                if !f.required {
-                                    return None;
-                                }
-                                format!("{node_var}.{raw}.is_some()")
-                            }
-                        }
-                    };
-                    if f.required {
-                        return Some(decodes);
-                    }
-                    // Absence is what `required: false` means; only a payload that IS
-                    // there has to satisfy the accessor.
-                    return Some(format!("({node_var}.{raw}.is_none() || {decodes})"));
-                }
-                // A leaf pinned to a value is a discriminator as much as the attribute this
-                // shape matches on: `literal(attrString, node, "mode", "x")` rejects
-                // `mode="y"` at the source, and a guard testing only that `mode` decodes
-                // took it. The pin is compared as raw text — that is the form the IR
-                // records for a string and for an integer alike.
-                if let Some(lit) = f.literal_value.as_deref() {
-                    let wire = f.wire_name.as_deref().unwrap_or(&f.name);
-                    // An integer pin is compared AFTER decoding. The IR records the literal
-                    // as text, but the accessor yields a number, so `"0429"` is a value the
-                    // source accepts and a raw text compare against `"429"` turned away —
-                    // selecting no variant for an element the parser reads happily.
-                    let int_pin = (wap::method_field_type(&f.method) == ParsedFieldType::Integer)
-                        .then(|| lit.parse::<u64>().ok())
-                        .flatten();
-                    let pinned = match int_pin {
-                        Some(n) => format!(
-                            "{node_var}.get_attr({}).and_then(|v| v.as_str().parse::<u64>().ok()) \
-                             == Some({n}u64)",
-                            rust_lit(wire)
-                        ),
-                        None => format!(
-                            "{node_var}.get_attr({}).map(|x| x.as_str()) == Some({})",
-                            rust_lit(wire),
-                            rust_lit(lit)
-                        ),
-                    };
-                    if f.required {
-                        return Some(pinned);
-                    }
-                    return Some(format!(
-                        "({node_var}.get_attr({}).is_none() || {pinned})",
-                        rust_lit(wire)
-                    ));
-                }
-                let mut probe = f.clone();
-                probe.required = false;
-                let read = field_expr(&probe, node_var);
-                // A bounded accessor rejects a value outside its band, and reading it as a
-                // bare `attrInt` let `attrIntRange("count", 1, 10)` select the arm on a
-                // `count="99"` the source parser turns away.
-                let decodes = match int_band(f) {
-                    Some(band) => format!("{read}.is_some_and(|n| {band})"),
-                    None => format!("{read}.is_some()"),
-                };
-                if f.required {
-                    return Some(decodes);
-                }
-                let wire = f.wire_name.as_deref().unwrap_or(&f.name);
-                Some(format!(
-                    "({}.get_attr({}).is_none() || {decodes})",
-                    node_var,
-                    rust_lit(wire)
-                ))
-            })
+            .filter_map(|f| leaf_guard(f, node_var))
             .collect();
         let guard = if required.is_empty() {
             String::new()
@@ -1008,13 +868,16 @@ fn same_node_guard(arm: &ValueArm, node_var: &str) -> Option<String> {
             None => format!("{node_var}.get_attr({}).is_some()", rust_lit(name)),
         });
     }
+    // What the accessor accepts, not merely that the attribute is there. Presence alone
+    // selected `blocklistIds`' `PnJid` arm on a malformed `pn_jid`, and `field_expr` then
+    // handed back the JID default for a node the source parser rejects. `leaf_guard` is
+    // the same check the attr-discriminated shape applies, so the two agree.
     conds.extend(
         arm.fields
             .iter()
-            .filter(|f| f.required && f.method.starts_with("attr"))
-            .map(|f| f.wire_name.as_deref().unwrap_or(&f.name))
-            .filter(|wire| !pinned.contains(wire))
-            .map(|wire| format!("{node_var}.get_attr({}).is_some()", rust_lit(wire))),
+            .filter(|f| f.required && wap::is_attr_method(&f.method))
+            .filter(|f| !pinned.contains(f.wire_name.as_deref().unwrap_or(&f.name)))
+            .filter_map(|f| leaf_guard(f, node_var)),
     );
     if conds.is_empty() {
         None
@@ -1041,6 +904,162 @@ fn value_payload(enum_name: &str, variant: &str, fields: &[ParsedField], node_va
 /// A leaf read as an EXPRESSION (no `?`), for an enum variant struct-init. Mirrors
 /// `emit_field_parse`'s type mapping but defaults required leaves instead of failing
 /// (the variant guard already proved the required attrs present).
+/// Everything an arm must check about ONE leaf before it may be selected: the values an
+/// enum accepts, a content payload's length or decodability, a pinned literal, a bounded
+/// integer's band, or — failing all of those — that a typed accessor decodes at all.
+///
+/// Shared by both value-union shapes on purpose. It was written inline for the
+/// attr-discriminated guard, and the same-node guard grew its own presence-only test —
+/// so a malformed `pn_jid` selected `blocklistIds`' `PnJid` arm and `field_expr` handed
+/// back the JID default where the source parser rejects the node.
+fn leaf_guard(f: &ParsedField, node_var: &str) -> Option<String> {
+    // Decoding, not just presence: an unparseable `attrInt` or a malformed JID
+    // would otherwise reach `unwrap_or_default` and become a fabricated value
+    // where ordinary required-field parsing would have failed. An enum decodes
+    // by membership, which `field_expr` reads as a plain string — so it is
+    // checked here rather than left to accept anything.
+    if let Some(values) = enum_values(f) {
+        // Absence stays allowed for an optional leaf; a value that IS there
+        // still has to be one the accessor accepts.
+        let mut arms: Vec<String> = Vec::new();
+        if !f.required {
+            arms.push("None".to_string());
+        }
+        arms.extend(values.iter().map(|v| format!("Some({})", rust_lit(v))));
+        // Content first: a `contentEnum` is validated against the node's text,
+        // and looking for an attribute of that name found nothing.
+        if wap::is_content_method(&f.method) {
+            return Some(format!(
+                "matches!({node_var}.content_str().as_deref(), {})",
+                arms.join(" | ")
+            ));
+        }
+        let wire = f.wire_name.as_deref().unwrap_or(&f.name);
+        return Some(format!(
+            "matches!({node_var}.get_attr({}).map(|x| x.as_str()).as_deref(), {})",
+            rust_lit(wire),
+            arms.join(" | ")
+        ));
+    }
+    if wap::is_content_method(&f.method) {
+        // The content decoders all end in `unwrap_or_default`, so the value
+        // they hand back cannot be asked whether it is there. Probe the raw
+        // accessor, and where a length is pinned check that too.
+        let raw = match wap::method_field_type(&f.method) {
+            ParsedFieldType::Bytes | ParsedFieldType::Integer
+                if f.method == "contentBytes" || f.method == "contentUint" =>
+            {
+                "content_bytes()"
+            }
+            ParsedFieldType::Bytes => "content_bytes()",
+            _ => "content_str()",
+        };
+        // A range is as much a constraint as a fixed length; checking only
+        // the latter let a payload outside the band decode.
+        // Text that decodes to a number: any content at all passed, and the
+        // decoder then turned `abc` into `0` where the accessor rejects it.
+        // `u64` because that is what the field materializes as.
+        let decodes = if raw == "content_str()"
+            && wap::method_field_type(&f.method) == ParsedFieldType::Integer
+        {
+            format!("{node_var}.content_str().and_then(|s| s.parse::<u64>().ok()).is_some()")
+        } else {
+            match (f.byte_length, f.byte_min, f.byte_max) {
+                (Some(n), _, _) => {
+                    format!("{node_var}.{raw}.is_some_and(|b| b.len() == {n})")
+                }
+                (None, Some(lo), Some(hi)) => {
+                    format!("{node_var}.{raw}.is_some_and(|b| ({lo}..={hi}).contains(&b.len()))")
+                }
+                (None, Some(lo), None) => {
+                    format!("{node_var}.{raw}.is_some_and(|b| b.len() >= {lo})")
+                }
+                (None, None, Some(hi)) => {
+                    format!("{node_var}.{raw}.is_some_and(|b| b.len() <= {hi})")
+                }
+                // Nothing pinned: presence is the whole of it.
+                (None, None, None) => {
+                    // An arm the parser enters without reading the content is
+                    // not selected by carrying one — and gating on presence
+                    // turned an absent payload the source accepts into no
+                    // variant at all.
+                    if !f.required {
+                        return None;
+                    }
+                    format!("{node_var}.{raw}.is_some()")
+                }
+            }
+        };
+        if f.required {
+            return Some(decodes);
+        }
+        // Absence is what `required: false` means; only a payload that IS
+        // there has to satisfy the accessor.
+        return Some(format!("({node_var}.{raw}.is_none() || {decodes})"));
+    }
+    // A leaf pinned to a value is a discriminator as much as the attribute this
+    // shape matches on: `literal(attrString, node, "mode", "x")` rejects
+    // `mode="y"` at the source, and a guard testing only that `mode` decodes
+    // took it. The pin is compared as raw text — that is the form the IR
+    // records for a string and for an integer alike.
+    if let Some(lit) = f.literal_value.as_deref() {
+        let wire = f.wire_name.as_deref().unwrap_or(&f.name);
+        // An integer pin is compared AFTER decoding. The IR records the literal
+        // as text, but the accessor yields a number, so `"0429"` is a value the
+        // source accepts and a raw text compare against `"429"` turned away —
+        // selecting no variant for an element the parser reads happily.
+        let int_pin = (wap::method_field_type(&f.method) == ParsedFieldType::Integer)
+            .then(|| lit.parse::<u64>().ok())
+            .flatten();
+        let pinned = match int_pin {
+            Some(n) => format!(
+                "{node_var}.get_attr({}).and_then(|v| v.as_str().parse::<u64>().ok()) \
+                         == Some({n}u64)",
+                rust_lit(wire)
+            ),
+            None => format!(
+                "{node_var}.get_attr({}).map(|x| x.as_str()) == Some({})",
+                rust_lit(wire),
+                rust_lit(lit)
+            ),
+        };
+        if f.required {
+            return Some(pinned);
+        }
+        return Some(format!(
+            "({node_var}.get_attr({}).is_none() || {pinned})",
+            rust_lit(wire)
+        ));
+    }
+    let wire_name = f.wire_name.as_deref().unwrap_or(&f.name);
+    // A plain string cannot fail to decode, so "it is there" IS the whole check. Spelling
+    // it as `…map(|v| v.as_str().to_string()).is_some()` says the same thing at more
+    // length and buries the cases that really do validate something.
+    if !is_typed(f) && int_band(f).is_none() {
+        let present = format!("{node_var}.get_attr({}).is_some()", rust_lit(wire_name));
+        return f.required.then_some(present);
+    }
+    let mut probe = f.clone();
+    probe.required = false;
+    let read = field_expr(&probe, node_var);
+    // A bounded accessor rejects a value outside its band, and reading it as a
+    // bare `attrInt` let `attrIntRange("count", 1, 10)` select the arm on a
+    // `count="99"` the source parser turns away.
+    let decodes = match int_band(f) {
+        Some(band) => format!("{read}.is_some_and(|n| {band})"),
+        None => format!("{read}.is_some()"),
+    };
+    if f.required {
+        return Some(decodes);
+    }
+    let wire = f.wire_name.as_deref().unwrap_or(&f.name);
+    Some(format!(
+        "({}.get_attr({}).is_none() || {decodes})",
+        node_var,
+        rust_lit(wire)
+    ))
+}
+
 /// The band a bounded integer accessor enforces, as a test on the decoded `n` —
 /// `attrIntRange(node, "count", 1, 10)` → `(1u64..=10u64).contains(&n)`.
 ///
@@ -1909,6 +1928,28 @@ mod tests {
         assert!(
             src.contains("parse::<u64>().ok()) == Some(429u64)"),
             "the pin is compared as a number: {src}"
+        );
+    }
+    #[test]
+    fn a_same_node_arm_validates_what_it_selects_on() {
+        // Presence alone selected the arm and `field_expr` then handed back the JID
+        // default for a node the source parser rejects.
+        let f = union_field(serde_json::json!({
+            "method": "group", "name": "ids", "type": "union", "required": true,
+            "unionVariants": [
+                {"name": "PnJid", "assertions": [],
+                 "fields": [{"method": "attrUserJid", "name": "pn_jid", "wireName": "pn_jid",
+                             "type": "user_jid", "required": true}]},
+                {"name": "Plain", "assertions": [],
+                 "fields": [{"method": "attrString", "name": "other", "wireName": "other",
+                             "type": "string", "required": true}]}
+            ]
+        }));
+        let (lines, _) = emit_union_read(&f, "node", "Spec", "").expect("emitted");
+        let src = lines.join("\n");
+        assert!(
+            src.contains("to_jid()") && !src.contains(r#"node.get_attr("pn_jid").is_some()"#),
+            "the arm is selected on what the accessor accepts: {src}"
         );
     }
 }
