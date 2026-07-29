@@ -331,6 +331,16 @@ fn classify_attr_discriminated(f: &ParsedField, variants: &[UnionVariant]) -> Op
         if !v.fields.iter().all(is_simple_leaf) {
             return None;
         }
+        // A pinned payload is stored as hex text while the accessor yields bytes, and the
+        // guard cannot compare the two without knowing the decoder's exact type. Emitting
+        // a comparison anyway produced Rust that does not compile, and skipping the check
+        // would accept every other payload of that length — so the shape is declined.
+        if v.fields
+            .iter()
+            .any(|f| wap::is_content_method(&f.method) && f.literal_value.is_some())
+        {
+            return None;
+        }
         // Exactly one assertion, and it pins an attr to a value. Anything else the arm
         // enforces — a presence-only pin, a tag, a content literal — is not carried into
         // the match this shape emits, and accepting the variant anyway would construct it
@@ -730,8 +740,16 @@ fn emit_attr_discriminated(
                 // by membership, which `field_expr` reads as a plain string — so it is
                 // checked here rather than left to accept anything.
                 if let Some(values) = enum_values(f) {
-                    let wire = f.wire_name.as_deref().unwrap_or(&f.name);
                     let arms: Vec<String> = values.iter().map(|v| rust_lit(v)).collect();
+                    // Content first: a `contentEnum` is validated against the node's text,
+                    // and looking for an attribute of that name found nothing.
+                    if wap::is_content_method(&f.method) {
+                        return format!(
+                            "matches!({node_var}.content_str().as_deref(), Some({}))",
+                            arms.join(" | ")
+                        );
+                    }
+                    let wire = f.wire_name.as_deref().unwrap_or(&f.name);
                     return format!(
                         "matches!({node_var}.get_attr({}).map(|x| x.as_str()).as_deref(), Some({}))",
                         rust_lit(wire),
@@ -753,14 +771,6 @@ fn emit_attr_discriminated(
                     };
                     // A range is as much a constraint as a fixed length; checking only
                     // the latter let a payload outside the band decode.
-                    // A pinned value is stricter than any length: the accessor rejects
-                    // every other payload, and checking the size alone let them through.
-                    if let Some(lit) = f.literal_value.as_deref() {
-                        return format!(
-                            "{node_var}.{raw}.is_some_and(|b| b == {})",
-                            rust_lit(lit)
-                        );
-                    }
                     let len = match (f.byte_length, f.byte_min, f.byte_max) {
                         (Some(n), _, _) => format!("b.len() == {n}"),
                         (None, Some(lo), Some(hi)) => {
@@ -1112,9 +1122,11 @@ mod tests {
     }
 
     #[test]
-    fn attr_discriminated_union_guards_literal_content() {
-        // A pinned value is stricter than any length; checking the size alone accepted
-        // every other one-byte payload.
+    fn attr_discriminated_union_declines_a_pinned_payload() {
+        // The scan stores the pin as hex text while the accessor yields bytes; the guard
+        // cannot compare them without knowing the decoder's exact type, and emitting one
+        // anyway produced Rust that does not compile. Skipping the check instead would
+        // accept every other payload of that length, so the shape is declined.
         let f = union_field(serde_json::json!({
             "method": "dispatch", "name": "kind_dispatch", "type": "union", "required": true,
             "unionVariants": [
@@ -1122,7 +1134,27 @@ mod tests {
                  "assertions": [{"kind": "attr", "name": "kind", "value": "a"}],
                  "fields": [{"method": "contentLiteralBytes", "name": "content",
                              "type": "bytes", "required": true,
-                             "byteLength": 1, "literalValue": "\u{0005}"}]},
+                             "byteLength": 1, "literalValue": "05"}]},
+                {"name": "b",
+                 "assertions": [{"kind": "attr", "name": "kind", "value": "b"}],
+                 "fields": []}
+            ]
+        }));
+        assert!(classify_union(&f).is_none());
+    }
+
+    #[test]
+    fn attr_discriminated_union_checks_a_content_enum_against_the_content() {
+        // Looking for an attribute of that name found nothing, so a node carrying accepted
+        // text fell through to `None`.
+        let f = union_field(serde_json::json!({
+            "method": "dispatch", "name": "kind_dispatch", "type": "union", "required": true,
+            "unionVariants": [
+                {"name": "a",
+                 "assertions": [{"kind": "attr", "name": "kind", "value": "a"}],
+                 "fields": [{"method": "contentEnum", "name": "content",
+                             "type": "enum", "required": true,
+                             "enumKeys": ["on", "off"]}]},
                 {"name": "b",
                  "assertions": [{"kind": "attr", "name": "kind", "value": "b"}],
                  "fields": []}
@@ -1131,8 +1163,8 @@ mod tests {
         let (lines, _) = emit_union_read(&f, "node", "Spec", "").expect("emitted");
         let src = lines.join("\n");
         assert!(
-            src.contains("is_some_and(|b| b == "),
-            "the payload is compared, not just measured: {src}"
+            src.contains(r#"matches!(node.content_str().as_deref(), Some("on" | "off"))"#),
+            "the node's text is what is validated: {src}"
         );
     }
 

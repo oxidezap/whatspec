@@ -162,6 +162,10 @@ pub(crate) struct ParserResult {
     pub fields: Vec<ParsedField>,
     /// See [`ParsedResponse::pending_drops`].
     pub unresolved: Vec<String>,
+    /// The nodes local names were bound to. A dispatch arm is re-analysed on its own and
+    /// starts with none, so a `<detail>` bound before the chain and read inside an arm
+    /// resolved to nothing, and its reads left both the variant and the element.
+    pub child_vars: HashMap<String, Vec<PathSeg>>,
 }
 
 /// Accessors that read a value off a node, as the parser treats them: every shared
@@ -415,6 +419,17 @@ fn analyze_with_scope(
     module: &ModuleScope,
     outer_bindings: &std::collections::HashSet<String>,
 ) -> ParserResult {
+    analyze_seeded(code, param, module, outer_bindings, HashMap::new())
+}
+
+/// As [`analyze_with_scope`], but starting from nodes the enclosing scope already bound.
+fn analyze_seeded(
+    code: &str,
+    param: &str,
+    module: &ModuleScope,
+    outer_bindings: &std::collections::HashSet<String>,
+    seed: HashMap<String, Vec<PathSeg>>,
+) -> ParserResult {
     let alloc = Allocator::default();
     let ret = wa_oxc::parse_cjs(&alloc, code);
     let mut a = ParserAnalyzer {
@@ -424,7 +439,7 @@ fn analyze_with_scope(
         recursed: Vec::new(),
         assertions: Vec::new(),
         fields: Vec::new(),
-        child_vars: HashMap::new(),
+        child_vars: seed,
         pending_enum_keys: HashMap::new(),
         unresolved_enum_attrs: Default::default(),
         unresolved: Vec::new(),
@@ -447,6 +462,7 @@ fn analyze_with_scope(
         assertions: a.assertions,
         fields: a.fields,
         unresolved: a.unresolved,
+        child_vars: a.child_vars,
     }
 }
 
@@ -630,15 +646,7 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
             let before_else = self.assertions.len();
             self.visit_statement(alt);
             let else_side: Vec<ResponseAssertion> = self.assertions[before_else..].to_vec();
-            // Enforced whichever way the branch goes, so enforced always. Both occurrences
-            // were marked conditional on the way in; their intersection is not.
-            for a in then_side.iter().filter(|a| else_side.contains(a)) {
-                for _ in 0..2 {
-                    if let Some(i) = self.conditional_assertions.iter().position(|x| x == a) {
-                        self.conditional_assertions.swap_remove(i);
-                    }
-                }
-            }
+            self.unmark_branch_intersection(&then_side, &else_side);
         }
         self.conditional_depth -= 1;
     }
@@ -668,10 +676,18 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
         let tested = self.canonical_guards(&expr.test);
         let n = tested.len();
         self.conditional_depth += 1;
+
+        let before_then = self.assertions.len();
         self.guarded_names.extend(tested);
         self.visit_expression(&expr.consequent);
         self.guarded_names.truncate(self.guarded_names.len() - n);
+        let then_side: Vec<ResponseAssertion> = self.assertions[before_then..].to_vec();
+
+        let before_else = self.assertions.len();
         self.visit_expression(&expr.alternate);
+        let else_side: Vec<ResponseAssertion> = self.assertions[before_else..].to_vec();
+        self.unmark_branch_intersection(&then_side, &else_side);
+
         self.conditional_depth -= 1;
     }
 
@@ -710,6 +726,24 @@ impl ParserAnalyzer<'_, '_> {
         self.recursed
             .iter()
             .any(|r| span.start >= r.start && span.end <= r.end)
+    }
+
+    /// An assertion made whichever way a branch goes is made always. Both occurrences were
+    /// marked conditional on the way in; their intersection is not. `if`/`else` and the
+    /// ternary are the same shape here, and teaching only one left the other filtering
+    /// both occurrences away.
+    fn unmark_branch_intersection(
+        &mut self,
+        then_side: &[ResponseAssertion],
+        else_side: &[ResponseAssertion],
+    ) {
+        for a in then_side.iter().filter(|a| else_side.contains(a)) {
+            for _ in 0..2 {
+                if let Some(i) = self.conditional_assertions.iter().position(|x| x == a) {
+                    self.conditional_assertions.swap_remove(i);
+                }
+            }
+        }
     }
 
     /// Whether an enclosing inner function re-binds the parser's own parameter, as seen
@@ -1284,8 +1318,13 @@ impl ParserAnalyzer<'_, '_> {
             let Some(bound_param) = params.get(idx) else {
                 continue;
             };
-            let (f, l, g) =
-                analyze_node_helper(body_src, bound_param, self.module, self.helper_depth + 1);
+            let (f, l, g) = analyze_node_helper(
+                body_src,
+                bound_param,
+                params,
+                self.module,
+                self.helper_depth + 1,
+            );
             for one in f {
                 merge_or_push(&mut recovered, one);
             }
@@ -1565,6 +1604,7 @@ impl<'a> Visit<'a> for ModuleScopeBuilder<'_> {
 fn analyze_node_helper(
     body_src: &str,
     bound_param: &str,
+    formals: &[String],
     module: &ModuleScope,
     depth: u32,
 ) -> (Vec<ParsedField>, Vec<String>, Vec<ResponseAssertion>) {
@@ -1592,6 +1632,9 @@ fn analyze_node_helper(
         helper_depth: depth,
     };
     a.local_bindings = all_bindings(&ret.program);
+    // Its own parameters are names it binds: `delegate(node, parse)` calls the `parse` it
+    // was handed, not the module's, and the body alone does not say so.
+    a.local_bindings.names.extend(formals.iter().cloned());
     a.visit_program(&ret.program);
     a.attach_pending_enum_keys();
     // What the helper could not resolve is the caller's loss too: reporting the field
@@ -1921,11 +1964,14 @@ fn compares_subject(stmt: &Statement<'_>, subject: &str) -> bool {
             _f: &oxc_ast::ast::ArrowFunctionExpression<'a>,
         ) {
         }
-        fn visit_if_statement(&mut self, s: &oxc_ast::ast::IfStatement<'a>) {
-            if equality_literals(&s.test, self.subject).is_some_and(|l| !l.is_empty()) {
+        // Any expression, not only an `if` test: `kind === "b" && …` inside the `a` arm is
+        // just as unreachable, and placing its read in `a` made consumers reject elements
+        // the parser accepts.
+        fn visit_expression(&mut self, e: &Expression<'a>) {
+            if equality_literals(e, self.subject).is_some_and(|l| !l.is_empty()) {
                 self.found = true;
             }
-            walk::walk_if_statement(self, s);
+            walk::walk_expression(self, e);
         }
     }
     let mut p = Probe {
@@ -1995,6 +2041,14 @@ impl DispatchChain {
         }
         let mut arms: Vec<(Vec<String>, Span)> = Vec::new();
         for stmt in stmts.iter() {
+            // Nothing after an unconditional exit runs, so a comparison there is not an
+            // alternative the element can take.
+            if matches!(
+                stmt,
+                Statement::ReturnStatement(_) | Statement::ThrowStatement(_)
+            ) {
+                break;
+            }
             let Statement::IfStatement(first) = stmt else {
                 continue;
             };
@@ -2298,7 +2352,10 @@ struct DiscriminatorFinder<'s> {
     /// the method alone dropped it while `fold_unaccounted` removed the populated copy.
     /// Which of these drives the dispatch is not knowable here; taking the first meant an
     /// unrelated `var id = e.attrString("id")` read before it sank the whole thing.
-    found: Vec<(String, ParsedField, u32)>,
+    found: Vec<(String, ParsedField, u32, Option<Span>)>,
+    /// Enclosing blocks, so a binding's own extent is known: a block-local `kind` is not
+    /// the outer name the comparisons after the block actually test.
+    blocks: Vec<Span>,
 }
 
 impl<'a> Visit<'a> for DiscriminatorFinder<'_> {
@@ -2306,6 +2363,12 @@ impl<'a> Visit<'a> for DiscriminatorFinder<'_> {
     // different node, and reading its attribute is not this element's discriminator.
     fn visit_function(&mut self, _f: &Function<'a>, _flags: ScopeFlags) {}
     fn visit_arrow_function_expression(&mut self, _f: &oxc_ast::ast::ArrowFunctionExpression<'a>) {}
+
+    fn visit_block_statement(&mut self, block: &oxc_ast::ast::BlockStatement<'a>) {
+        self.blocks.push(block.span);
+        walk::walk_block_statement(self, block);
+        self.blocks.pop();
+    }
 
     fn visit_variable_declaration(&mut self, decl: &VariableDeclaration<'a>) {
         for d in &decl.declarations {
@@ -2320,8 +2383,9 @@ impl<'a> Visit<'a> for DiscriminatorFinder<'_> {
                 let mut f = field_from_call(method, call, self.module, &mut discard);
                 f.name = wire.to_string();
                 f.wire_name = None;
+                let extent = self.blocks.last().copied();
                 self.found
-                    .push((bound.as_str().to_string(), f, call.span.end));
+                    .push((bound.as_str().to_string(), f, call.span.end, extent));
             }
         }
         walk::walk_variable_declaration(self, decl);
@@ -2365,7 +2429,7 @@ fn equality_literals<'b>(test: &'b Expression<'_>, name: &str) -> Option<Vec<&'b
 /// Only an assignment whose right-hand side is the value the arm just read counts: an arm
 /// that sets a flag first would otherwise stamp that flag's name onto the field, and a
 /// wrong output name is harder to notice than a missing one.
-fn assigned_names(src: &str, param: &str) -> HashMap<String, String> {
+fn assigned_names(src: &str, param: &str) -> HashMap<String, Vec<String>> {
     let alloc = Allocator::default();
     let ret = wa_oxc::parse_cjs(&alloc, src);
     if ret.panicked {
@@ -2377,8 +2441,8 @@ fn assigned_names(src: &str, param: &str) -> HashMap<String, String> {
         from_wire: HashMap<String, String>,
         /// What each open block displaced, to put back when it closes.
         blocks: Vec<Vec<(String, Option<String>)>>,
-        /// Wire attribute → the property its value is assigned to.
-        named: HashMap<String, String>,
+        /// Wire attribute → the properties its value is assigned to, in source order.
+        named: HashMap<String, Vec<String>>,
     }
     impl<'a> Visit<'a> for Finder<'_> {
         // A nested callback reusing the parameter's name reads a different node; its
@@ -2465,7 +2529,12 @@ fn assigned_names(src: &str, param: &str) -> HashMap<String, String> {
                         .then(|| arg_str(call, 0).map(str::to_string))?
                     });
                 if let Some(wire) = wire {
-                    self.named.entry(wire).or_insert_with(|| property.clone());
+                    // One read can feed several returned properties; keeping the first
+                    // dropped the others from a shape the parser always returns.
+                    let names = self.named.entry(wire).or_default();
+                    if !names.contains(&property) {
+                        names.push(property);
+                    }
                 }
             }
             walk::walk_assignment_expression(self, e);
@@ -2561,23 +2630,46 @@ fn discriminated_children(
         param,
         module,
         found: Vec::new(),
+        blocks: Vec::new(),
     };
     finder.visit_program(&ret.program);
     // The one a chain is actually built on.
-    let (_bound, disc_field, collector) = finder.found.into_iter().find_map(|(b, f, at)| {
-        // The arms compare against string literals, so an accessor whose value is a number
-        // or a JID never takes any of them — a union keyed on those strings would describe
-        // branches the parser cannot reach.
-        if !matches!(
-            f.field_type,
-            ParsedFieldType::String | ParsedFieldType::Enum
-        ) {
-            return None;
-        }
-        let chain = DispatchChain::read(&ret.program.body, &b, at)?;
-        Some((b, f, chain))
-    })?;
+    let (_bound, disc_field, collector) =
+        finder.found.into_iter().find_map(|(b, f, at, extent)| {
+            // The arms compare against string literals, so an accessor whose value is a number
+            // or a JID never takes any of them — a union keyed on those strings would describe
+            // branches the parser cannot reach.
+            if !matches!(
+                f.field_type,
+                ParsedFieldType::String | ParsedFieldType::Enum
+            ) {
+                return None;
+            }
+            let chain = DispatchChain::read(&ret.program.body, &b, at)?;
+            // Every arm has to sit where this binding is the one being compared; a block-local
+            // one says nothing about the comparisons after its block.
+            if let Some(e) = extent
+                && !chain
+                    .arms
+                    .iter()
+                    .all(|(_, s)| s.start >= e.start && s.end <= e.end)
+            {
+                return None;
+            }
+            Some((b, f, chain))
+        })?;
     let wire = disc_field.name.clone();
+
+    // What the element does outside the chain, computed first: its bindings are in scope
+    // for every arm, and an arm re-analysed without them cannot resolve a node the body
+    // bound before the dispatch.
+    let base = ret.program.span.start;
+    let outside = analyze_with_scope(
+        &body_without_arms(body_src, &collector.arms, base),
+        param,
+        module,
+        outer_bindings,
+    );
 
     let mut variants: Vec<UnionVariant> = Vec::new();
     let mut common: Vec<ParsedField> = Vec::new();
@@ -2587,7 +2679,13 @@ fn discriminated_children(
     let mut structural_seen: HashMap<String, usize> = HashMap::new();
     for (lits, span) in &collector.arms {
         let arm_src = &body_src[span.start as usize..span.end as usize];
-        let arm = analyze_with_scope(arm_src, param, module, outer_bindings);
+        let arm = analyze_seeded(
+            arm_src,
+            param,
+            module,
+            outer_bindings,
+            outside.child_vars.clone(),
+        );
         let runtime_names = assigned_names(arm_src, param);
         // Only the leaf the arm selects belongs to the variant. Anything structural it
         // also reads — the `<error>` its reporting helper picks up — is the element's.
@@ -2613,18 +2711,22 @@ fn discriminated_children(
             *structural_seen.entry(path).or_default() += covers;
         }
         for lit in lits {
+            // Each leaf takes the name of the property ITS value is assigned to, and one
+            // read feeding two properties yields both — the parser returns both.
             let fields: Vec<ParsedField> = leaves
                 .iter()
                 .cloned()
-                .map(|mut f| {
-                    // Each leaf takes the name of the property ITS value is assigned to.
-                    // One name for the whole arm renamed every leaf the same, which the
-                    // codegen then emits as duplicate fields of one variant.
-                    if let Some(n) = runtime_names.get(&f.name) {
-                        f.wire_name = Some(f.name.clone());
-                        f.name = n.clone();
-                    }
-                    f
+                .flat_map(|f| match runtime_names.get(&f.name) {
+                    Some(names) if !names.is_empty() => names
+                        .iter()
+                        .map(|n| {
+                            let mut one = f.clone();
+                            one.wire_name = Some(f.name.clone());
+                            one.name = n.clone();
+                            one
+                        })
+                        .collect::<Vec<_>>(),
+                    _ => vec![f],
                 })
                 .collect();
             // The same literal tested twice is one alternative, not two: emitted twice it
@@ -2679,16 +2781,8 @@ fn discriminated_children(
     let mut out = vec![disc_field];
     out.extend(common);
     out.push(union);
-    // Whatever the element reads outside the chain is still its own. Asking the body with
-    // the arms blanked answers that exactly; inferring it from the merged flat result
-    // could not tell an arm's read from one the parser makes on every path.
-    let base = ret.program.span.start;
-    let outside = analyze_with_scope(
-        &body_without_arms(body_src, &collector.arms, base),
-        param,
-        module,
-        outer_bindings,
-    );
+    // Whatever the element reads outside the chain is still its own — asked directly of
+    // the body with the arms blanked.
     Some(fold_unaccounted(out, outside.fields))
 }
 
@@ -5113,6 +5207,162 @@ mod tests {
                 .and_then(|f| f.children.as_ref())
                 .is_some_and(|c| c.iter().any(|f| f.name == "from_module")),
             "the case's binding ended with the switch: {:?}",
+            p.fields
+        );
+    }
+
+    #[test]
+    fn a_ternary_intersection_is_unconditional_too() {
+        // The `if`/`else` form was taught this; the ternary is the same shape and was not.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ flag ? p.assertAttr("status","ok") : p.assertAttr("status","ok"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                parse(e);
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        assert!(
+            p.assertions
+                .iter()
+                .any(|a| a.name.as_deref() == Some("status")),
+            "made whichever way it goes: {:?}",
+            p.assertions
+        );
+    }
+
+    #[test]
+    fn a_dispatch_declines_when_an_arm_compares_again_in_an_expression() {
+        // `kind === "b" && …` inside the `a` arm is unreachable; placing its read in `a`
+        // made consumers reject elements the parser accepts.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   if (n === "a") { n === "b" && e.attrString("x"); }
+                   if (n === "c") { e.attrString("y"); }
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        assert!(
+            kids.iter().all(|f| f.field_type != ParsedFieldType::Union),
+            "left flat: {:?}",
+            kids.iter().map(|f| f.name.as_str()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_block_local_discriminator_does_not_drive_the_arms_after_it() {
+        // The comparisons test the outer name; keying a union on the block-local read
+        // described a selection the parser never made.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   { let kind = e.attrString("kind"); }
+                   if (kind === "a") { e.attrString("va"); }
+                   if (kind === "b") { e.attrString("vb"); }
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        assert!(
+            kids.iter().all(|f| f.field_type != ParsedFieldType::Union),
+            "left flat: {:?}",
+            kids.iter().map(|f| f.name.as_str()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn arms_after_an_unconditional_exit_are_not_alternatives() {
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   if (n === "a") { e.attrString("va"); }
+                   return 1;
+                   if (n === "b") { e.attrString("vb"); }
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        assert!(
+            kids.iter().all(|f| f.field_type != ParsedFieldType::Union),
+            "one reachable arm is not a dispatch: {:?}",
+            kids.iter().map(|f| f.name.as_str()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn one_read_feeding_two_properties_yields_both() {
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   if (n === "a") { var x = e.attrString("value"); t.foo = x; t.bar = x; }
+                   if (n === "b") { var y = e.attrString("value"); t.beta = y; }
+                 }); }"#,
+            "e",
+        );
+        let union = r.fields[0]
+            .children
+            .as_ref()
+            .unwrap()
+            .iter()
+            .find(|f| f.field_type == ParsedFieldType::Union)
+            .expect("a union");
+        let a = &union.union_variants.as_ref().unwrap()[0];
+        let names: Vec<&str> = a.fields.iter().map(|f| f.name.as_str()).collect();
+        assert_eq!(names, ["foo", "bar"], "the parser returns both");
+    }
+
+    #[test]
+    fn an_arm_resolves_a_node_the_body_bound_before_the_chain() {
+        // Re-analysed alone the arm starts with no bindings, so `detail` resolved to
+        // nothing and its read left the variant and the element alike.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var detail = e.child("detail");
+                   var n = e.attrString("kind");
+                   if (n === "a") { detail.attrString("id"); }
+                   if (n === "b") { var y = e.attrString("value"); t.beta = y; }
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        let has_id = kids
+            .iter()
+            .find(|f| f.name == "detail")
+            .and_then(|f| f.children.as_ref())
+            .is_some_and(|c| c.iter().any(|g| g.name == "id"))
+            || kids
+                .iter()
+                .filter_map(|f| f.union_variants.as_ref())
+                .flatten()
+                .any(|v| {
+                    v.fields.iter().any(|f| {
+                        f.name == "detail"
+                            && f.children
+                                .as_ref()
+                                .is_some_and(|c| c.iter().any(|g| g.name == "id"))
+                    })
+                });
+        assert!(has_id, "`detail`'s `id` survives somewhere: {kids:?}");
+    }
+
+    #[test]
+    fn a_helper_formal_shadows_the_module_helper_of_that_name() {
+        // `delegate(node, parse)` calls the `parse` it was handed, not the module's.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("from_module"); }
+            function delegate(node, parse){ parse(node); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                delegate(e, other);
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        assert!(
+            p.fields.iter().all(|f| f.name != "from_module"),
+            "the formal shadows it: {:?}",
             p.fields
         );
     }
