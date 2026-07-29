@@ -770,16 +770,19 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
 
     fn visit_if_statement(&mut self, stmt: &oxc_ast::ast::IfStatement<'a>) {
         self.visit_expression(&stmt.test);
+        // `if (e.hasAttr("x")) …` says the element may lack `x` only on the path where it
+        // was found; the `else` is where it is known ABSENT, and a read there is required
+        // by whatever the parser does next. A negated test flips the two.
         let tested = presence_tested(&stmt.test);
         let n = tested.len();
-        self.guarded_names.extend(tested);
         self.conditional_depth += 1;
+        self.guarded_names.extend(tested);
         self.visit_statement(&stmt.consequent);
+        self.guarded_names.truncate(self.guarded_names.len() - n);
         if let Some(alt) = &stmt.alternate {
             self.visit_statement(alt);
         }
         self.conditional_depth -= 1;
-        self.guarded_names.truncate(self.guarded_names.len() - n);
     }
 
     fn visit_logical_expression(&mut self, expr: &oxc_ast::ast::LogicalExpression<'a>) {
@@ -799,12 +802,12 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
         self.visit_expression(&expr.test);
         let tested = presence_tested(&expr.test);
         let n = tested.len();
-        self.guarded_names.extend(tested);
         self.conditional_depth += 1;
+        self.guarded_names.extend(tested);
         self.visit_expression(&expr.consequent);
+        self.guarded_names.truncate(self.guarded_names.len() - n);
         self.visit_expression(&expr.alternate);
         self.conditional_depth -= 1;
-        self.guarded_names.truncate(self.guarded_names.len() - n);
     }
 
     fn visit_call_expression(&mut self, call: &CallExpression<'a>) {
@@ -1096,7 +1099,9 @@ impl ParserAnalyzer<'_, '_> {
         // ── Attr/content accessor on the param directly ──
         if is_value_method(method) && obj_is_param {
             let read = self.read_field(method, call);
-            self.fields.push(read);
+            // Merged, not appended: the same attribute read twice is one field, and two
+            // entries let a guarded copy sit in front of the read that always happens.
+            merge_or_push(&mut self.fields, read);
             return;
         }
 
@@ -1819,6 +1824,22 @@ fn place_at(fields: &mut Vec<ParsedField>, path: &[PathSeg], f: ParsedField) {
 /// Two branches mapping `<row>` with different callbacks are one repeated element that
 /// carries both shapes. Appending them as siblings left a later de-dup by name to keep the
 /// first and drop the other branch's fields without a word.
+/// Loosen what a hoisted child carries. Its descendants came from different arms and were
+/// merged into one subtree; each is only as certain as the arm that read it, so requiring
+/// them all would reject every element that takes just one arm.
+fn relax_merged_descendants(f: &mut ParsedField) {
+    let Some(kids) = f.children.as_mut() else {
+        return;
+    };
+    if kids.len() < 2 {
+        return;
+    }
+    for k in kids {
+        k.required = false;
+        relax_merged_descendants(k);
+    }
+}
+
 fn merge_or_push(into: &mut Vec<ParsedField>, f: ParsedField) {
     // Identity includes what the field reads, not only what it is called: a dispatch can
     // give two arms' reads the same runtime name while they take different attributes.
@@ -1828,6 +1849,10 @@ fn merge_or_push(into: &mut Vec<ParsedField>, f: ParsedField) {
         into.push(f);
         return;
     };
+    // Two reads of one field: if either happens unconditionally the field IS required,
+    // and keeping whichever landed first let a helper's guarded copy mask a later plain
+    // read of the same attribute.
+    into[i].required |= f.required;
     let Some(incoming) = f.children else { return };
     let existing = into[i].children.get_or_insert_with(Vec::new);
     // Recursively: two branches that both map `<row>` may differ only in what their nested
@@ -1837,8 +1862,6 @@ fn merge_or_push(into: &mut Vec<ParsedField>, f: ParsedField) {
     }
 }
 
-/// Collects the arms of a dispatch on `subject`, wherever they sit — the minified form
-/// wraps them in a labelled block, but nothing here depends on that.
 /// Reads a dispatch chain where it actually sits, rather than looking for comparisons
 /// anywhere in the body.
 ///
@@ -2000,7 +2023,9 @@ fn presence_tested(test: &Expression<'_>) -> Vec<(String, String)> {
                 walk(&l.left, out);
                 walk(&l.right, out);
             }
-            Expression::UnaryExpression(u) => walk(&u.argument, out),
+            // `!e.hasAttr("x")` establishes absence on the branch taken, not presence:
+            // whatever it reads there is not excused by this test.
+            Expression::UnaryExpression(_) => {}
             Expression::BinaryExpression(b) => {
                 walk(&b.left, out);
                 walk(&b.right, out);
@@ -2106,10 +2131,13 @@ fn all_bindings(program: &oxc_ast::ast::Program<'_>) -> Bindings {
 /// Finds the attribute a dispatch reads once and then branches on.
 struct DiscriminatorFinder<'s> {
     param: &'s str,
-    /// The name it was bound to, the wire attribute it read, and the accessor it used —
-    /// a dispatch on `maybeAttrString` admits elements that carry no discriminator, and
-    /// rewriting it as required would have consumers reject those.
-    found: Option<(String, String, String)>,
+    /// Every attribute a local is bound to, in source order: the name, the wire attribute,
+    /// and the accessor. The accessor matters — a dispatch on `maybeAttrString` admits
+    /// elements carrying no discriminator, and rewriting it as required would have
+    /// consumers reject those. Which of these drives the dispatch is not knowable here;
+    /// taking the first meant an unrelated `var id = e.attrString("id")` read before it
+    /// sank the whole transformation.
+    found: Vec<(String, String, String)>,
 }
 
 impl<'a> Visit<'a> for DiscriminatorFinder<'_> {
@@ -2120,15 +2148,14 @@ impl<'a> Visit<'a> for DiscriminatorFinder<'_> {
 
     fn visit_variable_declaration(&mut self, decl: &VariableDeclaration<'a>) {
         for d in &decl.declarations {
-            if self.found.is_none()
-                && let (Some(bound), Some(init)) = (d.id.get_identifier_name(), d.init.as_ref())
+            if let (Some(bound), Some(init)) = (d.id.get_identifier_name(), d.init.as_ref())
                 && let Some(call) = as_call(init)
                 && let Some(method) = callee_method(call)
                 && wap::is_attr_method(method)
                 && callee_object(call).and_then(as_identifier) == Some(self.param)
                 && let Some(wire) = arg_str(call, 0)
             {
-                self.found = Some((
+                self.found.push((
                     bound.as_str().to_string(),
                     wire.to_string(),
                     method.to_string(),
@@ -2295,17 +2322,23 @@ fn discriminated_children(
     // `var n = param.attrString("name")` — the discriminator, read once, up front. The
     // callback's body arrives wrapped in its own braces, so this is not a top-level
     // statement of the slice.
-    let mut finder = DiscriminatorFinder { param, found: None };
+    let mut finder = DiscriminatorFinder {
+        param,
+        found: Vec::new(),
+    };
     finder.visit_program(&ret.program);
-    let (bound, wire, disc_method) = finder.found?;
+    // The one a chain is actually built on.
+    let (_bound, wire, disc_method, collector) =
+        finder.found.into_iter().find_map(|(b, w, m)| {
+            let chain = DispatchChain::read(&ret.program.body, &b)?;
+            Some((b, w, m, chain))
+        })?;
     let disc_field = mk_field(
         &disc_method,
         &wire,
         method_to_field_type(&disc_method),
         is_method_required(&disc_method),
     );
-
-    let collector = DispatchChain::read(&ret.program.body, &bound)?;
 
     let mut variants: Vec<UnionVariant> = Vec::new();
     let mut common: Vec<ParsedField> = Vec::new();
@@ -2367,11 +2400,15 @@ fn discriminated_children(
     }
     // A child only some arms read is not the element's to require: lifted beside the union
     // it would apply to every variant, and a consumer would reject the ones that never
-    // carry it.
+    // carry it. The same goes for what is INSIDE it — arms reading `detail.a` and
+    // `detail.b` share the `<detail>` but not its contents, and requiring both would
+    // reject the elements either arm accepts.
     for f in &mut common {
-        if structural_seen.get(&f.name).copied().unwrap_or(0) < arms_seen {
+        let in_every_arm = structural_seen.get(&f.name).copied().unwrap_or(0) >= arms_seen;
+        if !in_every_arm {
             f.required = false;
         }
+        relax_merged_descendants(f);
     }
 
     let mut union = mk_field("dispatch", &wire, ParsedFieldType::Union, true);
@@ -3865,6 +3902,104 @@ mod tests {
             "and the stop is on the record: {:?}",
             p.pending_drops
         );
+    }
+
+    #[test]
+    fn a_dispatch_is_found_past_an_unrelated_attribute_binding() {
+        // Taking the first attribute read as the discriminator sank the whole shape when
+        // anything was read before it.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var id = e.attrString("id");
+                   var kind = e.attrString("kind");
+                   if (kind === "a") { var x = e.attrString("value"); t.alpha = x; }
+                   if (kind === "b") { var y = e.attrString("value"); t.beta = y; }
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        assert!(
+            kids.iter().any(|f| f.name == "kind_dispatch"),
+            "keyed on `kind`, not on the first thing read: {:?}",
+            kids.iter().map(|f| f.name.as_str()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn arms_reading_different_parts_of_one_child_do_not_require_each_others() {
+        // The arms share `<detail>` but not its contents; requiring both would reject every
+        // element that takes just one arm.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   if (n === "a") { e.child("detail").attrString("a"); }
+                   if (n === "b") { e.child("detail").attrString("b"); }
+                 }); }"#,
+            "e",
+        );
+        let detail = r.fields[0]
+            .children
+            .as_ref()
+            .unwrap()
+            .iter()
+            .find(|f| f.name == "detail")
+            .expect("lifted beside the union");
+        let kids = detail.children.as_ref().unwrap();
+        assert_eq!(kids.len(), 2, "both arms' reads are kept");
+        assert!(
+            kids.iter().all(|k| !k.required),
+            "neither is required of the other's arm: {:?}",
+            kids.iter()
+                .map(|k| (k.name.as_str(), k.required))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn an_unconditional_read_outranks_a_guarded_copy_of_itself() {
+        // The helper contributes an optional `id`; the parser then reads it outright. Kept
+        // first-seen, the optional one would let a consumer accept an element without it.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                if (flag) { parse(e); }
+                e.attrString("id");
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let ids: Vec<bool> = p
+            .fields
+            .iter()
+            .filter(|f| f.name == "id")
+            .map(|f| f.required)
+            .collect();
+        assert_eq!(ids, [true], "one `id`, and the parser always reads it");
+    }
+
+    #[test]
+    fn a_negated_presence_test_does_not_excuse_the_read_it_guards() {
+        // `if (!e.hasAttr("id")) e.attrString("id")` establishes ABSENCE on the branch
+        // taken; the read there is not made optional by the test.
+        let r = analyze_parser_ast(r#"{ if (!e.hasAttr("id")) { e.attrString("id"); } }"#, "e");
+        assert!(r.fields.iter().find(|f| f.name == "id").unwrap().required);
+    }
+
+    #[test]
+    fn a_presence_test_excuses_only_the_branch_that_found_it() {
+        // The `else` is where the attribute is known missing; a read there is the parser's
+        // own business, not something the test permits to be absent.
+        let r = analyze_parser_ast(
+            r#"{ if (e.hasAttr("id")) { e.attrString("other"); } else { e.attrString("id"); } }"#,
+            "e",
+        );
+        let by = |n: &str| r.fields.iter().find(|f| f.name == n).unwrap();
+        assert!(
+            by("id").required,
+            "read where the attribute is known missing — the test does not excuse it"
+        );
+        assert!(by("other").required, "the test said nothing about this one");
     }
 
     #[test]

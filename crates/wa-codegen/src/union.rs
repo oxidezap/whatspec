@@ -331,16 +331,19 @@ fn classify_attr_discriminated(f: &ParsedField, variants: &[UnionVariant]) -> Op
         if !v.fields.iter().all(is_simple_leaf) {
             return None;
         }
-        // Exactly one pinned attr, and the same one across the union.
-        let pins: Vec<(&str, &str)> = v
-            .assertions
-            .iter()
-            .filter(|a| a.kind == AssertionKind::Attr)
-            .filter_map(|a| Some((a.name.as_deref()?, a.value.as_deref()?)))
-            .collect();
-        let [(name, value)] = pins[..] else {
+        // Exactly one assertion, and it pins an attr to a value. Anything else the arm
+        // enforces — a presence-only pin, a tag, a content literal — is not carried into
+        // the match this shape emits, and accepting the variant anyway would construct it
+        // for elements the parser rejects.
+        let [only] = &v.assertions[..] else {
             return None;
         };
+        let (Some(name), Some(value)) = (only.name.as_deref(), only.value.as_deref()) else {
+            return None;
+        };
+        if only.kind != AssertionKind::Attr {
+            return None;
+        }
         match &attr {
             Some(a) if a != name => return None,
             Some(_) => {}
@@ -1041,6 +1044,23 @@ mod tests {
             src.contains(r#"matches!(node.get_attr("value").map(|x| x.as_str()).as_deref(), Some("on" | "off"))"#),
             "membership is checked, not just presence: {src}"
         );
+    }
+
+    #[test]
+    fn attr_discriminated_union_refuses_an_arm_it_cannot_fully_enforce() {
+        // The arm also requires `status` to be present. The match this shape emits keys on
+        // one attribute, so accepting the variant would construct it for elements the
+        // parser turns away.
+        let mut f = category_union();
+        f.union_variants.as_mut().unwrap()[0]
+            .assertions
+            .push(ResponseAssertion {
+                kind: AssertionKind::Attr,
+                name: Some("status".to_string()),
+                value: None,
+                reference_path: None,
+            });
+        assert!(classify_union(&f).is_none());
     }
 
     #[test]

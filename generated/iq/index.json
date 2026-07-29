@@ -35490,12 +35490,6 @@
                     "required": true
                   },
                   {
-                    "method": "attrString",
-                    "name": "value",
-                    "type": "string",
-                    "required": true
-                  },
-                  {
                     "method": "maybeAttrString",
                     "name": "dhash",
                     "type": "string",

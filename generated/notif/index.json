@@ -889,12 +889,6 @@
             "children": []
           },
           {
-            "method": "attrString",
-            "name": "id",
-            "type": "string",
-            "required": true
-          },
-          {
             "method": "child",
             "name": "enc_p",
             "type": "string",
@@ -1159,12 +1153,6 @@
             "method": "attrUserJid",
             "name": "from",
             "type": "user_jid",
-            "required": true
-          },
-          {
-            "method": "attrTime",
-            "name": "t",
-            "type": "integer",
             "required": true
           }
         ]
@@ -1525,12 +1513,6 @@
             "required": true
           },
           {
-            "method": "attrUserJid",
-            "name": "from",
-            "type": "user_jid",
-            "required": true
-          },
-          {
             "method": "attrString",
             "name": "from",
             "type": "string",
@@ -1568,7 +1550,7 @@
             "method": "attrUserJid",
             "name": "participant",
             "type": "user_jid",
-            "required": false
+            "required": true
           },
           {
             "method": "maybeAttrPhoneUserJid",
@@ -1813,7 +1795,7 @@
                 "method": "attrString",
                 "name": "type",
                 "type": "string",
-                "required": false
+                "required": true
               },
               {
                 "method": "attrGroupJid",
@@ -1926,18 +1908,6 @@
               },
               {
                 "method": "attrString",
-                "name": "reason",
-                "type": "string",
-                "required": false
-              },
-              {
-                "method": "attrString",
-                "name": "reason",
-                "type": "string",
-                "required": false
-              },
-              {
-                "method": "attrString",
                 "name": "subject",
                 "type": "string",
                 "required": true
@@ -1965,12 +1935,6 @@
                 "name": "s_t",
                 "type": "integer",
                 "required": false
-              },
-              {
-                "method": "attrString",
-                "name": "id",
-                "type": "string",
-                "required": true
               },
               {
                 "method": "attrString",
@@ -2016,24 +1980,6 @@
                 "name": "trigger",
                 "type": "integer",
                 "required": false
-              },
-              {
-                "method": "attrInt",
-                "name": "expiration",
-                "type": "integer",
-                "required": true
-              },
-              {
-                "method": "attrInt",
-                "name": "expiration",
-                "type": "integer",
-                "required": true
-              },
-              {
-                "method": "attrString",
-                "name": "type",
-                "type": "string",
-                "required": true
               },
               {
                 "method": "attrString",
@@ -2088,30 +2034,6 @@
                 "required": true,
                 "tag": "group_join",
                 "children": []
-              },
-              {
-                "method": "attrString",
-                "name": "triggered",
-                "type": "string",
-                "required": false
-              },
-              {
-                "method": "attrString",
-                "name": "request_method",
-                "type": "string",
-                "required": true
-              },
-              {
-                "method": "attrGroupJid",
-                "name": "parent_group_jid",
-                "type": "group_jid",
-                "required": false
-              },
-              {
-                "method": "attrString",
-                "name": "triggered",
-                "type": "string",
-                "required": false
               },
               {
                 "method": "attrString",
@@ -2309,21 +2231,9 @@
             "repeats": true
           },
           {
-            "method": "attrUserJid",
-            "name": "participant",
-            "type": "user_jid",
-            "required": true
-          },
-          {
             "method": "attrString",
             "name": "id",
             "type": "string",
-            "required": true
-          },
-          {
-            "method": "attrTime",
-            "name": "t",
-            "type": "integer",
             "required": true
           },
           {
