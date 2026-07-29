@@ -3651,6 +3651,22 @@ fn returned_names(src: &str) -> (std::collections::HashSet<String>, bool) {
         }
         roots.insert(at);
     }
+    // And the other direction: `var out = result; out.foo = …; return result` writes the
+    // accumulator through a name the return never mentions. Matching receivers against the
+    // returned set alone found none of them, so the choice fell to the frequency tie-break
+    // and a cache took the API.
+    for _ in 0..8 {
+        let more: Vec<String> = f
+            .aliases
+            .iter()
+            .filter(|(alias, target)| out.contains(*target) && !out.contains(*alias))
+            .map(|(alias, _)| alias.clone())
+            .collect();
+        if more.is_empty() {
+            break;
+        }
+        out.extend(more);
+    }
     (out, f.ambiguous || roots.len() > 1)
 }
 
@@ -3675,8 +3691,12 @@ fn returned_candidates(e: &Expression<'_>, out: &mut Vec<String>) {
     }
 }
 
-/// Whether `stmt` can leave the callback — a `return`/`throw` on any path under it,
-/// conditional or not. Statements after one of these do not run on every path.
+/// Whether `stmt` can stop the statements after it from running — a `return`/`throw` that
+/// leaves the callback, or a `break`/`continue` that skips the rest of the enclosing body.
+///
+/// `break` matters for the one loop whose body is otherwise guaranteed: `do { if (flag)
+/// break; t.value = second; } while (…)` runs its body once, but not all of it, so the
+/// write is no more certain than one behind an `if`.
 fn contains_exit(stmt: &Statement<'_>) -> bool {
     struct Probe {
         found: bool,
@@ -3692,6 +3712,12 @@ fn contains_exit(stmt: &Statement<'_>) -> bool {
             self.found = true;
         }
         fn visit_throw_statement(&mut self, _t: &oxc_ast::ast::ThrowStatement<'a>) {
+            self.found = true;
+        }
+        fn visit_break_statement(&mut self, _b: &oxc_ast::ast::BreakStatement<'a>) {
+            self.found = true;
+        }
+        fn visit_continue_statement(&mut self, _c: &oxc_ast::ast::ContinueStatement<'a>) {
             self.found = true;
         }
     }
@@ -8172,6 +8198,39 @@ mod tests {
     }
 
     #[test]
+    fn an_accumulator_written_through_an_alias_is_found_too() {
+        // The other direction: the return names `result`, but the writes go through
+        // `alias`. Matching receivers against the returned set alone found none of them,
+        // so the choice fell to frequency and the cache — written by one arm more than
+        // the accumulator — took the API.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   var result = {}, alias = result;
+                   if (n === "a") { alias.foo = e.attrString("f1");
+                                    cache.wrongA = e.attrString("w1"); }
+                   if (n === "b") { alias.bar = e.attrString("b1");
+                                    cache.wrongB = e.attrString("w2"); }
+                   if (n === "c") { cache.wrongC = e.attrString("w3"); }
+                   return result;
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        let a_fields: Vec<String> = kids
+            .iter()
+            .find(|f| f.field_type == ParsedFieldType::Union)
+            .and_then(|f| f.union_variants.as_ref())
+            .and_then(|vs| vs.iter().find(|v| v.name == "a"))
+            .map(|v| v.fields.iter().map(|f| f.name.clone()).collect())
+            .unwrap_or_default();
+        assert!(
+            a_fields.iter().any(|n| n == "foo") && !a_fields.iter().any(|n| n == "wrongA"),
+            "the accumulator names the fields, not the cache: {a_fields:?}"
+        );
+    }
+
+    #[test]
     fn a_property_written_in_a_loop_does_not_overwrite() {
         // A loop that runs zero times performs no write, so `value` may still hold the
         // earlier read — one field cannot say both.
@@ -8225,6 +8284,28 @@ mod tests {
             "the property holds the read it keeps: {a_fields:?}"
         );
     }
+    #[test]
+    fn a_write_past_a_break_in_a_do_while_does_not_overwrite() {
+        // The body of `do { … } while (…)` runs, but not necessarily all of it: a `break`
+        // ahead of the write skips it, so `value` may still hold the earlier read.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   if (n === "a") { t.value = e.attrString("first");
+                                    do { if (flag) break;
+                                         t.value = e.attrString("second"); } while (m); }
+                   if (n === "b") { t.other = e.attrString("third"); }
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        assert!(
+            !kids.iter().any(|f| f.field_type == ParsedFieldType::Union),
+            "declined, so the reads stay flat: {:?}",
+            kids.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+    }
+
     #[test]
     fn a_labeled_break_ends_that_value_too() {
         // `break x` jumps past the labelled block the chain lives in.
