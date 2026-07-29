@@ -925,13 +925,13 @@
                     "method": "attrDeviceJid",
                     "name": "jid",
                     "type": "device_jid",
-                    "required": false
+                    "required": true
                   },
                   {
                     "method": "attrTime",
                     "name": "t",
                     "type": "integer",
-                    "required": false
+                    "required": true
                   },
                   {
                     "method": "maybeAttrString",
@@ -988,13 +988,13 @@
                     "method": "attrDeviceJid",
                     "name": "jid",
                     "type": "device_jid",
-                    "required": false
+                    "required": true
                   },
                   {
                     "method": "attrTime",
                     "name": "t",
                     "type": "integer",
-                    "required": false
+                    "required": true
                   },
                   {
                     "method": "attrUserJid",
@@ -1111,7 +1111,7 @@
             "method": "attrTime",
             "name": "t",
             "type": "integer",
-            "required": false
+            "required": true
           }
         ]
       }

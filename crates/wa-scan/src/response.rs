@@ -686,17 +686,21 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
         let n = tested.len();
         self.conditional_depth += 1;
 
-        let before_then = self.assertions.len();
+        let before_then = (self.assertions.len(), self.relaxed_by_branch.len());
         self.guarded_names.extend(tested);
         self.visit_expression(&expr.consequent);
         self.guarded_names.truncate(self.guarded_names.len() - n);
-        let then_side: Vec<ResponseAssertion> = self.assertions[before_then..].to_vec();
+        let then_side: Vec<ResponseAssertion> = self.assertions[before_then.0..].to_vec();
+        let then_weak = self.relaxed_by_branch[before_then.1..].to_vec();
 
-        let before_else = self.assertions.len();
+        let before_else = (self.assertions.len(), self.relaxed_by_branch.len());
         self.visit_expression(&expr.alternate);
-        let else_side: Vec<ResponseAssertion> = self.assertions[before_else..].to_vec();
+        let else_side: Vec<ResponseAssertion> = self.assertions[before_else.0..].to_vec();
+        let else_weak = self.relaxed_by_branch[before_else.1..].to_vec();
         self.unmark_branch_intersection(&then_side, &else_side);
+        self.restore_branch_intersection(&then_weak, &else_weak);
 
+        self.relaxed_by_branch.truncate(before_then.1);
         self.conditional_depth -= 1;
     }
 
@@ -1192,12 +1196,9 @@ impl ParserAnalyzer<'_, '_> {
             let read = self.read_field(method, call);
             if let Some(node) = node_at_mut(&mut self.fields, &path) {
                 let kids = node.children.get_or_insert_with(Vec::new);
-                if !kids
-                    .iter()
-                    .any(|c| c.name == read.name && c.method == read.method)
-                {
-                    kids.push(read);
-                }
+                // The same reconciliation the direct and chained reads get: a guarded copy
+                // must not mask the plain read that follows it.
+                merge_or_push(kids, read);
             }
         }
 
@@ -2007,6 +2008,32 @@ fn chain_statements<'b, 'a>(body: &'b [Statement<'a>]) -> &'b [Statement<'a>] {
     }
 }
 
+/// Whether any statement outside `chain` compares `subject` — an arm the chain does not
+/// hold. Reading the label alone left such an arm to be hoisted as an unconditional field,
+/// so the recognized variants required a payload only the outsider carries.
+fn arms_outside(body: &[Statement<'_>], chain: &[Statement<'_>], subject: &str) -> bool {
+    let (lo, hi) = match (chain.first(), chain.last()) {
+        (Some(f), Some(l)) => (f.span().start, l.span().end),
+        _ => return false,
+    };
+    fn scan(stmts: &[Statement<'_>], lo: u32, hi: u32, subject: &str) -> bool {
+        stmts.iter().any(|s| {
+            let sp = s.span();
+            if sp.start >= lo && sp.end <= hi {
+                return false;
+            }
+            match s {
+                Statement::BlockStatement(b) => scan(&b.body, lo, hi, subject),
+                Statement::LabeledStatement(l) => {
+                    scan(std::slice::from_ref(&l.body), lo, hi, subject)
+                }
+                _ => compares_subject(s, subject),
+            }
+        })
+    }
+    scan(body, lo, hi, subject)
+}
+
 /// Whether any statement under `stmt` compares `subject` — an arm nested inside another
 /// arm is not a sibling alternative, and the shape cannot say so.
 fn compares_subject(stmt: &Statement<'_>, subject: &str) -> bool {
@@ -2068,6 +2095,18 @@ fn rebinds_subject(stmt: &Statement<'_>, subject: &str) -> (usize, bool) {
             }
             walk::walk_assignment_expression(self, e);
         }
+
+        // `kind++` writes it as surely as `kind = …`, and the comparisons after it test
+        // something the wire never said.
+        fn visit_update_expression(&mut self, e: &oxc_ast::ast::UpdateExpression<'a>) {
+            if let oxc_ast::ast::SimpleAssignmentTarget::AssignmentTargetIdentifier(id) =
+                &e.argument
+                && id.name == self.subject
+            {
+                self.written = true;
+            }
+            walk::walk_update_expression(self, e);
+        }
     }
     let mut c = Counter {
         subject,
@@ -2083,6 +2122,9 @@ impl DispatchChain {
     /// it was before this shape was recognized at all — never a loss.
     fn read(body: &[Statement<'_>], subject: &str, bound_at: u32) -> Option<Self> {
         let stmts = chain_statements(body);
+        if arms_outside(body, stmts, subject) {
+            return None;
+        }
         // Counted over the whole body, not just the chain: the declaration usually sits
         // outside the label, and an assignment between the two would be missed there.
         let mut bindings = 0usize;
@@ -2492,7 +2534,7 @@ fn equality_literals<'b>(test: &'b Expression<'_>, name: &str) -> Option<Vec<&'b
 /// Only an assignment whose right-hand side is the value the arm just read counts: an arm
 /// that sets a flag first would otherwise stamp that flag's name onto the field, and a
 /// wrong output name is harder to notice than a missing one.
-fn assigned_names(src: &str, param: &str) -> HashMap<String, Vec<String>> {
+fn assigned_names(src: &str, param: &str) -> HashMap<String, Vec<(String, String)>> {
     let alloc = Allocator::default();
     let ret = wa_oxc::parse_cjs(&alloc, src);
     if ret.panicked {
@@ -2504,8 +2546,8 @@ fn assigned_names(src: &str, param: &str) -> HashMap<String, Vec<String>> {
         from_wire: HashMap<String, String>,
         /// What each open block displaced, to put back when it closes.
         blocks: Vec<Vec<(String, Option<String>)>>,
-        /// Wire attribute → the properties its value is assigned to, in source order.
-        named: HashMap<String, Vec<String>>,
+        /// Wire attribute → the (object, property) pairs its value is assigned to.
+        named: HashMap<String, Vec<(String, String)>>,
     }
     impl<'a> Visit<'a> for Finder<'_> {
         // A nested callback reusing the parameter's name reads a different node; its
@@ -2550,6 +2592,17 @@ fn assigned_names(src: &str, param: &str) -> HashMap<String, Vec<String>> {
             }
         }
 
+        // `x++` leaves a number where the read was, so the alias no longer names it. Found
+        // by sweeping for the sibling of the assignment case rather than by another round.
+        fn visit_update_expression(&mut self, e: &oxc_ast::ast::UpdateExpression<'a>) {
+            if let oxc_ast::ast::SimpleAssignmentTarget::AssignmentTargetIdentifier(id) =
+                &e.argument
+            {
+                self.from_wire.remove(id.name.as_str());
+            }
+            walk::walk_update_expression(self, e);
+        }
+
         fn visit_assignment_expression(&mut self, e: &oxc_ast::ast::AssignmentExpression<'a>) {
             // `x = e.attrString("other")` makes `x` name the other attribute — or, if the
             // new value is not a wire read at all, nothing this can follow. Left alone,
@@ -2571,15 +2624,18 @@ fn assigned_names(src: &str, param: &str) -> HashMap<String, Vec<String>> {
             }
             let assigned_to = match &e.left {
                 oxc_ast::ast::AssignmentTarget::StaticMemberExpression(m) => {
-                    Some(m.property.name.as_str().to_string())
+                    as_identifier(&m.object)
+                        .map(|r| (r.to_string(), m.property.name.as_str().to_string()))
                 }
                 // `result["callAdd"] = …` names the field as plainly as the dotted form.
                 oxc_ast::ast::AssignmentTarget::ComputedMemberExpression(m) => {
-                    as_string_lit(&m.expression).map(str::to_string)
+                    as_identifier(&m.object)
+                        .zip(as_string_lit(&m.expression))
+                        .map(|(r, p)| (r.to_string(), p.to_string()))
                 }
                 _ => None,
             };
-            if let Some(property) = assigned_to {
+            if let Some((receiver, property)) = assigned_to {
                 // Either spelling: through a temporary, or the accessor written straight
                 // into the result — `t.callAdd = e.attrEnum("value", …)`.
                 let wire = as_identifier(&e.right)
@@ -2592,11 +2648,12 @@ fn assigned_names(src: &str, param: &str) -> HashMap<String, Vec<String>> {
                         .then(|| arg_str(call, 0).map(str::to_string))?
                     });
                 if let Some(wire) = wire {
-                    // One read can feed several returned properties; keeping the first
-                    // dropped the others from a shape the parser always returns.
+                    // Keyed by the object written to as well: an assignment to something
+                    // else — a cache, a log — is not a field of the result, and taking its
+                    // property name exposed an API field the parser never returns.
                     let names = self.named.entry(wire).or_default();
-                    if !names.contains(&property) {
-                        names.push(property);
+                    if !names.iter().any(|(r, p)| *r == receiver && *p == property) {
+                        names.push((receiver.clone(), property));
                     }
                 }
             }
@@ -2734,6 +2791,27 @@ fn discriminated_children(
         outer_bindings,
     );
 
+    // Which object the arms are building. An assignment to anything else — a cache, a log
+    // — is not a field of the result, and its property name would surface as an API field
+    // the parser never returns. The one the most arms write to is the accumulator.
+    let accumulator = {
+        let mut per_arm: HashMap<String, usize> = HashMap::new();
+        for (_, span) in &collector.arms {
+            let src = &body_src[span.start as usize..span.end as usize];
+            let mut here: std::collections::HashSet<String> = Default::default();
+            for pairs in assigned_names(src, param).values() {
+                here.extend(pairs.iter().map(|(r, _)| r.clone()));
+            }
+            for r in here {
+                *per_arm.entry(r).or_default() += 1;
+            }
+        }
+        per_arm
+            .into_iter()
+            .max_by_key(|(name, n)| (*n, std::cmp::Reverse(name.clone())))
+            .map(|(name, _)| name)
+    };
+
     let mut variants: Vec<UnionVariant> = Vec::new();
     let mut common: Vec<ParsedField> = Vec::new();
     // Counted over the values, not the branches: two arms handling one value merge into one
@@ -2779,17 +2857,25 @@ fn discriminated_children(
             let fields: Vec<ParsedField> = leaves
                 .iter()
                 .cloned()
-                .flat_map(|f| match runtime_names.get(&f.name) {
-                    Some(names) if !names.is_empty() => names
-                        .iter()
+                .flat_map(|f| {
+                    let mine: Vec<&String> = runtime_names
+                        .get(&f.name)
+                        .into_iter()
+                        .flatten()
+                        .filter(|(r, _)| Some(r) == accumulator.as_ref())
+                        .map(|(_, p)| p)
+                        .collect();
+                    if mine.is_empty() {
+                        return vec![f];
+                    }
+                    mine.into_iter()
                         .map(|n| {
                             let mut one = f.clone();
                             one.wire_name = Some(f.name.clone());
                             one.name = n.clone();
                             one
                         })
-                        .collect::<Vec<_>>(),
-                    _ => vec![f],
+                        .collect::<Vec<_>>()
                 })
                 .collect();
             // The same literal tested twice is one alternative, not two: emitted twice it
@@ -5465,6 +5551,131 @@ mod tests {
             kids.iter().all(|f| f.field_type != ParsedFieldType::Union),
             "left flat: {:?}",
             kids.iter().map(|f| f.name.as_str()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_read_through_a_tracked_var_reconciles_like_any_other() {
+        let r = analyze_parser_ast(
+            r#"{ var d = e.child("d");
+                 if (d.hasAttr("x")) { d.attrString("x"); }
+                 d.attrString("x"); }"#,
+            "e",
+        );
+        let x = r.fields[0]
+            .children
+            .as_ref()
+            .and_then(|c| c.iter().find(|f| f.name == "x"))
+            .expect("under d");
+        assert!(
+            x.required,
+            "the plain read after the guarded one settles it"
+        );
+    }
+
+    #[test]
+    fn a_ternary_calling_one_helper_both_ways_keeps_its_fields() {
+        // The `if`/`else` visitor restores this; the ternary was left intersecting only
+        // assertions, so the helper's fields stayed weak.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                flag ? parse(e) : parse(e);
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let id = p.fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(id.required, "it runs whichever way the ternary goes");
+    }
+
+    #[test]
+    fn a_dispatch_split_between_a_label_and_its_siblings_declines() {
+        // Reading the label alone left the outside arm to be hoisted as an unconditional
+        // field, so `a` and `b` would carry `c`'s payload.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   x: { if (n === "a") { e.attrString("va"); } if (n === "b") { e.attrString("vb"); } }
+                   if (n === "c") { e.attrString("vc"); }
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        assert!(
+            kids.iter().all(|f| f.field_type != ParsedFieldType::Union),
+            "left flat: {:?}",
+            kids.iter().map(|f| f.name.as_str()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn an_updated_discriminator_declines_like_an_assigned_one() {
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   if (n === "a") { e.attrString("va"); }
+                   n++;
+                   if (n === "b") { e.attrString("vb"); }
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        assert!(
+            kids.iter().all(|f| f.field_type != ParsedFieldType::Union),
+            "left flat: {:?}",
+            kids.iter().map(|f| f.name.as_str()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn only_the_accumulator_the_arms_build_names_the_fields() {
+        // An assignment to something else is not a field of the result; taking its property
+        // exposed an API field the parser never returns.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   if (n === "a") { var x = e.attrString("value"); cache.nope = x; t.alpha = x; }
+                   if (n === "b") { var y = e.attrString("value"); t.beta = y; }
+                 }); }"#,
+            "e",
+        );
+        let union = r.fields[0]
+            .children
+            .as_ref()
+            .unwrap()
+            .iter()
+            .find(|f| f.field_type == ParsedFieldType::Union)
+            .expect("a union");
+        let a = &union.union_variants.as_ref().unwrap()[0];
+        let names: Vec<&str> = a.fields.iter().map(|f| f.name.as_str()).collect();
+        assert_eq!(names, ["alpha"], "`cache` is not the result");
+    }
+
+    #[test]
+    fn an_updated_alias_no_longer_names_its_read() {
+        // The sibling of the assignment case, found by sweeping rather than by review.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   if (n === "a") { var x = e.attrString("value"); x++; t.alpha = x; }
+                   if (n === "b") { var y = e.attrString("value"); t.beta = y; }
+                 }); }"#,
+            "e",
+        );
+        let union = r.fields[0]
+            .children
+            .as_ref()
+            .unwrap()
+            .iter()
+            .find(|f| f.field_type == ParsedFieldType::Union)
+            .expect("a union");
+        let a = &union.union_variants.as_ref().unwrap()[0];
+        assert!(
+            a.fields.iter().all(|f| f.name != "alpha"),
+            "`x` held a number by then: {:?}",
+            a.fields.iter().map(|f| f.name.as_str()).collect::<Vec<_>>()
         );
     }
 
