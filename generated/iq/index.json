@@ -12105,10 +12105,10 @@
             "tag": "context",
             "children": [
               {
-                "method": "child",
+                "method": "maybeChild",
                 "name": "headline",
                 "type": "string",
-                "required": true,
+                "required": false,
                 "tag": "headline",
                 "children": [
                   {
@@ -12120,10 +12120,10 @@
                 ]
               },
               {
-                "method": "child",
+                "method": "maybeChild",
                 "name": "body",
                 "type": "string",
-                "required": true,
+                "required": false,
                 "tag": "body",
                 "children": [
                   {
@@ -12151,10 +12151,10 @@
                 "contentType": "string"
               },
               {
-                "method": "child",
+                "method": "maybeChild",
                 "name": "greetingMessageBody",
                 "type": "string",
-                "required": true,
+                "required": false,
                 "tag": "greetingMessageBody",
                 "children": [
                   {
@@ -12166,10 +12166,10 @@
                 ]
               },
               {
-                "method": "child",
+                "method": "maybeChild",
                 "name": "automatedGreetingMessageShown",
                 "type": "string",
-                "required": true,
+                "required": false,
                 "tag": "automatedGreetingMessageShown",
                 "children": [
                   {

@@ -767,7 +767,7 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
         // `if (e.hasAttr("x")) …` says the element may lack `x` only on the path where it
         // was found; the `else` is where it is known ABSENT, and a read there is required
         // by whatever the parser does next. A negated test flips the two.
-        let tested = presence_tested(&stmt.test);
+        let tested = self.canonical_guards(&stmt.test);
         let n = tested.len();
         self.conditional_depth += 1;
         self.guarded_names.extend(tested);
@@ -788,7 +788,7 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
         // attribute precisely when it is missing, and calling that optional inverts what
         // the parser says.
         let tested = match expr.operator {
-            oxc_syntax::operator::LogicalOperator::And => presence_tested(&expr.left),
+            oxc_syntax::operator::LogicalOperator::And => self.canonical_guards(&expr.left),
             _ => Vec::new(),
         };
         let n = tested.len();
@@ -801,7 +801,7 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
 
     fn visit_conditional_expression(&mut self, expr: &oxc_ast::ast::ConditionalExpression<'a>) {
         self.visit_expression(&expr.test);
-        let tested = presence_tested(&expr.test);
+        let tested = self.canonical_guards(&expr.test);
         let n = tested.len();
         self.conditional_depth += 1;
         self.guarded_names.extend(tested);
@@ -939,11 +939,40 @@ impl ParserAnalyzer<'_, '_> {
     }
 
     /// Whether an enclosing guard asked whether this very field, on this very node, is
-    /// there.
+    /// there. Both sides are canonical paths, so the two spellings of one node — the var
+    /// tracking it and the chain reaching it — are the same key.
     fn presence_guarded(&self, node: &str, wire: &str) -> bool {
+        let node = self.canonical_node(node);
         self.guarded_names
             .iter()
-            .any(|(n, w)| n == node && w == wire)
+            .any(|(n, w)| *n == node && w == wire)
+    }
+
+    /// The presence facts a test establishes, keyed by the node they are about.
+    fn canonical_guards(&self, test: &Expression) -> Vec<(String, String)> {
+        presence_tested(test)
+            .into_iter()
+            .map(|(node, wire)| (self.canonical_node(&node), wire))
+            .collect()
+    }
+
+    /// A receiver spelling reduced to the path it names, relative to the parser's node.
+    /// `e` and a var tracking `<a>` both resolve, so `a.hasChild("b")` and
+    /// `e.child("a").hasChild("b")` are recognized as the same question.
+    fn canonical_node(&self, receiver: &str) -> String {
+        let mut parts = receiver.split('/');
+        let Some(head) = parts.next() else {
+            return String::new();
+        };
+        let mut path: Vec<String> = if head == self.param {
+            Vec::new()
+        } else if let Some(tracked) = self.child_vars.get(head) {
+            tracked.iter().map(|s| s.tag.clone()).collect()
+        } else {
+            vec![head.to_string()]
+        };
+        path.extend(parts.map(str::to_string));
+        path.join("/")
     }
 
     fn note_unfollowable_bindings(&mut self, decl: &VariableDeclaration) {
@@ -1120,9 +1149,16 @@ impl ParserAnalyzer<'_, '_> {
         if is_value_method(method)
             && let Some(mut path) = self.child_call_parent(obj, call.span)
         {
+            // The guard is about the node this step hangs off, which is everything before
+            // it — not about the parser's own node, however deep the chain runs.
+            let owner: String = path[..path.len().saturating_sub(1)]
+                .iter()
+                .map(|p| p.tag.as_str())
+                .collect::<Vec<_>>()
+                .join("/");
             if let Some(last) = path.last_mut()
                 && last.method == "child"
-                && self.presence_guarded(self.param, &last.tag)
+                && self.presence_guarded(&owner, &last.tag)
             {
                 last.method = "maybeChild".to_string();
             }
@@ -1144,7 +1180,7 @@ impl ParserAnalyzer<'_, '_> {
             {
                 // `hasChild(t) ? e.child(t)… : null` reads a `child`, but only when the
                 // element carries one.
-                let required = method == "child" && !self.presence_guarded(self.param, tag);
+                let required = method == "child" && !self.presence_guarded("", tag);
                 let mut f = mk_field(method, tag, ParsedFieldType::String, required);
                 f.tag = Some(tag.to_string());
                 f.children = Some(Vec::new());
@@ -4837,6 +4873,39 @@ mod tests {
                 .is_none_or(|c| c.iter().all(|f| f.name != "from_module")),
             "the enclosing binding shadows it here too: {:?}",
             row.children
+        );
+    }
+
+    #[test]
+    fn a_guard_deep_in_a_chain_is_matched_to_the_step_it_is_about() {
+        // The guard is about `<a>`'s `<b>`. Looked up against the parser's own node it
+        // never matched, while an unrelated `e.hasChild("b")` would have.
+        let guarded = analyze_parser_ast(
+            r#"{ var a = e.child("a");
+                 if (a.hasChild("b")) { a.child("b").attrString("id"); } }"#,
+            "e",
+        );
+        let b = guarded.fields[0]
+            .children
+            .as_ref()
+            .and_then(|c| c.iter().find(|f| f.name == "b"))
+            .expect("`b` under `a`");
+        assert!(!b.required, "the guard was about this very step");
+
+        // And a test on a different node does not stand in for it.
+        let elsewhere = analyze_parser_ast(
+            r#"{ var a = e.child("a");
+                 if (e.hasChild("b")) { a.child("b").attrString("id"); } }"#,
+            "e",
+        );
+        let b = elsewhere.fields[0]
+            .children
+            .as_ref()
+            .and_then(|c| c.iter().find(|f| f.name == "b"))
+            .expect("`b` under `a`");
+        assert!(
+            b.required,
+            "that test was about the root's `<b>`, not this one"
         );
     }
 
