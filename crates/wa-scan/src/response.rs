@@ -2182,15 +2182,31 @@ fn exits_unconditionally(stmt: &Statement<'_>) -> bool {
             exits_unconditionally(&i.consequent)
                 && i.alternate.as_ref().is_some_and(exits_unconditionally)
         }
-        // Every path out of the switch leaves the callback: a `default` so no value falls
-        // past it, and every case reaching a `return`/`throw` of its own. A case with an
-        // empty body falls through to the next one and is not an exit, so `all` over the
-        // cases is deliberately conservative here.
+        // Every path out of the switch leaves the callback: a `default`, so no value falls
+        // past the end, and every case exiting.
+        //
+        // A case exits by its own body OR by falling through to one that does —
+        // `case "x": read(); default: return r;` runs the default's `return` for `"x"`
+        // too. Demanding an exit in each case's own consequent called that switch
+        // non-exiting, which is the harmful direction: the arms after it were then merged
+        // and their payload required of a value the parser never reaches them for.
+        // `break` is the one thing that neither exits nor falls through.
         Statement::SwitchStatement(s) => {
-            s.cases.iter().any(|c| c.test.is_none())
-                && s.cases
+            let mut exits_from = vec![false; s.cases.len()];
+            for i in (0..s.cases.len()).rev() {
+                let body = &s.cases[i].consequent;
+                exits_from[i] = if body.iter().any(exits_unconditionally) {
+                    true
+                } else if body
                     .iter()
-                    .all(|c| c.consequent.iter().any(exits_unconditionally))
+                    .any(|st| matches!(st, Statement::BreakStatement(_)))
+                {
+                    false
+                } else {
+                    exits_from.get(i + 1).copied().unwrap_or(false)
+                };
+            }
+            s.cases.iter().any(|c| c.test.is_none()) && exits_from.iter().all(|e| *e)
         }
         _ => false,
     }
@@ -2813,6 +2829,16 @@ fn assigned_names(src: &str, param: &str) -> (HashMap<String, Vec<(String, Strin
             self.depth += 1;
             self.visit_expression(&e.consequent);
             self.visit_expression(&e.alternate);
+            self.depth -= 1;
+        }
+
+        // `flag && (t.value = x)` performs the assignment only when the left side allows
+        // it, exactly like a branch. Left unraised, the write looked unconditional and
+        // took the property from an earlier read that may well be the one returned.
+        fn visit_logical_expression(&mut self, e: &oxc_ast::ast::LogicalExpression<'a>) {
+            self.visit_expression(&e.left);
+            self.depth += 1;
+            self.visit_expression(&e.right);
             self.depth -= 1;
         }
 
@@ -7584,6 +7610,82 @@ mod tests {
         assert!(
             a_fields.iter().any(|(n, _)| n == "delta"),
             "and the read is still recorded under its wire name: {a_fields:?}"
+        );
+    }
+    #[test]
+    fn a_case_that_falls_through_to_a_return_exits_too() {
+        // `case "x": read(); default: return t;` runs the default's return for "x" as
+        // well, so every path out of the switch leaves the callback.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   if (n === "a") { t.alpha = e.attrString("va");
+                     switch (mode) { case "x": e.attrString("sx"); default: return t; } }
+                   if (n === "b") { t.beta = e.attrString("vb"); }
+                   if (n === "a") { t.gamma = e.attrString("vc"); }
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        let a_fields: Vec<String> = kids
+            .iter()
+            .find(|f| f.field_type == ParsedFieldType::Union)
+            .and_then(|f| f.union_variants.as_ref())
+            .and_then(|vs| vs.iter().find(|v| v.name == "a"))
+            .map(|v| v.fields.iter().map(|f| f.name.clone()).collect())
+            .unwrap_or_default();
+        assert!(
+            !a_fields.iter().any(|n| n == "gamma"),
+            "the unreachable arm is not part of the variant: {a_fields:?}"
+        );
+    }
+
+    #[test]
+    fn a_case_that_breaks_does_not_carry_the_next_ones_exit() {
+        // `break` leaves the switch, not the callback, so the statements after it run and
+        // the later arm really is reachable.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   if (n === "a") { t.alpha = e.attrString("va");
+                     switch (mode) { case "x": break; default: return t; } }
+                   if (n === "b") { t.beta = e.attrString("vb"); }
+                   if (n === "a") { t.gamma = e.attrString("vc"); }
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        let a_fields: Vec<String> = kids
+            .iter()
+            .find(|f| f.field_type == ParsedFieldType::Union)
+            .and_then(|f| f.union_variants.as_ref())
+            .and_then(|vs| vs.iter().find(|v| v.name == "a"))
+            .map(|v| v.fields.iter().map(|f| f.name.clone()).collect())
+            .unwrap_or_default();
+        assert!(
+            a_fields.iter().any(|n| n == "gamma"),
+            "the later arm still runs and is merged: {a_fields:?}"
+        );
+    }
+
+    #[test]
+    fn an_assignment_behind_a_short_circuit_does_not_overwrite() {
+        // `flag && (t.value = second)` may not run, so `value` can still be the first
+        // read — one field cannot say both, and the dispatch is refused.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   if (n === "a") { t.value = e.attrString("first");
+                                    flag && (t.value = e.attrString("second")); }
+                   if (n === "b") { t.other = e.attrString("third"); }
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        assert!(
+            !kids.iter().any(|f| f.field_type == ParsedFieldType::Union),
+            "declined, so the reads stay flat: {:?}",
+            kids.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
         );
     }
 }
