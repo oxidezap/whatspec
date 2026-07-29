@@ -448,7 +448,9 @@ fn analyze_with_scope(
     // A helper the ENCLOSING parser bound shadows the module's here too, and this
     // scope cannot see that binding on its own.
     a.local_bindings = all_bindings(&ret.program);
-    a.local_bindings.extend(outer_bindings.iter().cloned());
+    a.local_bindings
+        .names
+        .extend(outer_bindings.iter().cloned());
     a.visit_program(&ret.program);
     a.attach_pending_enum_keys();
     ParserResult {
@@ -674,7 +676,7 @@ struct ParserAnalyzer<'src, 'ms> {
     /// Every name the analysed source binds, collected before the walk. A parser that
     /// defines its own `parse` shadows the module-scope helper of that name, and resolving
     /// the callee by identifier text alone attached a stranger's fields to the result.
-    local_bindings: std::collections::HashSet<String>,
+    local_bindings: Bindings,
     /// Whether the call being visited sits under a branch. A helper reached only when
     /// `kind === "a"` does not make its payload required of every element.
     conditional_depth: u32,
@@ -1097,7 +1099,7 @@ impl ParserAnalyzer<'_, '_> {
                     fields: &mut self.fields,
                     unresolved: &mut self.unresolved,
                     recursed: &mut self.recursed,
-                    bindings: &self.local_bindings,
+                    bindings: &self.local_bindings.outer(),
                 },
                 self.code,
                 self.module,
@@ -1127,7 +1129,7 @@ impl ParserAnalyzer<'_, '_> {
                     fields: &mut self.fields,
                     unresolved: &mut self.unresolved,
                     recursed: &mut self.recursed,
-                    bindings: &self.local_bindings,
+                    bindings: &self.local_bindings.outer(),
                 },
                 self.code,
                 self.module,
@@ -1149,7 +1151,7 @@ impl ParserAnalyzer<'_, '_> {
                     fields: &mut self.fields,
                     unresolved: &mut self.unresolved,
                     recursed: &mut self.recursed,
-                    bindings: &self.local_bindings,
+                    bindings: &self.local_bindings.outer(),
                 },
                 self.code,
                 self.module,
@@ -1231,7 +1233,7 @@ impl ParserAnalyzer<'_, '_> {
             return;
         };
         // A helper the parser binds itself is not the module's.
-        if self.local_bindings.contains(name) {
+        if self.local_bindings.shadows(name, call.span) {
             return;
         }
         // An argument that is a tracked child var — cheap to check before any re-parse.
@@ -1283,7 +1285,7 @@ impl ParserAnalyzer<'_, '_> {
             return;
         };
         // A helper the parser binds itself is not the module's.
-        if self.local_bindings.contains(name) {
+        if self.local_bindings.shadows(name, call.span) {
             return;
         }
         let Some(arg_idx) = call.arguments.iter().position(|a| {
@@ -1299,8 +1301,9 @@ impl ParserAnalyzer<'_, '_> {
         let Some(bound_param) = params.get(arg_idx) else {
             return;
         };
-        let mut recovered =
+        let (mut recovered, lost) =
             analyze_node_helper(body_src, bound_param, self.module, self.helper_depth + 1);
+        self.unresolved.extend(lost);
         // Reached only down one branch, its payload is not required of every element —
         // requiring it would have consumers reject the elements the other branch accepts.
         if self.conditional_depth > 0 {
@@ -1568,11 +1571,11 @@ fn analyze_node_helper(
     bound_param: &str,
     module: &ModuleScope,
     depth: u32,
-) -> Vec<ParsedField> {
+) -> (Vec<ParsedField>, Vec<String>) {
     let alloc = Allocator::default();
     let ret = wa_oxc::parse_cjs(&alloc, body_src);
     if ret.panicked {
-        return Vec::new();
+        return (Vec::new(), Vec::new());
     }
     let mut a = ParserAnalyzer {
         code: body_src,
@@ -1594,7 +1597,9 @@ fn analyze_node_helper(
     a.local_bindings = all_bindings(&ret.program);
     a.visit_program(&ret.program);
     a.attach_pending_enum_keys();
-    a.fields
+    // What the helper could not resolve is the caller's loss too: reporting the field
+    // without it lets the constraint ratchet read as clean while a byte range vanished.
+    (a.fields, a.unresolved)
 }
 
 fn analyze_child_node(
@@ -1777,10 +1782,15 @@ struct ArmCollector<'s> {
 }
 
 impl<'a> Visit<'a> for ArmCollector<'_> {
+    // A nested function has its own node, even when it reuses the parameter's name; its
+    // branches are not this element's dispatch.
+    fn visit_function(&mut self, _f: &Function<'a>, _flags: ScopeFlags) {}
+    fn visit_arrow_function_expression(&mut self, _f: &oxc_ast::ast::ArrowFunctionExpression<'a>) {}
+
     fn visit_if_statement(&mut self, stmt: &oxc_ast::ast::IfStatement<'a>) {
-        let mut lits = Vec::new();
-        equality_literals(&stmt.test, self.subject, &mut lits);
-        if !lits.is_empty() {
+        if let Some(lits) = equality_literals(&stmt.test, self.subject)
+            && !lits.is_empty()
+        {
             let owned = lits.into_iter().map(str::to_string).collect();
             self.arms.push((owned, stmt.consequent.span()));
             // `else if` continues the chain; a bare `else` is an alternative this shape
@@ -1801,19 +1811,72 @@ impl<'a> Visit<'a> for ArmCollector<'_> {
 /// wherever, so this is a pre-pass rather than something the walk can accumulate.
 #[derive(Default)]
 struct AllBindings {
+    /// Bound at the top of the analysed source, so in scope throughout it.
     names: std::collections::HashSet<String>,
+    /// Bound inside a nested function, with the extent it covers. A sibling callback that
+    /// happens to bind the same short name does not shadow a helper called out here.
+    scoped: Vec<(Span, String)>,
+    fns: Vec<Span>,
 }
 
 impl<'a> Visit<'a> for AllBindings {
     fn visit_binding_identifier(&mut self, id: &oxc_ast::ast::BindingIdentifier<'a>) {
-        self.names.insert(id.name.as_str().to_string());
+        match self.fns.last() {
+            Some(&extent) => self.scoped.push((extent, id.name.as_str().to_string())),
+            None => {
+                self.names.insert(id.name.as_str().to_string());
+            }
+        }
+    }
+
+    fn visit_function(&mut self, func: &Function<'a>, flags: ScopeFlags) {
+        self.fns.push(func.span);
+        walk::walk_function(self, func, flags);
+        self.fns.pop();
+    }
+
+    fn visit_arrow_function_expression(
+        &mut self,
+        func: &oxc_ast::ast::ArrowFunctionExpression<'a>,
+    ) {
+        self.fns.push(func.span);
+        walk::walk_arrow_function_expression(self, func);
+        self.fns.pop();
     }
 }
 
-fn all_bindings(program: &oxc_ast::ast::Program<'_>) -> std::collections::HashSet<String> {
+/// Where each name the source binds is in scope.
+#[derive(Default, Clone)]
+struct Bindings {
+    names: std::collections::HashSet<String>,
+    scoped: Vec<(Span, String)>,
+}
+
+impl Bindings {
+    /// Whether `name` is bound by this source at `at` — and so is not the module's helper
+    /// of that name. Scoped by extent: suppressing every call because some unrelated
+    /// nested function reused the name is a silent loss of its fields.
+    fn shadows(&self, name: &str, at: Span) -> bool {
+        self.names.contains(name)
+            || self
+                .scoped
+                .iter()
+                .any(|(e, n)| n == name && at.start >= e.start && at.end <= e.end)
+    }
+
+    /// The names in scope everywhere here — what an enclosed callback inherits.
+    fn outer(&self) -> std::collections::HashSet<String> {
+        self.names.clone()
+    }
+}
+
+fn all_bindings(program: &oxc_ast::ast::Program<'_>) -> Bindings {
     let mut c = AllBindings::default();
     c.visit_program(program);
-    c.names
+    Bindings {
+        names: c.names,
+        scoped: c.scoped,
+    }
 }
 
 /// Finds the attribute a dispatch reads once and then branches on.
@@ -1826,6 +1889,11 @@ struct DiscriminatorFinder<'s> {
 }
 
 impl<'a> Visit<'a> for DiscriminatorFinder<'_> {
+    // Same reason as `ArmCollector`: a reused parameter name inside a nested callback is a
+    // different node, and reading its attribute is not this element's discriminator.
+    fn visit_function(&mut self, _f: &Function<'a>, _flags: ScopeFlags) {}
+    fn visit_arrow_function_expression(&mut self, _f: &oxc_ast::ast::ArrowFunctionExpression<'a>) {}
+
     fn visit_variable_declaration(&mut self, decl: &VariableDeclaration<'a>) {
         for d in &decl.declarations {
             if self.found.is_none()
@@ -1848,28 +1916,31 @@ impl<'a> Visit<'a> for DiscriminatorFinder<'_> {
 }
 
 /// Every string literal `name` is compared against with `===` in `test`, through `||`.
-fn equality_literals<'b>(test: &'b Expression<'_>, name: &str, out: &mut Vec<&'b str>) {
+fn equality_literals<'b>(test: &'b Expression<'_>, name: &str) -> Option<Vec<&'b str>> {
     match test {
-        Expression::ParenthesizedExpression(p) => equality_literals(&p.expression, name, out),
+        Expression::ParenthesizedExpression(p) => equality_literals(&p.expression, name),
         Expression::LogicalExpression(l)
             if l.operator == oxc_syntax::operator::LogicalOperator::Or =>
         {
-            equality_literals(&l.left, name, out);
-            equality_literals(&l.right, name, out);
+            // Every operand, or none of it: `kind === "a" || isLegacy` also runs for values
+            // this shape cannot name, and a union keyed on `kind` alone would claim it does.
+            let mut left = equality_literals(&l.left, name)?;
+            left.extend(equality_literals(&l.right, name)?);
+            Some(left)
         }
         Expression::BinaryExpression(b)
             if b.operator == oxc_ast::ast::BinaryOperator::StrictEquality =>
         {
-            let pair = [(&b.left, &b.right), (&b.right, &b.left)];
-            for (a, other) in pair {
+            for (a, other) in [(&b.left, &b.right), (&b.right, &b.left)] {
                 if as_identifier(a) == Some(name)
                     && let Some(lit) = as_string_lit(other)
                 {
-                    out.push(lit);
+                    return Some(vec![lit]);
                 }
             }
+            None
         }
-        _ => {}
+        _ => None,
     }
 }
 
@@ -3121,6 +3192,99 @@ mod tests {
             let f = kids.iter().find(|f| f.name == name).expect(name);
             assert!(!f.required, "{name} is only read down one branch");
         }
+    }
+
+    #[test]
+    fn a_name_bound_in_a_sibling_scope_does_not_shadow_a_helper() {
+        // Suppressing every call because some unrelated nested function reused the name is
+        // a silent loss of the helper's fields — the direction this module never takes.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("from_module"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                e.mapChildrenWithTag("other", function(z){ var parse = 1; z.attrString("k"); });
+                var t = e.child("meta");
+                parse(t);
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let meta = p
+            .fields
+            .iter()
+            .find(|f| f.tag.as_deref() == Some("meta"))
+            .expect("meta");
+        assert!(
+            meta.children
+                .as_ref()
+                .is_some_and(|c| c.iter().any(|f| f.name == "from_module")),
+            "the sibling callback's binding does not reach this call: {:?}",
+            meta.children
+        );
+    }
+
+    #[test]
+    fn a_mixed_or_condition_is_not_a_dispatch_arm() {
+        // `kind === "a" || legacy` also runs for values the union cannot name, so keying
+        // on `kind` alone would claim a `b` element takes the `b` arm when it does not.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   if (n === "a" || legacy) { var x = e.attrString("value"); t.alpha = x; }
+                   if (n === "b") { var y = e.attrString("value"); t.beta = y; }
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        assert!(
+            kids.iter().all(|f| f.field_type != ParsedFieldType::Union),
+            "left flat: {:?}",
+            kids.iter().map(|f| f.name.as_str()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_nested_callback_does_not_lend_its_branches_to_the_element() {
+        // The inner callback reuses `e`, but its node is `rows`', not the mapped element's.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   e.attrString("id");
+                   rows.forEach(function(e){
+                     var kind = e.attrString("kind");
+                     if (kind === "a") { e.attrString("va"); }
+                     if (kind === "b") { e.attrString("vb"); }
+                   });
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        assert!(
+            kids.iter().all(|f| f.field_type != ParsedFieldType::Union),
+            "no union synthesised from the inner callback: {:?}",
+            kids.iter().map(|f| f.name.as_str()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn an_own_node_helper_reports_what_it_could_not_resolve() {
+        // Publishing the field without the loss lets the constraint ratchet read as clean
+        // while a byte range disappeared.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.contentBytesRange(lo, hi); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                e.mapChildrenWithTag("row", function(row){ parse(row); });
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        assert!(
+            p.pending_drops
+                .iter()
+                .any(|d| d.starts_with("contentBytesRange")),
+            "the helper's loss reaches the caller: {:?}",
+            p.pending_drops
+        );
     }
 
     #[test]

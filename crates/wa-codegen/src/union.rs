@@ -718,8 +718,12 @@ fn emit_attr_discriminated(
             .iter()
             .filter(|f| f.required && f.method.starts_with("attr"))
             .map(|f| {
-                let wire = f.wire_name.as_deref().unwrap_or(&f.name);
-                format!("{node_var}.get_attr({}).is_some()", rust_lit(wire))
+                // Decoding, not just presence: an unparseable `attrInt` or a malformed JID
+                // would otherwise reach `unwrap_or_default` and become a fabricated value
+                // where ordinary required-field parsing would have failed.
+                let mut probe = f.clone();
+                probe.required = false;
+                format!("{}.is_some()", field_expr(&probe, node_var))
             })
             .collect();
         let guard = if required.is_empty() {
@@ -952,9 +956,8 @@ mod tests {
             "reads the discriminator once: {src}"
         );
         assert!(
-            src.contains(
-                "Some(\"calladd\") if node.get_attr(\"value\").is_some() => Some(SpecNameDispatch::Calladd {"
-            ),
+            src.contains("Some(\"calladd\") if node.get_attr(\"value\")")
+                && src.contains(".is_some() => Some(SpecNameDispatch::Calladd {"),
             "a required leaf gates its arm rather than being defaulted: {src}"
         );
         assert!(
@@ -964,6 +967,32 @@ mod tests {
         assert!(
             src.contains("_ => None"),
             "an unknown name decodes to None rather than failing: {src}"
+        );
+    }
+
+    #[test]
+    fn attr_discriminated_union_guards_on_decoding_a_typed_leaf() {
+        // Presence alone lets an unparseable value through to `unwrap_or_default`, which
+        // fabricates a number the element never carried.
+        let f = union_field(serde_json::json!({
+            "method": "dispatch", "name": "kind_dispatch", "type": "union", "required": true,
+            "unionVariants": [
+                {"name": "a",
+                 "assertions": [{"kind": "attr", "name": "kind", "value": "a"}],
+                 "fields": [{"method": "attrInt", "name": "count",
+                             "wireName": "count", "type": "integer", "required": true}]},
+                {"name": "b",
+                 "assertions": [{"kind": "attr", "name": "kind", "value": "b"}],
+                 "fields": []}
+            ]
+        }));
+        let (lines, _) = emit_union_read(&f, "node", "Spec", "").expect("emitted");
+        let src = lines.join("\n");
+        assert!(
+            src.contains(
+                r#"and_then(|v| v.as_str().parse().ok()).is_some() => Some(SpecKindDispatch::A {"#
+            ),
+            "the guard decodes rather than checking presence: {src}"
         );
     }
 

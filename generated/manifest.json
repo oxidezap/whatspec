@@ -5,7 +5,7 @@
     "incoming": {
       "dropsByReason": {
         "response enum argument not structurally resolvable": 1,
-        "shadowedCallbackRead": 6
+        "shadowedCallbackRead": 7
       }
     },
     "iq": {
