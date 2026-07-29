@@ -770,11 +770,26 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
         let tested = self.canonical_guards(&stmt.test);
         let n = tested.len();
         self.conditional_depth += 1;
+
+        let before_then = self.assertions.len();
         self.guarded_names.extend(tested);
         self.visit_statement(&stmt.consequent);
         self.guarded_names.truncate(self.guarded_names.len() - n);
+        let then_side: Vec<ResponseAssertion> = self.assertions[before_then..].to_vec();
+
         if let Some(alt) = &stmt.alternate {
+            let before_else = self.assertions.len();
             self.visit_statement(alt);
+            let else_side: Vec<ResponseAssertion> = self.assertions[before_else..].to_vec();
+            // Enforced whichever way the branch goes, so enforced always. Both occurrences
+            // were marked conditional on the way in; their intersection is not.
+            for a in then_side.iter().filter(|a| else_side.contains(a)) {
+                for _ in 0..2 {
+                    if let Some(i) = self.conditional_assertions.iter().position(|x| x == a) {
+                        self.conditional_assertions.swap_remove(i);
+                    }
+                }
+            }
         }
         self.conditional_depth -= 1;
     }
@@ -1162,8 +1177,12 @@ impl ParserAnalyzer<'_, '_> {
             {
                 last.method = "maybeChild".to_string();
             }
+            // Reached without a guard, the node IS required however an earlier guarded read
+            // left it — the lookup reuses what is there and would keep the weaker claim.
+            let unguarded = path.last().is_some_and(|l| l.method == "child");
             let read = self.read_field(method, call);
             if let Some(node) = node_at_mut(&mut self.fields, &path) {
+                node.required |= unguarded;
                 let kids = node.children.get_or_insert_with(Vec::new);
                 merge_or_push(kids, read);
             }
@@ -1184,7 +1203,7 @@ impl ParserAnalyzer<'_, '_> {
                 let mut f = mk_field(method, tag, ParsedFieldType::String, required);
                 f.tag = Some(tag.to_string());
                 f.children = Some(Vec::new());
-                self.fields.push(f);
+                merge_or_push(&mut self.fields, f);
             }
             return;
         }
@@ -2277,9 +2296,14 @@ impl<'a> Visit<'a> for AllBindings {
 
     fn visit_function(&mut self, func: &Function<'a>, flags: ScopeFlags) {
         // A declaration binds its name in the scope it sits in — recorded against its own
-        // body, a call beside it would not see the local and would resolve the module's.
+        // body, a call beside it would not see the local and would resolve the module's. A
+        // named function EXPRESSION is the other way round: its name exists only inside it.
         if let Some(id) = func.id.as_ref() {
-            self.bind(id.name.as_str(), true);
+            if func.r#type == oxc_ast::ast::FunctionType::FunctionDeclaration {
+                self.bind(id.name.as_str(), true);
+            } else {
+                self.scoped.push((func.span, id.name.as_str().to_string()));
+            }
         }
         self.fns.push(func.span);
         let outer = self.hoists;
@@ -2613,6 +2637,15 @@ fn discriminated_children(
     finder.visit_program(&ret.program);
     // The one a chain is actually built on.
     let (_bound, disc_field, collector) = finder.found.into_iter().find_map(|(b, f, at)| {
+        // The arms compare against string literals, so an accessor whose value is a number
+        // or a JID never takes any of them — a union keyed on those strings would describe
+        // branches the parser cannot reach.
+        if !matches!(
+            f.field_type,
+            ParsedFieldType::String | ParsedFieldType::Enum
+        ) {
+            return None;
+        }
         let chain = DispatchChain::read(&ret.program.body, &b, at)?;
         Some((b, f, chain))
     })?;
@@ -2620,7 +2653,9 @@ fn discriminated_children(
 
     let mut variants: Vec<UnionVariant> = Vec::new();
     let mut common: Vec<ParsedField> = Vec::new();
-    let mut arms_seen = 0usize;
+    // Counted over the values, not the branches: two arms handling one value merge into one
+    // variant, and a denominator of two made a child both of them require look optional.
+    let mut distinct_values: std::collections::HashSet<String> = Default::default();
     let mut structural_seen: HashMap<String, usize> = HashMap::new();
     for (lits, span) in &collector.arms {
         let arm_src = &body_src[span.start as usize..span.end as usize];
@@ -2633,7 +2668,9 @@ fn discriminated_children(
             .iter()
             .cloned()
             .partition(|f| f.children.is_none());
-        arms_seen += 1;
+        for lit in lits {
+            distinct_values.insert(lit.clone());
+        }
         // Once per arm: an arm reading `<detail>` both as a child and as a mapped element
         // still only proves that ONE arm reaches it.
         let mut in_this_arm: std::collections::HashSet<String> = Default::default();
@@ -2701,7 +2738,7 @@ fn discriminated_children(
     // reject the elements either arm accepts.
     for f in &mut common {
         let path = f.name.clone();
-        relax_absent_from_some_arm(f, &path, &structural_seen, arms_seen);
+        relax_absent_from_some_arm(f, &path, &structural_seen, distinct_values.len());
     }
 
     let mut union = mk_field("dispatch", &wire, ParsedFieldType::Union, true);
@@ -4906,6 +4943,109 @@ mod tests {
         assert!(
             b.required,
             "that test was about the root's `<b>`, not this one"
+        );
+    }
+
+    #[test]
+    fn an_unguarded_read_promotes_a_child_a_guarded_one_created() {
+        // The guarded read makes `<detail>` optional; the plain one after it says the
+        // parser demands it. Reusing the node without promoting kept the weaker claim.
+        let r = analyze_parser_ast(
+            r#"{ if (e.hasChild("detail")) { e.child("detail").attrString("a"); }
+                 e.child("detail").attrString("id"); }"#,
+            "e",
+        );
+        let detail = r.fields.iter().find(|f| f.name == "detail").unwrap();
+        assert!(detail.required, "the unguarded read settles it");
+    }
+
+    #[test]
+    fn coverage_counts_values_not_branches() {
+        // Two branches handling `a` merge into one variant; counting them separately made
+        // a child both values require look optional.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   if (n === "a") { e.child("detail").attrString("x"); }
+                   if (n === "a") { var q = e.attrString("value"); t.alpha = q; }
+                   if (n === "b") { e.child("detail").attrString("y"); }
+                 }); }"#,
+            "e",
+        );
+        let detail = r.fields[0]
+            .children
+            .as_ref()
+            .unwrap()
+            .iter()
+            .find(|f| f.name == "detail")
+            .expect("hoisted");
+        assert!(detail.required, "both values require it");
+    }
+
+    #[test]
+    fn a_dispatch_needs_an_accessor_that_can_hold_the_literals() {
+        // `attrInt` never equals `"1"`, so those branches are unreachable in the source and
+        // a union keyed on them would describe what the parser cannot do.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrInt("kind");
+                   if (n === "1") { e.attrString("va"); }
+                   if (n === "2") { e.attrString("vb"); }
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        assert!(
+            kids.iter().all(|f| f.field_type != ParsedFieldType::Union),
+            "left flat: {:?}",
+            kids.iter().map(|f| f.name.as_str()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_named_function_expression_does_not_shadow_the_module_helper() {
+        // Its name exists only inside it, so a call beside it is the module's.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("from_module"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                var unused = function parse(q){ q.attrString("inner"); };
+                var t = e.child("meta");
+                parse(t);
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        assert!(
+            p.fields
+                .iter()
+                .find(|f| f.tag.as_deref() == Some("meta"))
+                .and_then(|f| f.children.as_ref())
+                .is_some_and(|c| c.iter().any(|f| f.name == "from_module")),
+            "the expression's name never reached out here: {:?}",
+            p.fields
+        );
+    }
+
+    #[test]
+    fn an_assertion_made_on_both_branches_is_made_always() {
+        // Every path enforces it, so the parser does. Both occurrences were marked
+        // conditional on the way in, and discarding them lost a real constraint.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ if (flag) { p.assertAttr("status", "ok"); } else { p.assertAttr("status", "ok"); } }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                parse(e);
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        assert!(
+            p.assertions
+                .iter()
+                .any(|a| a.name.as_deref() == Some("status")),
+            "the intersection of the branches: {:?}",
+            p.assertions
         );
     }
 

@@ -751,12 +751,18 @@ fn emit_attr_discriminated(
                         ParsedFieldType::Bytes => "content_bytes()",
                         _ => "content_str()",
                     };
-                    return match f.byte_length {
-                        Some(n) => {
-                            format!("{node_var}.{raw}.is_some_and(|b| b.len() == {n})")
+                    // A range is as much a constraint as a fixed length; checking only
+                    // the latter let a payload outside the band decode.
+                    let len = match (f.byte_length, f.byte_min, f.byte_max) {
+                        (Some(n), _, _) => format!("b.len() == {n}"),
+                        (None, Some(lo), Some(hi)) => {
+                            format!("({lo}..={hi}).contains(&b.len())")
                         }
-                        None => format!("{node_var}.{raw}.is_some()"),
+                        (None, Some(lo), None) => format!("b.len() >= {lo}"),
+                        (None, None, Some(hi)) => format!("b.len() <= {hi}"),
+                        (None, None, None) => return format!("{node_var}.{raw}.is_some()"),
                     };
+                    return format!("{node_var}.{raw}.is_some_and(|b| {len})");
                 }
                 let mut probe = f.clone();
                 probe.required = false;
@@ -1094,6 +1100,31 @@ mod tests {
         assert!(
             !src.contains("unwrap_or_default().is_some()"),
             "the decoders end in a value, which cannot be asked whether it is there: {src}"
+        );
+    }
+
+    #[test]
+    fn attr_discriminated_union_guards_a_content_range() {
+        // A band is as much a constraint as a fixed length; checking only the latter let a
+        // payload outside it decode.
+        let f = union_field(serde_json::json!({
+            "method": "dispatch", "name": "kind_dispatch", "type": "union", "required": true,
+            "unionVariants": [
+                {"name": "a",
+                 "assertions": [{"kind": "attr", "name": "kind", "value": "a"}],
+                 "fields": [{"method": "contentBytesRange", "name": "content",
+                             "type": "bytes", "required": true,
+                             "byteMin": 16, "byteMax": 64}]},
+                {"name": "b",
+                 "assertions": [{"kind": "attr", "name": "kind", "value": "b"}],
+                 "fields": []}
+            ]
+        }));
+        let (lines, _) = emit_union_read(&f, "node", "Spec", "").expect("emitted");
+        let src = lines.join("\n");
+        assert!(
+            src.contains("(16..=64).contains(&b.len())"),
+            "both bounds are checked: {src}"
         );
     }
 
