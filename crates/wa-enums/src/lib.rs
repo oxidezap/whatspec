@@ -323,6 +323,9 @@ pub fn resolve_named_enum(module_slice: &str, module: &str, name: &str) -> Optio
     r.factory_params = module_factory_params(&ret.program);
     r.visit_program(&ret.program);
     resolve_pending(&mut r);
+    if r.conflicting.contains(name) {
+        return None;
+    }
     let (value_kind, variants) = r.exports.get(name)?.clone();
     Some(InternalEnumDef {
         name: name.to_string(),
@@ -453,6 +456,9 @@ struct NamedResolver {
     /// against it. Empty means "could not tell", and then nothing is narrowed.
     factory_params: HashSet<String>,
     exports: HashMap<String, EnumData>,
+    /// Exports written more than once with DIFFERENT bodies — refused rather than
+    /// resolved to whichever write this pass happened to see first.
+    conflicting: HashSet<String>,
     pending: Vec<(String, String)>,
 }
 
@@ -465,6 +471,7 @@ impl NamedResolver {
             in_var_decl: false,
             factory_params: HashSet::new(),
             exports: HashMap::new(),
+            conflicting: HashSet::new(),
             pending: Vec::new(),
         }
     }
@@ -638,7 +645,14 @@ impl<'a> Visit<'a> for NamedResolver {
         // `extends(e, {B:"b"})` mutates `e` wherever it is written, not only as a
         // declarator's initializer — a bare expression statement does it too, and the
         // declarator path below could not see that.
-        if let Some(target) = Self::mutated_extends_target(&st.expression)
+        // Under an assignment too: `tmp = extends(e, {B:"b"})` is an expression statement
+        // wrapping an assignment, so looking at the statement's expression alone found
+        // the assignment and not the call that does the mutating.
+        let inner = match &st.expression {
+            Expression::AssignmentExpression(a) => &a.right,
+            other => other,
+        };
+        if let Some(target) = Self::mutated_extends_target(inner)
             && !self.param_shadows(target)
         {
             self.shadowed.insert(target.to_string());
@@ -863,10 +877,12 @@ impl<'a> Visit<'a> for NamedResolver {
         let mut declared = HashSet::new();
         collect_lexical(&f.body.statements, &mut declared);
         collect_hoisted(&f.body.statements, &mut declared);
+        // Same two-way filter the function body uses: an enum local OR a factory
+        // parameter, the latter because a receiver name is never an enum.
         hoisted.extend(
-            declared
-                .into_iter()
-                .filter(|n| self.locals.contains_key(n.as_str())),
+            declared.into_iter().filter(|n| {
+                self.locals.contains_key(n.as_str()) || self.factory_params.contains(n)
+            }),
         );
         self.param_scopes.push(hoisted);
         walk::walk_arrow_function_expression(self, f);
@@ -879,7 +895,17 @@ impl<'a> Visit<'a> for NamedResolver {
             && self.is_export_object(m.object())
         {
             if let Some(data) = enum_object(&a.right).and_then(parse_enum) {
-                self.exports.entry(prop.to_string()).or_insert(data);
+                // First write wins, but a SECOND write with a different body means the
+                // module publishes one name for two value sets and this pass cannot say
+                // which a consumer will see. Refusing beats picking.
+                match self.exports.get(prop) {
+                    Some(prev) if *prev != data => {
+                        self.conflicting.insert(prop.to_string());
+                    }
+                    _ => {
+                        self.exports.entry(prop.to_string()).or_insert(data);
+                    }
+                }
             } else if prop == "exports"
                 && let Some(o) = as_object(&a.right)
             {
@@ -1543,6 +1569,40 @@ mod tests {
             i.BASE=e
         }),1);"#;
         assert!(resolve_named_enum(stmt_mutation, "M", "BASE").is_none());
+
+        // An ARROW shadowing the receiver is the same hazard as a function doing it.
+        let arrow_receiver = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var f=()=>{ var i={}; i.OUT={A:"a",B:"b"} };
+        }),1);"#;
+        assert!(resolve_named_enum(arrow_receiver, "M", "OUT").is_none());
+
+        // `tmp = extends(e, …)` mutates `e` just as the bare call does.
+        let assigned_mutation = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"},tmp;
+            tmp=babelHelpers.extends(e,{B:"b"});
+            i.BASE=e
+        }),1);"#;
+        assert!(resolve_named_enum(assigned_mutation, "M", "BASE").is_none());
+
+        // Two writes to one export with DIFFERENT bodies: which one a consumer sees is
+        // not something this pass can say, so it says nothing.
+        let conflicting = r#"__d("M",[],(function(t,n,r,o,a,i){
+            i.OUT={A:"a"};
+            i.OUT={X:"x"};
+        }),1);"#;
+        assert!(resolve_named_enum(conflicting, "M", "OUT").is_none());
+        // ...but an identical repeat is not a conflict.
+        let same_twice = r#"__d("M",[],(function(t,n,r,o,a,i){
+            i.OUT={A:"a",B:"b"};
+            i.OUT={A:"a",B:"b"};
+        }),1);"#;
+        assert_eq!(
+            resolve_named_enum(same_twice, "M", "OUT")
+                .expect("an identical repeat still resolves")
+                .variants
+                .len(),
+            2
+        );
 
         // A name rebound to the SAME body is not ambiguous — refusing it would throw away
         // a resolvable enum for nothing.
