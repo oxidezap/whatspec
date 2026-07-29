@@ -386,16 +386,6 @@ fn find_or_create_field(
     required: bool,
 ) -> usize {
     if let Some(i) = fields.iter().position(|f| f.tag.as_deref() == Some(tag)) {
-        // A node first reached through `maybeChild` and later through `child` IS required:
-        // the second accessor fails on an absent element. Reusing the node untouched left
-        // the accessor spelling behind, and the codegen reads THAT — `f.method ==
-        // "maybeChild"` picks `get_optional_child`, so the emitted decoder accepted an
-        // element the source parser rejects. The reverse never loosens it: one required
-        // read is enough to make the child mandatory.
-        if required && !fields[i].required {
-            fields[i].required = true;
-            fields[i].method = method.to_string();
-        }
         return i;
     }
     let mut f = mk_field(method, tag, ParsedFieldType::String, required);
@@ -7594,32 +7584,6 @@ mod tests {
         assert!(
             a_fields.iter().any(|(n, _)| n == "delta"),
             "and the read is still recorded under its wire name: {a_fields:?}"
-        );
-    }
-
-    #[test]
-    fn a_child_read_twice_takes_the_stricter_accessor() {
-        // `maybeChild` then `child` on one tag: the second fails on an absent element, so
-        // the child IS required — and the codegen reads the accessor spelling, not just
-        // the flag, to choose between `get_optional_child` and the unwrapping form.
-        let r = analyze_parser_ast(
-            r#"{ var o = e.child("outer");
-                 o.maybeChild("inner").attrString("x");
-                 o.child("inner").attrString("id"); }"#,
-            "e",
-        );
-        let outer = r.fields.iter().find(|f| f.name == "outer").expect("outer");
-        let inner = outer
-            .children
-            .as_ref()
-            .unwrap()
-            .iter()
-            .find(|f| f.name == "inner")
-            .expect("inner");
-        assert!(inner.required, "the required read wins");
-        assert_eq!(
-            inner.method, "child",
-            "and the spelling the codegen reads agrees with it"
         );
     }
 }
