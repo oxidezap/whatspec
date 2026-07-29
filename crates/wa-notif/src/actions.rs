@@ -1945,10 +1945,16 @@ fn mapped_child<'b, 'a>(
     scope: &Scope<'b, 'a>,
     ctx: &ArmCtx,
 ) -> Option<NotifActionChild> {
-    let call = as_call(strip_guard(e))?;
-    if callee_method(call)? != wap::MAP_CHILDREN_WITH_TAG {
-        return None;
-    }
+    // Either branch may carry the map. `strip_guard` always follows the consequent, so
+    // `disabled ? 0 : node.mapChildrenWithTag(…)` — the same shape written the other way
+    // round — dropped the child entirely, while the absence check beside it already looks
+    // at both. Reversing an equivalent ternary must not erase the collection.
+    let call = as_call(strip_guard(e))
+        .or_else(|| match e {
+            Expression::ConditionalExpression(c) => as_call(strip_guard(&c.alternate)),
+            _ => None,
+        })
+        .filter(|c| callee_method(c) == Some(wap::MAP_CHILDREN_WITH_TAG))?;
     let wire_tag = arg_expr(call.arguments.first()?).and_then(as_string_lit)?;
     let mut fields = Vec::new();
     for arg in &call.arguments {

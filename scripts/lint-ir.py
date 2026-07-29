@@ -928,6 +928,30 @@ def pascal_case(name):
     return "".join(w[:1].upper() + w[1:] for w in s2.split() if w)
 
 
+def check_notif_identifiers(data, domain, errors):
+    """Notification types and stanza tags become generated Rust identifiers.
+
+    `emit_notification_type_enum` and `StanzaTag` run each through `pascal_case`, so two
+    wire spellings that normalise alike emit one variant — and one match arm — twice.
+    Same rule already applied to appstate collections, scopes and union alternatives.
+    """
+    for key, label in (("notifications", "type"), ("stanzaTags", "tag")):
+        items = data.get(key)
+        if not isinstance(items, list):
+            continue
+        by_variant = {}
+        for it in items:
+            raw = it.get(label) if label and isinstance(it, dict) else it
+            if not isinstance(raw, str):
+                continue
+            variant = pascal_case(raw)
+            prev = by_variant.setdefault(variant, raw)
+            if prev != raw:
+                errors.append(
+                    f"{domain}/{key}: {raw!r} and {prev!r} both become {variant!r}"
+                )
+
+
 def check_tokens(data, domain, errors):
     """`singleByte[tag]` and `doubleByte[dict][index]` are direct lookups by a wire BYTE.
 
@@ -1253,6 +1277,7 @@ def main() -> int:
             data, domain, errors, proto_enums, proto_messages, sync_fields
         )
         check_tokens(data, domain, errors)
+        check_notif_identifiers(data, domain, errors)
         collect_unresolved_enums(data, domain, proto_enums, unresolved)
 
     ok = True
