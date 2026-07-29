@@ -421,6 +421,7 @@ fn analyze_with_scope(code: &str, param: &str, module: &ModuleScope) -> ParserRe
         code,
         param,
         module,
+        param_shadow_depth: 0,
         assertions: Vec::new(),
         fields: Vec::new(),
         child_vars: HashMap::new(),
@@ -438,9 +439,29 @@ fn analyze_with_scope(code: &str, param: &str, module: &ModuleScope) -> ParserRe
     }
 }
 
+/// Whether a parameter list binds `name`, however the pattern is written.
+fn params_bind(params: &oxc_ast::ast::FormalParameters, name: &str) -> bool {
+    let binds = |p: &oxc_ast::ast::BindingPattern| {
+        p.get_binding_identifiers().iter().any(|i| i.name == name)
+    };
+    params.items.iter().any(|p| binds(&p.pattern))
+        || params
+            .rest
+            .as_ref()
+            .is_some_and(|r| binds(&r.rest.argument))
+}
+
 struct ParserAnalyzer<'src, 'ms> {
     code: &'src str,
     param: &'src str,
+    /// How many enclosing functions re-bind [`Self::param`]'s name.
+    ///
+    /// `obj_is_param` is a name comparison, and minified callbacks routinely reuse the
+    /// parser's parameter name — `mapChildrenWithTag("enc", function(e){ … })` inside a
+    /// parser whose own parameter is `e`. Those reads belong to the mapped child, which
+    /// `process_child_method` already builds by re-analysing the callback; counting them
+    /// at the root as well emitted every one of them twice, flat and one level too high.
+    param_shadow_depth: u32,
     /// The enclosing module's pre-extracted helpers/maps (empty when there is no module),
     /// for resolving module-scope sibling helpers and enum value maps.
     module: &'ms ModuleScope,
@@ -467,6 +488,23 @@ struct ParserAnalyzer<'src, 'ms> {
 }
 
 impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
+    fn visit_function(&mut self, func: &Function<'a>, flags: ScopeFlags) {
+        let shadows = params_bind(&func.params, self.param);
+        self.param_shadow_depth += u32::from(shadows);
+        walk::walk_function(self, func, flags);
+        self.param_shadow_depth -= u32::from(shadows);
+    }
+
+    fn visit_arrow_function_expression(
+        &mut self,
+        func: &oxc_ast::ast::ArrowFunctionExpression<'a>,
+    ) {
+        let shadows = params_bind(&func.params, self.param);
+        self.param_shadow_depth += u32::from(shadows);
+        walk::walk_arrow_function_expression(self, func);
+        self.param_shadow_depth -= u32::from(shadows);
+    }
+
     fn visit_variable_declaration(&mut self, decl: &VariableDeclaration<'a>) {
         for d in &decl.declarations {
             // Track `var t = param.child("tag")` (or chained off another child var).
@@ -512,7 +550,8 @@ impl ParserAnalyzer<'_, '_> {
             return;
         };
         let param = self.param;
-        let obj_is_param = as_identifier(obj) == Some(param);
+        // Not the parser's node when an inner function has taken the name.
+        let obj_is_param = self.param_shadow_depth == 0 && as_identifier(obj) == Some(param);
 
         // ── Assertions on the param ──
         if is_assert_method(method) && obj_is_param {
@@ -622,6 +661,17 @@ impl ParserAnalyzer<'_, '_> {
                 f.children = Some(Vec::new());
                 self.fields.push(f);
             }
+            return;
+        }
+
+        // ── child methods directly on the param: param.mapChildrenWithTag("enc", …) ──
+        //
+        // The repeated element sits at the response root. Without this the child was never
+        // built, and the callback's reads reached the IR only because the callback names
+        // its parameter after the parser's — landing at the root, flat and unrepeated.
+
+        if is_child_method(method) && obj_is_param {
+            process_child_method(method, call, "", &mut self.fields, self.code, self.module);
             return;
         }
 
@@ -1009,6 +1059,7 @@ fn analyze_child_node(
         // parameters (the base result it also carries) contribute nothing.
         param: "",
         module,
+        param_shadow_depth: 0,
         assertions: Vec::new(),
         fields: Vec::new(),
         child_vars: HashMap::from([(node_param.to_string(), tag.to_string())]),
@@ -1063,6 +1114,22 @@ fn arg_str<'b>(call: &'b CallExpression, n: usize) -> Option<&'b str> {
 
 /// Handle `forEachChildWithTag` / `mapChildrenWithTag` / `mapChildren` by
 /// recursively analyzing the callback and attaching results under `parent_tag`.
+/// Put a built child field under `parent_tag`, or at the root when there is no parent.
+///
+/// A child method called DIRECTLY on the parser's node (`param.mapChildrenWithTag("enc",
+/// …)`, as `incomingMsgParser` does) has no enclosing tag: the repeated element belongs to
+/// the response root. Only the chained and child-var forms were handled, so for those
+/// parsers the child was never built at all and its reads survived only by being
+/// misattributed to the root — flat, unrepeated, and one level too high.
+fn place(fields: &mut Vec<ParsedField>, parent_tag: &str, f: ParsedField) {
+    if parent_tag.is_empty() {
+        fields.push(f);
+        return;
+    }
+    let idx = find_or_create_field(fields, parent_tag, "child", true);
+    fields[idx].children.get_or_insert_with(Vec::new).push(f);
+}
+
 fn process_child_method(
     method: &str,
     call: &CallExpression,
@@ -1092,12 +1159,11 @@ fn process_child_method(
             let cb_body = &code[body.span.start as usize..body.span.end as usize];
             let child_result = analyze_with_scope(cb_body, cb_param.as_str(), module);
 
-            let idx = find_or_create_field(fields, parent_tag, "child", true);
             let mut f = mk_field(method, child_tag, ParsedFieldType::String, true);
             f.tag = Some(child_tag.to_string());
             f.children = Some(child_result.fields);
             f.repeats = Some(true);
-            fields[idx].children.get_or_insert_with(Vec::new).push(f);
+            place(fields, parent_tag, f);
         }
         "mapChildren" => {
             let Some(Expression::FunctionExpression(cb)) =
@@ -1117,11 +1183,10 @@ fn process_child_method(
             let cb_body = &code[body.span.start as usize..body.span.end as usize];
             let child_result = analyze_with_scope(cb_body, cb_param.as_str(), module);
 
-            let idx = find_or_create_field(fields, parent_tag, "child", true);
             let mut f = mk_field("mapChildren", "children", ParsedFieldType::String, true);
             f.children = Some(child_result.fields);
             f.repeats = Some(true);
-            fields[idx].children.get_or_insert_with(Vec::new).push(f);
+            place(fields, parent_tag, f);
         }
         _ => {}
     }
@@ -1198,6 +1263,32 @@ mod tests {
             .find(|c| c.method == "contentBytes")
             .unwrap();
         assert_eq!(content.byte_length, Some(32));
+    }
+
+    #[test]
+    fn a_child_method_on_the_param_nests_at_the_root() {
+        // `incomingMsgParser` writes `e.mapChildrenWithTag("enc", …)` straight on its own
+        // node. Only the chained and child-var forms were handled, so the repeated element
+        // was never built — and the callback's reads reached the IR only because the
+        // callback names its parameter after the parser's, landing flat at the root.
+        let r = analyze_parser_ast(
+            r#"{ e.mapChildrenWithTag("enc", function(e){ e.attrString("type"); e.maybeAttrInt("count"); }); }"#,
+            "e",
+        );
+        let names: Vec<&str> = r.fields.iter().map(|f| f.name.as_str()).collect();
+        assert_eq!(names, ["enc"], "one repeated child, nothing flat beside it");
+        let enc = &r.fields[0];
+        assert_eq!(enc.repeats, Some(true));
+        assert_eq!(
+            enc.children
+                .as_ref()
+                .unwrap()
+                .iter()
+                .map(|f| f.name.as_str())
+                .collect::<Vec<_>>(),
+            ["type", "count"],
+            "the callback's reads belong to the child, once"
+        );
     }
 
     #[test]

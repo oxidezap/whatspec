@@ -12,7 +12,7 @@
       "constraints": {
         "errorArms": 645,
         "errorTexts": 577,
-        "fieldEnumRefs": 167,
+        "fieldEnumRefs": 157,
         "fieldLiterals": 1784,
         "referenceConstraints": 584,
         "typedErrorVariants": 104
@@ -64,12 +64,12 @@
     "incoming": {
       "file": "incoming/index.json",
       "schema": "schema/incoming.schema.json",
-      "sha256": "5b25ff40ada72c298e17d8f8826c131b51b3c9d166e234dbb43f70647448d99b"
+      "sha256": "9f5bd37d7ee117444d3e454ebeb34ec4239098621037aa33b32793cc9b2619b3"
     },
     "iq": {
       "file": "iq/index.json",
       "schema": "schema/iq.schema.json",
-      "sha256": "f733ed4de82a381f600f38570e94b3b682d06f898dc60329b71aeb257c7f0671"
+      "sha256": "acddbe270f9f07d85777454de3a5502e796eb82670d7c344b9eff5d039bf6885"
     },
     "mex": {
       "file": "mex/index.json",
@@ -79,7 +79,7 @@
     "notif": {
       "file": "notif/index.json",
       "schema": "schema/notif.schema.json",
-      "sha256": "c140136bbad10bf1412de40aa6408792530e27ae25b7606a400bed10c05aaf6e"
+      "sha256": "7e5efe6d3a01844d39ec925b4d418645c1b4c7eea1149462ffd259a01b81d01f"
     },
     "proto": {
       "file": "proto/WAProto.proto",
