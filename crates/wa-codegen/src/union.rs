@@ -732,7 +732,14 @@ fn emit_attr_discriminated(
             // Content counts too: an arm carrying a required `contentBytes` was selected on
             // the discriminator alone and handed back an empty vector where the source
             // accessor enforces the payload.
-            .filter(|f| f.required && (f.method.starts_with("attr") || wap::is_content_method(&f.method)))
+            // The shared vocabulary, not a name prefix: `maybeAttrEnum` reads an attribute
+            // as much as `attrEnum` does, and testing for `attr` at the front skipped every
+            // optional accessor before the check below could look at it.
+            .filter(|f| wap::is_attr_method(&f.method) || wap::is_content_method(&f.method))
+            // An optional leaf may be absent, but a value that IS there still has to decode
+            // — `maybeAttrEnum("mode", …)` rejects `mode="invalid"` at the source, and
+            // skipping the check exposed it as `Some("invalid")`.
+            .filter(|f| f.required || enum_values(f).is_some() || is_typed(f))
             .map(|f| {
                 // Decoding, not just presence: an unparseable `attrInt` or a malformed JID
                 // would otherwise reach `unwrap_or_default` and become a fabricated value
@@ -740,18 +747,24 @@ fn emit_attr_discriminated(
                 // by membership, which `field_expr` reads as a plain string — so it is
                 // checked here rather than left to accept anything.
                 if let Some(values) = enum_values(f) {
-                    let arms: Vec<String> = values.iter().map(|v| rust_lit(v)).collect();
+                    // Absence stays allowed for an optional leaf; a value that IS there
+                    // still has to be one the accessor accepts.
+                    let mut arms: Vec<String> = Vec::new();
+                    if !f.required {
+                        arms.push("None".to_string());
+                    }
+                    arms.extend(values.iter().map(|v| format!("Some({})", rust_lit(v))));
                     // Content first: a `contentEnum` is validated against the node's text,
                     // and looking for an attribute of that name found nothing.
                     if wap::is_content_method(&f.method) {
                         return format!(
-                            "matches!({node_var}.content_str().as_deref(), Some({}))",
+                            "matches!({node_var}.content_str().as_deref(), {})",
                             arms.join(" | ")
                         );
                     }
                     let wire = f.wire_name.as_deref().unwrap_or(&f.name);
                     return format!(
-                        "matches!({node_var}.get_attr({}).map(|x| x.as_str()).as_deref(), Some({}))",
+                        "matches!({node_var}.get_attr({}).map(|x| x.as_str()).as_deref(), {})",
                         rust_lit(wire),
                         arms.join(" | ")
                     );
@@ -784,7 +797,16 @@ fn emit_attr_discriminated(
                 }
                 let mut probe = f.clone();
                 probe.required = false;
-                format!("{}.is_some()", field_expr(&probe, node_var))
+                let decodes = format!("{}.is_some()", field_expr(&probe, node_var));
+                if f.required {
+                    return decodes;
+                }
+                let wire = f.wire_name.as_deref().unwrap_or(&f.name);
+                format!(
+                    "({}.get_attr({}).is_none() || {decodes})",
+                    node_var,
+                    rust_lit(wire)
+                )
             })
             .collect();
         let guard = if required.is_empty() {
@@ -892,6 +914,13 @@ fn value_payload(enum_name: &str, variant: &str, fields: &[ParsedField], node_va
 /// A leaf read as an EXPRESSION (no `?`), for an enum variant struct-init. Mirrors
 /// `emit_field_parse`'s type mapping but defaults required leaves instead of failing
 /// (the variant guard already proved the required attrs present).
+/// Whether a leaf decodes to something other than a plain string, so a value that is
+/// present can still fail to parse.
+fn is_typed(f: &ParsedField) -> bool {
+    let t = wap::method_field_type(&f.method);
+    t == ParsedFieldType::Integer || t.is_jid() || wap::is_content_method(&f.method)
+}
+
 /// The values an enum leaf accepts, however the scan recorded them — a resolved module
 /// enum's variants, or the key set an `attrEnumValues` table listed.
 fn enum_values(f: &ParsedField) -> Option<Vec<String>> {
@@ -1088,7 +1117,7 @@ mod tests {
         let (lines, _) = emit_union_read(&f, "node", "Spec", "").expect("emitted");
         let src = lines.join("\n");
         assert!(
-            src.contains(r#"matches!(node.get_attr("value").map(|x| x.as_str()).as_deref(), Some("on" | "off"))"#),
+            src.contains(r#"matches!(node.get_attr("value").map(|x| x.as_str()).as_deref(), Some("on") | Some("off"))"#),
             "membership is checked, not just presence: {src}"
         );
     }
@@ -1163,8 +1192,32 @@ mod tests {
         let (lines, _) = emit_union_read(&f, "node", "Spec", "").expect("emitted");
         let src = lines.join("\n");
         assert!(
-            src.contains(r#"matches!(node.content_str().as_deref(), Some("on" | "off"))"#),
+            src.contains(r#"matches!(node.content_str().as_deref(), Some("on") | Some("off"))"#),
             "the node's text is what is validated: {src}"
+        );
+    }
+
+    #[test]
+    fn attr_discriminated_union_validates_an_optional_enum_when_present() {
+        // Absence is allowed; a value that IS there still has to be one the accessor takes.
+        let f = union_field(serde_json::json!({
+            "method": "dispatch", "name": "kind_dispatch", "type": "union", "required": true,
+            "unionVariants": [
+                {"name": "a",
+                 "assertions": [{"kind": "attr", "name": "kind", "value": "a"}],
+                 "fields": [{"method": "maybeAttrEnum", "name": "mode", "wireName": "mode",
+                             "type": "enum", "required": false,
+                             "enumKeys": ["on", "off"]}]},
+                {"name": "b",
+                 "assertions": [{"kind": "attr", "name": "kind", "value": "b"}],
+                 "fields": []}
+            ]
+        }));
+        let (lines, _) = emit_union_read(&f, "node", "Spec", "").expect("emitted");
+        let src = lines.join("\n");
+        assert!(
+            src.contains(r#"None | Some("on") | Some("off")"#),
+            "absent or accepted, not anything: {src}"
         );
     }
 

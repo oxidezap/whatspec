@@ -446,6 +446,7 @@ fn analyze_seeded(
         unfollowable: Vec::new(),
         local_bindings: Default::default(),
         conditional_assertions: Vec::new(),
+        relaxed_by_branch: Vec::new(),
         conditional_depth: 0,
         guarded_names: Vec::new(),
         helper_depth: 0,
@@ -546,6 +547,10 @@ struct ParserAnalyzer<'src, 'ms> {
     /// defines its own `parse` shadows the module-scope helper of that name, and resolving
     /// the callee by identifier text alone attached a stranger's fields to the result.
     local_bindings: Bindings,
+    /// Identities a conditional helper descent weakened, in visit order. A helper called on
+    /// both sides of a branch runs on every path, so what it reads is required after all —
+    /// the same intersection the assertions get, which the fields were never given.
+    relaxed_by_branch: Vec<(String, String, Option<String>)>,
     /// How many occurrences of each assertion this scope only reaches down a branch. By
     /// count, not by value: the same guard made once inside an `if` and once outside is
     /// enforced on every path, and filtering by equality dropped both.
@@ -636,18 +641,22 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
         let n = tested.len();
         self.conditional_depth += 1;
 
-        let before_then = self.assertions.len();
+        let before_then = (self.assertions.len(), self.relaxed_by_branch.len());
         self.guarded_names.extend(tested);
         self.visit_statement(&stmt.consequent);
         self.guarded_names.truncate(self.guarded_names.len() - n);
-        let then_side: Vec<ResponseAssertion> = self.assertions[before_then..].to_vec();
+        let then_side: Vec<ResponseAssertion> = self.assertions[before_then.0..].to_vec();
+        let then_weak = self.relaxed_by_branch[before_then.1..].to_vec();
 
         if let Some(alt) = &stmt.alternate {
-            let before_else = self.assertions.len();
+            let before_else = (self.assertions.len(), self.relaxed_by_branch.len());
             self.visit_statement(alt);
-            let else_side: Vec<ResponseAssertion> = self.assertions[before_else..].to_vec();
+            let else_side: Vec<ResponseAssertion> = self.assertions[before_else.0..].to_vec();
+            let else_weak = self.relaxed_by_branch[before_else.1..].to_vec();
             self.unmark_branch_intersection(&then_side, &else_side);
+            self.restore_branch_intersection(&then_weak, &else_weak);
         }
+        self.relaxed_by_branch.truncate(before_then.1);
         self.conditional_depth -= 1;
     }
 
@@ -732,6 +741,19 @@ impl ParserAnalyzer<'_, '_> {
     /// marked conditional on the way in; their intersection is not. `if`/`else` and the
     /// ternary are the same shape here, and teaching only one left the other filtering
     /// both occurrences away.
+    /// A helper called on both sides of a branch runs on every path, so what it reads is
+    /// required after all — two weakened copies OR to weak, and the field ended up optional
+    /// where the parser always demands it.
+    fn restore_branch_intersection(
+        &mut self,
+        then_weak: &[(String, String, Option<String>)],
+        else_weak: &[(String, String, Option<String>)],
+    ) {
+        for id in then_weak.iter().filter(|i| else_weak.contains(i)) {
+            promote_required(&mut self.fields, id);
+        }
+    }
+
     fn unmark_branch_intersection(
         &mut self,
         then_side: &[ResponseAssertion],
@@ -1264,6 +1286,7 @@ impl ParserAnalyzer<'_, '_> {
         );
         if self.conditional_depth > 0 {
             for f in &mut recovered {
+                note_relaxed(f, &mut self.relaxed_by_branch);
                 relax_deeply(f);
             }
         }
@@ -1347,6 +1370,7 @@ impl ParserAnalyzer<'_, '_> {
         // requiring it would have consumers reject the elements the other branch accepts.
         if self.conditional_depth > 0 {
             for f in &mut recovered {
+                note_relaxed(f, &mut self.relaxed_by_branch);
                 relax_deeply(f);
             }
         }
@@ -1627,6 +1651,7 @@ fn analyze_node_helper(
         unfollowable: Vec::new(),
         local_bindings: Default::default(),
         conditional_assertions: Vec::new(),
+        relaxed_by_branch: Vec::new(),
         conditional_depth: 0,
         guarded_names: Vec::new(),
         helper_depth: depth,
@@ -1684,6 +1709,7 @@ fn analyze_child_node(
         unfollowable: Vec::new(),
         local_bindings: Default::default(),
         conditional_assertions: Vec::new(),
+        relaxed_by_branch: Vec::new(),
         conditional_depth: 0,
         guarded_names: Vec::new(),
         helper_depth: depth,
@@ -1815,6 +1841,37 @@ fn count_paths(f: &ParsedField, path: &str, out: &mut std::collections::HashSet<
     out.insert(path.to_string());
     for k in f.children.iter().flatten() {
         count_paths(k, &format!("{path}/{}", k.name), out);
+    }
+}
+
+/// What a shape claims, by identity, so an intersection of branches can put it back.
+fn note_relaxed(f: &ParsedField, out: &mut Vec<(String, String, Option<String>)>) {
+    if f.required {
+        out.push((
+            f.method.clone(),
+            f.wire_name.clone().unwrap_or_else(|| f.name.clone()),
+            f.tag.clone(),
+        ));
+    }
+    for k in f.children.iter().flatten() {
+        note_relaxed(k, out);
+    }
+}
+
+/// Put a claim back on the field it belongs to, wherever it sits.
+fn promote_required(fields: &mut [ParsedField], id: &(String, String, Option<String>)) {
+    for f in fields.iter_mut() {
+        let here = (
+            f.method.clone(),
+            f.wire_name.clone().unwrap_or_else(|| f.name.clone()),
+            f.tag.clone(),
+        );
+        if here == *id {
+            f.required = true;
+        }
+        if let Some(kids) = f.children.as_mut() {
+            promote_required(kids, id);
+        }
     }
 }
 
@@ -2058,6 +2115,11 @@ impl DispatchChain {
                 return None;
             }
             let mut current = &**first;
+            // Within one chain the arms are mutually exclusive, so a literal repeated in it
+            // is unreachable — unlike two independent `if`s on the same value, which both
+            // run and are merged. Merging this one would require the second arm's reads of
+            // elements the parser never gives them to.
+            let mut in_this_chain: std::collections::HashSet<String> = Default::default();
             loop {
                 let lits = equality_literals(&current.test, subject)?;
                 if lits.is_empty() {
@@ -2068,10 +2130,11 @@ impl DispatchChain {
                 if compares_subject(&current.consequent, subject) {
                     return None;
                 }
-                arms.push((
-                    lits.into_iter().map(str::to_string).collect(),
-                    current.consequent.span(),
-                ));
+                let owned: Vec<String> = lits.into_iter().map(str::to_string).collect();
+                if owned.iter().any(|l| !in_this_chain.insert(l.clone())) {
+                    return None;
+                }
+                arms.push((owned, current.consequent.span()));
                 match &current.alternate {
                     // `else if` continues the chain — and must also be the discriminator.
                     Some(Statement::IfStatement(next)) => current = next,
@@ -5364,6 +5427,44 @@ mod tests {
             p.fields.iter().all(|f| f.name != "from_module"),
             "the formal shadows it: {:?}",
             p.fields
+        );
+    }
+
+    #[test]
+    fn a_helper_called_on_both_branches_still_requires_what_it_reads() {
+        // Each call is weakened for sitting in a branch, and two weak claims OR to weak —
+        // but the helper runs whichever way the branch goes.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                if (flag) { parse(e); } else { parse(e); }
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let id = p.fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(id.required, "every path reads it");
+    }
+
+    #[test]
+    fn a_literal_repeated_inside_one_chain_declines() {
+        // The arms of a chain are mutually exclusive, so the second is unreachable —
+        // unlike two independent `if`s on one value, which both run and are merged.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   if (n === "a") { e.attrString("x"); }
+                   else if (n === "a") { e.attrString("y"); }
+                   else if (n === "b") { e.attrString("z"); }
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        assert!(
+            kids.iter().all(|f| f.field_type != ParsedFieldType::Union),
+            "left flat: {:?}",
+            kids.iter().map(|f| f.name.as_str()).collect::<Vec<_>>()
         );
     }
 
