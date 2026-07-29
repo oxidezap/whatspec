@@ -23,68 +23,78 @@
             "children": []
           },
           {
-            "method": "attrEnumValues",
-            "name": "type",
-            "type": "enum",
+            "method": "mapChildrenWithTag",
+            "name": "enc",
+            "type": "string",
             "required": true,
-            "enumRef": {
-              "name": "CiphertextType",
-              "module": "WAWebBackendJobs.flow",
-              "variants": [
-                {
-                  "name": "Skmsg",
-                  "value": "skmsg"
-                },
-                {
-                  "name": "Pkmsg",
-                  "value": "pkmsg"
-                },
-                {
-                  "name": "Msg",
-                  "value": "msg"
-                },
-                {
-                  "name": "Msmsg",
-                  "value": "msmsg"
+            "tag": "enc",
+            "children": [
+              {
+                "method": "attrEnumValues",
+                "name": "type",
+                "type": "enum",
+                "required": true,
+                "enumRef": {
+                  "name": "CiphertextType",
+                  "module": "WAWebBackendJobs.flow",
+                  "variants": [
+                    {
+                      "name": "Skmsg",
+                      "value": "skmsg"
+                    },
+                    {
+                      "name": "Pkmsg",
+                      "value": "pkmsg"
+                    },
+                    {
+                      "name": "Msg",
+                      "value": "msg"
+                    },
+                    {
+                      "name": "Msmsg",
+                      "value": "msmsg"
+                    }
+                  ]
                 }
-              ]
-            }
-          },
-          {
-            "method": "maybeAttrString",
-            "name": "mediatype",
-            "type": "string",
-            "required": false
-          },
-          {
-            "method": "contentBytes",
-            "name": "content",
-            "type": "bytes",
-            "required": true
-          },
-          {
-            "method": "maybeAttrInt",
-            "name": "count",
-            "type": "integer",
-            "required": false
-          },
-          {
-            "method": "maybeAttrString",
-            "name": "decrypt-fail",
-            "type": "string",
-            "required": false
-          },
-          {
-            "method": "maybeAttrString",
-            "name": "state",
-            "type": "string",
-            "required": false
-          },
-          {
-            "method": "maybeAttrString",
-            "name": "session_type",
-            "type": "string",
-            "required": false
+              },
+              {
+                "method": "maybeAttrString",
+                "name": "mediatype",
+                "type": "string",
+                "required": false
+              },
+              {
+                "method": "contentBytes",
+                "name": "content",
+                "type": "bytes",
+                "required": true
+              },
+              {
+                "method": "maybeAttrInt",
+                "name": "count",
+                "type": "integer",
+                "required": false
+              },
+              {
+                "method": "maybeAttrString",
+                "name": "decrypt-fail",
+                "type": "string",
+                "required": false
+              },
+              {
+                "method": "maybeAttrString",
+                "name": "state",
+                "type": "string",
+                "required": false
+              },
+              {
+                "method": "maybeAttrString",
+                "name": "session_type",
+                "type": "string",
+                "required": false
+              }
+            ],
+            "repeats": true
           },
           {
             "method": "maybeChild",
@@ -674,42 +684,6 @@
             "name": "sender_lid",
             "type": "jid_typed",
             "required": true
-          },
-          {
-            "method": "maybeAttrString",
-            "name": "push_name",
-            "type": "string",
-            "required": false
-          },
-          {
-            "method": "maybeAttrString",
-            "name": "guest_name",
-            "type": "string",
-            "required": false
-          },
-          {
-            "method": "attrJidWithType",
-            "name": "jid",
-            "type": "jid_typed",
-            "required": true
-          },
-          {
-            "method": "attrJidWithType",
-            "name": "user_pn",
-            "type": "jid_typed",
-            "required": true
-          },
-          {
-            "method": "maybeAttrString",
-            "name": "username",
-            "type": "string",
-            "required": false
-          },
-          {
-            "method": "maybeAttrString",
-            "name": "account_kind",
-            "type": "string",
-            "required": false
           },
           {
             "method": "maybeAttrString",

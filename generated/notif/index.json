@@ -175,18 +175,6 @@
             ]
           },
           {
-            "method": "maybeAttrString",
-            "name": "username",
-            "type": "string",
-            "required": false
-          },
-          {
-            "method": "attrUserJid",
-            "name": "jid",
-            "type": "user_jid",
-            "required": true
-          },
-          {
             "method": "child",
             "name": "tos",
             "type": "string",
@@ -216,18 +204,6 @@
                 "repeats": true
               }
             ]
-          },
-          {
-            "method": "maybeAttrString",
-            "name": "state",
-            "type": "string",
-            "required": false
-          },
-          {
-            "method": "attrString",
-            "name": "id",
-            "type": "string",
-            "required": true
           },
           {
             "method": "child",
@@ -345,18 +321,6 @@
                 "required": false
               }
             ]
-          },
-          {
-            "method": "attrString",
-            "name": "action",
-            "type": "string",
-            "required": true
-          },
-          {
-            "method": "attrUserJid",
-            "name": "biz_jid",
-            "type": "user_jid",
-            "required": true
           }
         ]
       }
@@ -1260,12 +1224,6 @@
                 "repeats": true
               }
             ]
-          },
-          {
-            "method": "attrString",
-            "name": "type",
-            "type": "string",
-            "required": true
           }
         ]
       }
@@ -1367,39 +1325,6 @@
                 "repeats": true
               }
             ]
-          },
-          {
-            "method": "child",
-            "name": "media",
-            "type": "string",
-            "required": true,
-            "tag": "media",
-            "children": [
-              {
-                "method": "attrEnumValues",
-                "name": "mediatype",
-                "type": "enum",
-                "required": true,
-                "enumKeys": [
-                  "image",
-                  "video",
-                  "text"
-                ]
-              },
-              {
-                "method": "contentBytes",
-                "name": "content",
-                "type": "bytes",
-                "required": true
-              }
-            ],
-            "contentType": "bytes"
-          },
-          {
-            "method": "attrString",
-            "name": "id",
-            "type": "string",
-            "required": true
           }
         ]
       }
@@ -1510,6 +1435,28 @@
             "name": "id",
             "type": "string",
             "required": true
+          },
+          {
+            "method": "mapChildrenWithTag",
+            "name": "collection",
+            "type": "string",
+            "required": true,
+            "tag": "collection",
+            "children": [
+              {
+                "method": "attrString",
+                "name": "name",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "attrInt",
+                "name": "version",
+                "type": "integer",
+                "required": true
+              }
+            ],
+            "repeats": true
           },
           {
             "method": "attrString",
@@ -1642,88 +1589,310 @@
             "required": true
           },
           {
-            "method": "attrGroupJid",
-            "name": "jid",
-            "type": "group_jid",
-            "required": true
-          },
-          {
-            "method": "attrUserJid",
-            "name": "jid",
-            "type": "user_jid",
-            "required": true
-          },
-          {
-            "method": "attrInt",
-            "name": "expiration",
-            "type": "integer",
-            "required": true
-          },
-          {
-            "method": "attrGroupJid",
-            "name": "jid",
-            "type": "group_jid",
-            "required": true
-          },
-          {
-            "method": "attrString",
-            "name": "subject",
+            "method": "mapChildren",
+            "name": "children",
             "type": "string",
-            "required": true
-          },
-          {
-            "method": "attrInt",
-            "name": "s_t",
-            "type": "integer",
-            "required": true
-          },
-          {
-            "method": "attrUserJid",
-            "name": "jid",
-            "type": "user_jid",
-            "required": true
-          },
-          {
-            "method": "attrString",
-            "name": "username",
-            "type": "string",
-            "required": true
-          },
-          {
-            "method": "attrUserJid",
-            "name": "phone_number",
-            "type": "user_jid",
-            "required": true
-          },
-          {
-            "method": "attrUserJid",
-            "name": "jid",
-            "type": "user_jid",
-            "required": true
-          },
-          {
-            "method": "attrGroupJid",
-            "name": "jid",
-            "type": "group_jid",
-            "required": true
-          },
-          {
-            "method": "attrUserJid",
-            "name": "creator",
-            "type": "user_jid",
-            "required": true
-          },
-          {
-            "method": "attrString",
-            "name": "reason",
-            "type": "string",
-            "required": true
-          },
-          {
-            "method": "attrGroupJid",
-            "name": "jid",
-            "type": "group_jid",
-            "required": true
+            "required": true,
+            "children": [
+              {
+                "method": "attrString",
+                "name": "reason",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "attrString",
+                "name": "reason",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "attrString",
+                "name": "reason",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "attrString",
+                "name": "subject",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "attrUserJid",
+                "name": "s_o",
+                "type": "user_jid",
+                "required": true
+              },
+              {
+                "method": "attrUserJid",
+                "name": "s_o_pn",
+                "type": "user_jid",
+                "required": true
+              },
+              {
+                "method": "maybeAttrString",
+                "name": "s_o_username",
+                "type": "string",
+                "required": false
+              },
+              {
+                "method": "maybeAttrTime",
+                "name": "s_t",
+                "type": "integer",
+                "required": false
+              },
+              {
+                "method": "attrString",
+                "name": "id",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "attrString",
+                "name": "id",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "child",
+                "name": "body",
+                "type": "string",
+                "required": true,
+                "tag": "body",
+                "children": [
+                  {
+                    "method": "contentString",
+                    "name": "content",
+                    "type": "string",
+                    "required": true
+                  }
+                ]
+              },
+              {
+                "method": "maybeAttrString",
+                "name": "threshold",
+                "type": "string",
+                "required": false
+              },
+              {
+                "method": "attrString",
+                "name": "code",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "attrInt",
+                "name": "expiration",
+                "type": "integer",
+                "required": true
+              },
+              {
+                "method": "attrInt",
+                "name": "trigger",
+                "type": "integer",
+                "required": true
+              },
+              {
+                "method": "attrInt",
+                "name": "expiration",
+                "type": "integer",
+                "required": true
+              },
+              {
+                "method": "mapChildrenWithTag",
+                "name": "participant",
+                "type": "string",
+                "required": true,
+                "tag": "participant",
+                "children": [
+                  {
+                    "method": "attrUserJid",
+                    "name": "jid",
+                    "type": "user_jid",
+                    "required": true
+                  },
+                  {
+                    "method": "attrInt",
+                    "name": "expiration",
+                    "type": "integer",
+                    "required": true
+                  }
+                ],
+                "repeats": true
+              },
+              {
+                "method": "attrInt",
+                "name": "expiration",
+                "type": "integer",
+                "required": true
+              },
+              {
+                "method": "attrString",
+                "name": "type",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "attrString",
+                "name": "link_type",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "mapChildrenWithTag",
+                "name": "group",
+                "type": "string",
+                "required": true,
+                "tag": "group",
+                "children": [
+                  {
+                    "method": "attrGroupJid",
+                    "name": "jid",
+                    "type": "group_jid",
+                    "required": true
+                  },
+                  {
+                    "method": "attrString",
+                    "name": "subject",
+                    "type": "string",
+                    "required": true
+                  },
+                  {
+                    "method": "attrInt",
+                    "name": "s_t",
+                    "type": "integer",
+                    "required": true
+                  }
+                ],
+                "repeats": true
+              },
+              {
+                "method": "child",
+                "name": "group_join",
+                "type": "string",
+                "required": true,
+                "tag": "group_join",
+                "children": []
+              },
+              {
+                "method": "attrString",
+                "name": "triggered",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "attrString",
+                "name": "request_method",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "attrGroupJid",
+                "name": "parent_group_jid",
+                "type": "group_jid",
+                "required": true
+              },
+              {
+                "method": "attrString",
+                "name": "triggered",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "attrString",
+                "name": "triggered",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "attrString",
+                "name": "request_method",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "attrGroupJid",
+                "name": "parent_group_jid",
+                "type": "group_jid",
+                "required": true
+              },
+              {
+                "method": "mapChildrenWithTag",
+                "name": "requested_user",
+                "type": "string",
+                "required": true,
+                "tag": "requested_user",
+                "children": [
+                  {
+                    "method": "attrUserJid",
+                    "name": "jid",
+                    "type": "user_jid",
+                    "required": true
+                  },
+                  {
+                    "method": "attrString",
+                    "name": "username",
+                    "type": "string",
+                    "required": true
+                  },
+                  {
+                    "method": "attrUserJid",
+                    "name": "phone_number",
+                    "type": "user_jid",
+                    "required": true
+                  }
+                ],
+                "repeats": true
+              },
+              {
+                "method": "maybeAttrString",
+                "name": "suppress_sys_msg",
+                "type": "string",
+                "required": false
+              },
+              {
+                "method": "mapChildrenWithTag",
+                "name": "sub_group_suggestion",
+                "type": "string",
+                "required": true,
+                "tag": "sub_group_suggestion",
+                "children": [
+                  {
+                    "method": "attrGroupJid",
+                    "name": "jid",
+                    "type": "group_jid",
+                    "required": true
+                  },
+                  {
+                    "method": "attrUserJid",
+                    "name": "creator",
+                    "type": "user_jid",
+                    "required": true
+                  },
+                  {
+                    "method": "attrString",
+                    "name": "reason",
+                    "type": "string",
+                    "required": true
+                  }
+                ],
+                "repeats": true
+              },
+              {
+                "method": "attrUserJid",
+                "name": "jid",
+                "type": "user_jid",
+                "required": true
+              },
+              {
+                "method": "contentString",
+                "name": "content",
+                "type": "string",
+                "required": true
+              }
+            ],
+            "repeats": true
           },
           {
             "method": "attrUserJid",

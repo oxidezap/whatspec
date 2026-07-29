@@ -4570,13 +4570,6 @@
             ]
           },
           {
-            "method": "contentUint",
-            "name": "content",
-            "type": "integer",
-            "required": true,
-            "byteLength": 3
-          },
-          {
             "method": "child",
             "name": "hash",
             "type": "string",
@@ -4711,65 +4704,6 @@
                 "repeats": true
               }
             ]
-          },
-          {
-            "method": "child",
-            "name": "error",
-            "type": "string",
-            "required": true,
-            "tag": "error",
-            "children": [
-              {
-                "method": "attrInt",
-                "name": "code",
-                "type": "integer",
-                "required": true
-              },
-              {
-                "method": "attrString",
-                "name": "text",
-                "type": "string",
-                "required": true
-              }
-            ]
-          },
-          {
-            "method": "child",
-            "name": "type",
-            "type": "string",
-            "required": true,
-            "tag": "type",
-            "children": [
-              {
-                "method": "contentBytes",
-                "name": "content",
-                "type": "bytes",
-                "required": true,
-                "byteLength": 1
-              }
-            ]
-          },
-          {
-            "method": "child",
-            "name": "identity",
-            "type": "string",
-            "required": true,
-            "tag": "identity",
-            "children": [
-              {
-                "method": "contentBytes",
-                "name": "content",
-                "type": "bytes",
-                "required": true,
-                "byteLength": 32
-              }
-            ]
-          },
-          {
-            "method": "attrDeviceJid",
-            "name": "jid",
-            "type": "device_jid",
-            "required": true
           }
         ]
       }
@@ -12035,12 +11969,6 @@
             ]
           },
           {
-            "method": "attrString",
-            "name": "id",
-            "type": "string",
-            "required": true
-          },
-          {
             "method": "child",
             "name": "categories",
             "type": "string",
@@ -12070,18 +11998,6 @@
                 "repeats": true
               }
             ]
-          },
-          {
-            "method": "attrString",
-            "name": "id",
-            "type": "string",
-            "required": true
-          },
-          {
-            "method": "contentString",
-            "name": "content",
-            "type": "string",
-            "required": true
           }
         ]
       }
@@ -34828,12 +34744,6 @@
                 "required": true
               }
             ]
-          },
-          {
-            "method": "attrDeviceJid",
-            "name": "jid",
-            "type": "device_jid",
-            "required": true
           }
         ]
       }
@@ -35181,288 +35091,6 @@
                 "repeats": true
               }
             ]
-          },
-          {
-            "method": "attrString",
-            "name": "name",
-            "type": "string",
-            "required": true
-          },
-          {
-            "method": "attrEnum",
-            "name": "value",
-            "type": "enum",
-            "required": true,
-            "enumRef": {
-              "name": "ALL_NONE_WITH_ERROR",
-              "module": "WAWebPrivacySettings",
-              "variants": [
-                {
-                  "name": "all",
-                  "value": "all"
-                },
-                {
-                  "name": "none",
-                  "value": "none"
-                },
-                {
-                  "name": "error",
-                  "value": "error"
-                }
-              ]
-            }
-          },
-          {
-            "method": "attrEnum",
-            "name": "value",
-            "type": "enum",
-            "required": true,
-            "enumRef": {
-              "name": "VISIBILITY_WITH_ERROR",
-              "module": "WAWebPrivacySettings",
-              "variants": [
-                {
-                  "name": "all",
-                  "value": "all"
-                },
-                {
-                  "name": "contacts",
-                  "value": "contacts"
-                },
-                {
-                  "name": "contact_blacklist",
-                  "value": "contact_blacklist"
-                },
-                {
-                  "name": "none",
-                  "value": "none"
-                },
-                {
-                  "name": "error",
-                  "value": "error"
-                }
-              ]
-            }
-          },
-          {
-            "method": "attrEnum",
-            "name": "value",
-            "type": "enum",
-            "required": true,
-            "enumRef": {
-              "name": "ONLINE_VISIBILITY_WITH_ERROR",
-              "module": "WAWebPrivacySettings",
-              "variants": [
-                {
-                  "name": "all",
-                  "value": "all"
-                },
-                {
-                  "name": "match_last_seen",
-                  "value": "match_last_seen"
-                },
-                {
-                  "name": "error",
-                  "value": "error"
-                }
-              ]
-            }
-          },
-          {
-            "method": "attrEnum",
-            "name": "value",
-            "type": "enum",
-            "required": true,
-            "enumRef": {
-              "name": "VISIBILITY_WITH_ERROR",
-              "module": "WAWebPrivacySettings",
-              "variants": [
-                {
-                  "name": "all",
-                  "value": "all"
-                },
-                {
-                  "name": "contacts",
-                  "value": "contacts"
-                },
-                {
-                  "name": "contact_blacklist",
-                  "value": "contact_blacklist"
-                },
-                {
-                  "name": "none",
-                  "value": "none"
-                },
-                {
-                  "name": "error",
-                  "value": "error"
-                }
-              ]
-            }
-          },
-          {
-            "method": "attrEnum",
-            "name": "value",
-            "type": "enum",
-            "required": true,
-            "enumRef": {
-              "name": "VISIBILITY_WITH_ERROR",
-              "module": "WAWebPrivacySettings",
-              "variants": [
-                {
-                  "name": "all",
-                  "value": "all"
-                },
-                {
-                  "name": "contacts",
-                  "value": "contacts"
-                },
-                {
-                  "name": "contact_blacklist",
-                  "value": "contact_blacklist"
-                },
-                {
-                  "name": "none",
-                  "value": "none"
-                },
-                {
-                  "name": "error",
-                  "value": "error"
-                }
-              ]
-            }
-          },
-          {
-            "method": "attrEnum",
-            "name": "value",
-            "type": "enum",
-            "required": true,
-            "enumRef": {
-              "name": "VISIBILITY_WITH_ERROR",
-              "module": "WAWebPrivacySettings",
-              "variants": [
-                {
-                  "name": "all",
-                  "value": "all"
-                },
-                {
-                  "name": "contacts",
-                  "value": "contacts"
-                },
-                {
-                  "name": "contact_blacklist",
-                  "value": "contact_blacklist"
-                },
-                {
-                  "name": "none",
-                  "value": "none"
-                },
-                {
-                  "name": "error",
-                  "value": "error"
-                }
-              ]
-            }
-          },
-          {
-            "method": "attrEnum",
-            "name": "value",
-            "type": "enum",
-            "required": true,
-            "enumRef": {
-              "name": "CALL_ADD_WITH_ERROR",
-              "module": "WAWebPrivacySettings",
-              "variants": [
-                {
-                  "name": "all",
-                  "value": "all"
-                },
-                {
-                  "name": "known",
-                  "value": "known"
-                },
-                {
-                  "name": "contacts",
-                  "value": "contacts"
-                },
-                {
-                  "name": "error",
-                  "value": "error"
-                }
-              ]
-            }
-          },
-          {
-            "method": "attrEnum",
-            "name": "value",
-            "type": "enum",
-            "required": true,
-            "enumRef": {
-              "name": "ALL_CONTACTS",
-              "module": "WAWebPrivacySettings",
-              "variants": [
-                {
-                  "name": "all",
-                  "value": "all"
-                },
-                {
-                  "name": "contacts",
-                  "value": "contacts"
-                }
-              ]
-            }
-          },
-          {
-            "method": "attrEnum",
-            "name": "value",
-            "type": "enum",
-            "required": true,
-            "enumRef": {
-              "name": "DEFENSE_MODE_STATE",
-              "module": "WAWebPrivacySettings",
-              "variants": [
-                {
-                  "name": "off",
-                  "value": "off"
-                },
-                {
-                  "name": "on_standard",
-                  "value": "on_standard"
-                }
-              ]
-            }
-          },
-          {
-            "method": "attrEnum",
-            "name": "value",
-            "type": "enum",
-            "required": true,
-            "enumRef": {
-              "name": "VISIBILITY_WITH_ERROR",
-              "module": "WAWebPrivacySettings",
-              "variants": [
-                {
-                  "name": "all",
-                  "value": "all"
-                },
-                {
-                  "name": "contacts",
-                  "value": "contacts"
-                },
-                {
-                  "name": "contact_blacklist",
-                  "value": "contact_blacklist"
-                },
-                {
-                  "name": "none",
-                  "value": "none"
-                },
-                {
-                  "name": "error",
-                  "value": "error"
-                }
-              ]
-            }
           }
         ]
       }
@@ -35623,51 +35251,6 @@
                 "repeats": true
               }
             ]
-          },
-          {
-            "method": "attrString",
-            "name": "value",
-            "type": "string",
-            "required": true
-          },
-          {
-            "method": "child",
-            "name": "error",
-            "type": "string",
-            "required": true,
-            "tag": "error",
-            "children": [
-              {
-                "method": "attrInt",
-                "name": "code",
-                "type": "integer",
-                "required": true
-              },
-              {
-                "method": "attrString",
-                "name": "text",
-                "type": "string",
-                "required": true
-              }
-            ]
-          },
-          {
-            "method": "attrString",
-            "name": "name",
-            "type": "string",
-            "required": true
-          },
-          {
-            "method": "attrString",
-            "name": "value",
-            "type": "string",
-            "required": true
-          },
-          {
-            "method": "maybeAttrString",
-            "name": "dhash",
-            "type": "string",
-            "required": false
           }
         ]
       }
@@ -41479,41 +41062,7 @@
             "type": "string",
             "required": true,
             "tag": "usync",
-            "children": [
-              {
-                "method": "attrInt",
-                "name": "refresh",
-                "type": "integer",
-                "required": true
-              }
-            ]
-          },
-          {
-            "method": "child",
-            "name": "error",
-            "type": "string",
-            "required": true,
-            "tag": "error",
-            "children": [
-              {
-                "method": "attrInt",
-                "name": "code",
-                "type": "integer",
-                "required": true
-              },
-              {
-                "method": "attrString",
-                "name": "text",
-                "type": "string",
-                "required": true
-              },
-              {
-                "method": "attrInt",
-                "name": "backoff",
-                "type": "integer",
-                "required": true
-              }
-            ]
+            "children": []
           }
         ]
       }
@@ -41607,18 +41156,6 @@
                 "repeats": true
               }
             ]
-          },
-          {
-            "method": "attrJidWithType",
-            "name": "jid",
-            "type": "jid_typed",
-            "required": true
-          },
-          {
-            "method": "attrString",
-            "name": "tag",
-            "type": "string",
-            "required": true
           }
         ]
       }
@@ -45024,38 +44561,6 @@
                 "repeats": true
               }
             ]
-          },
-          {
-            "method": "maybeChild",
-            "name": "id",
-            "type": "string",
-            "required": false,
-            "tag": "id",
-            "children": [
-              {
-                "method": "contentString",
-                "name": "content",
-                "type": "string",
-                "required": true
-              }
-            ],
-            "contentType": "string"
-          },
-          {
-            "method": "maybeChild",
-            "name": "status",
-            "type": "string",
-            "required": false,
-            "tag": "status",
-            "children": [
-              {
-                "method": "contentString",
-                "name": "content",
-                "type": "string",
-                "required": true
-              }
-            ],
-            "contentType": "string"
           }
         ]
       }
@@ -67627,18 +67132,6 @@
                 "repeats": true
               }
             ]
-          },
-          {
-            "method": "attrGroupJid",
-            "name": "id",
-            "type": "group_jid",
-            "required": true
-          },
-          {
-            "method": "maybeAttrInt",
-            "name": "error",
-            "type": "integer",
-            "required": false
           }
         ]
       }

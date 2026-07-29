@@ -4,7 +4,8 @@
   "diagnostics": {
     "incoming": {
       "dropsByReason": {
-        "response enum argument not structurally resolvable": 1
+        "response enum argument not structurally resolvable": 1,
+        "shadowedCallbackRead": 6
       }
     },
     "iq": {
@@ -12,7 +13,7 @@
       "constraints": {
         "errorArms": 645,
         "errorTexts": 577,
-        "fieldEnumRefs": 167,
+        "fieldEnumRefs": 157,
         "fieldLiterals": 1784,
         "referenceConstraints": 584,
         "typedErrorVariants": 104
@@ -26,7 +27,8 @@
       "dropsByReason": {
         "iq builder substring present but no AST iq call": 5,
         "mixin fragment (folded into requests, not a standalone stanza)": 66,
-        "response enum argument not structurally resolvable": 33
+        "response enum argument not structurally resolvable": 33,
+        "shadowedCallbackRead": 6
       },
       "excludedFragments": 66,
       "stanzas": 143,
@@ -38,7 +40,8 @@
       "actions": 47,
       "degraded": 5,
       "dropsByReason": {
-        "action enum table not structurally resolvable": 1
+        "action enum table not structurally resolvable": 1,
+        "shadowedCallbackRead": 1
       },
       "stanzaTags": 13,
       "typedContent": 22,
@@ -64,12 +67,12 @@
     "incoming": {
       "file": "incoming/index.json",
       "schema": "schema/incoming.schema.json",
-      "sha256": "5b25ff40ada72c298e17d8f8826c131b51b3c9d166e234dbb43f70647448d99b"
+      "sha256": "9f5bd37d7ee117444d3e454ebeb34ec4239098621037aa33b32793cc9b2619b3"
     },
     "iq": {
       "file": "iq/index.json",
       "schema": "schema/iq.schema.json",
-      "sha256": "f733ed4de82a381f600f38570e94b3b682d06f898dc60329b71aeb257c7f0671"
+      "sha256": "e8ceb7a840fd6ddfaff0c5fa075a147000b22cc1a50189b457fa6d0113a23b79"
     },
     "mex": {
       "file": "mex/index.json",
@@ -79,7 +82,7 @@
     "notif": {
       "file": "notif/index.json",
       "schema": "schema/notif.schema.json",
-      "sha256": "c140136bbad10bf1412de40aa6408792530e27ae25b7606a400bed10c05aaf6e"
+      "sha256": "37f3f25e5d6ee409f09d33d34d07c772bd5c61490fb862565aff07c0c36763b7"
     },
     "proto": {
       "file": "proto/WAProto.proto",
