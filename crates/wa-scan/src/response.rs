@@ -1060,7 +1060,7 @@ impl ParserAnalyzer<'_, '_> {
             let read = self.read_field(method, call);
             // Merged, not appended: the same attribute read twice is one field, and two
             // entries let a guarded copy sit in front of the read that always happens.
-            merge_or_push_reporting(&mut self.fields, read, &mut self.unresolved);
+            merge_or_push(&mut self.fields, read, &mut self.unresolved);
             return;
         }
 
@@ -1088,7 +1088,7 @@ impl ParserAnalyzer<'_, '_> {
             if let Some(node) = node_at_mut(&mut self.fields, &path) {
                 node.required |= unguarded;
                 let kids = node.children.get_or_insert_with(Vec::new);
-                merge_or_push(kids, read);
+                merge_or_push(kids, read, &mut self.unresolved);
             }
             return;
         }
@@ -1107,7 +1107,7 @@ impl ParserAnalyzer<'_, '_> {
                 let mut f = mk_field(method, tag, ParsedFieldType::String, required);
                 f.tag = Some(tag.to_string());
                 f.children = Some(Vec::new());
-                merge_or_push(&mut self.fields, f);
+                merge_or_push(&mut self.fields, f, &mut self.unresolved);
             }
             return;
         }
@@ -1198,7 +1198,7 @@ impl ParserAnalyzer<'_, '_> {
                 let kids = node.children.get_or_insert_with(Vec::new);
                 // The same reconciliation the direct and chained reads get: a guarded copy
                 // must not mask the plain read that follows it.
-                merge_or_push(kids, read);
+                merge_or_push(kids, read, &mut self.unresolved);
             }
         }
 
@@ -1291,7 +1291,7 @@ impl ParserAnalyzer<'_, '_> {
                 relax_deeply(f);
             }
         }
-        merge_child_shape_at(&mut self.fields, &tag, recovered);
+        merge_child_shape_at(&mut self.fields, &tag, recovered, &mut self.unresolved);
     }
 
     /// Descend into a helper handed *this* node — `mapChildrenWithTag("row", function (row)
@@ -1350,7 +1350,7 @@ impl ParserAnalyzer<'_, '_> {
                 self.helper_depth + 1,
             );
             for one in f {
-                merge_or_push(&mut recovered, one);
+                merge_or_push(&mut recovered, one, &mut self.unresolved);
             }
             lost.extend(l);
             guards.extend(g);
@@ -1378,7 +1378,7 @@ impl ParserAnalyzer<'_, '_> {
         // Merged, not skipped: the caller and the helper can both reach the same child,
         // and keeping whichever landed first dropped everything the other one saw.
         for f in recovered {
-            merge_or_push_reporting(&mut self.fields, f, &mut self.unresolved);
+            merge_or_push(&mut self.fields, f, &mut self.unresolved);
         }
     }
 
@@ -1731,6 +1731,7 @@ fn merge_child_shape_at(
     fields: &mut Vec<ParsedField>,
     path: &[PathSeg],
     new_children: Vec<ParsedField>,
+    lost: &mut Vec<String>,
 ) {
     // Creating, not looking up: a step of the path is only built when a read lands on it,
     // so for `var u = t.child("b"); helper(u)` the `<b>` node does not exist yet and
@@ -1742,7 +1743,7 @@ fn merge_child_shape_at(
     // Merged, not first-wins: an inline read and a helper can both reach the same node,
     // and keeping whichever landed first dropped everything the other one saw.
     for nc in new_children {
-        merge_or_push(existing, nc);
+        merge_or_push(existing, nc, lost);
     }
 }
 
@@ -1818,9 +1819,14 @@ fn node_at<'f>(fields: &'f mut [ParsedField], path: &[PathSeg]) -> Option<&'f mu
 /// `t.child("list").mapChildren(…)` names two levels — the tag `t` was bound to and the one
 /// chained off it — and hanging the result off only the last would put a `<list>` beside
 /// `<digest>` instead of inside it.
-fn place_at(fields: &mut Vec<ParsedField>, path: &[PathSeg], f: ParsedField) {
+fn place_at(
+    fields: &mut Vec<ParsedField>,
+    path: &[PathSeg],
+    f: ParsedField,
+    lost: &mut Vec<String>,
+) {
     let Some((seg, rest)) = path.split_first() else {
-        merge_or_push(fields, f);
+        merge_or_push(fields, f, lost);
         return;
     };
     let idx = find_or_create_field(
@@ -1829,7 +1835,12 @@ fn place_at(fields: &mut Vec<ParsedField>, path: &[PathSeg], f: ParsedField) {
         &seg.method,
         is_method_required(&seg.method),
     );
-    place_at(fields[idx].children.get_or_insert_with(Vec::new), rest, f);
+    place_at(
+        fields[idx].children.get_or_insert_with(Vec::new),
+        rest,
+        f,
+        lost,
+    );
 }
 
 /// Add `f`, folding it into a field that already maps the same tag the same way.
@@ -1908,12 +1919,10 @@ fn relax_absent_from_some_arm(
 /// The `dropsByReason` key for two reads of one field whose constraints disagree.
 const MERGE_CONFLICT: &str = "incompatibleRepeatedRead";
 
-fn merge_or_push(into: &mut Vec<ParsedField>, f: ParsedField) {
-    let mut discard = Vec::new();
-    merge_or_push_reporting(into, f, &mut discard);
-}
-
-fn merge_or_push_reporting(into: &mut Vec<ParsedField>, f: ParsedField, lost: &mut Vec<String>) {
+/// Every caller passes a sink: a merge that cannot represent both reads is a loss like any
+/// other, and the convenience wrapper that dropped `lost` on the floor meant seven of the
+/// nine merge sites reported nothing at all.
+fn merge_or_push(into: &mut Vec<ParsedField>, f: ParsedField, lost: &mut Vec<String>) {
     // Identity includes what the field reads, not only what it is called: a dispatch can
     // give two arms' reads the same runtime name while they take different attributes.
     let Some(i) = into.iter().position(|g| {
@@ -1932,7 +1941,7 @@ fn merge_or_push_reporting(into: &mut Vec<ParsedField>, f: ParsedField, lost: &m
     // Recursively: two branches that both map `<row>` may differ only in what their nested
     // `<sub>` reads, and taking the first `<sub>` whole would drop what the other accepts.
     for c in incoming {
-        merge_or_push_reporting(existing, c, lost);
+        merge_or_push(existing, c, lost);
     }
 }
 
@@ -2679,6 +2688,7 @@ fn assigned_names(src: &str, param: &str) -> HashMap<String, Vec<(String, String
 fn fold_unaccounted(
     mut dispatched: Vec<ParsedField>,
     outside: Vec<ParsedField>,
+    lost: &mut Vec<String>,
 ) -> Vec<ParsedField> {
     /// What a read IS, not only what it is called: a `<id>` child and an `id` attribute
     /// share a name and nothing else, and matching on the name alone dropped one of them.
@@ -2693,7 +2703,7 @@ fn fold_unaccounted(
         dispatched.iter().map(identity).collect();
     for f in outside {
         if !accounted.contains(&identity(&f)) {
-            merge_or_push(&mut dispatched, f);
+            merge_or_push(&mut dispatched, f, lost);
         }
     }
     dispatched
@@ -2736,6 +2746,7 @@ fn discriminated_children(
     param: &str,
     module: &ModuleScope,
     outer_bindings: &std::collections::HashSet<String>,
+    lost: &mut Vec<String>,
 ) -> Option<Vec<ParsedField>> {
     let alloc = Allocator::default();
     let ret = wa_oxc::parse_cjs(&alloc, body_src);
@@ -2846,7 +2857,7 @@ fn discriminated_children(
         let mut in_this_arm: std::collections::HashSet<String> = Default::default();
         for f in structural {
             count_paths(&f, &f.name, &mut in_this_arm);
-            merge_or_push(&mut common, f);
+            merge_or_push(&mut common, f, lost);
         }
         for path in in_this_arm {
             *structural_seen.entry(path).or_default() += covers;
@@ -2882,7 +2893,7 @@ fn discriminated_children(
             // would be an unreachable arm, and the codegen refuses the whole union for it.
             if let Some(existing) = variants.iter_mut().find(|v| v.name == *lit) {
                 for f in fields {
-                    merge_or_push(&mut existing.fields, f);
+                    merge_or_push(&mut existing.fields, f, lost);
                 }
                 // Both branches run for this value, so both branches' guards hold.
                 for a in &arm.assertions {
@@ -2932,7 +2943,7 @@ fn discriminated_children(
     out.push(union);
     // Whatever the element reads outside the chain is still its own — asked directly of
     // the body with the arms blanked.
-    Some(fold_unaccounted(out, outside.fields))
+    Some(fold_unaccounted(out, outside.fields, lost))
 }
 
 /// The bound name and body source of a child callback, written either as
@@ -3011,7 +3022,13 @@ fn process_child_method_at(
             // flat result wholesale dropped it — silently, which is the one outcome this
             // module is built to avoid.
             f.children = Some(
-                match discriminated_children(cb_body, &cb_param, module, sink.bindings) {
+                match discriminated_children(
+                    cb_body,
+                    &cb_param,
+                    module,
+                    sink.bindings,
+                    sink.unresolved,
+                ) {
                     Some(dispatched) => dispatched,
                     None => child_result.fields,
                 },
@@ -3019,7 +3036,7 @@ fn process_child_method_at(
             f.repeats = Some(true);
             // What the child's own scope could not resolve is still a loss for the parser.
             sink.unresolved.extend(child_result.unresolved);
-            place_at(sink.fields, path, f);
+            place_at(sink.fields, path, f, sink.unresolved);
         }
         "mapChildren" => {
             let Some(cb) = call.arguments.first().and_then(arg_expr) else {
@@ -3035,7 +3052,7 @@ fn process_child_method_at(
             f.children = Some(child_result.fields);
             f.repeats = Some(true);
             sink.unresolved.extend(child_result.unresolved);
-            place_at(sink.fields, path, f);
+            place_at(sink.fields, path, f, sink.unresolved);
         }
         _ => {}
     }
@@ -4578,6 +4595,35 @@ mod tests {
         };
         assert!(by("id").required, "both arms read it");
         assert!(!by("only_a").required, "only one arm does");
+    }
+
+    #[test]
+    fn a_merge_conflict_below_the_top_level_is_reported_too() {
+        // Seven of the nine merge sites passed a throwaway sink, so a conflict anywhere but
+        // the parser's own top level was dropped without a word — the one outcome this
+        // module exists to prevent.
+        let via_var = analyze_parser_ast(
+            r#"{ var d = e.child("d"); d.contentBytes(32); d.contentBytes(64); }"#,
+            "e",
+        );
+        assert!(
+            via_var
+                .unresolved
+                .iter()
+                .any(|u| u.starts_with(MERGE_CONFLICT)),
+            "a child's clashing pins are a loss too: {:?}",
+            via_var.unresolved
+        );
+
+        let agreeing = analyze_parser_ast(
+            r#"{ var d = e.child("d"); d.contentBytes(32); d.contentBytes(32); }"#,
+            "e",
+        );
+        assert!(
+            agreeing.unresolved.is_empty(),
+            "identical pins are not a conflict: {:?}",
+            agreeing.unresolved
+        );
     }
 
     #[test]
