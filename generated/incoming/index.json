@@ -141,7 +141,7 @@
                 "method": "attrString",
                 "name": "biz_bot",
                 "type": "string",
-                "required": true
+                "required": false
               },
               {
                 "method": "maybeAttrString",
@@ -319,55 +319,55 @@
                 "method": "attrString",
                 "name": "thread_msg_id",
                 "type": "string",
-                "required": true
+                "required": false
               },
               {
                 "method": "attrJidWithType",
                 "name": "thread_msg_sender_jid",
                 "type": "jid_typed",
-                "required": true
+                "required": false
               },
               {
                 "method": "attrString",
                 "name": "target_id",
                 "type": "string",
-                "required": true
+                "required": false
               },
               {
                 "method": "attrJidWithType",
                 "name": "target_sender_jid",
                 "type": "jid_typed",
-                "required": true
+                "required": false
               },
               {
                 "method": "attrJidWithType",
                 "name": "target_chat_jid",
                 "type": "jid_typed",
-                "required": true
+                "required": false
               },
               {
                 "method": "attrJidWithType",
                 "name": "target_chat_jid_lid",
                 "type": "jid_typed",
-                "required": true
+                "required": false
               },
               {
                 "method": "attrJidWithType",
                 "name": "from",
                 "type": "jid_typed",
-                "required": true
+                "required": false
               },
               {
                 "method": "attrString",
                 "name": "capi",
                 "type": "string",
-                "required": true
+                "required": false
               },
               {
                 "method": "attrEnum",
                 "name": "event_type",
                 "type": "enum",
-                "required": true,
+                "required": false,
                 "enumRef": {
                   "name": "EVENT_TYPES",
                   "module": "WAWebHandleMsgCommon",
@@ -391,13 +391,13 @@
                 "method": "attrString",
                 "name": "context_source",
                 "type": "string",
-                "required": true
+                "required": false
               },
               {
                 "method": "attrString",
                 "name": "read",
                 "type": "string",
-                "required": true
+                "required": false
               },
               {
                 "method": "maybeAttrString",
@@ -725,7 +725,7 @@
                 "method": "attrString",
                 "name": "biz_bot",
                 "type": "string",
-                "required": true
+                "required": false
               },
               {
                 "method": "maybeAttrString",
@@ -871,7 +871,7 @@
                 "method": "attrString",
                 "name": "reason",
                 "type": "string",
-                "required": true
+                "required": false
               },
               {
                 "method": "attrString",
@@ -1124,7 +1124,7 @@
             "method": "attrString",
             "name": "is_lid",
             "type": "string",
-            "required": true
+            "required": false
           },
           {
             "method": "attrDeviceJid",

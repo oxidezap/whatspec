@@ -41337,13 +41337,13 @@
                         "method": "attrDeviceJid",
                         "name": "jid",
                         "type": "device_jid",
-                        "required": true
+                        "required": false
                       },
                       {
                         "method": "attrDeviceJid",
                         "name": "pn_jid",
                         "type": "device_jid",
-                        "required": true
+                        "required": false
                       }
                     ],
                     "repeats": true

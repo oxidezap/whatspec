@@ -681,11 +681,12 @@ struct ParserAnalyzer<'src, 'ms> {
     /// Whether the call being visited sits under a branch. A helper reached only when
     /// `kind === "a"` does not make its payload required of every element.
     conditional_depth: u32,
-    /// Wire names an enclosing guard has tested the presence of. `hasChild(t) ? e.child(t)
-    /// … : null` says the element may not carry `t`; a plain `if (flag)` says nothing about
-    /// any field, and weakening on branch depth alone let an `id` read on every path
-    /// through the parser look optional.
-    guarded_names: Vec<String>,
+    /// What an enclosing guard has tested the presence of, as (node, wire). `hasChild(t) ?
+    /// e.child(t) … : null` says the element may not carry `t`; a plain `if (flag)` says
+    /// nothing about any field, and weakening on branch depth alone let an `id` read on
+    /// every path through the parser look optional. The node matters too: a test on some
+    /// other object says nothing about this one, however alike the names read.
+    guarded_names: Vec<(String, String)>,
     /// Recursion guard for module-scope helper descent (`m(n,i)` → analyze `m`'s body).
     helper_depth: u32,
 }
@@ -782,9 +783,13 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
         // `enabled && parse(e)` runs the right side only sometimes — the same as an `if`,
         // spelled shorter.
         self.visit_expression(&expr.left);
+        let tested = presence_tested(&expr.left);
+        let n = tested.len();
+        self.guarded_names.extend(tested);
         self.conditional_depth += 1;
         self.visit_expression(&expr.right);
         self.conditional_depth -= 1;
+        self.guarded_names.truncate(self.guarded_names.len() - n);
     }
 
     fn visit_conditional_expression(&mut self, expr: &oxc_ast::ast::ConditionalExpression<'a>) {
@@ -917,15 +922,21 @@ impl ParserAnalyzer<'_, '_> {
     fn read_field(&mut self, method: &str, call: &CallExpression) -> ParsedField {
         let mut f = field_from_call(method, call, self.module, &mut self.unresolved);
         let wire = f.wire_name.clone().unwrap_or_else(|| f.name.clone());
-        if self.presence_guarded(&wire) {
+        let node = callee_object(call)
+            .and_then(base_identifier)
+            .unwrap_or(self.param);
+        if self.presence_guarded(node, &wire) {
             f.required = false;
         }
         f
     }
 
-    /// Whether an enclosing guard asked whether this very field is there.
-    fn presence_guarded(&self, wire: &str) -> bool {
-        self.guarded_names.iter().any(|n| n == wire)
+    /// Whether an enclosing guard asked whether this very field, on this very node, is
+    /// there.
+    fn presence_guarded(&self, node: &str, wire: &str) -> bool {
+        self.guarded_names
+            .iter()
+            .any(|(n, w)| n == node && w == wire)
     }
 
     fn note_unfollowable_bindings(&mut self, decl: &VariableDeclaration) {
@@ -1090,7 +1101,8 @@ impl ParserAnalyzer<'_, '_> {
         if is_value_method(method)
             && let Some((parent_tag, inner_method)) = self.child_call_parent(obj)
         {
-            let parent_required = inner_method == "child" && !self.presence_guarded(&parent_tag);
+            let parent_required =
+                inner_method == "child" && !self.presence_guarded(self.param, &parent_tag);
             let idx =
                 find_or_create_field(&mut self.fields, &parent_tag, inner_method, parent_required);
             let read = self.read_field(method, call);
@@ -1108,7 +1120,7 @@ impl ParserAnalyzer<'_, '_> {
             {
                 // `hasChild(t) ? e.child(t)… : null` reads a `child`, but only when the
                 // element carries one.
-                let required = method == "child" && !self.presence_guarded(tag);
+                let required = method == "child" && !self.presence_guarded(self.param, tag);
                 let mut f = mk_field(method, tag, ParsedFieldType::String, required);
                 f.tag = Some(tag.to_string());
                 f.children = Some(Vec::new());
@@ -1973,9 +1985,9 @@ impl DispatchChain {
 /// The wire names a guard asks about — `hasAttr("x")`, `hasChild("x")` — through `&&`,
 /// `||` and parentheses. Only these say a field may be absent; any other condition is
 /// about something else entirely.
-fn presence_tested(test: &Expression<'_>) -> Vec<String> {
+fn presence_tested(test: &Expression<'_>) -> Vec<(String, String)> {
     let mut out = Vec::new();
-    fn walk(e: &Expression<'_>, out: &mut Vec<String>) {
+    fn walk(e: &Expression<'_>, out: &mut Vec<(String, String)>) {
         match e {
             Expression::ParenthesizedExpression(p) => walk(&p.expression, out),
             Expression::LogicalExpression(l) => {
@@ -1990,9 +2002,10 @@ fn presence_tested(test: &Expression<'_>) -> Vec<String> {
             _ => {
                 if let Some(call) = as_call(e)
                     && matches!(callee_method(call), Some(wap::HAS_ATTR) | Some("hasChild"))
+                    && let Some(node) = callee_object(call).and_then(as_identifier)
                     && let Some(name) = arg_str(call, 0)
                 {
-                    out.push(name.to_string());
+                    out.push((node.to_string(), name.to_string()));
                 }
             }
         }
@@ -3767,6 +3780,34 @@ mod tests {
             .find(|f| f.name == "maybe_here")
             .expect("recovered");
         assert!(!f.required, "reached only when the left side holds");
+    }
+
+    #[test]
+    fn a_short_circuit_guard_makes_its_field_optional_too() {
+        // The same guard the ternary case already handled, in the spelling minifiers also
+        // emit — the branch was counted but the name it asked about was not.
+        let r = analyze_parser_ast(
+            r#"{ e.hasChild("meta") && e.child("meta").attrString("v");
+                 e.attrString("id"); }"#,
+            "e",
+        );
+        let by = |n: &str| r.fields.iter().find(|f| f.name == n).unwrap();
+        assert!(!by("meta").required, "guarded by hasChild");
+        assert!(by("id").required, "not guarded");
+    }
+
+    #[test]
+    fn a_guard_on_another_node_does_not_weaken_this_one() {
+        // Matching the accessor name alone let an unrelated object's presence test drop
+        // `required` from a field this parser always reads.
+        let r = analyze_parser_ast(
+            r#"{ var x = req.hasAttr("id") ? e.attrString("id") : null; }"#,
+            "e",
+        );
+        assert!(
+            r.fields.iter().find(|f| f.name == "id").unwrap().required,
+            "the test was about `req`, not about this element"
+        );
     }
 
     #[test]

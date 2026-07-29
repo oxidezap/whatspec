@@ -872,7 +872,7 @@
             "method": "attrWapJid",
             "name": "participant",
             "type": "jid",
-            "required": true
+            "required": false
           },
           {
             "method": "attrString",
@@ -1502,7 +1502,7 @@
             "method": "child",
             "name": "set",
             "type": "string",
-            "required": true,
+            "required": false,
             "tag": "set",
             "children": []
           },
@@ -1813,7 +1813,7 @@
                 "method": "attrString",
                 "name": "type",
                 "type": "string",
-                "required": true
+                "required": false
               },
               {
                 "method": "attrGroupJid",
