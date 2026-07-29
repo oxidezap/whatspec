@@ -2085,6 +2085,59 @@ fn arms_outside(body: &[Statement<'_>], chain: &[Statement<'_>], subject: &str) 
     scan(body, lo, hi, subject)
 }
 
+/// A name as the Rust codegen will spell it as a struct member.
+///
+/// The scanner cannot call `wa-codegen`'s `snake_case` — the dependency runs the other way
+/// — so the rule is mirrored here: break at a lower/digit→upper boundary and before the
+/// last capital of an acronym, then fold everything that is not alphanumeric. Only ever
+/// used to ask whether two IR names would land on ONE member, never to rename a field.
+fn rust_member_form(s: &str) -> String {
+    let chars: Vec<char> = s.chars().collect();
+    let mut out = String::new();
+    for (i, &c) in chars.iter().enumerate() {
+        if i > 0 {
+            let prev = chars[i - 1];
+            let camel =
+                (prev.is_ascii_lowercase() || prev.is_ascii_digit()) && c.is_ascii_uppercase();
+            let acronym = prev.is_ascii_uppercase()
+                && c.is_ascii_uppercase()
+                && chars.get(i + 1).is_some_and(|n| n.is_ascii_lowercase());
+            if (camel || acronym) && !out.ends_with('_') {
+                out.push('_');
+            }
+        }
+        out.push(if c.is_ascii_alphanumeric() { c } else { '_' });
+    }
+    let mut folded = String::with_capacity(out.len());
+    for c in out.chars() {
+        if c == '_' && folded.ends_with('_') {
+            continue;
+        }
+        folded.push(c);
+    }
+    folded.trim_matches('_').to_lowercase()
+}
+
+/// One property holds one read, across every arm merged into a variant.
+///
+/// Two independent arms testing the SAME literal both run, so a property both assign holds
+/// only the last value. Merged into one variant they sat side by side — two members of one
+/// name, which the codegen emits as a struct that does not compile. The earlier read still
+/// happened, so it keeps its wire name rather than disappearing.
+fn one_read_per_property(fields: &mut [ParsedField]) {
+    let mut last: HashMap<String, usize> = HashMap::new();
+    for (i, f) in fields.iter().enumerate() {
+        last.insert(f.name.clone(), i);
+    }
+    for (i, f) in fields.iter_mut().enumerate() {
+        if last.get(&f.name) != Some(&i)
+            && let Some(wire) = f.wire_name.clone()
+        {
+            f.name = wire;
+        }
+    }
+}
+
 /// Whether `stmt` ends the body on every path it can take. A bare `return`/`throw`, or a
 /// block that reaches one — `{ return result; }` runs exactly as the bare statement does,
 /// and the arms after either of them are unreachable.
@@ -3065,6 +3118,12 @@ fn discriminated_children(
         relax_absent_from_some_arm(f, &path, &structural_seen, distinct_values.len());
     }
 
+    // Applied after every arm has been merged in: within one arm the last assignment
+    // already wins, but two arms testing one literal are merged here and both survived.
+    for v in &mut variants {
+        one_read_per_property(&mut v.fields);
+    }
+
     let mut union = mk_field("dispatch", &wire, ParsedFieldType::Union, true);
     union.wire_name = None;
     // The name is synthesized, so it can land on one the element already reads —
@@ -3074,13 +3133,16 @@ fn discriminated_children(
     // declining the whole reconstruction. Everything the field could sit beside is
     // counted: what the arms lift out, and what the body reads outside them.
     union.name = {
-        let taken: std::collections::HashSet<&str> = std::iter::once(disc_field.name.as_str())
-            .chain(common.iter().map(|f| f.name.as_str()))
-            .chain(outside.fields.iter().map(|f| f.name.as_str()))
+        // Compared as the codegen will spell them: `kindDispatch` and `kind_dispatch` are
+        // one Rust member, so matching the IR names verbatim let the pair through.
+        let taken: std::collections::HashSet<String> = std::iter::once(&disc_field.name)
+            .chain(common.iter().map(|f| &f.name))
+            .chain(outside.fields.iter().map(|f| &f.name))
+            .map(|n| rust_member_form(n))
             .collect();
         let mut name = format!("{wire}_dispatch");
         let mut n = 2;
-        while taken.contains(name.as_str()) {
+        while taken.contains(&rust_member_form(&name)) {
             name = format!("{wire}_dispatch_{n}");
             n += 1;
         }
@@ -7082,6 +7144,74 @@ mod tests {
         assert!(
             kids.iter().any(|f| f.name == "vc"),
             "and the read it could not place is still extracted"
+        );
+    }
+    #[test]
+    fn a_synthesized_name_avoids_one_the_codegen_would_spell_alike() {
+        // `kindDispatch` and `kind_dispatch` are one Rust member, so comparing the IR
+        // names verbatim let the pair through into a struct that does not compile.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   e.attrString("kindDispatch");
+                   if (n === "a") { var x = e.attrString("va"); t.alpha = x; }
+                   if (n === "b") { var y = e.attrString("vb"); t.beta = y; }
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        let mut spelled: Vec<String> = kids.iter().map(|f| rust_member_form(&f.name)).collect();
+        let total = spelled.len();
+        spelled.sort();
+        spelled.dedup();
+        assert_eq!(
+            spelled.len(),
+            total,
+            "two fields land on one member: {:?}",
+            kids.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn two_arms_of_one_literal_still_leave_one_read_per_property() {
+        // Both arms run, so `t.value` holds the second read; merged into one variant the
+        // pair survived because their wire names differ.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   if (n === "a") { t.value = e.attrString("first"); }
+                   if (n === "a") { t.value = e.attrString("second"); }
+                   if (n === "b") { t.other = e.attrString("third"); }
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        let union = kids
+            .iter()
+            .find(|f| f.field_type == ParsedFieldType::Union)
+            .expect("a union");
+        let a = union
+            .union_variants
+            .as_ref()
+            .unwrap()
+            .iter()
+            .find(|v| v.name == "a")
+            .expect("the a arm");
+        let names: Vec<&str> = a.fields.iter().map(|f| f.name.as_str()).collect();
+        let mut unique = names.clone();
+        unique.sort_unstable();
+        unique.dedup();
+        assert_eq!(unique.len(), names.len(), "a name is used twice: {names:?}");
+        // The property holds the last read; the first keeps its own wire name.
+        assert!(
+            a.fields
+                .iter()
+                .any(|f| f.name == "value" && f.wire_name.as_deref() == Some("second")),
+            "the property holds the read it keeps: {names:?}"
+        );
+        assert!(
+            a.fields.iter().any(|f| f.name == "first"),
+            "and the earlier read is still recorded: {names:?}"
         );
     }
 }

@@ -753,7 +753,12 @@ fn emit_attr_discriminated(
             // An optional leaf may be absent, but a value that IS there still has to decode
             // — `maybeAttrEnum("mode", …)` rejects `mode="invalid"` at the source, and
             // skipping the check exposed it as `Some("invalid")`.
-            .filter(|f| f.required || enum_values(f).is_some() || is_typed(f))
+            // A pin counts too. Filtering on required/enum/typed alone dropped an optional
+            // leaf pinned to a value before the guard below could compare it, so the arm
+            // took a present `mode="y"` where the source accepts only `"x"` or nothing.
+            .filter(|f| {
+                f.required || enum_values(f).is_some() || is_typed(f) || f.literal_value.is_some()
+            })
             .filter_map(|f| {
                 // Decoding, not just presence: an unparseable `attrInt` or a malformed JID
                 // would otherwise reach `unwrap_or_default` and become a fabricated value
@@ -1791,6 +1796,28 @@ mod tests {
         assert!(
             src.contains(r#"node.get_attr("mode").map(|x| x.as_str()) == Some("x")"#),
             "the pin is the test: {src}"
+        );
+    }
+    #[test]
+    fn an_optional_arm_payload_pinned_to_a_value_is_guarded_when_present() {
+        // The pin may be absent, but a value that IS there has to be the pinned one —
+        // the leaf was filtered out before the comparison could be emitted at all.
+        let f = union_field(serde_json::json!({
+            "method": "dispatch", "name": "kind_dispatch", "type": "union", "required": true,
+            "unionVariants": [
+                {"name": "a", "assertions": [{"kind": "attr", "name": "kind", "value": "a"}],
+                 "fields": [{"method": "maybeAttrString", "name": "mode", "wireName": "mode",
+                             "type": "string", "required": false, "literalValue": "x"}]},
+                {"name": "b", "assertions": [{"kind": "attr", "name": "kind", "value": "b"}],
+                 "fields": []}
+            ]
+        }));
+        let (lines, _) = emit_union_read(&f, "node", "Spec", "").expect("emitted");
+        let src = lines.join("\n");
+        assert!(
+            src.contains(r#"node.get_attr("mode").is_none()"#)
+                && src.contains(r#"node.get_attr("mode").map(|x| x.as_str()) == Some("x")"#),
+            "absent is allowed, present is pinned: {src}"
         );
     }
 }
