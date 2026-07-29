@@ -784,6 +784,16 @@ fn emit_attr_discriminated(
                     };
                     // A range is as much a constraint as a fixed length; checking only
                     // the latter let a payload outside the band decode.
+                    // Text that decodes to a number: any content at all passed, and the
+                    // decoder then turned `abc` into `0` where the accessor rejects it.
+                    // `u64` because that is what the field materializes as.
+                    if raw == "content_str()"
+                        && wap::method_field_type(&f.method) == ParsedFieldType::Integer
+                    {
+                        return format!(
+                            "{node_var}.content_str().and_then(|s| s.parse::<u64>().ok()).is_some()"
+                        );
+                    }
                     let len = match (f.byte_length, f.byte_min, f.byte_max) {
                         (Some(n), _, _) => format!("b.len() == {n}"),
                         (None, Some(lo), Some(hi)) => {
@@ -1218,6 +1228,30 @@ mod tests {
         assert!(
             src.contains(r#"None | Some("on") | Some("off")"#),
             "absent or accepted, not anything: {src}"
+        );
+    }
+
+    #[test]
+    fn attr_discriminated_union_parses_integer_content_in_the_guard() {
+        // Any text passed, and the decoder then turned `abc` into `0` — a value the source
+        // accessor rejects outright.
+        let f = union_field(serde_json::json!({
+            "method": "dispatch", "name": "kind_dispatch", "type": "union", "required": true,
+            "unionVariants": [
+                {"name": "a",
+                 "assertions": [{"kind": "attr", "name": "kind", "value": "a"}],
+                 "fields": [{"method": "contentInt", "name": "content",
+                             "type": "integer", "required": true}]},
+                {"name": "b",
+                 "assertions": [{"kind": "attr", "name": "kind", "value": "b"}],
+                 "fields": []}
+            ]
+        }));
+        let (lines, _) = emit_union_read(&f, "node", "Spec", "").expect("emitted");
+        let src = lines.join("\n");
+        assert!(
+            src.contains("content_str().and_then(|s| s.parse::<u64>().ok()).is_some()"),
+            "the content has to decode, not merely exist: {src}"
         );
     }
 
