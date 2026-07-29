@@ -346,6 +346,14 @@ fn classify_attr_discriminated(f: &ParsedField, variants: &[UnionVariant]) -> Op
         {
             return None;
         }
+        // A leaf pinned to a REQUEST field — smax's `optionalLiteral(…, request.to)` — is
+        // an equality this decoder cannot test: a response parser is handed the node and
+        // nothing else, so the value it must match is not in scope. Emitting the arm
+        // anyway guarded the field on its type at best and not at all when optional,
+        // taking a value the source parser turns away.
+        if v.fields.iter().any(|f| f.reference_path.is_some()) {
+            return None;
+        }
         // Exactly one assertion, and it pins an attr to a value. Anything else the arm
         // enforces — a presence-only pin, a tag, a content literal — is not carried into
         // the match this shape emits, and accepting the variant anyway would construct it
@@ -1818,6 +1826,26 @@ mod tests {
             src.contains(r#"node.get_attr("mode").is_none()"#)
                 && src.contains(r#"node.get_attr("mode").map(|x| x.as_str()) == Some("x")"#),
             "absent is allowed, present is pinned: {src}"
+        );
+    }
+    #[test]
+    fn an_arm_pinned_to_a_request_value_is_declined() {
+        // The equality is against a request field this decoder was never handed, so there
+        // is nothing to compare with — and read unguarded it took any value at all.
+        let f = union_field(serde_json::json!({
+            "method": "dispatch", "name": "kind_dispatch", "type": "union", "required": true,
+            "unionVariants": [
+                {"name": "a", "assertions": [{"kind": "attr", "name": "kind", "value": "a"}],
+                 "fields": [{"method": "maybeAttrString", "name": "to", "wireName": "to",
+                             "type": "string", "required": false,
+                             "referencePath": ["request", "to"]}]},
+                {"name": "b", "assertions": [{"kind": "attr", "name": "kind", "value": "b"}],
+                 "fields": []}
+            ]
+        }));
+        assert!(
+            emit_union_read(&f, "node", "Spec", "").is_none(),
+            "an equality it cannot test declines the shape"
         );
     }
 }

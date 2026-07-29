@@ -2155,8 +2155,13 @@ fn one_read_per_property(fields: &mut [ParsedField]) -> bool {
             f.name = wire;
         }
     }
-    let mut seen: std::collections::HashSet<&str> = Default::default();
-    fields.iter().all(|f| seen.insert(f.name.as_str()))
+    // As the codegen will spell them: `fooBar` and `foo_bar` are two properties in
+    // JavaScript and one member in Rust, so comparing the names verbatim let the pair
+    // through into a struct that does not compile.
+    let mut seen: std::collections::HashSet<String> = Default::default();
+    fields
+        .iter()
+        .all(|f| seen.insert(rust_member_form(&f.name)))
 }
 
 /// Whether `stmt` ends the body on every path it can take. A bare `return`/`throw`, or a
@@ -2169,6 +2174,14 @@ fn exits_unconditionally(stmt: &Statement<'_>) -> bool {
         // not the block's outcome, so the statements after it still run.
         Statement::BlockStatement(b) => b.body.iter().any(exits_unconditionally),
         Statement::LabeledStatement(l) => exits_unconditionally(&l.body),
+        // Both ways out are still out: `if (flag) return a; else return b;` ends the body
+        // on every path it can take, and matching only the bare forms let the arms after
+        // it be synthesized as reachable. A one-sided `if` is not this — the missing
+        // branch falls through and the statements after it run.
+        Statement::IfStatement(i) => {
+            exits_unconditionally(&i.consequent)
+                && i.alternate.as_ref().is_some_and(exits_unconditionally)
+        }
         _ => false,
     }
 }
@@ -7414,6 +7427,54 @@ mod tests {
         assert!(
             !a_fields.iter().any(|n| n == "gamma"),
             "the unreachable arm is not part of the variant: {a_fields:?}"
+        );
+    }
+    #[test]
+    fn an_arm_whose_branches_both_return_ends_that_value_too() {
+        // `if (flag) return t; else return t;` leaves the callback on every path, so a
+        // later arm for the same value cannot run.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   if (n === "a") {
+                     t.alpha = e.attrString("va");
+                     if (flag) { return t; } else { return t; }
+                   }
+                   if (n === "b") { t.beta = e.attrString("vb"); }
+                   if (n === "a") { t.gamma = e.attrString("vc"); }
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        let a_fields: Vec<String> = kids
+            .iter()
+            .find(|f| f.field_type == ParsedFieldType::Union)
+            .and_then(|f| f.union_variants.as_ref())
+            .and_then(|vs| vs.iter().find(|v| v.name == "a"))
+            .map(|v| v.fields.iter().map(|f| f.name.clone()).collect())
+            .unwrap_or_default();
+        assert!(
+            !a_fields.iter().any(|n| n == "gamma"),
+            "the unreachable arm is not part of the variant: {a_fields:?}"
+        );
+    }
+
+    #[test]
+    fn a_variant_whose_properties_share_one_member_declines() {
+        // `fooBar` and `foo_bar` are two properties in JavaScript and one member in Rust.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   if (n === "a") { t.fooBar = e.attrString("a1"); t.foo_bar = e.attrString("b1"); }
+                   if (n === "b") { t.other = e.attrString("c1"); }
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        assert!(
+            !kids.iter().any(|f| f.field_type == ParsedFieldType::Union),
+            "declined rather than emitting one member twice: {:?}",
+            kids.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
         );
     }
 }
