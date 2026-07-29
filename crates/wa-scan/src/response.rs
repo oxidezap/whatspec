@@ -789,7 +789,14 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
         // `enabled && parse(e)` runs the right side only sometimes — the same as an `if`,
         // spelled shorter.
         self.visit_expression(&expr.left);
-        let tested = presence_tested(&expr.left);
+        // `a && b` runs `b` when `a` held, so what `a` found is established there. `a || b`
+        // runs `b` when `a` did NOT hold — `hasAttr("id") || e.attrString("id")` reads the
+        // attribute precisely when it is missing, and calling that optional inverts what
+        // the parser says.
+        let tested = match expr.operator {
+            oxc_syntax::operator::LogicalOperator::And => presence_tested(&expr.left),
+            _ => Vec::new(),
+        };
         let n = tested.len();
         self.guarded_names.extend(tested);
         self.conditional_depth += 1;
@@ -1824,19 +1831,30 @@ fn place_at(fields: &mut Vec<ParsedField>, path: &[PathSeg], f: ParsedField) {
 /// Two branches mapping `<row>` with different callbacks are one repeated element that
 /// carries both shapes. Appending them as siblings left a later de-dup by name to keep the
 /// first and drop the other branch's fields without a word.
-/// Loosen what a hoisted child carries. Its descendants came from different arms and were
-/// merged into one subtree; each is only as certain as the arm that read it, so requiring
-/// them all would reject every element that takes just one arm.
-fn relax_merged_descendants(f: &mut ParsedField) {
-    let Some(kids) = f.children.as_mut() else {
-        return;
-    };
-    if kids.len() < 2 {
-        return;
+/// Record how many arms read each node of a structural field, by its path within it.
+fn count_paths(f: &ParsedField, path: &str, out: &mut HashMap<String, usize>) {
+    *out.entry(path.to_string()).or_default() += 1;
+    for k in f.children.iter().flatten() {
+        count_paths(k, &format!("{path}/{}", k.name), out);
     }
-    for k in kids {
-        k.required = false;
-        relax_merged_descendants(k);
+}
+
+/// Loosen only what some arm does not read. A child hoisted out of the arms is merged from
+/// all of them, and one that only the `a` arm reaches cannot be required of a `b` element —
+/// but one every arm reads is required all the same, and weakening it would accept nodes
+/// the parser rejects.
+fn relax_absent_from_some_arm(
+    f: &mut ParsedField,
+    path: &str,
+    seen: &HashMap<String, usize>,
+    arms: usize,
+) {
+    if seen.get(path).copied().unwrap_or(0) < arms {
+        f.required = false;
+    }
+    for k in f.children.iter_mut().flatten() {
+        let child_path = format!("{path}/{}", k.name);
+        relax_absent_from_some_arm(k, &child_path, seen, arms);
     }
 }
 
@@ -2019,7 +2037,11 @@ fn presence_tested(test: &Expression<'_>) -> Vec<(String, String)> {
     fn walk(e: &Expression<'_>, out: &mut Vec<(String, String)>) {
         match e {
             Expression::ParenthesizedExpression(p) => walk(&p.expression, out),
-            Expression::LogicalExpression(l) => {
+            // Only through `&&`: a test that holds when EITHER side does establishes
+            // nothing, since the other side may be what satisfied it.
+            Expression::LogicalExpression(l)
+                if l.operator == oxc_syntax::operator::LogicalOperator::And =>
+            {
                 walk(&l.left, out);
                 walk(&l.right, out);
             }
@@ -2357,7 +2379,7 @@ fn discriminated_children(
             .partition(|f| f.children.is_none());
         arms_seen += 1;
         for f in structural {
-            *structural_seen.entry(f.name.clone()).or_default() += 1;
+            count_paths(&f, &f.name, &mut structural_seen);
             merge_or_push(&mut common, f);
         }
         for lit in lits {
@@ -2404,11 +2426,8 @@ fn discriminated_children(
     // `detail.b` share the `<detail>` but not its contents, and requiring both would
     // reject the elements either arm accepts.
     for f in &mut common {
-        let in_every_arm = structural_seen.get(&f.name).copied().unwrap_or(0) >= arms_seen;
-        if !in_every_arm {
-            f.required = false;
-        }
-        relax_merged_descendants(f);
+        let path = f.name.clone();
+        relax_absent_from_some_arm(f, &path, &structural_seen, arms_seen);
     }
 
     let mut union = mk_field("dispatch", &wire, ParsedFieldType::Union, true);
@@ -4000,6 +4019,70 @@ mod tests {
             "read where the attribute is known missing — the test does not excuse it"
         );
         assert!(by("other").required, "the test said nothing about this one");
+    }
+
+    #[test]
+    fn an_or_does_not_establish_what_its_left_side_found() {
+        // `a || b` runs `b` when `a` did NOT hold: the attribute is read precisely when it
+        // is missing, which is the opposite of optional. And a test satisfied by something
+        // else entirely establishes nothing about the field at all.
+        let short_circuit =
+            analyze_parser_ast(r#"{ e.hasAttr("id") || e.attrString("id"); }"#, "e");
+        assert!(
+            short_circuit
+                .fields
+                .iter()
+                .find(|f| f.name == "id")
+                .unwrap()
+                .required,
+            "read exactly when absent"
+        );
+
+        let either = analyze_parser_ast(
+            r#"{ if (flag || e.hasAttr("id")) { e.attrString("id"); } }"#,
+            "e",
+        );
+        assert!(
+            either
+                .fields
+                .iter()
+                .find(|f| f.name == "id")
+                .unwrap()
+                .required,
+            "`flag` may be what satisfied the test"
+        );
+    }
+
+    #[test]
+    fn a_descendant_every_arm_reads_stays_required() {
+        // Loosening whatever a hoisted child carries was too blunt: `id` is read by both
+        // arms, and accepting an element without it is accepting what the parser rejects.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   if (n === "a") { var d = e.child("detail"); d.attrString("id"); d.attrString("only_a"); }
+                   if (n === "b") { var d = e.child("detail"); d.attrString("id"); }
+                 }); }"#,
+            "e",
+        );
+        let detail = r.fields[0]
+            .children
+            .as_ref()
+            .unwrap()
+            .iter()
+            .find(|f| f.name == "detail")
+            .expect("hoisted");
+        let by = |n: &str| {
+            detail
+                .children
+                .as_ref()
+                .unwrap()
+                .iter()
+                .find(|f| f.name == n)
+                .unwrap_or_else(|| panic!("{n} in {:?}", detail.children))
+        };
+        assert!(by("id").required, "both arms read it");
+        assert!(!by("only_a").required, "only one arm does");
     }
 
     #[test]
