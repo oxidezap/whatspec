@@ -454,7 +454,7 @@
             "required": true
           },
           {
-            "method": "child",
+            "method": "maybeChild",
             "name": "verified_name",
             "type": "string",
             "required": false,
@@ -467,6 +467,14 @@
                 "required": true
               }
             ]
+          },
+          {
+            "method": "child",
+            "name": "verified_name",
+            "type": "string",
+            "required": false,
+            "tag": "verified_name",
+            "children": []
           },
           {
             "method": "maybeAttrEnum",
@@ -1177,69 +1185,120 @@
             "type": "string",
             "required": false,
             "tag": "keys",
-            "children": []
-          },
-          {
-            "method": "child",
-            "name": "identity",
-            "type": "string",
-            "required": true,
-            "tag": "identity",
             "children": [
               {
-                "method": "contentBytes",
-                "name": "content",
-                "type": "bytes",
+                "method": "child",
+                "name": "identity",
+                "type": "string",
                 "required": true,
-                "byteLength": 32
-              }
-            ]
-          },
-          {
-            "method": "child",
-            "name": "id",
-            "type": "string",
-            "required": true,
-            "tag": "id",
-            "children": [
+                "tag": "identity",
+                "children": [
+                  {
+                    "method": "contentBytes",
+                    "name": "content",
+                    "type": "bytes",
+                    "required": true,
+                    "byteLength": 32
+                  }
+                ]
+              },
               {
-                "method": "contentUint",
-                "name": "content",
-                "type": "integer",
+                "method": "child",
+                "name": "skey",
+                "type": "string",
                 "required": true,
-                "byteLength": 3
-              }
-            ]
-          },
-          {
-            "method": "child",
-            "name": "value",
-            "type": "string",
-            "required": true,
-            "tag": "value",
-            "children": [
+                "tag": "skey",
+                "children": [
+                  {
+                    "method": "child",
+                    "name": "id",
+                    "type": "string",
+                    "required": true,
+                    "tag": "id",
+                    "children": [
+                      {
+                        "method": "contentUint",
+                        "name": "content",
+                        "type": "integer",
+                        "required": true,
+                        "byteLength": 3
+                      }
+                    ]
+                  },
+                  {
+                    "method": "child",
+                    "name": "value",
+                    "type": "string",
+                    "required": true,
+                    "tag": "value",
+                    "children": [
+                      {
+                        "method": "contentBytes",
+                        "name": "content",
+                        "type": "bytes",
+                        "required": true,
+                        "byteLength": 32
+                      }
+                    ]
+                  },
+                  {
+                    "method": "child",
+                    "name": "signature",
+                    "type": "string",
+                    "required": true,
+                    "tag": "signature",
+                    "children": [
+                      {
+                        "method": "contentBytes",
+                        "name": "content",
+                        "type": "bytes",
+                        "required": true,
+                        "byteLength": 64
+                      }
+                    ]
+                  }
+                ]
+              },
               {
-                "method": "contentBytes",
-                "name": "content",
-                "type": "bytes",
-                "required": true,
-                "byteLength": 32
-              }
-            ]
-          },
-          {
-            "method": "child",
-            "name": "signature",
-            "type": "string",
-            "required": true,
-            "tag": "signature",
-            "children": [
-              {
-                "method": "contentBytes",
-                "name": "content",
-                "type": "bytes",
-                "required": true,
-                "byteLength": 64
+                "method": "maybeChild",
+                "name": "key",
+                "type": "string",
+                "required": false,
+                "tag": "key",
+                "children": [
+                  {
+                    "method": "child",
+                    "name": "id",
+                    "type": "string",
+                    "required": true,
+                    "tag": "id",
+                    "children": [
+                      {
+                        "method": "contentUint",
+                        "name": "content",
+                        "type": "integer",
+                        "required": true,
+                        "byteLength": 3
+                      }
+                    ]
+                  },
+                  {
+                    "method": "child",
+                    "name": "value",
+                    "type": "string",
+                    "required": true,
+                    "tag": "value",
+                    "children": [
+                      {
+                        "method": "contentBytes",
+                        "name": "content",
+                        "type": "bytes",
+                        "required": true,
+                        "byteLength": 32
+                      }
+                    ]
+                  }
+                ]
               }
             ]
           },

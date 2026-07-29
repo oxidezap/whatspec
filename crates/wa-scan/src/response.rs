@@ -378,17 +378,6 @@ fn find_or_create_field(
     fields.len() - 1
 }
 
-/// Append a child field under `fields[idx]` if an equivalent one isn't present.
-fn push_child_field(fields: &mut [ParsedField], idx: usize, child: ParsedField) {
-    let children = fields[idx].children.get_or_insert_with(Vec::new);
-    if !children
-        .iter()
-        .any(|c| c.name == child.name && c.method == child.method)
-    {
-        children.push(child);
-    }
-}
-
 /// Analyze a parser callback body string against its parameter name.
 /// Test-only convenience wrapper: analyze a callback body with no enclosing module (the
 /// direct-callback unit tests). Production callers use [`analyze_parser_ast_in_module`].
@@ -442,6 +431,7 @@ fn analyze_with_scope(
         unresolved: Vec::new(),
         unfollowable: Vec::new(),
         local_bindings: Default::default(),
+        conditional_assertions: Vec::new(),
         conditional_depth: 0,
         guarded_names: Vec::new(),
         helper_depth: 0,
@@ -681,6 +671,9 @@ struct ParserAnalyzer<'src, 'ms> {
     /// defines its own `parse` shadows the module-scope helper of that name, and resolving
     /// the callee by identifier text alone attached a stranger's fields to the result.
     local_bindings: Bindings,
+    /// The assertions this scope only reaches down a branch. They are still the node's
+    /// when that branch runs, but not the parser's to demand of every element.
+    conditional_assertions: Vec<ResponseAssertion>,
     /// Whether the call being visited sits under a branch. A helper reached only when
     /// `kind === "a"` does not make its payload required of every element.
     conditional_depth: u32,
@@ -1039,6 +1032,8 @@ impl ParserAnalyzer<'_, '_> {
 
         // ── Assertions on the param ──
         if is_assert_method(method) && obj_is_param {
+            let before = self.assertions.len();
+            let guarded = self.conditional_depth > 0;
             match method {
                 "assertTag" => {
                     if let Some(v) = arg_str(call, 0) {
@@ -1067,6 +1062,14 @@ impl ParserAnalyzer<'_, '_> {
                     reference_path: None,
                 }),
                 _ => {}
+            }
+            // An assertion behind a branch holds when that branch runs, not always. A
+            // caller following this scope cannot see that from the call site, so the fact
+            // travels with the assertion.
+            if guarded {
+                for a in &self.assertions[before..] {
+                    self.conditional_assertions.push(a.clone());
+                }
             }
             return;
         }
@@ -1114,14 +1117,19 @@ impl ParserAnalyzer<'_, '_> {
 
         // ── Attr method chained on a child() result: e.child("error").attrInt("code") ──
         if is_value_method(method)
-            && let Some((parent_tag, inner_method)) = self.child_call_parent(obj)
+            && let Some(mut path) = self.child_call_parent(obj, call.span)
         {
-            let parent_required =
-                inner_method == "child" && !self.presence_guarded(self.param, &parent_tag);
-            let idx =
-                find_or_create_field(&mut self.fields, &parent_tag, inner_method, parent_required);
+            if let Some(last) = path.last_mut()
+                && last.method == "child"
+                && self.presence_guarded(self.param, &last.tag)
+            {
+                last.method = "maybeChild".to_string();
+            }
             let read = self.read_field(method, call);
-            push_child_field(&mut self.fields, idx, read);
+            if let Some(node) = node_at_mut(&mut self.fields, &path) {
+                let kids = node.children.get_or_insert_with(Vec::new);
+                merge_or_push(kids, read);
+            }
             return;
         }
 
@@ -1256,27 +1264,22 @@ impl ParserAnalyzer<'_, '_> {
 
     /// If `obj` is `param.child("tag")` or `childVar.child("tag")`, return
     /// `(parent_tag, inner_method)`.
-    fn child_call_parent(&self, obj: &Expression) -> Option<(String, &'static str)> {
+    /// The path of the node an attribute is chained off — every level of it. Naming only
+    /// the last step put `a.child("b").attrString("id")` beside `<a>` instead of inside it,
+    /// so a consumer read the attribute from the wrong place on the wire.
+    fn child_call_parent(&self, obj: &Expression, at: Span) -> Option<Vec<PathSeg>> {
         let inner = as_call(obj)?;
-        let inner_method = callee_method(inner)?;
-        let inner_method = match inner_method {
-            "child" => "child",
-            "maybeChild" => "maybeChild",
+        let inner_method = match callee_method(inner)? {
+            m @ ("child" | "maybeChild") => m,
             _ => return None,
         };
-        let inner_obj = callee_object(inner)?;
-        let on_param = as_identifier(inner_obj) == Some(self.param);
-        let on_child_var =
-            as_identifier(inner_obj).is_some_and(|n| self.child_vars.contains_key(n));
-        if !on_param && !on_child_var {
-            return None;
-        }
-        let parent_tag = inner
+        let base = callee_object(inner).and_then(as_identifier)?;
+        let tag = inner
             .arguments
             .first()
             .and_then(arg_expr)
             .and_then(as_string_lit)?;
-        Some((parent_tag.to_string(), inner_method))
+        self.node_path(base, tag, inner_method, at)
     }
 
     /// A bare-identifier call `helper(a, …, childVar, …)` that hands a tracked child node
@@ -1665,6 +1668,7 @@ fn analyze_node_helper(
         unresolved: Vec::new(),
         unfollowable: Vec::new(),
         local_bindings: Default::default(),
+        conditional_assertions: Vec::new(),
         conditional_depth: 0,
         guarded_names: Vec::new(),
         helper_depth: depth,
@@ -1674,7 +1678,14 @@ fn analyze_node_helper(
     a.attach_pending_enum_keys();
     // What the helper could not resolve is the caller's loss too: reporting the field
     // without it lets the constraint ratchet read as clean while a byte range vanished.
-    (a.fields, a.unresolved, a.assertions)
+    // Only what the helper enforces on every path: an `assertAttr` behind its own `if`
+    // holds when that branch runs, and hoisting it would have the parser demand it always.
+    let unconditional = a
+        .assertions
+        .into_iter()
+        .filter(|x| !a.conditional_assertions.contains(x))
+        .collect();
+    (a.fields, a.unresolved, unconditional)
 }
 
 fn analyze_child_node(
@@ -1705,6 +1716,7 @@ fn analyze_child_node(
         unresolved: Vec::new(),
         unfollowable: Vec::new(),
         local_bindings: Default::default(),
+        conditional_assertions: Vec::new(),
         conditional_depth: 0,
         guarded_names: Vec::new(),
         helper_depth: depth,
@@ -2199,6 +2211,26 @@ impl<'a> Visit<'a> for AllBindings {
         self.blocks.pop();
     }
 
+    // A loop header binds its own declarations, the same as a block — `for (let parse of
+    // …)` does not shadow a helper called after the loop.
+    fn visit_for_statement(&mut self, stmt: &oxc_ast::ast::ForStatement<'a>) {
+        self.blocks.push(stmt.span);
+        walk::walk_for_statement(self, stmt);
+        self.blocks.pop();
+    }
+
+    fn visit_for_in_statement(&mut self, stmt: &oxc_ast::ast::ForInStatement<'a>) {
+        self.blocks.push(stmt.span);
+        walk::walk_for_in_statement(self, stmt);
+        self.blocks.pop();
+    }
+
+    fn visit_for_of_statement(&mut self, stmt: &oxc_ast::ast::ForOfStatement<'a>) {
+        self.blocks.push(stmt.span);
+        walk::walk_for_of_statement(self, stmt);
+        self.blocks.pop();
+    }
+
     fn visit_function(&mut self, func: &Function<'a>, flags: ScopeFlags) {
         // A declaration binds its name in the scope it sits in — recorded against its own
         // body, a call beside it would not see the local and would resolve the module's.
@@ -2346,6 +2378,8 @@ fn assigned_names(src: &str, param: &str) -> HashMap<String, String> {
         param: &'s str,
         /// Local name → the wire attribute it was read from, in this arm.
         from_wire: HashMap<String, String>,
+        /// What each open block displaced, to put back when it closes.
+        blocks: Vec<Vec<(String, Option<String>)>>,
         /// Wire attribute → the property its value is assigned to.
         named: HashMap<String, String>,
     }
@@ -2367,11 +2401,29 @@ fn assigned_names(src: &str, param: &str) -> HashMap<String, String> {
                     && callee_object(call).and_then(as_identifier) == Some(self.param)
                     && let Some(wire) = arg_str(call, 0)
                 {
-                    self.from_wire
-                        .insert(bound.as_str().to_string(), wire.to_string());
+                    let name = bound.as_str().to_string();
+                    // A lexical alias ends with its block; what it displaced comes back,
+                    // or the outer name would go on pointing at the inner read.
+                    if decl.kind.is_lexical()
+                        && let Some(frame) = self.blocks.last_mut()
+                    {
+                        frame.push((name.clone(), self.from_wire.get(&name).cloned()));
+                    }
+                    self.from_wire.insert(name, wire.to_string());
                 }
             }
             walk::walk_variable_declaration(self, decl);
+        }
+
+        fn visit_block_statement(&mut self, block: &oxc_ast::ast::BlockStatement<'a>) {
+            self.blocks.push(Vec::new());
+            walk::walk_block_statement(self, block);
+            for (name, prev) in self.blocks.pop().unwrap_or_default() {
+                match prev {
+                    Some(w) => self.from_wire.insert(name, w),
+                    None => self.from_wire.remove(&name),
+                };
+            }
         }
 
         fn visit_assignment_expression(&mut self, e: &oxc_ast::ast::AssignmentExpression<'a>) {
@@ -2417,6 +2469,7 @@ fn assigned_names(src: &str, param: &str) -> HashMap<String, String> {
     let mut f = Finder {
         param,
         from_wire: HashMap::new(),
+        blocks: Vec::new(),
         named: HashMap::new(),
     };
     f.visit_program(&ret.program);
@@ -4533,6 +4586,115 @@ mod tests {
                 .is_some_and(|c| c.iter().any(|f| f.name == "from_module")),
             "the block's binding ended with the block: {:?}",
             p.fields
+        );
+    }
+
+    #[test]
+    fn a_chained_attribute_read_lands_at_the_full_path() {
+        // Naming only the last step put `<b>` beside `<a>`, so a consumer read the
+        // attribute from the wrong place on the wire. `digestResponseParser` does exactly
+        // this with `t.child("registration")` off `var t = e.child("digest")`.
+        let r = analyze_parser_ast(
+            r#"{ var a = e.child("a"); a.child("b").attrString("id"); }"#,
+            "e",
+        );
+        assert_eq!(
+            r.fields.iter().map(|f| f.name.as_str()).collect::<Vec<_>>(),
+            ["a"],
+            "nothing beside the outer node"
+        );
+        let id = r.fields[0]
+            .children
+            .as_ref()
+            .and_then(|c| c.iter().find(|f| f.name == "b"))
+            .and_then(|f| f.children.as_ref())
+            .and_then(|c| c.iter().find(|f| f.name == "id"));
+        assert!(id.is_some(), "`id` under `a`'s `b`: {:?}", r.fields);
+    }
+
+    #[test]
+    fn an_assertion_a_helper_only_reaches_down_a_branch_is_not_the_parsers() {
+        // The call is unconditional, so the caller's own depth says nothing; the guard is
+        // inside the helper, and demanding it always would reject what the parser accepts.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ if (enabled) { p.assertAttr("status", "ok"); } p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                parse(e);
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        assert!(
+            !p.assertions
+                .iter()
+                .any(|a| a.name.as_deref() == Some("status")),
+            "only what it enforces on every path: {:?}",
+            p.assertions
+        );
+        assert!(
+            p.fields.iter().any(|f| f.name == "id"),
+            "the unconditional read still arrives"
+        );
+    }
+
+    #[test]
+    fn a_loop_local_name_does_not_shadow_a_helper_called_after_it() {
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("from_module"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                for (let parse of items) { }
+                var t = e.child("meta");
+                parse(t);
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        assert!(
+            p.fields
+                .iter()
+                .find(|f| f.tag.as_deref() == Some("meta"))
+                .and_then(|f| f.children.as_ref())
+                .is_some_and(|c| c.iter().any(|f| f.name == "from_module")),
+            "the loop's binding ended with the loop: {:?}",
+            p.fields
+        );
+    }
+
+    #[test]
+    fn an_alias_shadowed_in_a_block_is_restored_after_it() {
+        // The inner `let` named the other attribute; left in place, the read after the
+        // block was named after a property fed by something else.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   if (n === "a") {
+                     var x = e.attrString("value");
+                     { let x = e.attrString("other"); }
+                     t.alpha = x;
+                   }
+                   if (n === "b") { var y = e.attrString("value"); t.beta = y; }
+                 }); }"#,
+            "e",
+        );
+        let union = r.fields[0]
+            .children
+            .as_ref()
+            .unwrap()
+            .iter()
+            .find(|f| f.field_type == ParsedFieldType::Union)
+            .expect("a union");
+        let a = &union.union_variants.as_ref().unwrap()[0];
+        assert!(
+            a.fields
+                .iter()
+                .any(|f| f.name == "alpha" && f.wire_name.as_deref() == Some("value")),
+            "`alpha` names the outer read: {:?}",
+            a.fields
+                .iter()
+                .map(|f| (f.name.as_str(), f.wire_name.as_deref()))
+                .collect::<Vec<_>>()
         );
     }
 

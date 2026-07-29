@@ -886,35 +886,36 @@
             "type": "string",
             "required": true,
             "tag": "encrypt",
-            "children": []
-          },
-          {
-            "method": "child",
-            "name": "enc_p",
-            "type": "string",
-            "required": true,
-            "tag": "enc_p",
             "children": [
               {
-                "method": "contentBytes",
-                "name": "content",
-                "type": "bytes",
-                "required": true
-              }
-            ]
-          },
-          {
-            "method": "child",
-            "name": "enc_iv",
-            "type": "string",
-            "required": true,
-            "tag": "enc_iv",
-            "children": [
+                "method": "child",
+                "name": "enc_p",
+                "type": "string",
+                "required": true,
+                "tag": "enc_p",
+                "children": [
+                  {
+                    "method": "contentBytes",
+                    "name": "content",
+                    "type": "bytes",
+                    "required": true
+                  }
+                ]
+              },
               {
-                "method": "contentBytes",
-                "name": "content",
-                "type": "bytes",
-                "required": true
+                "method": "child",
+                "name": "enc_iv",
+                "type": "string",
+                "required": true,
+                "tag": "enc_iv",
+                "children": [
+                  {
+                    "method": "contentBytes",
+                    "name": "content",
+                    "type": "bytes",
+                    "required": true
+                  }
+                ]
               }
             ]
           }
@@ -1943,7 +1944,7 @@
                 "required": true
               },
               {
-                "method": "child",
+                "method": "maybeChild",
                 "name": "body",
                 "type": "string",
                 "required": false,
@@ -1956,6 +1957,14 @@
                     "required": true
                   }
                 ]
+              },
+              {
+                "method": "child",
+                "name": "body",
+                "type": "string",
+                "required": false,
+                "tag": "body",
+                "children": []
               },
               {
                 "method": "maybeAttrString",

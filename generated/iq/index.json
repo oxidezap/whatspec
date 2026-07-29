@@ -4474,6 +4474,111 @@
             "children": [
               {
                 "method": "child",
+                "name": "registration",
+                "type": "string",
+                "required": true,
+                "tag": "registration",
+                "children": [
+                  {
+                    "method": "contentUint",
+                    "name": "content",
+                    "type": "integer",
+                    "required": true,
+                    "byteLength": 4
+                  }
+                ]
+              },
+              {
+                "method": "child",
+                "name": "type",
+                "type": "string",
+                "required": true,
+                "tag": "type",
+                "children": [
+                  {
+                    "method": "contentUint",
+                    "name": "content",
+                    "type": "integer",
+                    "required": true,
+                    "byteLength": 1
+                  }
+                ]
+              },
+              {
+                "method": "child",
+                "name": "identity",
+                "type": "string",
+                "required": true,
+                "tag": "identity",
+                "children": [
+                  {
+                    "method": "contentBytes",
+                    "name": "content",
+                    "type": "bytes",
+                    "required": true,
+                    "byteLength": 32
+                  }
+                ]
+              },
+              {
+                "method": "child",
+                "name": "skey",
+                "type": "string",
+                "required": true,
+                "tag": "skey",
+                "children": [
+                  {
+                    "method": "child",
+                    "name": "id",
+                    "type": "string",
+                    "required": true,
+                    "tag": "id",
+                    "children": [
+                      {
+                        "method": "contentUint",
+                        "name": "content",
+                        "type": "integer",
+                        "required": true,
+                        "byteLength": 3
+                      }
+                    ]
+                  },
+                  {
+                    "method": "child",
+                    "name": "value",
+                    "type": "string",
+                    "required": true,
+                    "tag": "value",
+                    "children": [
+                      {
+                        "method": "contentBytes",
+                        "name": "content",
+                        "type": "bytes",
+                        "required": true,
+                        "byteLength": 32
+                      }
+                    ]
+                  },
+                  {
+                    "method": "child",
+                    "name": "signature",
+                    "type": "string",
+                    "required": true,
+                    "tag": "signature",
+                    "children": [
+                      {
+                        "method": "contentBytes",
+                        "name": "content",
+                        "type": "bytes",
+                        "required": true,
+                        "byteLength": 64
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "method": "child",
                 "name": "list",
                 "type": "string",
                 "required": true,
@@ -4496,118 +4601,22 @@
                     "repeats": true
                   }
                 ]
-              }
-            ]
-          },
-          {
-            "method": "child",
-            "name": "registration",
-            "type": "string",
-            "required": true,
-            "tag": "registration",
-            "children": [
+              },
               {
-                "method": "contentUint",
-                "name": "content",
-                "type": "integer",
+                "method": "child",
+                "name": "hash",
+                "type": "string",
                 "required": true,
-                "byteLength": 4
-              }
-            ]
-          },
-          {
-            "method": "child",
-            "name": "type",
-            "type": "string",
-            "required": true,
-            "tag": "type",
-            "children": [
-              {
-                "method": "contentUint",
-                "name": "content",
-                "type": "integer",
-                "required": true,
-                "byteLength": 1
-              }
-            ]
-          },
-          {
-            "method": "child",
-            "name": "identity",
-            "type": "string",
-            "required": true,
-            "tag": "identity",
-            "children": [
-              {
-                "method": "contentBytes",
-                "name": "content",
-                "type": "bytes",
-                "required": true,
-                "byteLength": 32
-              }
-            ]
-          },
-          {
-            "method": "child",
-            "name": "id",
-            "type": "string",
-            "required": true,
-            "tag": "id",
-            "children": [
-              {
-                "method": "contentUint",
-                "name": "content",
-                "type": "integer",
-                "required": true,
-                "byteLength": 3
-              }
-            ]
-          },
-          {
-            "method": "child",
-            "name": "value",
-            "type": "string",
-            "required": true,
-            "tag": "value",
-            "children": [
-              {
-                "method": "contentBytes",
-                "name": "content",
-                "type": "bytes",
-                "required": true,
-                "byteLength": 32
-              }
-            ]
-          },
-          {
-            "method": "child",
-            "name": "signature",
-            "type": "string",
-            "required": true,
-            "tag": "signature",
-            "children": [
-              {
-                "method": "contentBytes",
-                "name": "content",
-                "type": "bytes",
-                "required": true,
-                "byteLength": 64
-              }
-            ]
-          },
-          {
-            "method": "child",
-            "name": "hash",
-            "type": "string",
-            "required": true,
-            "tag": "hash",
-            "children": [
-              {
-                "method": "contentBytes",
-                "name": "content",
-                "type": "bytes",
-                "required": true,
-                "byteLength": 20
+                "tag": "hash",
+                "children": [
+                  {
+                    "method": "contentBytes",
+                    "name": "content",
+                    "type": "bytes",
+                    "required": true,
+                    "byteLength": 20
+                  }
+                ]
               }
             ]
           }
@@ -12096,6 +12105,36 @@
             "tag": "context",
             "children": [
               {
+                "method": "child",
+                "name": "headline",
+                "type": "string",
+                "required": true,
+                "tag": "headline",
+                "children": [
+                  {
+                    "method": "contentString",
+                    "name": "content",
+                    "type": "string",
+                    "required": true
+                  }
+                ]
+              },
+              {
+                "method": "child",
+                "name": "body",
+                "type": "string",
+                "required": true,
+                "tag": "body",
+                "children": [
+                  {
+                    "method": "contentString",
+                    "name": "content",
+                    "type": "string",
+                    "required": true
+                  }
+                ]
+              },
+              {
                 "method": "maybeChild",
                 "name": "sourceApp",
                 "type": "string",
@@ -12110,6 +12149,36 @@
                   }
                 ],
                 "contentType": "string"
+              },
+              {
+                "method": "child",
+                "name": "greetingMessageBody",
+                "type": "string",
+                "required": true,
+                "tag": "greetingMessageBody",
+                "children": [
+                  {
+                    "method": "contentString",
+                    "name": "content",
+                    "type": "string",
+                    "required": true
+                  }
+                ]
+              },
+              {
+                "method": "child",
+                "name": "automatedGreetingMessageShown",
+                "type": "string",
+                "required": true,
+                "tag": "automatedGreetingMessageShown",
+                "children": [
+                  {
+                    "method": "contentString",
+                    "name": "content",
+                    "type": "string",
+                    "required": true
+                  }
+                ]
               },
               {
                 "method": "maybeChild",
@@ -12152,66 +12221,6 @@
             "required": false,
             "tag": "error",
             "children": []
-          },
-          {
-            "method": "child",
-            "name": "headline",
-            "type": "string",
-            "required": true,
-            "tag": "headline",
-            "children": [
-              {
-                "method": "contentString",
-                "name": "content",
-                "type": "string",
-                "required": true
-              }
-            ]
-          },
-          {
-            "method": "child",
-            "name": "body",
-            "type": "string",
-            "required": true,
-            "tag": "body",
-            "children": [
-              {
-                "method": "contentString",
-                "name": "content",
-                "type": "string",
-                "required": true
-              }
-            ]
-          },
-          {
-            "method": "child",
-            "name": "greetingMessageBody",
-            "type": "string",
-            "required": true,
-            "tag": "greetingMessageBody",
-            "children": [
-              {
-                "method": "contentString",
-                "name": "content",
-                "type": "string",
-                "required": true
-              }
-            ]
-          },
-          {
-            "method": "child",
-            "name": "automatedGreetingMessageShown",
-            "type": "string",
-            "required": true,
-            "tag": "automatedGreetingMessageShown",
-            "children": [
-              {
-                "method": "contentString",
-                "name": "content",
-                "type": "string",
-                "required": true
-              }
-            ]
           }
         ]
       }

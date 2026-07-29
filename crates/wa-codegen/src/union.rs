@@ -719,7 +719,10 @@ fn emit_attr_discriminated(
         let required: Vec<String> = a
             .fields
             .iter()
-            .filter(|f| f.required && f.method.starts_with("attr"))
+            // Content counts too: an arm carrying a required `contentBytes` was selected on
+            // the discriminator alone and handed back an empty vector where the source
+            // accessor enforces the payload.
+            .filter(|f| f.required && (f.method.starts_with("attr") || wap::is_content_method(&f.method)))
             .map(|f| {
                 // Decoding, not just presence: an unparseable `attrInt` or a malformed JID
                 // would otherwise reach `unwrap_or_default` and become a fabricated value
@@ -1043,6 +1046,32 @@ mod tests {
         assert!(
             src.contains(r#"matches!(node.get_attr("value").map(|x| x.as_str()).as_deref(), Some("on" | "off"))"#),
             "membership is checked, not just presence: {src}"
+        );
+    }
+
+    #[test]
+    fn attr_discriminated_union_guards_a_required_content_payload() {
+        // Selected on the discriminator alone, an absent payload came back as an empty
+        // vector where the source accessor enforces it.
+        let f = union_field(serde_json::json!({
+            "method": "dispatch", "name": "kind_dispatch", "type": "union", "required": true,
+            "unionVariants": [
+                {"name": "a",
+                 "assertions": [{"kind": "attr", "name": "kind", "value": "a"}],
+                 "fields": [{"method": "contentBytes", "name": "content",
+                             "type": "bytes", "required": true, "byteLength": 32}]},
+                {"name": "b",
+                 "assertions": [{"kind": "attr", "name": "kind", "value": "b"}],
+                 "fields": []}
+            ]
+        }));
+        let Some((lines, _)) = emit_union_read(&f, "node", "Spec", "") else {
+            return; // the shape is declined outright, which also never fabricates
+        };
+        let src = lines.join("\n");
+        assert!(
+            src.contains(r#"Some("a") if node."#),
+            "the payload gates its arm: {src}"
         );
     }
 
