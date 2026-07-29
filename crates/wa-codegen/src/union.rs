@@ -738,6 +738,26 @@ fn emit_attr_discriminated(
                         arms.join(" | ")
                     );
                 }
+                if wap::is_content_method(&f.method) {
+                    // The content decoders all end in `unwrap_or_default`, so the value
+                    // they hand back cannot be asked whether it is there. Probe the raw
+                    // accessor, and where a length is pinned check that too.
+                    let raw = match wap::method_field_type(&f.method) {
+                        ParsedFieldType::Bytes | ParsedFieldType::Integer
+                            if f.method == "contentBytes" || f.method == "contentUint" =>
+                        {
+                            "content_bytes()"
+                        }
+                        ParsedFieldType::Bytes => "content_bytes()",
+                        _ => "content_str()",
+                    };
+                    return match f.byte_length {
+                        Some(n) => {
+                            format!("{node_var}.{raw}.is_some_and(|b| b.len() == {n})")
+                        }
+                        None => format!("{node_var}.{raw}.is_some()"),
+                    };
+                }
                 let mut probe = f.clone();
                 probe.required = false;
                 format!("{}.is_some()", field_expr(&probe, node_var))
@@ -1065,13 +1085,15 @@ mod tests {
                  "fields": []}
             ]
         }));
-        let Some((lines, _)) = emit_union_read(&f, "node", "Spec", "") else {
-            return; // the shape is declined outright, which also never fabricates
-        };
+        let (lines, _) = emit_union_read(&f, "node", "Spec", "").expect("emitted");
         let src = lines.join("\n");
         assert!(
-            src.contains(r#"Some("a") if node."#),
-            "the payload gates its arm: {src}"
+            src.contains(r#"Some("a") if node.content_bytes().is_some_and(|b| b.len() == 32)"#),
+            "the raw accessor is probed, and the pinned length checked: {src}"
+        );
+        assert!(
+            !src.contains("unwrap_or_default().is_some()"),
+            "the decoders end in a value, which cannot be asked whether it is there: {src}"
         );
     }
 

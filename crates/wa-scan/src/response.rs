@@ -671,8 +671,9 @@ struct ParserAnalyzer<'src, 'ms> {
     /// defines its own `parse` shadows the module-scope helper of that name, and resolving
     /// the callee by identifier text alone attached a stranger's fields to the result.
     local_bindings: Bindings,
-    /// The assertions this scope only reaches down a branch. They are still the node's
-    /// when that branch runs, but not the parser's to demand of every element.
+    /// How many occurrences of each assertion this scope only reaches down a branch. By
+    /// count, not by value: the same guard made once inside an `if` and once outside is
+    /// enforced on every path, and filtering by equality dropped both.
     conditional_assertions: Vec<ResponseAssertion>,
     /// Whether the call being visited sits under a branch. A helper reached only when
     /// `kind === "a"` does not make its payload required of every element.
@@ -1167,7 +1168,7 @@ impl ParserAnalyzer<'_, '_> {
                     fields: &mut self.fields,
                     unresolved: &mut self.unresolved,
                     recursed: &mut self.recursed,
-                    bindings: &self.local_bindings.outer(),
+                    bindings: &self.local_bindings.outer_at(call.span),
                 },
                 self.code,
                 self.module,
@@ -1197,7 +1198,7 @@ impl ParserAnalyzer<'_, '_> {
                     fields: &mut self.fields,
                     unresolved: &mut self.unresolved,
                     recursed: &mut self.recursed,
-                    bindings: &self.local_bindings.outer(),
+                    bindings: &self.local_bindings.outer_at(call.span),
                 },
                 self.code,
                 self.module,
@@ -1219,7 +1220,7 @@ impl ParserAnalyzer<'_, '_> {
                     fields: &mut self.fields,
                     unresolved: &mut self.unresolved,
                     recursed: &mut self.recursed,
-                    bindings: &self.local_bindings.outer(),
+                    bindings: &self.local_bindings.outer_at(call.span),
                 },
                 self.code,
                 self.module,
@@ -1680,10 +1681,17 @@ fn analyze_node_helper(
     // without it lets the constraint ratchet read as clean while a byte range vanished.
     // Only what the helper enforces on every path: an `assertAttr` behind its own `if`
     // holds when that branch runs, and hoisting it would have the parser demand it always.
+    let mut guarded = a.conditional_assertions.clone();
     let unconditional = a
         .assertions
         .into_iter()
-        .filter(|x| !a.conditional_assertions.contains(x))
+        .filter(|x| match guarded.iter().position(|g| g == x) {
+            Some(i) => {
+                guarded.swap_remove(i);
+                false
+            }
+            None => true,
+        })
         .collect();
     (a.fields, a.unresolved, unconditional)
 }
@@ -2274,9 +2282,18 @@ impl Bindings {
                 .any(|(e, n)| n == name && at.start >= e.start && at.end <= e.end)
     }
 
-    /// The names in scope everywhere here — what an enclosed callback inherits.
-    fn outer(&self) -> std::collections::HashSet<String> {
-        self.names.clone()
+    /// The names in scope at `at` — what a callback sited there inherits. Not only the
+    /// function-wide ones: a `let` enclosing the callback is in scope for it, and passing
+    /// just `names` let the callback resolve a module helper the parser had shadowed.
+    fn outer_at(&self, at: Span) -> std::collections::HashSet<String> {
+        let mut out = self.names.clone();
+        out.extend(
+            self.scoped
+                .iter()
+                .filter(|(e, _)| at.start >= e.start && at.end <= e.end)
+                .map(|(_, n)| n.clone()),
+        );
+        out
     }
 }
 
@@ -2482,7 +2499,10 @@ fn assigned_names(src: &str, param: &str) -> HashMap<String, String> {
 /// of themselves. A leaf read outside the branches — an id taken before the chain, or in a
 /// branch that tests something else — belongs to the element just as much, and is in
 /// neither the union nor `unresolved`.
-fn fold_unaccounted(mut dispatched: Vec<ParsedField>, flat: Vec<ParsedField>) -> Vec<ParsedField> {
+fn fold_unaccounted(
+    mut dispatched: Vec<ParsedField>,
+    outside: Vec<ParsedField>,
+) -> Vec<ParsedField> {
     /// What a read IS, not only what it is called: a `<id>` child and an `id` attribute
     /// share a name and nothing else, and matching on the name alone dropped one of them.
     fn identity(f: &ParsedField) -> (String, String, Option<String>) {
@@ -2492,21 +2512,40 @@ fn fold_unaccounted(mut dispatched: Vec<ParsedField>, flat: Vec<ParsedField>) ->
             f.tag.clone(),
         )
     }
-    let mut accounted: std::collections::HashSet<(String, String, Option<String>)> =
+    let accounted: std::collections::HashSet<(String, String, Option<String>)> =
         dispatched.iter().map(identity).collect();
-    for v in dispatched
-        .iter()
-        .filter_map(|f| f.union_variants.as_ref())
-        .flatten()
-    {
-        accounted.extend(v.fields.iter().map(identity));
-    }
-    for f in flat {
+    for f in outside {
         if !accounted.contains(&identity(&f)) {
             merge_or_push(&mut dispatched, f);
         }
     }
     dispatched
+}
+
+/// The callback's source with each arm blanked out, so re-analysing it shows exactly what
+/// the element reads OUTSIDE the dispatch.
+///
+/// Which reads the arms explain cannot be told from the merged flat result: `value` read
+/// in two of four arms, and `id` read in one arm plus once outside, look identical there.
+/// This asks the question instead of inferring it from how many variants carry a field.
+fn body_without_arms(body_src: &str, arms: &[(Vec<String>, Span)], base: u32) -> String {
+    let mut out = body_src.as_bytes().to_vec();
+    for (_, span) in arms {
+        let (s, e) = (
+            span.start.saturating_sub(base) as usize,
+            span.end.saturating_sub(base) as usize,
+        );
+        if e > out.len() || e.saturating_sub(s) < 2 {
+            continue;
+        }
+        // Keep it parseable: an `if` still needs a body, so leave empty braces behind.
+        for b in &mut out[s..e] {
+            *b = b' ';
+        }
+        out[s] = b'{';
+        out[e - 1] = b'}';
+    }
+    String::from_utf8(out).unwrap_or_else(|_| body_src.to_string())
 }
 
 /// Read a `<category name="…" value="…">` dispatch: one attribute picks both the enum the
@@ -2636,7 +2675,17 @@ fn discriminated_children(
     let mut out = vec![disc_field];
     out.extend(common);
     out.push(union);
-    Some(out)
+    // Whatever the element reads outside the chain is still its own. Asking the body with
+    // the arms blanked answers that exactly; inferring it from the merged flat result
+    // could not tell an arm's read from one the parser makes on every path.
+    let base = ret.program.span.start;
+    let outside = analyze_with_scope(
+        &body_without_arms(body_src, &collector.arms, base),
+        param,
+        module,
+        outer_bindings,
+    );
+    Some(fold_unaccounted(out, outside.fields))
 }
 
 /// The bound name and body source of a child callback, written either as
@@ -2716,7 +2765,7 @@ fn process_child_method_at(
             // module is built to avoid.
             f.children = Some(
                 match discriminated_children(cb_body, &cb_param, module, sink.bindings) {
-                    Some(dispatched) => fold_unaccounted(dispatched, child_result.fields),
+                    Some(dispatched) => dispatched,
                     None => child_result.fields,
                 },
             );
@@ -4695,6 +4744,99 @@ mod tests {
                 .iter()
                 .map(|f| (f.name.as_str(), f.wire_name.as_deref()))
                 .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_read_an_arm_shares_with_the_element_stays_beside_the_union() {
+        // `id` is read in the `a` arm AND outside the chain, so every element carries it.
+        // Letting the arm account for it left the `b` variant accepting one without.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   if (n === "a") { e.attrString("id"); }
+                   if (n === "b") { var y = e.attrString("value"); t.beta = y; }
+                   e.attrString("id");
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        let id = kids.iter().find(|f| f.name == "id");
+        assert!(
+            id.is_some_and(|f| f.required),
+            "read on every path, so beside the union: {:?}",
+            kids.iter().map(|f| f.name.as_str()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_read_only_the_arms_make_stays_inside_them() {
+        // The mirror of the above: `value` is read in some arms and nowhere else, so it
+        // belongs to those variants and must not be lifted out.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   if (n === "a") { var x = e.attrString("value"); t.alpha = x; }
+                   if (n === "b") { var y = e.attrString("value"); t.beta = y; }
+                   if (n === "c" || n === "d") break;
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        assert_eq!(
+            kids.iter().map(|f| f.name.as_str()).collect::<Vec<_>>(),
+            ["kind", "kind_dispatch"],
+            "no `value` beside the union"
+        );
+    }
+
+    #[test]
+    fn a_helper_guard_made_both_ways_is_still_the_parsers() {
+        // Filtering the conditional ones by value dropped the unconditional occurrence
+        // too, losing a constraint the helper always enforces.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ if (flag) { p.assertAttr("status", "ok"); } p.assertAttr("status", "ok"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                parse(e);
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        assert!(
+            p.assertions
+                .iter()
+                .any(|a| a.name.as_deref() == Some("status")),
+            "the unconditional occurrence survives: {:?}",
+            p.assertions
+        );
+    }
+
+    #[test]
+    fn a_lexical_shadow_reaches_the_callback_it_encloses() {
+        // The `let` is in scope for the callback and captured by it; passing only the
+        // function-wide names let the callback resolve the module helper instead.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("from_module"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                let parse = function(q){ q.attrString("from_local"); };
+                e.mapChildrenWithTag("row", function(row){ parse(row); });
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let row = p
+            .fields
+            .iter()
+            .find(|f| f.tag.as_deref() == Some("row"))
+            .expect("row");
+        assert!(
+            row.children
+                .as_ref()
+                .is_none_or(|c| c.iter().all(|f| f.name != "from_module")),
+            "the enclosing binding shadows it here too: {:?}",
+            row.children
         );
     }
 
