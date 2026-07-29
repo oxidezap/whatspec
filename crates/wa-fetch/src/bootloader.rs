@@ -24,7 +24,7 @@
 //!
 //! WASM-safe: everything here goes through the [`HttpClient`] port.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::Value;
 
@@ -78,6 +78,10 @@ impl Default for WasmResolveOptions {
 pub struct WasmResolution {
     /// `bx` id → wasm URL, for every wasm handle resolved (page + endpoint).
     pub by_id: BTreeMap<String, String>,
+    /// Every `bx` id the response MENTIONED, before the wasm/CDN filters. `by_id` holds
+    /// only the survivors, so absence from it means either "rejected" or "never seen" —
+    /// and a merge against a prior map needs to distinguish the two.
+    pub observed_ids: BTreeSet<String>,
     /// Wasm URLs, deduped and sorted — what the downloader consumes. Includes any URL
     /// discovered by text scan that no `bx` id claimed.
     pub urls: Vec<String>,
@@ -87,9 +91,15 @@ pub struct WasmResolution {
     pub rounds: usize,
     /// Requests actually sent.
     pub requests: usize,
-    /// Requests that failed or returned a non-2xx / unparseable body, as diagnostics.
-    /// Non-fatal: resolution degrades to whatever the other requests returned.
+    /// Everything that degraded resolution, as diagnostics — a failed request, but also
+    /// a page that shipped no endpoint parameters or deferred no components. Non-fatal:
+    /// resolution degrades to whatever the other requests returned.
     pub failures: Vec<String>,
+    /// Of those, the ones that were an actual request failing. Counted separately because
+    /// "requests that failed" and "reasons resolution was degraded" are different
+    /// questions, and a pinned request-health number that includes a pre-request
+    /// diagnostic contradicts its own name.
+    pub failed_requests: usize,
 }
 
 impl WasmResolution {
@@ -154,7 +164,10 @@ pub fn resolve_wasm_with(
                 out.requests += 1;
                 match fetch_payload(client, &url) {
                     Ok(payload) => collect_bx_data(&payload, &mut bx),
-                    Err(why) => out.failures.push(format!("{param} round {round}: {why}")),
+                    Err(why) => {
+                        out.failures.push(format!("{param} round {round}: {why}"));
+                        out.failed_requests += 1;
+                    }
                 }
             }
             out.rounds += 1;
@@ -184,6 +197,10 @@ pub fn resolve_wasm_with(
 
     let mut urls: Vec<String> = Vec::new();
     for (id, uri) in bx {
+        // Recorded whether or not the binding survives the filters below: a caller
+        // merging a PRIOR map has to tell "this id was rebound to something we refuse"
+        // from "this id was never mentioned", and only the pre-filter set can say that.
+        out.observed_ids.insert(id.clone());
         if is_wasm_url(&uri) && is_cdn_payload(&uri) {
             urls.push(uri.clone());
             out.by_id.insert(id, uri);
@@ -217,7 +234,7 @@ pub fn resolve_wasm(discovered: &Discovered, opts: &WasmResolveOptions) -> WasmR
 /// `https://static.whatsapp.net:443@attacker.example/x.wasm` names `attacker.example` as
 /// the host a client would connect to, and must not pass as the CDN). Plaintext is refused
 /// so a downgraded URL can't put a fetched payload on the wire unauthenticated.
-fn is_cdn_payload(url: &str) -> bool {
+pub fn is_cdn_payload(url: &str) -> bool {
     url.starts_with("https://") && host_of(url).as_deref() == Some(ALLOWED_HOST)
 }
 
@@ -457,6 +474,34 @@ mod tests {
         }
 
         const ENDPOINT: &str = "https://web.whatsapp.com/ajax/bootloader-endpoint/";
+
+        #[test]
+        fn a_rejected_binding_is_still_recorded_as_observed() {
+            // `by_id` keeps only what survives the wasm/CDN filters, so a caller merging a
+            // PRIOR handle map cannot tell an id rebound to something refused from one the
+            // response never mentioned. `observed_ids` is what makes that distinction —
+            // and building a tombstone from `by_id` instead failed for exactly the case
+            // the tombstone exists to cover.
+            let client = CannedClient::always(200, payload(&[]));
+            let d = discovered_with(
+                ENDPOINT,
+                &[
+                    ("11", "https://attacker.example/x.wasm"),
+                    ("22", "https://static.whatsapp.net/a.wasm"),
+                ],
+            );
+            let r = resolve_wasm_with(&client, &d, &WasmResolveOptions::default());
+            assert_eq!(
+                r.by_id.keys().collect::<Vec<_>>(),
+                ["22"],
+                "only the CDN binding survives"
+            );
+            assert_eq!(
+                r.observed_ids.iter().collect::<Vec<_>>(),
+                ["11", "22"],
+                "but both were mentioned"
+            );
+        }
 
         #[test]
         fn merges_page_and_endpoint_handles_and_filters_non_wasm() {

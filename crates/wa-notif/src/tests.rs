@@ -598,7 +598,7 @@ __d("WAWebHandleDeviceNotification",["WADeprecatedWapParser"],(function(t,n,r,o,
 __d("WAWebHandleGroupNotificationConst",[],(function(t,n,r,o,a,i,l){
   var cache={};
   cache.GROUP_NOTIFICATION_TAG={ADD:"WRONG_add",SUBJECT:"WRONG_subject"};
-  var e=Object.freeze({ADD:"add",SUBJECT:"subject",EPHEMERAL:"ephemeral",NOT_EPHEMERAL:"not_ephemeral",MODIFY:"modify",GROWTH_LOCKED:"growth_locked",INVITE:"invite",LINK:"link",ANNOUNCE:"announcement",LOCKED:"locked",REVOKE_INVITE:"revoke",DESC:"description",UNLINK:"unlink"});
+  var e=Object.freeze({ADD:"add",SUBJECT:"subject",EPHEMERAL:"ephemeral",NOT_EPHEMERAL:"not_ephemeral",MODIFY:"modify",GROWTH_LOCKED:"growth_locked",INVITE:"invite",LINK:"link",ANNOUNCE:"announcement",LOCKED:"locked",REVOKE_INVITE:"revoke",DESC:"description",UNLINK:"unlink",MEMBERSHIP:"membership",GROWTH_LOCKED2:"growth_locked2"});
   l.GROUP_NOTIFICATION_TAG=e;
 }), 1);
 __d("WAWebGroupApiConst",[],(function(t,n,r,o,a,i,l){
@@ -606,7 +606,7 @@ __d("WAWebGroupApiConst",[],(function(t,n,r,o,a,i,l){
   l.GROUP_PARTICIPANT_TYPES=g;
 }), 1);
 __d("WAWebGroupType",[],(function(t,n,r,o,a,i,l){
-  var d=Object.freeze({ADD:"add",SUBJECT:"subject",EPHEMERAL:"ephemeral",MODIFY:"modify",ANNOUNCE:"announce",RESTRICT:"restrict",REVOKE_INVITE:"revoke_invite",DESC_ADD:"desc_add",DESC_REMOVE:"desc_remove"});
+  var d=Object.freeze({ADD:"add",SUBJECT:"subject",EPHEMERAL:"ephemeral",MODIFY:"modify",ANNOUNCE:"announce",RESTRICT:"restrict",REVOKE_INVITE:"revoke_invite",DESC_ADD:"desc_add",DESC_REMOVE:"desc_remove",MEMBERSHIP:"membership"});
   l.GROUP_ACTIONS=d;
 }), 1);
 __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGroupType"],(function(t,n,r,o,a,i,l){
@@ -621,9 +621,24 @@ __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGr
     if (e.hasChild("b")) return {actionType:o("WAWebGroupType").GROUP_ACTIONS.ANNOUNCE, rows:e.mapChildrenWithTag("row", function(x){ return {v:x.attrString("q")}; })};
     return {actionType:o("WAWebGroupType").GROUP_ACTIONS.ANNOUNCE, rows:e.mapChildrenWithTag("row", function(x){ return {v:x.attrString("p")}; })};
   }
+  function shadowedCb(x){ return {wrong:x.attrString("wrong")}; }
+  function hh(e){ return {wrongHelper:e.attrString("wrong")}; }
+  function callsShadowed(e,hh){ return hh(e); }
+  function parseP(x){ return {aliased:x.attrString("via_alias")}; }
+  function hx(e){ return {wrongFormal:e.attrString("nope")}; }
+  function realCb(e){ return {rightFormal:e.attrString("ok2")}; }
+  function other(e){ return null; }
+  function outerH(node, hx){ return hx(node); }
+  function mk(v){ return {chained:v}; }
+  function mk2(v){ return mk(v); }
+  function mixedKids(e){ return {plainField:e.attrString("plain"), kids:e.mapChildrenWithTag("mixed_user", function(x){ return {id:x.attrUserJid("jid")}; })}; }
+  function helperKids(e){ return e.mapChildrenWithTag("helper_user", function(x){ return {id:x.attrUserJid("jid")}; }); }
+  function withShadow(e,shadowedCb){ return e.mapChildrenWithTag("shadow_user", shadowedCb); }
   function y(e,t){ return t.mapChildrenWithTag("participant", function(p){
     return { id: p.attrUserJid("jid"), displayName: p.maybeAttrString("display_name"), kind: p.maybeAttrEnum("type", o("WAWebGroupApiConst").GROUP_PARTICIPANT_TYPES) };
   }); }
+  function innerWhole(e,v){ return {actionType:o("WAWebGroupType").GROUP_ACTIONS.RESTRICT, deepWhole:v}; }
+  function outerWhole(e,v){ return innerWhole(e,v); }
   function I(e){
     var t=e.attrString("unlink_type");
     if(t==="parent_group") return {actionType:o("WAWebGroupType").GROUP_ACTIONS.DESC_REMOVE, descId:e.attrString("id")};
@@ -667,8 +682,37 @@ __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGr
           var n;
           return {actionType:o("WAWebGroupType").GROUP_ACTIONS.RESTRICT, value:!0, threshold:(n=t.maybeAttrString("threshold"))!=null?n:void 0, seeded:thr};
         }
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.GROWTH_LOCKED2:
+          return outerWhole(t, t.attrString("deep_whole"));
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.UNLINK:
           return I(t);
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.MEMBERSHIP: {
+          var cycA=cycB, cycB=cycC, cycC=cycA;
+          var cbAlias=parseP;
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.MEMBERSHIP,
+            picked: t.hasChildren() ? t.mapChildrenWithTag("picked_user", function(x){ return {id:x.attrUserJid("jid")}; }) : [{id:"fallback"}],
+            nulled: t.hasChild("opt") ? t.mapChildrenWithTag("nulled_user", function(x){ return {id:x.attrUserJid("jid")}; }) : null,
+            anded: t.hasChild("flag") && t.mapChildrenWithTag("anded_user", function(x){ return {id:x.attrUserJid("jid")}; }),
+            parend: (t.hasChild("p") ? t.mapChildrenWithTag("parend_user", function(x){ return {id:x.attrUserJid("jid")}; }) : null),
+            shadowed: withShadow(t, function(z){ return {right:z.attrString("right")}; }),
+            viaHelper: t.hasChild("h") && helperKids(t),
+            cyclic: t.mapChildrenWithTag("cyclic_user", cycA),
+            twoDeep: mk2(t.attrString("deep_jid")),
+            viaShadowedCallee: callsShadowed(t, function(z){ return {rightHelper:z.attrString("ok")}; }),
+            mixed: t.hasChild("mx") && mixedKids(t),
+            aliasedCb: t.mapChildrenWithTag("alias_user", cbAlias),
+            nestedGuard: t.hasChild("ng") ? (t.hasChild("en") && t.mapChildrenWithTag("nested_user", function(x){ return {id:x.attrUserJid("jid")}; })) : [{id:"fb"}],
+            fromFormal: outerH(t, realCb),
+            falsyFallback: t.hasChild("ff") ? t.mapChildrenWithTag("falsy_user", function(x){ return {id:x.attrUserJid("jid")}; }) : !1,
+            bareFalse: t.hasChild("bf") ? t.mapChildrenWithTag("bare_user", function(x){ return {id:x.attrUserJid("jid")}; }) : false,
+            scalarFb: t.hasChild("sf") ? t.mapChildrenWithTag("scalar_user", function(x){ return {id:x.attrUserJid("jid")}; }) : 0,
+            reversed_: t.hasChild("rv") ? 0 : t.mapChildrenWithTag("reversed_user", function(x){ return {id:x.attrUserJid("jid")}; }),
+            parenRev: (t.hasChild("pr") ? 0 : t.mapChildrenWithTag("paren_rev_user", function(x){ return {id:x.attrUserJid("jid")}; })),
+            callRev: t.hasChild("cr") ? other(t) : t.mapChildrenWithTag("call_rev_user", function(x){ return {id:x.attrUserJid("jid")}; }),
+            nestedRev: t.hasChild("n1") ? other(t) : (t.hasChild("n2") ? other(t) : t.mapChildrenWithTag("nested_rev_user", function(x){ return {id:x.attrUserJid("jid")}; })),
+            twoMaps: t.hasChild("tm") ? t.mapChildrenWithTag("tm_p", function(x){ return {id:x.attrUserJid("jid")}; }) : t.mapChildrenWithTag("tm_q", function(x){ return {id:x.attrUserJid("jid")}; }),
+            sameTagDiffCb: t.hasChild("st") ? t.mapChildrenWithTag("same_tag", function(x){ return {id:x.attrUserJid("jid")}; }) : t.mapChildrenWithTag("same_tag", function(x){ return {id:x.attrUserJid("lid")}; })};
+        }
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.REVOKE_INVITE:
           return {actionType:o("WAWebGroupType").GROUP_ACTIONS.REVOKE_INVITE, participants:t.mapChildrenWithTag("participant", function(p){ return {id:p.attrUserJid("jid"), expiration:p.attrInt("expiration")}; }), owners:t.mapChildrenWithTag("owner", p=>o("WAWebJidToWid").userJidToUserWid(p.maybeAttrPhoneUserJid("phone_number")))};
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.DESC:
@@ -789,6 +833,209 @@ fn group_action_arms_recover_fields_children_and_branches() {
         .expect("desc");
     assert!(body.content);
     assert_eq!(body.wire_name, "body");
+}
+
+#[test]
+fn a_mapped_child_is_optional_only_when_the_guard_admits_absence() {
+    // `strip_guard` reaches through a guard to find the map call, so all three arrive.
+    // Whether the collection can be MISSING is a different question from whether a guard
+    // is present, and answering it with `is_guarded` alone gets the first case wrong:
+    // WA's live `created_membership_requests` reads
+    // `t.hasChildren() ? t.mapChildrenWithTag(…) : [{wid: …}]`, which always yields a
+    // collection. Only a literal absence on the far side — or `&&`, whose falsy path
+    // yields no value at all — makes it optional.
+    let ir = extract_notif(GROUP_ACTIONS_BUNDLE, "2.3000.test");
+    let arm = group_actions(&ir)
+        .into_iter()
+        .find(|a| a.wire_tag == "membership")
+        .expect("membership arm");
+    let child = |name: &str| {
+        arm.children
+            .iter()
+            .find(|c| c.name == name)
+            .unwrap_or_else(|| panic!("no child {name}"))
+    };
+    assert!(
+        child("picked").required,
+        "a ternary between two real values always yields a collection"
+    );
+    assert!(
+        !child("nulled").required,
+        "`cond ? map(…) : null` may be absent"
+    );
+    assert!(!child("anded").required, "`cond && map(…)` may be absent");
+    assert!(
+        !child("parend").required,
+        "a paren around the guard must not hide it"
+    );
+    // A callback name that a caller binding SHADOWS must resolve to what the caller
+    // passed, not to the module function of the same name. Publishing the module one
+    // would report an unrelated element's fields as this child's.
+    let sh = child("shadowed");
+    assert_eq!(sh.wire_tag, "shadow_user");
+    let names: Vec<&str> = sh.fields.iter().map(|f| f.name.as_str()).collect();
+    assert_eq!(
+        names,
+        ["right"],
+        "the shadowing argument wins, not `shadowedCb`"
+    );
+
+    // A guard around a value-position HELPER belongs to the key, not to the helper: the
+    // inliner is handed the stripped expression, so the map inside looks unguarded.
+    assert!(
+        !child("viaHelper").required,
+        "`cond && helper(node)` may produce no collection"
+    );
+    assert_eq!(child("viaHelper").wire_tag, "helper_user");
+
+    // An alias CYCLE (`cycA → cycB → cycC → cycA`) must terminate. `deref_ident` caps at
+    // four hops, so on a 3-cycle it hands back a different identifier every time, and
+    // recursing on that walked the cycle until the stack went — reaching this assertion
+    // at all is most of the test.
+    let cyc = child("cyclic");
+    assert_eq!(cyc.wire_tag, "cyclic_user");
+    assert!(
+        cyc.fields.is_empty(),
+        "an unresolved callback contributes no fields"
+    );
+
+    // A value threaded through TWO helpers: the second inlining re-parses a synthetic
+    // buffer, so its spans index that buffer — slicing the module with them lands on
+    // unrelated text, in range and therefore unguarded, and the field vanishes.
+    let deep = arm
+        .fields
+        .iter()
+        .find(|f| f.name == "chained")
+        .expect("a field threaded through two helpers survives");
+    assert_eq!(deep.wire_name, "deep_jid");
+
+    // A helper CALLEE the caller binds is the one that runs. Inlining the module-level
+    // function of the same name would publish an unrelated helper's fields.
+    let names: Vec<&str> = arm.fields.iter().map(|f| f.name.as_str()).collect();
+    assert!(
+        !names.contains(&"wrongHelper"),
+        "the module-level `hh` must not be inlined over the bound one: {names:?}"
+    );
+    // ...and the one that IS bound must still come through. Asserting only the absence
+    // would pass just as happily if the resolution silently produced nothing.
+    assert!(
+        names.contains(&"rightHelper"),
+        "the callback the caller bound is the one that runs: {names:?}"
+    );
+
+    // A guarded value-position helper whose branches yield BOTH a collection and a flat
+    // field must weaken both. Only the collection was being weakened.
+    let plain = arm
+        .fields
+        .iter()
+        .find(|f| f.name == "plainField")
+        .expect("the helper's flat branch contributes a field");
+    assert!(
+        !plain.required,
+        "`cond && helper(node)` makes the helper's fields optional too, not only its children"
+    );
+
+    // A TERMINAL alias (`var cbAlias = parseP`) names a module callback and must resolve.
+    // The cycle guard above refuses any chain ending on an identifier, which threw this
+    // away too — the child shipped with an empty field list.
+    let aliased = child("aliasedCb");
+    assert_eq!(aliased.wire_tag, "alias_user");
+    assert_eq!(
+        aliased
+            .fields
+            .iter()
+            .map(|f| f.name.as_str())
+            .collect::<Vec<_>>(),
+        ["aliased"],
+        "a terminal alias resolves through the module callbacks"
+    );
+
+    // A guard NESTED inside a ternary branch: neither end is nullish, but the `&&` path
+    // still yields no collection.
+    assert!(
+        !child("nestedGuard").required,
+        "a guard inside a branch counts, not only a nullish terminal"
+    );
+
+    // A helper FORMAL shadows a module helper of the same name even when `apply_args`
+    // declines to substitute — the formal never reaches `Scope` on that path.
+    let names2: Vec<&str> = arm.fields.iter().map(|f| f.name.as_str()).collect();
+    assert!(
+        !names2.contains(&"wrongFormal"),
+        "the module-level `hx` must not win over the formal: {names2:?}"
+    );
+
+    // `: !1` is how the minifier writes `false`, and a boolean is no more a collection
+    // than `null` is — the `&&` form of the same falsy path was already handled.
+    assert!(
+        !child("falsyFallback").required,
+        "a falsy literal fallback is an absent collection"
+    );
+    // Both spellings: `!1` is a unary expression, `false` a boolean literal, and they are
+    // recognised by different arms — a test hitting only one leaves the other unguarded.
+    assert!(
+        !child("bareFalse").required,
+        "the unminified `false` is the same absence"
+    );
+    // A scalar sentinel is no more a collection than `null` is.
+    assert!(
+        !child("scalarFb").required,
+        "`: 0` on the far side is an absent collection too"
+    );
+    // The same ternary written the other way round must yield the same child, not none:
+    // `strip_guard` follows the consequent, so the map in the ALTERNATE was invisible.
+    let rev = child("reversed_");
+    assert_eq!(rev.wire_tag, "reversed_user");
+    assert!(!rev.required, "the scalar consequent is the absent path");
+    // ...and a paren around it must not hide the conditional from the branch search.
+    // A CALL consequent is the case the `0` fixtures could not reach: filtering the
+    // combined result made the fallback fire only when the consequent was not a call.
+    assert_eq!(child("callRev").wire_tag, "call_rev_user");
+    // ...and nested one level deeper: looking at a single alternate found the inner
+    // conditional, not the map inside it.
+    assert_eq!(child("nestedRev").wire_tag, "nested_rev_user");
+    // Two DIFFERENT collections, one per branch: publishing either tag would describe a
+    // shape the runtime produces only half the time, so the child is refused instead.
+    assert!(
+        !arm.children.iter().any(|c| c.name == "twoMaps"),
+        "conflicting tags in the two branches must not resolve to one of them"
+    );
+    // Same tag, DIFFERENT callbacks: publishing one would assert `jid` for a branch that
+    // reads `lid`. Equal tag is not equal shape.
+    assert!(
+        !arm.children.iter().any(|c| c.name == "sameTagDiffCb"),
+        "same tag with different callback reads is still ambiguous"
+    );
+
+    let paren_rev = child("parenRev");
+    assert_eq!(paren_rev.wire_tag, "paren_rev_user");
+    assert!(
+        !paren_rev.required,
+        "the paren must not cost the absence either — asserting only the tag would pass \
+         with the collection wrongly marked always-present"
+    );
+
+    // The guard must not cost the child's contents.
+    assert_eq!(child("anded").wire_tag, "anded_user");
+    assert_eq!(child("anded").fields.len(), 1);
+}
+
+#[test]
+fn a_two_level_whole_result_helper_keeps_its_fields() {
+    // `expand_helper` re-parses into a synthetic buffer just as `inline_local` does, but
+    // only one of the two rebound the context to it — so at the second level the nested
+    // `local_call_source` sliced the module source with this buffer's offsets: in range,
+    // unguarded, and unrelated.
+    let ir = extract_notif(GROUP_ACTIONS_BUNDLE, "2.3000.test");
+    let arm = group_actions(&ir)
+        .into_iter()
+        .find(|a| a.wire_tag == "growth_locked2")
+        .expect("the delegating arm");
+    let names: Vec<&str> = arm.fields.iter().map(|f| f.name.as_str()).collect();
+    assert!(
+        names.contains(&"deepWhole"),
+        "the field survives two whole-result helpers: {names:?}"
+    );
 }
 
 #[test]
@@ -1229,7 +1476,7 @@ __d("WAWebCommsHandleLoggedInStanza",["WAWebHandleGroupNotification"],function(g
   }); };
 }, 1);
 __d("WAWebHandleGroupNotificationConst",[],(function(t,n,r,o,a,i,l){
-  l.GROUP_NOTIFICATION_TAG=Object.freeze({EVICT:"evict",COND:"cond",REBIND:"rebind",PICK:"pick",BARE:"bare",HELPER:"helper",ESCAPE:"escape",TAIL:"tail",JOIN:"join",SEQ:"seq",SUFFIX:"suffix",AFTER:"after",TRY:"try_tag",FIN:"fin",FINCOND:"fincond",FINTHROW:"finthrow",MULTI:"multi",MULTI3:"multi3",DEAD:"dead",LIT:"lit",LOOP:"loop_tag",FINTRY:"fintry",PARAM:"param",BLK:"blk",EXH:"exh",NFT:"nft",LATE:"late",DOW:"dow",SHADOW:"shadow",CATCHP:"catchp",DOWX:"dowx",SAME:"same",NEST:"nest",DOWB:"dowb",PVAL:"pval",SPREAD:"spread",DOWBRK:"dowbrk",FINW:"finw",FORI:"fori",CONDW:"condw",SPRD:"sprd"});
+  l.GROUP_NOTIFICATION_TAG=Object.freeze({EVICT:"evict",COND:"cond",REBIND:"rebind",PICK:"pick",BARE:"bare",HELPER:"helper",ESCAPE:"escape",TAIL:"tail",JOIN:"join",SEQ:"seq",SUFFIX:"suffix",AFTER:"after",TRY:"try_tag",FIN:"fin",FINCOND:"fincond",FINTHROW:"finthrow",MULTI:"multi",MULTI3:"multi3",DEAD:"dead",LIT:"lit",LOOP:"loop_tag",FINTRY:"fintry",PARAM:"param",BLK:"blk",EXH:"exh",NFT:"nft",LATE:"late",DOW:"dow",SHADOW:"shadow",CATCHP:"catchp",DOWX:"dowx",SAME:"same",NEST:"nest",DOWB:"dowb",PVAL:"pval",SPREAD:"spread",DOWBRK:"dowbrk",FINW:"finw",FORI:"fori",CONDW:"condw",SPRD:"sprd",ALIAS:"alias",NAMEDCB:"namedcb",OPTCH:"optch"});
 }), 1);
 __d("WAWebGroupType",[],(function(t,n,r,o,a,i,l){
   l.GROUP_ACTIONS=Object.freeze({FIRST:"first",SECOND:"second",THIRD:"third"});
@@ -1238,6 +1485,7 @@ __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGr
   function hlp(e){ return {actionType:o("WAWebGroupType").GROUP_ACTIONS.SECOND, extra:e.attrString("extra")}; }
   function norm(v){ return v == null ? null : v; }
   function mk(v){ return {actionType:o("WAWebGroupType").GROUP_ACTIONS.THIRD, id:v}; }
+  function parseP(p){ return {id:p.attrString("jid"), nick:p.maybeAttrString("nick")}; }
   function h(e){
     var x=e.mapChildrenWithTag("child", function(t){
       switch (t.tag) {
@@ -1368,6 +1616,15 @@ __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGr
         }
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.SPRD:
           return babelHelpers.extends({actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST}, {id:t.attrString("jid"), ...base});
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.ALIAS: {
+          var av = t.attrString("jid");
+          return mk(av);
+        }
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.NAMEDCB:
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.FIRST, who:t.mapChildrenWithTag("participant", parseP)};
+        case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.OPTCH:
+          if (t.hasChild("full")) return {actionType:o("WAWebGroupType").GROUP_ACTIONS.SECOND, who:t.mapChildrenWithTag("p", function(p){ return {id:p.attrString("jid")}; })};
+          return {actionType:o("WAWebGroupType").GROUP_ACTIONS.SECOND, other:t.attrString("o")};
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.SUFFIX:
           switch (t.attrString("k")) {
             case "a": t.attrString("setup");
@@ -2078,4 +2335,54 @@ fn an_action_object_with_a_spread_is_refused() {
         "no partial shape is published: {:?}",
         a.fields
     );
+}
+
+#[test]
+fn a_helper_given_an_aliased_read_binds_its_parameter() {
+    // The minifier hoists nearly every read into a local, so `var av = attrString("jid");
+    // mk(av)` passes the text `av` — no wire read in it, and meaningless inside the
+    // helper's own parse. Resolving the argument through the caller's scope first is what
+    // makes the alias form work; deciding on the raw text declined it.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let a = edge_action(&ir, "alias");
+    assert_eq!(a.action_type.as_deref(), Some("third"));
+    let f = a
+        .fields
+        .iter()
+        .find(|f| f.name == "id")
+        .expect("the id field");
+    assert_eq!(f.wire_name, "jid");
+}
+
+#[test]
+fn a_named_mapped_child_callback_is_read() {
+    // `mapChildrenWithTag("participant", parseP)` — a module-local callback by NAME is a
+    // function too. Rejecting the identifier before looking at its body emitted the child
+    // with no fields, telling a consumer the element carries nothing.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let a = edge_action(&ir, "namedcb");
+    let child = a
+        .children
+        .iter()
+        .find(|c| c.name == "who")
+        .expect("the child");
+    let names: Vec<&str> = child.fields.iter().map(|f| f.name.as_str()).collect();
+    assert!(
+        names.contains(&"id") && names.contains(&"nick"),
+        "fields: {names:?}"
+    );
+}
+
+#[test]
+fn a_child_only_one_branch_carries_is_optional() {
+    // Two branches, one action, and only one carries the collection. Claiming it is always
+    // present is the same over-assertion `required` prevents for a scalar, one level up.
+    let ir = extract_notif(GROUP_ACTIONS_EDGE_BUNDLE, "2.3000.test");
+    let a = edge_action(&ir, "optch");
+    let child = a
+        .children
+        .iter()
+        .find(|c| c.name == "who")
+        .expect("the child survives");
+    assert!(!child.required, "a branch without it makes it optional");
 }

@@ -1881,6 +1881,7 @@ dependencies = [
  "oxc_allocator",
  "oxc_ast",
  "oxc_ast_visit",
+ "oxc_syntax",
  "wa-ir",
  "wa-oxc",
  "wa-transform",

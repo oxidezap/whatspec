@@ -26,8 +26,40 @@
 //!
 //! Both the case labels and the `actionType` values are `Module.CONST.MEMBER`
 //! references, so they are resolved against the defining module rather than guessed.
+//!
+//! # What this models, and what it does not
+//!
+//! Reading those arms means interpreting minified JavaScript, and this file has grown a
+//! small scope-and-control-flow analysis to do it. It is not a general one, and the
+//! boundary is worth stating rather than rediscovering: a construct outside it does not
+//! produce a *wrong* action so much as a thin one, and knowing which is which is the
+//! difference between trusting the output and auditing it.
+//!
+//! **Modelled.** Bindings in statement order (`var`, plain and comma-sequence
+//! assignment, `let`/`const` confined to their block); branch scopes that clone and
+//! rejoin, with a name any branch rewrote tombstoned rather than guessed; `if`/`else`,
+//! bare blocks, `switch` with fall-through suffixes, `try`/`catch`/`finally` (the
+//! finalizer's writes are definite, the body's are not), every loop form (`do…while`
+//! runs once, so its writes are definite unless a path breaks out), and reachability —
+//! nothing after a statement that exits on every path is collected. Module-local
+//! helpers are inlined, bounded, including one applied to a wire read passed by value or
+//! through an alias. Ambiguity is refused: two branches binding one output key to
+//! different wire reads drop the key, and a table or object that cannot be read whole
+//! (a spread, a computed member) is refused entirely rather than half-reported.
+//!
+//! **Not modelled.** Values that flow through anything other than a local binding or a
+//! helper parameter — a property of an object, an array element, a closure over an outer
+//! function's variable. Loop iteration: a body is analysed once, so a field whose source
+//! depends on which pass wrote it is not resolved. Any arithmetic or string building on
+//! a wire value. `label:`/`continue label`. Nested functions other than the helpers
+//! reached explicitly, which is deliberate — descending into them is what would drag the
+//! top-level child-tag dispatch into an arm's returns.
+//!
+//! When a construct falls outside, the arm loses the field rather than inventing one,
+//! and `dropsByReason` counts what was seen and not recovered. That is the invariant to
+//! preserve if this grows: a reader that guesses is worse than one that reports a gap.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{Expression, Statement, SwitchStatement};
@@ -372,13 +404,16 @@ pub(crate) fn extract_actions(
             }
         }
     }
+    let locals: HashMap<String, String> = by_name
+        .into_iter()
+        .filter_map(|(n, src)| src.map(|s| (n, s)))
+        .collect();
+    let no_formals = HashSet::new();
     let ctx = ArmCtx {
         consts,
         source: handler_slice,
-        locals: by_name
-            .into_iter()
-            .filter_map(|(n, src)| src.map(|s| (n, s)))
-            .collect(),
+        locals: &locals,
+        formals: &no_formals,
     };
     let mut finder = SwitchFinder {
         ctx: &ctx,
@@ -393,11 +428,36 @@ pub(crate) fn extract_actions(
 /// module's local helper functions, as re-parsable source (keyed by name).
 struct ArmCtx<'c, 'a> {
     consts: &'c ConstResolver<'a>,
-    locals: HashMap<String, String>,
-    /// The handler module's source, so an inlined helper can be given the TEXT of the
-    /// arguments it was called with. The helper is re-parsed in its own allocator, so a
-    /// call-site AST reference cannot cross into it — its source can.
+    locals: &'c HashMap<String, String>,
+    /// The source THIS context's spans index into, so an inlined helper can be given the
+    /// TEXT of the arguments it was called with. The helper is re-parsed in its own
+    /// allocator, so a call-site AST reference cannot cross into it — its source can.
+    ///
+    /// Borrowed rather than fixed to the module, because nested inlining re-parses a
+    /// SYNTHETIC buffer: the spans of nodes in it are offsets into that buffer, and
+    /// slicing the module with them lands on unrelated text — in range, so the bounds
+    /// check never fires, just wrong. `inline_local` rebinds this to the buffer it parsed.
     source: &'c str,
+    /// Formal parameter names of the helper currently being inlined.
+    ///
+    /// They SHADOW module helpers of the same name for the whole body, but they are not
+    /// in `Scope`: `apply_args` deliberately declines to substitute unless an argument
+    /// carries a wire read (doing it unconditionally cost 62 shape elements), so the
+    /// binding that would have recorded them never happens. Carried separately so the
+    /// shadowing survives even when the substitution is skipped.
+    formals: &'c HashSet<String>,
+}
+
+impl<'c, 'a> ArmCtx<'c, 'a> {
+    /// The same context reading a different source buffer, for the helper's formals.
+    fn nested(&self, source: &'c str, formals: &'c HashSet<String>) -> ArmCtx<'c, 'a> {
+        ArmCtx {
+            consts: self.consts,
+            locals: self.locals,
+            source,
+            formals,
+        }
+    }
 }
 
 /// Collects `function name(…){…}` / `var name = function(…){…}` spans in a module.
@@ -751,11 +811,23 @@ impl BranchFold {
             self.def.action_type = from.action_type;
         }
         merge_fields(&mut self.def.fields, from.fields, false, &mut self.dead);
+        // A collection this branch does NOT carry cannot be claimed as always present —
+        // the same all-branches accounting `merge_fields` does for scalars.
+        for existing in self.def.children.iter_mut() {
+            if !from.children.iter().any(|c| c.name == existing.name) {
+                existing.required = false;
+            }
+        }
         for c in from.children {
             match self.def.children.iter_mut().find(|x| x.name == c.name) {
                 // Same output name and the same element: their field sets are
                 // alternatives and merge under the rule above.
                 Some(existing) if existing.wire_tag == c.wire_tag => {
+                    // `from` may itself be a FOLD of several branches, and already know
+                    // the child is absent from one of them. Merging only the fields kept
+                    // `existing.required` true and re-asserted a presence the incoming
+                    // side had already disproved.
+                    existing.required &= c.required;
                     let dead = self.dead_child_fields.entry(c.name.clone()).or_default();
                     merge_fields(&mut existing.fields, c.fields, false, dead);
                 }
@@ -764,7 +836,11 @@ impl BranchFold {
                 Some(existing) => {
                     self.dead_children.insert(existing.name.clone());
                 }
-                None => self.def.children.push(c),
+                // First seen in a LATER branch, so an earlier one lacked it.
+                None => self.def.children.push(NotifActionChild {
+                    required: false,
+                    ..c
+                }),
             }
         }
         // A constant only some branches stamp is not a property of the action.
@@ -1361,7 +1437,7 @@ fn expand_shape(
     depth: u8,
 ) -> Vec<NotifActionDef> {
     if depth <= MAX_INLINE_DEPTH
-        && let Some(src) = local_call_source(deref_ident(result, scope), ctx)
+        && let Some(src) = local_call_source(deref_ident(result, scope), ctx, scope)
     {
         let expanded = expand_helper(wire_tag, &src.0, &src.1, ctx, depth + 1);
         if !expanded.is_empty() {
@@ -1389,6 +1465,28 @@ fn apply_args(fn_src: &str, arg_srcs: &[String]) -> String {
     } else {
         format!("({fn_src})")
     }
+}
+
+/// The parameter names a helper declares, whether or not the call was substituted.
+fn helper_formals(e: &Expression) -> HashSet<String> {
+    let params = match e {
+        Expression::FunctionExpression(f) => &f.params,
+        Expression::ArrowFunctionExpression(f) => &f.params,
+        _ => return HashSet::new(),
+    };
+    let mut out = HashSet::new();
+    let mut add = |p: &oxc_ast::ast::BindingPattern| {
+        for id in p.get_binding_identifiers() {
+            out.insert(id.name.to_string());
+        }
+    };
+    for p in &params.items {
+        add(&p.pattern);
+    }
+    if let Some(rest) = &params.rest {
+        add(&rest.rest.argument);
+    }
+    out
 }
 
 /// Split a parsed `((fn)(a, b))` into the function and a scope binding its formals to
@@ -1458,6 +1556,12 @@ fn expand_helper(
         return Vec::new();
     };
     let (func, bound) = applied_helper(func);
+    // Same rebinding `inline_local` does, and for the same reason: from here the spans
+    // index `wrapped`, so a nested `local_call_source` slicing the module with them lands
+    // on unrelated text — in range, so nothing catches it. Only one of the two whole-body
+    // expansion paths had it, which is exactly how the first bug survived its own fix.
+    let formals = helper_formals(func);
+    let ctx = &ctx.nested(&wrapped, &formals);
     let mut merged: Vec<BranchFold> = Vec::new();
     for (shape, scope) in fn_result_shapes(func, &bound) {
         for action in expand_shape(wire_tag, shape, &scope, ctx, depth) {
@@ -1519,9 +1623,9 @@ fn fold_shape<'b, 'a>(
             // A helper whose whole result is a repeated element (`return
             // child.mapChildrenWithTag("participant", …)` — where every participant
             // list lives). The caller names it after the key it was bound to.
-            if let Some(child) = mapped_child("", e, scope, ctx.consts) {
+            if let Some(child) = mapped_child("", e, scope, ctx) {
                 def.children.push(child);
-            } else if let Some(src) = local_call_source(e, ctx) {
+            } else if let Some(src) = local_call_source(e, ctx, scope) {
                 inline_local(&src.0, &src.1, def, ctx, depth);
             }
         }
@@ -1533,18 +1637,49 @@ fn fold_shape<'b, 'a>(
 const MAX_INLINE_DEPTH: u8 = 3;
 
 /// The source of the module-local helper `e` calls, if it is one.
-fn local_call_source(e: &Expression, ctx: &ArmCtx) -> Option<(String, Vec<String>)> {
+fn local_call_source<'b, 'a>(
+    e: &'b Expression<'a>,
+    ctx: &ArmCtx,
+    scope: &Scope<'b, 'a>,
+) -> Option<(String, Vec<String>)> {
     let call = as_call(e)?;
     let name = as_identifier(&call.callee)?;
-    let src = ctx.locals.get(name).cloned()?;
+    // The CALLEE is subject to the caller's bindings too, not only the arguments below.
+    // `outer(h, node){ return h(node) }` calls the `h` it was handed, so the module-level
+    // `h` of the same name would publish an unrelated helper's fields, or a different
+    // action entirely.
+    //
+    // What the caller bound is preferred, not merely refused: its text comes out of the
+    // source these spans index, which is why `ArmCtx` carries that buffer. Refusing
+    // outright loses a resolvable case — the whole field list of a callback passed as a
+    // literal. Only when the binding cannot be read back does it fall through to nothing.
+    let src = match scope.get(name) {
+        Some(bound) => {
+            let sp = oxc_span::GetSpan::span(*bound);
+            ctx.source
+                .get(sp.start as usize..sp.end as usize)?
+                .to_string()
+        }
+        // A formal whose argument `apply_args` declined to substitute: the name is bound
+        // at runtime to something this pass never saw, so the module helper is certainly
+        // not it.
+        None if ctx.formals.contains(name) => return None,
+        None => ctx.locals.get(name).cloned()?,
+    };
     // The argument TEXT, so `inline_local` can bind the helper's formals. A span outside
     // the module source (a synthesized node) yields nothing for that position rather than
     // a wrong slice.
+    //
+    // Resolved through the caller's scope FIRST. The minifier hoists nearly every read
+    // into a local, so `var x = child.attrString("jid"); h(x)` passes the text `x` — which
+    // carries no wire read, means nothing inside the helper's own parse, and made the
+    // binding decline. Splicing what `x` is BOUND to is what makes the alias form work.
     let args = call
         .arguments
         .iter()
         .map(|a| {
             arg_expr(a)
+                .map(|e| deref_ident(e, scope))
                 .map(oxc_span::GetSpan::span)
                 .and_then(|sp| ctx.source.get(sp.start as usize..sp.end as usize))
                 .unwrap_or("")
@@ -1583,6 +1718,12 @@ fn inline_local(
         return;
     };
     let (func, bound) = applied_helper(func);
+    // From here the spans belong to `wrapped`, not to whatever this context was reading.
+    // Folding with the outer source would slice the module at this buffer's offsets: in
+    // range and therefore unguarded, but unrelated text — which cost the field a second
+    // helper level down (`mk2(v){ return mk(v) }`).
+    let formals = helper_formals(func);
+    let ctx = &ctx.nested(&wrapped, &formals);
     // Each of the helper's result branches is folded on its own and then MERGED, not
     // accumulated: a helper returning `{x: …}` in one branch and `{y: …}` in another
     // describes two legal shapes, and combining them would make the enclosing action
@@ -1720,13 +1861,13 @@ fn fold_object<'b, 'a>(
             write_key(def, key, KeyValue::Const(c));
             continue;
         }
-        if let Some(child) = mapped_child(key, value, scope, ctx.consts) {
+        if let Some(child) = mapped_child(key, value, scope, ctx) {
             write_key(def, key, KeyValue::Child(child));
             continue;
         }
         // A helper call in value position (`participants: y(chat, child, tag)`): inline
         // it under this key — that is where every participant list actually lives.
-        if let Some(src) = local_call_source(strip_guard(value), ctx)
+        if let Some(src) = local_call_source(strip_guard(value), ctx, scope)
             && depth < MAX_INLINE_DEPTH
         {
             let mut nested = empty_action(String::new());
@@ -1749,11 +1890,24 @@ fn fold_object<'b, 'a>(
             }
             // A helper whose result is a repeated element becomes this key's child list;
             // one that returns a flat object contributes its fields under their own names.
+            //
+            // The OUTER guard has to survive the inlining. `local_call_source` above is
+            // handed `strip_guard(value)`, so `participants: enabled && buildIt(node)`
+            // reaches the helper with the guard already gone, and the `mapped_child` inside
+            // sees an unguarded map — reporting a collection as always present when the
+            // falsy path produces none. The guard belongs to the key, not to the helper.
+            let outer_absent = guard_admits_absence(value);
             for mut c in nested.children {
                 c.name = key.to_string();
+                c.required &= !outer_absent;
                 write_key(def, key, KeyValue::Child(c));
             }
-            for f in nested.fields {
+            // Fields carry the same guard as children above. A helper whose branches
+            // yield a mapped collection in one and a flat object in the other contributes
+            // both kinds under `cond && helper(node)`, and only the collection was being
+            // weakened — leaving a genuinely optional field marked required.
+            for mut f in nested.fields {
+                f.required &= !outer_absent;
                 let fkey = f.name.clone();
                 write_key(def, &fkey, KeyValue::Field(f));
             }
@@ -1789,20 +1943,41 @@ fn mapped_child<'b, 'a>(
     key: &str,
     e: &'b Expression<'a>,
     scope: &Scope<'b, 'a>,
-    consts: &ConstResolver,
+    ctx: &ArmCtx,
 ) -> Option<NotifActionChild> {
-    let call = as_call(strip_guard(e))?;
-    if callee_method(call)? != wap::MAP_CHILDREN_WITH_TAG {
-        return None;
-    }
+    // Either branch may carry the map. `strip_guard` always follows the consequent, so
+    // `disabled ? 0 : node.mapChildrenWithTag(…)` — the same shape written the other way
+    // round — dropped the child entirely, while the absence check beside it already looks
+    // at both. Reversing an equivalent ternary must not erase the collection.
+    // Unwrapped first: `(cond ? 0 : map(…))` hides the conditional behind a paren, and
+    // matching on the wrapper answers "not a conditional". Third time this wrapper has
+    // cost this file something.
+    // The search filters each candidate on its own and descends into nested branches —
+    // see `find_mapped_call`. Filtering a combined result made the fallback fire only
+    // when the consequent was not a call at all, and looking one level down found an
+    // inner conditional rather than the map inside it.
+    let call = find_mapped_call(e)?;
     let wire_tag = arg_expr(call.arguments.first()?).and_then(as_string_lit)?;
     let mut fields = Vec::new();
     for arg in &call.arguments {
         if let Some(e) = arg_expr(arg) {
-            collect_accessor_fields(e, scope, consts, &mut fields);
+            collect_accessor_fields(e, scope, ctx, &mut fields);
         }
     }
     Some(NotifActionChild {
+        // `strip_guard` above deliberately reaches THROUGH a guard to find the map call,
+        // so `participants: enabled && node.mapChildrenWithTag(…)` is recovered — and on
+        // that path there is a legal execution with no collection at all. Reporting it
+        // required regardless promised a consumer a collection that may never arrive,
+        // and `BranchFold` cannot correct it: the guard sits inside one object shape
+        // rather than splitting the arm into branches it could merge.
+        //
+        // What it is NOT is `!is_guarded(e)`. `read_field` runs `value_selection` before
+        // consulting the guard precisely because a ternary between two REAL values is a
+        // choice of source, not an absence — and the one live case here is exactly that:
+        // `requests: t.hasChildren() ? t.mapChildrenWithTag(…) : [{wid: …}]` always
+        // yields a collection. Only a literal absence on the far side makes it optional.
+        required: !guard_admits_absence(e),
         name: key.to_string(),
         wire_tag: wire_tag.to_string(),
         fields,
@@ -1903,13 +2078,122 @@ fn value_selection<'b, 'a>(
     }
 }
 
+/// Whether a guard around a value has an execution path that produces NO value.
+///
+/// Stricter than [`is_guarded`], which asks only whether a guard is present. A ternary
+/// selecting between two real values (`cond ? mapChildren(…) : [fallback]`) is guarded
+/// yet always yields something, so treating every guard as optionality would publish
+/// `required: false` for a collection that is in fact always there. `a && value` is the
+/// opposite: the falsy path yields no value at all.
+fn guard_admits_absence(e: &Expression) -> bool {
+    match e {
+        // `(cond ? map(…) : null)` is a paren wrapping the guard, and matching on the
+        // wrapper would answer "no guard here" for a guard that is plainly there. The
+        // same wrapper has cost this file a field twice before; `strip_guard` unwraps it
+        // for exactly this reason, so the two must agree on what they are looking at.
+        Expression::ParenthesizedExpression(p) => guard_admits_absence(&p.expression),
+        Expression::ConditionalExpression(c) => {
+            // Each branch is examined WHOLE, not just its stripped terminal: a guard can
+            // sit inside one (`cond ? enabled && map(…) : fallback`), where neither end
+            // is nullish yet the `!enabled` path still yields no collection. Terminates —
+            // every step descends into a strictly smaller expression.
+            is_nullish(strip_guard(&c.consequent))
+                || is_nullish(strip_guard(&c.alternate))
+                || guard_admits_absence(&c.consequent)
+                || guard_admits_absence(&c.alternate)
+        }
+        Expression::LogicalExpression(l) => {
+            l.operator == oxc_syntax::operator::LogicalOperator::And
+        }
+        _ => false,
+    }
+}
+
+/// The `mapChildrenWithTag` call reachable from `e` through guards and ternary branches.
+///
+/// Both sides, RECURSIVELY: `a ? x : (b ? y : map(…))` nests, and looking one level down
+/// found the inner conditional rather than the map. Each step descends into a strictly
+/// smaller node, so it terminates on the expression's own depth.
+fn find_mapped_call<'b, 'a>(e: &'b Expression<'a>) -> Option<&'b oxc_ast::ast::CallExpression<'a>> {
+    let is_map =
+        |c: &&oxc_ast::ast::CallExpression| callee_method(c) == Some(wap::MAP_CHILDREN_WITH_TAG);
+    let e = strip_parens(e);
+    // A conditional is reconciled BEFORE the `strip_guard` shortcut: that shortcut follows
+    // the consequent, so `cond ? map("p") : map("q")` would return the first map and never
+    // reach the comparison below.
+    if !matches!(e, Expression::ConditionalExpression(_))
+        && let Some(c) = as_call(strip_guard(e)).filter(is_map)
+    {
+        return Some(c);
+    }
+    match e {
+        Expression::ConditionalExpression(c) => {
+            // BOTH branches, reconciled. Taking the first one reached published one wire
+            // tag for a shape that produces two: `cond ? map("p", …) : map("q", …)` is
+            // two different collections, and picking either is a guess. Same tag on both
+            // sides is one collection written twice and keeps working.
+            match (
+                find_mapped_call(&c.consequent),
+                find_mapped_call(&c.alternate),
+            ) {
+                (Some(a), Some(b)) => {
+                    fn tag<'x>(c: &'x oxc_ast::ast::CallExpression) -> Option<&'x str> {
+                        c.arguments
+                            .first()
+                            .and_then(arg_expr)
+                            .and_then(as_string_lit)
+                    }
+                    // Same tag is not the same shape: callbacks reading `jid` and
+                    // `lid` would publish an always-required `jid` for a branch that
+                    // carries only `lid`. The whole call must match, arguments included.
+                    let same_text =
+                        |x: &oxc_ast::ast::CallExpression, y: &oxc_ast::ast::CallExpression| {
+                            x.span == y.span
+                                || format!("{:?}", x.arguments) == format!("{:?}", y.arguments)
+                        };
+                    (tag(a) == tag(b) && same_text(a, b)).then_some(a)
+                }
+                (found, None) | (None, found) => found,
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Peel `(…)` wrappers, which the minifier and `babelHelpers` output both produce.
+fn strip_parens<'b, 'a>(mut e: &'b Expression<'a>) -> &'b Expression<'a> {
+    while let Expression::ParenthesizedExpression(p) = e {
+        e = &p.expression;
+    }
+    e
+}
+
 /// Whether the expression is a literal absence — the far side of a presence guard.
+///
+/// `false` counts. `enabled ? map(…) : !1` yields a boolean rather than a collection on
+/// the disabled path, exactly as `enabled && map(…)` does, and only the `&&` form was
+/// recognised. `!1` is how the minifier writes it.
 fn is_nullish(e: &Expression) -> bool {
     match e {
         Expression::NullLiteral(_) => true,
+        // EVERY boolean, not just `false`: `enabled ? map(…) : true` yields a boolean on
+        // the disabled path exactly as `: false` does. Neither is a collection.
+        Expression::BooleanLiteral(_) => true,
         Expression::Identifier(i) => i.name == "undefined",
-        // The minifier writes `undefined` as `void 0`.
-        Expression::UnaryExpression(u) => u.operator == oxc_ast::ast::UnaryOperator::Void,
+        Expression::NumericLiteral(_) | Expression::StringLiteral(_) => true,
+        // A scalar sentinel is no more a collection than `null` is: `enabled ? map(…) : 0`
+        // yields a number on the disabled path. Any literal that cannot be a list counts.
+        // A scalar sentinel is no more a collection than `null` is: `enabled ? map(…) : 0`
+        // yields a number on the disabled path. Any literal that cannot be a list counts.
+        Expression::UnaryExpression(u) => match u.operator {
+            // The minifier writes `undefined` as `void 0`.
+            oxc_ast::ast::UnaryOperator::Void => true,
+            // ...and  as .
+            // `!0` and `!1` are how the minifier writes `true` and `false`.
+            oxc_ast::ast::UnaryOperator::LogicalNot => as_int(&u.argument).is_some(),
+            // ...and `false` as `!1`.
+            _ => false,
+        },
         _ => false,
     }
 }
@@ -2128,9 +2412,10 @@ fn is_wire_accessor(method: &str) -> bool {
 fn collect_accessor_fields<'b, 'a>(
     e: &'b Expression<'a>,
     outer: &Scope<'b, 'a>,
-    consts: &ConstResolver,
+    ctx: &ArmCtx,
     out: &mut Vec<NotifActionField>,
 ) {
+    let consts = ctx.consts;
     // No whole-body pre-pass. `collect_returns` installs the callback's own `var`
     // bindings in STATEMENT ORDER, which is the same rule it already documents for the
     // top level: hoisting moves the declaration, not the assignment, so snapshotting the
@@ -2144,6 +2429,49 @@ fn collect_accessor_fields<'b, 'a>(
         e,
         Expression::FunctionExpression(_) | Expression::ArrowFunctionExpression(_)
     ) {
+        // A module-local callback passed BY NAME — `mapChildrenWithTag("participant",
+        // parseParticipant)` — is a function too. Rejecting the identifier before looking
+        // at its body emitted the child with an empty field list, which tells a consumer
+        // the element carries nothing.
+        // The caller's own bindings come FIRST. A parameter or local of the same name as
+        // a module function shadows it, and the runtime calls what the caller bound — so
+        // reaching straight for `ctx.locals` would publish an unrelated function's fields
+        // as if they were this element's.
+        // Only when NOTHING in scope binds the name is the module-level function the one
+        // that runs. A name that is bound but resolves to no expression we can follow is
+        // refused rather than guessed at.
+        let resolved = deref_ident(e, outer);
+        if !std::ptr::eq(resolved, e) {
+            // Recurse ONLY into something that is no longer an identifier. `deref_ident`
+            // is bounded at four hops, so on an alias cycle whose length does not divide
+            // four (`a → b → c → a`) it returns a *different* identifier every time —
+            // and recursing on that walks the cycle forever until the stack goes. An
+            // unresolved chain is refused, which is what the hop limit was already for.
+            // Recurse ONLY into something that is no longer an identifier: on a cycle
+            // whose length does not divide the hop limit, `deref_ident` hands back a
+            // different identifier every call and recursing walks it forever.
+            //
+            // But a chain ending on an identifier has a second, benign cause: a TERMINAL
+            // alias naming a module callback (`var cb = parseP`). Refusing those cost the
+            // child its whole field list. Scope still binding the name is what separates
+            // the two — a terminal module name is not bound by the caller, a cycle's is.
+            match as_identifier(resolved) {
+                None => collect_accessor_fields(resolved, outer, ctx, out),
+                Some(inner) if outer.get(inner).is_none() => {
+                    if let Some(src) = ctx.locals.get(inner) {
+                        collect_named_callback_fields(src, ctx, out);
+                    }
+                }
+                Some(_) => {}
+            }
+            return;
+        }
+        if let Some(src) = as_identifier(e)
+            .filter(|n| outer.get(n).is_none())
+            .and_then(|n| ctx.locals.get(n))
+        {
+            collect_named_callback_fields(src, ctx, out);
+        }
         return;
     }
     // Per RETURN SHAPE, then merged — the same rule the action arms and the value-position
@@ -2191,6 +2519,38 @@ fn collect_accessor_fields<'b, 'a>(
         apply_conflicts(&mut merged, &dead);
     }
     for f in merged {
+        if !out.iter().any(|x| x.name == f.name) {
+            out.push(f);
+        }
+    }
+}
+
+/// Read a NAMED mapped-child callback's per-element fields, re-parsing it in its own
+/// allocator the way the value-position helpers are inlined.
+///
+/// The returned fields are owned, so nothing from that parse escapes it.
+fn collect_named_callback_fields(fn_src: &str, ctx: &ArmCtx, out: &mut Vec<NotifActionField>) {
+    let alloc = Allocator::default();
+    let wrapped = format!("({fn_src})");
+    let ret = wa_oxc::parse_cjs(&alloc, &wrapped);
+    if ret.panicked {
+        return;
+    }
+    let Some(func) = ret.program.body.iter().find_map(|s| match s {
+        Statement::ExpressionStatement(es) => Some(&es.expression),
+        _ => None,
+    }) else {
+        return;
+    };
+    // The `(…)` wrapper that makes a declaration parse as an expression also hides it
+    // behind a `ParenthesizedExpression`, which fails the function gate downstream.
+    let func = match func {
+        Expression::ParenthesizedExpression(p) => &p.expression,
+        other => other,
+    };
+    let mut fields = Vec::new();
+    collect_accessor_fields(func, &Scope::new(), ctx, &mut fields);
+    for f in fields {
         if !out.iter().any(|x| x.name == f.name) {
             out.push(f);
         }

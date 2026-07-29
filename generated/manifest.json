@@ -12,7 +12,7 @@
       "constraints": {
         "errorArms": 645,
         "errorTexts": 577,
-        "fieldEnumRefs": 151,
+        "fieldEnumRefs": 167,
         "fieldLiterals": 1784,
         "referenceConstraints": 584,
         "typedErrorVariants": 104
@@ -26,7 +26,7 @@
       "dropsByReason": {
         "iq builder substring present but no AST iq call": 5,
         "mixin fragment (folded into requests, not a standalone stanza)": 66,
-        "response enum argument not structurally resolvable": 41
+        "response enum argument not structurally resolvable": 33
       },
       "excludedFragments": 66,
       "stanzas": 143,
@@ -69,7 +69,7 @@
     "iq": {
       "file": "iq/index.json",
       "schema": "schema/iq.schema.json",
-      "sha256": "455d2a98f9e9ead8311bd8b5fc2cbadfabf6247ce699b5fa5d36f3bb796b3a28"
+      "sha256": "f733ed4de82a381f600f38570e94b3b682d06f898dc60329b71aeb257c7f0671"
     },
     "mex": {
       "file": "mex/index.json",
@@ -79,7 +79,7 @@
     "notif": {
       "file": "notif/index.json",
       "schema": "schema/notif.schema.json",
-      "sha256": "473f4d20fefe3136b264f3398811fb9af85dc5fca59022b727ca16f83420cd33"
+      "sha256": "c140136bbad10bf1412de40aa6408792530e27ae25b7606a400bed10c05aaf6e"
     },
     "proto": {
       "file": "proto/WAProto.proto",

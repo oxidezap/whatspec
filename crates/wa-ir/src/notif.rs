@@ -250,6 +250,24 @@ pub struct NotifActionChild {
     /// The fields read off each element.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fields: Vec<NotifActionField>,
+    /// Whether EVERY branch producing this action carries the collection.
+    ///
+    /// `if (c) return {actionType: A, participants: …}; return {actionType: A}` yields two
+    /// legal shapes for one action, and only one of them has `participants`. Without this
+    /// the metadata claimed the list is always present — the same over-assertion that
+    /// `required` on a scalar field exists to prevent, one level up.
+    ///
+    /// Always serialized. Skipping the `true` case would leave a non-Rust consumer —
+    /// which is who the IR is for — unable to tell "required by default" from
+    /// "unspecified", and the JSON Schema cannot carry the default either.
+    ///
+    /// The JSON Schema cannot say so: `serde(default)` makes schemars drop the property
+    /// from `required`, and `schemars(required)` is a no-op on a non-`Option` field. A
+    /// document omitting it therefore validates clean, which is the ambiguity above
+    /// reappearing through the published contract — so `lint-ir.py` enforces the presence
+    /// instead. The serde default stays, so an older document still deserializes.
+    #[serde(default = "crate::default_true")]
+    pub required: bool,
 }
 
 /// The incoming-dispatch IR document: version stamp + the dispatcher module name +

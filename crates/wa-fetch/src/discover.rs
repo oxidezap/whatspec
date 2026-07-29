@@ -199,7 +199,7 @@ pub fn discover_from_html(status: u16, html: &str, base_url: &str) -> Result<Dis
 
 /// Is this URL a WebAssembly payload? Query/fragment is ignored so a cache-busted URL
 /// still counts.
-pub(crate) fn is_wasm_url(url: &str) -> bool {
+pub fn is_wasm_url(url: &str) -> bool {
     url.split(['?', '#'])
         .next()
         .unwrap_or(url)

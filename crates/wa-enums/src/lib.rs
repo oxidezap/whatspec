@@ -6,7 +6,7 @@
 //! and keep only enums whose values are all-integer or all-string literals.
 #![cfg(not(target_arch = "wasm32"))]
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
@@ -100,15 +100,216 @@ fn extract_from_module(slice: &str, module: &str) -> Vec<InternalEnumDef> {
     out
 }
 
+/// Every name a function body hoists: its `var` declarations and its nested function
+/// declarations, wherever in the body they are written.
+///
+/// `var` is FUNCTION-scoped, so one inside an `if` or a loop binds for the whole body too;
+/// nested functions are not descended into, because their own `var`s belong to them.
+fn collect_hoisted(stmts: &[oxc_ast::ast::Statement], out: &mut HashSet<String>) {
+    use oxc_ast::ast::Statement as S;
+    for stmt in stmts {
+        match stmt {
+            S::FunctionDeclaration(d) => {
+                if let Some(id) = &d.id {
+                    out.insert(id.name.to_string());
+                }
+            }
+            // ONLY `var` hoists to the function. A `let`/`const` in a nested block is
+            // scoped to that block, so treating it as a function-wide binding refused an
+            // outer composition written where the binding is not even in scope — the
+            // over-refusal this whole mechanism keeps having to avoid.
+            S::VariableDeclaration(d) if d.kind.is_var() => collect_declared(d, out),
+            S::BlockStatement(b) => collect_hoisted(&b.body, out),
+            S::IfStatement(i) => {
+                collect_hoisted(std::slice::from_ref(&i.consequent), out);
+                if let Some(alt) = &i.alternate {
+                    collect_hoisted(std::slice::from_ref(alt), out);
+                }
+            }
+            // The HEADER declares too, and `var` there is hoisted across the function
+            // exactly as one in the body is — scanning only the body left
+            // `for (var e of xs)` invisible.
+            S::ForStatement(f) => {
+                if let Some(oxc_ast::ast::ForStatementInit::VariableDeclaration(d)) = &f.init
+                    && d.kind.is_var()
+                {
+                    collect_declared(d, out);
+                }
+                collect_hoisted(std::slice::from_ref(&f.body), out);
+            }
+            S::ForInStatement(f) => {
+                if let oxc_ast::ast::ForStatementLeft::VariableDeclaration(d) = &f.left
+                    && d.kind.is_var()
+                {
+                    collect_declared(d, out);
+                }
+                collect_hoisted(std::slice::from_ref(&f.body), out);
+            }
+            S::ForOfStatement(f) => {
+                if let oxc_ast::ast::ForStatementLeft::VariableDeclaration(d) = &f.left
+                    && d.kind.is_var()
+                {
+                    collect_declared(d, out);
+                }
+                collect_hoisted(std::slice::from_ref(&f.body), out);
+            }
+            S::WhileStatement(w) => collect_hoisted(std::slice::from_ref(&w.body), out),
+            S::DoWhileStatement(w) => collect_hoisted(std::slice::from_ref(&w.body), out),
+            S::TryStatement(t) => {
+                collect_hoisted(&t.block.body, out);
+                if let Some(h) = &t.handler {
+                    collect_hoisted(&h.body.body, out);
+                }
+                if let Some(fin) = &t.finalizer {
+                    collect_hoisted(&fin.body, out);
+                }
+            }
+            S::SwitchStatement(sw) => {
+                for case in &sw.cases {
+                    collect_hoisted(&case.consequent, out);
+                }
+            }
+            S::LabeledStatement(l) => collect_hoisted(std::slice::from_ref(&l.body), out),
+            _ => {}
+        }
+    }
+}
+
+/// Every plain identifier an assignment TARGET writes, however the pattern is spelled.
+fn assignment_target_names(target: &oxc_ast::ast::AssignmentTarget) -> Vec<String> {
+    let mut out = Vec::new();
+    collect_target_names(target, &mut out);
+    out
+}
+
+/// Recursive: a nested pattern (`({x: {e}} = obj)`) or a rest (`({...e} = obj)`) writes
+/// just as much as a direct element does, and the first version of this looked only one
+/// level deep.
+fn collect_target_names(target: &oxc_ast::ast::AssignmentTarget, out: &mut Vec<String>) {
+    use oxc_ast::ast::AssignmentTargetPattern as P;
+    if let Some(id) = target.get_identifier_name() {
+        out.push(id.to_string());
+        return;
+    }
+    let Some(pattern) = target.as_assignment_target_pattern() else {
+        return;
+    };
+    fn maybe_default(d: &oxc_ast::ast::AssignmentTargetMaybeDefault, out: &mut Vec<String>) {
+        use oxc_ast::ast::AssignmentTargetMaybeDefault as D;
+        match d {
+            D::AssignmentTargetWithDefault(w) => collect_target_names(&w.binding, out),
+            _ => {
+                if let Some(t) = d.as_assignment_target() {
+                    collect_target_names(t, out);
+                }
+            }
+        }
+    }
+    match pattern {
+        P::ArrayAssignmentTarget(a) => {
+            for el in a.elements.iter().flatten() {
+                maybe_default(el, out);
+            }
+            if let Some(rest) = &a.rest {
+                collect_target_names(&rest.target, out);
+            }
+        }
+        P::ObjectAssignmentTarget(o) => {
+            for prop in &o.properties {
+                match prop {
+                    oxc_ast::ast::AssignmentTargetProperty::AssignmentTargetPropertyIdentifier(
+                        p,
+                    ) => out.push(p.binding.name.to_string()),
+                    oxc_ast::ast::AssignmentTargetProperty::AssignmentTargetPropertyProperty(p) => {
+                        maybe_default(&p.binding, out)
+                    }
+                }
+            }
+            if let Some(rest) = &o.rest {
+                collect_target_names(&rest.target, out);
+            }
+        }
+    }
+}
+
+/// The names a statement list binds LEXICALLY: `let`, `const` and `class`.
+///
+/// One helper for all four places that needed it — a function body, an arrow body, a
+/// block and a `switch`. Three hand-written copies had already drifted: the class arm was
+/// added to two of them and the third kept resolving over a class binding.
+fn collect_lexical(stmts: &[oxc_ast::ast::Statement], out: &mut HashSet<String>) {
+    use oxc_ast::ast::Statement as S;
+    for stmt in stmts {
+        match stmt {
+            S::VariableDeclaration(d) if !d.kind.is_var() => collect_declared(d, out),
+            // `class e {}` binds lexically over its whole scope exactly as `let` does.
+            S::ClassDeclaration(c) => {
+                if let Some(id) = &c.id {
+                    out.insert(id.name.to_string());
+                }
+            }
+            // `class e {}` binds lexically over its whole scope exactly as `let` does.
+            _ => {}
+        }
+    }
+}
+
+/// Every identifier one `var`/`let`/`const` declaration binds.
+fn collect_declared(d: &oxc_ast::ast::VariableDeclaration, out: &mut HashSet<String>) {
+    for decl in &d.declarations {
+        for id in decl.id.get_binding_identifiers() {
+            out.insert(id.name.to_string());
+        }
+    }
+}
+
+/// The identifier names a parameter list binds.
+fn param_names(params: &oxc_ast::ast::FormalParameters) -> HashSet<String> {
+    // EVERY identifier a parameter list binds, not just the plainly-named ones. A
+    // destructured parameter (`function f({e})`) binds `e` exactly as much as
+    // `function f(e)` does, and the rest element is not in `items` at all — both were
+    // invisible, so a composition inside such a function still resolved the module-level
+    // operand. `get_binding_identifiers` is the same traversal `wa_scan::shadow_params`
+    // uses for its own shadowing, rather than a second hand-rolled walk to drift from.
+    let mut out = HashSet::new();
+    let mut add = |pattern: &oxc_ast::ast::BindingPattern| {
+        for ident in pattern.get_binding_identifiers() {
+            out.insert(ident.name.to_string());
+        }
+    };
+    for p in &params.items {
+        add(&p.pattern);
+    }
+    if let Some(rest) = &params.rest {
+        add(&rest.rest.argument);
+    }
+    out
+}
+
 /// Resolve `X.Name = local` bindings against the locals captured by var-init, filling
 /// `exports` (first binding wins). Shared by [`resolve_named_enum`] and the plain-object
 /// catalog pass so the two resolution sites can't drift.
 fn resolve_pending(r: &mut NamedResolver) {
     for (export, local) in &r.pending {
+        // Same refusal as `NamedResolver::local`, spelled out because the method borrows
+        // all of `r` while `exports` below needs a disjoint mutable borrow. An export
+        // bound to a name the module rebinds is exactly as unsafe to publish here.
+        if r.shadowed.contains(local) {
+            continue;
+        }
         if let Some(data) = r.locals.get(local) {
-            r.exports
-                .entry(export.clone())
-                .or_insert_with(|| data.clone());
+            // A deferred alias that DISAGREES with an inline write to the same export is
+            // the same conflict the immediate path already refuses — `i.OUT = {A:"a"};
+            // i.OUT = e` exports `e` at runtime, and `or_insert` kept `{A}`.
+            match r.exports.get(export) {
+                Some(prev) if prev != data => {
+                    r.conflicting.insert(export.clone());
+                }
+                Some(_) => {}
+                None => {
+                    r.exports.insert(export.clone(), data.clone());
+                }
+            }
         }
     }
 }
@@ -127,13 +328,13 @@ pub fn resolve_named_enum(module_slice: &str, module: &str, name: &str) -> Optio
     if ret.panicked {
         return None;
     }
-    let mut r = NamedResolver {
-        locals: HashMap::new(),
-        exports: HashMap::new(),
-        pending: Vec::new(),
-    };
+    let mut r = NamedResolver::new();
+    r.factory_params = module_factory_params(&ret.program);
     r.visit_program(&ret.program);
     resolve_pending(&mut r);
+    if r.conflicting.contains(name) {
+        return None;
+    }
     let (value_kind, variants) = r.exports.get(name)?.clone();
     Some(InternalEnumDef {
         name: name.to_string(),
@@ -141,6 +342,36 @@ pub fn resolve_named_enum(module_slice: &str, module: &str, name: &str) -> Optio
         value_kind,
         variants,
     })
+}
+
+/// The parameter names of the `__d("Name", deps, factory, id)` factory, if it is there.
+///
+/// The export object is one of them, so a member assignment on anything else writes to a
+/// private object rather than exporting. Which parameter it is varies by bundle arity, so
+/// all of them are accepted — the point is to exclude module LOCALS.
+fn module_factory_params(program: &oxc_ast::ast::Program) -> HashSet<String> {
+    for stmt in &program.body {
+        let oxc_ast::ast::Statement::ExpressionStatement(es) = stmt else {
+            continue;
+        };
+        let Some(call) = as_call(&es.expression) else {
+            continue;
+        };
+        if as_identifier(&call.callee) != Some("__d") {
+            continue;
+        }
+        for arg in &call.arguments {
+            let Some(e) = arg_expr(arg) else { continue };
+            let e = match e {
+                Expression::ParenthesizedExpression(p) => &p.expression,
+                other => other,
+            };
+            if let Expression::FunctionExpression(f) = e {
+                return param_names(&f.params);
+            }
+        }
+    }
+    HashSet::new()
 }
 
 /// An enum-body object: either `$InternalEnum({…})` or a bare object literal.
@@ -179,11 +410,8 @@ fn extract_plain_object_enums(slice: &str, module: &str) -> Vec<InternalEnumDef>
     if ret.panicked {
         return Vec::new();
     }
-    let mut r = NamedResolver {
-        locals: HashMap::new(),
-        exports: HashMap::new(),
-        pending: Vec::new(),
-    };
+    let mut r = NamedResolver::new();
+    r.factory_params = module_factory_params(&ret.program);
     r.visit_program(&ret.program);
     resolve_pending(&mut r);
     let mut out: Vec<InternalEnumDef> = Vec::new();
@@ -203,27 +431,532 @@ fn extract_plain_object_enums(slice: &str, module: &str) -> Vec<InternalEnumDef>
 
 struct NamedResolver {
     locals: HashMap<String, EnumData>,
+    /// Names bound to two DIFFERENT enum bodies somewhere in the module.
+    ///
+    /// `locals` is flat while JavaScript is lexically scoped, so a minified module that
+    /// reuses a short name inside a nested function — `var e={A:"a"}` at the top, then
+    /// `function f(){var e={X:"x"}}` — overwrites the outer binding that a later
+    /// `extends({}, e, …)` still refers to at runtime. Publishing `X` there would be a
+    /// closed value set naming members the runtime never accepts, which is the one thing
+    /// this crate must not do; both readers of `locals` refuse such a name instead.
+    ///
+    /// Tracking real scopes would be the complete answer. Refusal is the cheap one that
+    /// cannot be wrong, and no bundle in the pinned set has a single collision — so the
+    /// choice costs nothing today and stays correct if that changes.
+    shadowed: HashSet<String>,
+    /// Parameter names bound by the functions currently being visited, innermost last.
+    ///
+    /// A parameter shadows only INSIDE its own body, so unlike [`Self::shadowed`] this is
+    /// a stack rather than a module-wide set. Refusing such a name everywhere was measured
+    /// and costs real constraints — `STANZA_MSG_TYPES` resolves at module level in a
+    /// module that happens to reuse its local's name as a parameter elsewhere.
+    param_scopes: Vec<HashSet<String>>,
+    /// Whether the declaration currently being visited is a `var`.
+    ///
+    /// Only `var` reaches beyond its block, so only `var` may invalidate a module-level
+    /// name. A `let`/`const` in a nested block is invisible to a read written outside it,
+    /// and treating it as a shadow dropped a resolvable enum.
+    in_var_decl: bool,
+    /// The module factory's parameter names, when they could be identified.
+    ///
+    /// `X.Name = {…}` is only an EXPORT when `X` is one of them. Accepting it on any
+    /// object let a private `tmp.Target = {A:"a"}` be published as a named enum and
+    /// attached as a closed `enumRef` to protocol fields the runtime never validates
+    /// against it. Empty means "could not tell", and then nothing is narrowed.
+    factory_params: HashSet<String>,
     exports: HashMap<String, EnumData>,
+    /// Exports written more than once with DIFFERENT bodies — refused rather than
+    /// resolved to whichever write this pass happened to see first.
+    conflicting: HashSet<String>,
     pending: Vec<(String, String)>,
 }
 
-impl<'a> Visit<'a> for NamedResolver {
-    fn visit_variable_declarator(&mut self, d: &VariableDeclarator<'a>) {
-        if let Some(local) = d.id.get_identifier_name()
-            && let Some(obj) = d.init.as_ref().and_then(enum_object)
-            && let Some(data) = parse_enum(obj)
+impl NamedResolver {
+    fn new() -> Self {
+        Self {
+            locals: HashMap::new(),
+            shadowed: HashSet::new(),
+            param_scopes: Vec::new(),
+            in_var_decl: false,
+            factory_params: HashSet::new(),
+            exports: HashMap::new(),
+            conflicting: HashSet::new(),
+            pending: Vec::new(),
+        }
+    }
+
+    /// The body bound to `name`, unless the module rebinds it to a different one.
+    fn local(&self, name: &str) -> Option<&EnumData> {
+        if self.shadowed.contains(name) || self.param_shadows(name) {
+            return None;
+        }
+        self.locals.get(name)
+    }
+
+    /// Whether `e` names the module's export object — one of the factory's parameters.
+    ///
+    /// When the parameters could not be identified this accepts anything, which is the
+    /// behaviour that predates the check: narrowing on a guess would silently drop real
+    /// exports, and a private object being published is the rarer failure.
+    fn is_export_object(&self, e: &Expression) -> bool {
+        if self.factory_params.is_empty() {
+            return true;
+        }
+        let Some(name) = as_identifier(e) else {
+            return false;
+        };
+        if !self.factory_params.contains(name) {
+            return false;
+        }
+        // Spelling is not enough: `function f(i) { i.OUT = {…} }` writes to the NESTED
+        // parameter, not to the module's export object. Frame 0 is the module factory
+        // itself — its parameters ARE the receivers — so a rebinding is any frame after
+        // it that carries the name.
+        // `param_scopes` frames beyond the module factory carry parameters AND hoisted
+        // `var`s, so `function f(){ var i = {}; i.OUT = … }` is caught by the same test.
+        !self.param_scopes.iter().skip(1).any(|s| s.contains(name))
+    }
+
+    /// Push a lexical scope for `stmts`' own `let`/`const`, if any collide with a local.
+    fn with_lexical<'a, R>(
+        &mut self,
+        stmts: &[oxc_ast::ast::Statement<'a>],
+        extra: &[&oxc_ast::ast::VariableDeclaration<'a>],
+        f: impl FnOnce(&mut Self) -> R,
+    ) -> R {
+        let mut lexical = HashSet::new();
+        for d in extra {
+            if !d.kind.is_var() {
+                collect_declared(d, &mut lexical);
+            }
+        }
+        collect_lexical(stmts, &mut lexical);
+        lexical.retain(|n| self.locals.contains_key(n.as_str()));
+        let pushed = !lexical.is_empty();
+        if pushed {
+            self.param_scopes.push(lexical);
+        }
+        let out = f(self);
+        if pushed {
+            self.param_scopes.pop();
+        }
+        out
+    }
+
+    /// Whether an enclosing function binds `name` as a parameter, so a read of it here
+    /// is that parameter and not the module local this pass recorded.
+    fn param_shadows(&self, name: &str) -> bool {
+        self.param_scopes.iter().any(|s| s.contains(name))
+    }
+
+    fn bind_local(&mut self, name: &str, data: EnumData) {
+        match self.locals.get(name) {
+            Some(prev) if *prev != data => {
+                self.shadowed.insert(name.to_string());
+            }
+            _ => {}
+        }
+        self.locals.insert(name.to_string(), data);
+    }
+}
+
+impl NamedResolver {
+    /// Evaluate `babelHelpers.extends(a, b, …)` into one enum, left to right.
+    ///
+    /// Each operand must be something already understood — an object literal, an
+    /// `$InternalEnum(…)`, or a local this pass has already bound. Anything else refuses
+    /// the whole thing rather than publishing the operands it could read: a partial
+    /// merge is a closed value set that omits members the runtime accepts, which is
+    /// worse than recording the loss.
+    ///
+    /// Later operands override earlier keys, as the runtime does. A single value kind is
+    /// required, so a string enum merged with an int one resolves to nothing.
+    /// The local an `extends(target, …)` MUTATES, when the target is a bare name.
+    ///
+    /// `extends` writes into its first argument, so after `extends(e, {B:"b"})` the
+    /// runtime's `e` has `B` too. Recovering the pre-merge body would publish an enum
+    /// that rejects a value it accepts — which the refusal in `merge_extends` prevents
+    /// for the RESULT, and which this exists to prevent for the target itself.
+    fn mutated_extends_target<'e>(e: &'e Expression) -> Option<&'e str> {
+        Self::mutated_extends_target_of(as_call(e)?)
+    }
+
+    /// The local an `extends(target, …)` mutates, given the call itself.
+    fn mutated_extends_target_of<'e>(call: &'e oxc_ast::ast::CallExpression) -> Option<&'e str> {
+        let callee = wa_oxc::as_member(&call.callee)?;
+        if callee.1 != "extends" || as_identifier(callee.0) != Some("babelHelpers") {
+            return None;
+        }
+        as_identifier(arg_expr(call.arguments.first()?)?)
+    }
+
+    fn merge_extends(&self, e: &Expression) -> Option<EnumData> {
+        let call = as_call(e)?;
+        let callee = wa_oxc::as_member(&call.callee)?;
+        if callee.1 != "extends" || as_identifier(callee.0) != Some("babelHelpers") {
+            return None;
+        }
+        // The first operand is the TARGET, and `extends` mutates it. WA's convention is
+        // `extends({}, …)`, which mutates a throwaway; `extends(base, {B:"b"})` would also
+        // add `B` to `base` itself, so recovering only the result would publish a `BASE`
+        // export that is missing a member the runtime has. Recovering the composition is
+        // not worth modelling the mutation, so a non-empty target refuses the whole thing.
+        match call
+            .arguments
+            .first()
+            .and_then(arg_expr)
+            .and_then(as_object)
         {
-            self.locals.insert(local.to_string(), data);
+            Some(o) if o.properties.is_empty() => {}
+            _ => return None,
+        }
+        let mut kind: Option<EnumValueKind> = None;
+        let mut merged: Vec<EnumVariant> = Vec::new();
+        for arg in &call.arguments {
+            let operand = arg_expr(arg)?;
+            // An empty `{}` is the conventional first operand and contributes nothing —
+            // and `parse_enum` rejects it (no variants), so it has to be recognised
+            // before the refusal path or it kills every merge.
+            if let Some(o) = as_object(operand)
+                && o.properties.is_empty()
+            {
+                continue;
+            }
+            let (k, variants) = match enum_object(operand).and_then(parse_enum) {
+                Some(data) => data,
+                // A bare identifier must already be bound by this pass.
+                None => self.local(as_identifier(operand)?)?.clone(),
+            };
+            if !variants.is_empty() {
+                match kind {
+                    Some(prev) if prev != k => return None,
+                    _ => kind = Some(k),
+                }
+            }
+            for v in variants {
+                match merged.iter_mut().find(|x| x.name == v.name) {
+                    Some(existing) => *existing = v,
+                    None => merged.push(v),
+                }
+            }
+        }
+        if merged.is_empty() {
+            return None;
+        }
+        Some((kind?, merged))
+    }
+}
+
+impl<'a> Visit<'a> for NamedResolver {
+    fn visit_variable_declaration(&mut self, d: &oxc_ast::ast::VariableDeclaration<'a>) {
+        let was = std::mem::replace(&mut self.in_var_decl, d.kind.is_var());
+        walk::walk_variable_declaration(self, d);
+        self.in_var_decl = was;
+    }
+
+    fn visit_call_expression(&mut self, c: &oxc_ast::ast::CallExpression<'a>) {
+        // Wherever the call appears — a sequence, a logical operand, a condition test, a
+        // return value. Detecting it at the statement or declarator level missed every
+        // nested position, and the generic walk reaches all of them.
+        if let Some(target) = Self::mutated_extends_target_of(c)
+            && !self.param_shadows(target)
+        {
+            self.shadowed.insert(target.to_string());
+        }
+        walk::walk_call_expression(self, c);
+    }
+
+    fn visit_expression_statement(&mut self, st: &oxc_ast::ast::ExpressionStatement<'a>) {
+        // `extends(e, {B:"b"})` mutates `e` wherever it is written, not only as a
+        // declarator's initializer — a bare expression statement does it too, and the
+        // declarator path below could not see that.
+        // Under an assignment too: `tmp = extends(e, {B:"b"})` is an expression statement
+        // wrapping an assignment, so looking at the statement's expression alone found
+        // the assignment and not the call that does the mutating.
+        let inner = match &st.expression {
+            Expression::AssignmentExpression(a) => &a.right,
+            other => other,
+        };
+        if let Some(target) = Self::mutated_extends_target(inner)
+            && !self.param_shadows(target)
+        {
+            self.shadowed.insert(target.to_string());
+        }
+        walk::walk_expression_statement(self, st);
+    }
+
+    fn visit_variable_declarator(&mut self, d: &VariableDeclarator<'a>) {
+        // `var x = extends(e, {B:"b"})` MUTATES `e`. `merge_extends` already refuses to
+        // publish `x`, but `e` itself kept its pre-merge body and a later `i.BASE = e`
+        // published an enum missing a member the runtime accepts.
+        if let Some(init) = &d.init
+            && let Some(target) = Self::mutated_extends_target(init)
+            && !self.param_shadows(target)
+        {
+            self.shadowed.insert(target.to_string());
+        }
+        if d.id.get_identifier_name().is_none() {
+            // A DESTRUCTURED declaration (`const {e} = obj`) binds `e` just as much as
+            // `var e = …` does, and `get_identifier_name` sees none of it — so the whole
+            // branch below was skipped and the outer body stayed usable. Refused on
+            // collision only, the same rule an unreadable initializer follows: a
+            // destructuring that shadows nothing costs nothing to ignore.
+            //
+            // The hoisted prescan already marks these LEXICALLY, so writing them into the
+            // module-wide set as well outlived the body that binds them and refused a
+            // later, unrelated outer composition. Same guard the simple-identifier path
+            // takes, for the same reason.
+            for ident in d.id.get_binding_identifiers() {
+                if !self.param_shadows(&ident.name) && self.locals.contains_key(ident.name.as_str())
+                {
+                    self.shadowed.insert(ident.name.to_string());
+                }
+            }
+        }
+        if let Some(local) = d.id.get_identifier_name() {
+            let data = d
+                .init
+                .as_ref()
+                .and_then(enum_object)
+                .and_then(parse_enum)
+                // WA composes enums as well as declaring them:
+                // `VISIBILITY_WITH_ERROR = extends({}, VISIBILITY, {error: "error"})`.
+                // Recognising only literals left every composed one unresolvable, and the
+                // fields validating against them shipped as `"type": "enum"` with no
+                // values — 41 lost constraints, the largest single entry in
+                // `dropsByReason`.
+                .or_else(|| d.init.as_ref().and_then(|e| self.merge_extends(e)));
+            // A name bound by an enclosing parameter (or hoisted binding) is LOCAL to that
+            // body, so writing it into the module-wide `locals`/`shadowed` would let a
+            // write inside one function invalidate a valid module-level read elsewhere.
+            if self.param_shadows(&local) {
+                walk::walk_variable_declarator(self, d);
+                return;
+            }
+            match data {
+                Some(data) => self.bind_local(local.as_str(), data),
+                // A redeclaration this pass cannot READ is as much a shadow as one it
+                // can: `var e = getEnum()` in a nested scope leaves the outer body in
+                // `locals`, and a later composition would publish values the runtime
+                // never has. Only when the name is already bound — an unparseable `var`
+                // that shadows nothing costs nothing to ignore.
+                // `var` only: a block-scoped `let`/`const` cannot be what a read written
+                // outside its block sees.
+                None if self.in_var_decl && self.locals.contains_key(local.as_str()) => {
+                    self.shadowed.insert(local.to_string());
+                }
+                None => {}
+            }
         }
         walk::walk_variable_declarator(self, d);
+    }
+
+    fn visit_function(
+        &mut self,
+        f: &oxc_ast::ast::Function<'a>,
+        flags: oxc_syntax::scope::ScopeFlags,
+    ) {
+        // Everything this body binds is HOISTED over all of it, so a declaration written
+        // AFTER a composition still binds the operand that composition reads. Recording
+        // them as the walk reached them was source-ordered and reversing the two lines
+        // slipped straight past, so the whole body is pre-scanned before descending.
+        //
+        // Lexical, not module-wide: the enclosing scope is what a nested `function e(){}`
+        // shadows, and poisoning `e` for the entire module would refuse a composition
+        // written outside this body that never sees the inner binding at all.
+        let mut hoisted = param_names(&f.params);
+        // A body's own top-level `let`/`const` binds for the WHOLE body — it does not
+        // hoist across blocks, but nothing in this body is outside it either. The
+        // block-scope visitor only sees nested blocks, so these needed collecting here.
+        if let Some(body) = &f.body {
+            let mut lexical = HashSet::new();
+            collect_lexical(&body.statements, &mut lexical);
+            hoisted.extend(
+                lexical
+                    .into_iter()
+                    .filter(|n| self.locals.contains_key(n.as_str())),
+            );
+        }
+        // A NAMED function expression binds its own name inside its body (`var g =
+        // function e(){ … e … }` sees the function, not an outer `e`). That name lives on
+        // `f.id`, not among the declarations collected from the enclosing body, so it was
+        // the one binding form the prescan could not see.
+        if let Some(id) = &f.id
+            && self.locals.contains_key(id.name.as_str())
+        {
+            hoisted.insert(id.name.to_string());
+        }
+        if let Some(body) = &f.body {
+            let mut declared = HashSet::new();
+            collect_hoisted(&body.statements, &mut declared);
+            // Only the ones that SHADOW something already bound. The module body is itself
+            // a function, so an unconditional sweep made its own `var e = {…}` shadow the
+            // local it declares — every enum in the catalog refused itself. Parameters
+            // stay unconditional: they can never BE the module local.
+            // Kept when the name collides with an enum local — the shadow that matters
+            // for operand lookup — OR with a factory parameter, which is what
+            // `is_export_object` consults: `function f(){ var i = {}; i.OUT = … }` writes
+            // to a private object, and filtering on `locals` alone let it through because
+            // a receiver name is not an enum.
+            hoisted.extend(declared.into_iter().filter(|n| {
+                self.locals.contains_key(n.as_str()) || self.factory_params.contains(n)
+            }));
+        }
+        self.param_scopes.push(hoisted);
+        walk::walk_function(self, f, flags);
+        self.param_scopes.pop();
+    }
+
+    fn visit_block_statement(&mut self, b: &oxc_ast::ast::BlockStatement<'a>) {
+        // `let`/`const` bind for THIS block only. Excluding them from the function-wide
+        // prescan was right; leaving them untracked entirely was not — an unreadable
+        // `let e = get()` inside a block still shadows the outer `e` for reads written in
+        // that block. A scope active only while the block is visited says both at once.
+        self.with_lexical(&b.body, &[], |me| walk::walk_block_statement(me, b));
+    }
+
+    fn visit_for_in_statement(&mut self, f: &oxc_ast::ast::ForInStatement<'a>) {
+        let left = match &f.left {
+            oxc_ast::ast::ForStatementLeft::VariableDeclaration(d) => vec![&**d],
+            _ => vec![],
+        };
+        // For `var`, the RHS is evaluated with no new binding in place, so it reads in the
+        // enclosing scope. For `let`/`const` the bound name is already in its TEMPORAL
+        // DEAD ZONE while the RHS runs — a read there throws rather than reaching an outer
+        // enum — so the scope covers the RHS too.
+        let lexical_head = matches!(
+            &f.left,
+            oxc_ast::ast::ForStatementLeft::VariableDeclaration(d) if !d.kind.is_var()
+        );
+        if lexical_head {
+            self.with_lexical(&[], &left, |me| {
+                me.visit_expression(&f.right);
+                me.visit_statement(&f.body);
+            });
+        } else {
+            self.visit_expression(&f.right);
+            self.with_lexical(&[], &left, |me| me.visit_statement(&f.body));
+        }
+    }
+
+    fn visit_switch_statement(&mut self, sw: &oxc_ast::ast::SwitchStatement<'a>) {
+        // A `case` consequent is not a `BlockStatement`, so its `let` was invisible —
+        // the same untracked-lexical hole as the loop headers below. The binding is
+        // scoped to the whole switch body, which is what the runtime does too.
+        let mut lexical = HashSet::new();
+        for case in &sw.cases {
+            collect_lexical(&case.consequent, &mut lexical);
+        }
+        lexical.retain(|n| self.locals.contains_key(n.as_str()));
+        // The DISCRIMINANT is read where the switch is written, before any case binding
+        // exists, so it belongs to the enclosing scope. Visiting it under the pushed one
+        // only refused a resolvable composition — safe, but the point of modelling scopes
+        // is not to guess in either direction.
+        self.visit_expression(&sw.discriminant);
+        let pushed = !lexical.is_empty();
+        if pushed {
+            self.param_scopes.push(lexical);
+        }
+        for case in &sw.cases {
+            if let Some(test) = &case.test {
+                self.visit_expression(test);
+            }
+            for stmt in &case.consequent {
+                self.visit_statement(stmt);
+            }
+        }
+        if pushed {
+            self.param_scopes.pop();
+        }
+    }
+    fn visit_for_statement(&mut self, f: &oxc_ast::ast::ForStatement<'a>) {
+        let init = match &f.init {
+            Some(oxc_ast::ast::ForStatementInit::VariableDeclaration(d)) => vec![&**d],
+            _ => vec![],
+        };
+        self.with_lexical(&[], &init, |me| walk::walk_for_statement(me, f));
+    }
+    fn visit_for_of_statement(&mut self, f: &oxc_ast::ast::ForOfStatement<'a>) {
+        let left = match &f.left {
+            oxc_ast::ast::ForStatementLeft::VariableDeclaration(d) => vec![&**d],
+            _ => vec![],
+        };
+        // For `var`, the RHS is evaluated with no new binding in place, so it reads in the
+        // enclosing scope. For `let`/`const` the bound name is already in its TEMPORAL
+        // DEAD ZONE while the RHS runs — a read there throws rather than reaching an outer
+        // enum — so the scope covers the RHS too.
+        let lexical_head = matches!(
+            &f.left,
+            oxc_ast::ast::ForStatementLeft::VariableDeclaration(d) if !d.kind.is_var()
+        );
+        if lexical_head {
+            self.with_lexical(&[], &left, |me| {
+                me.visit_expression(&f.right);
+                me.visit_statement(&f.body);
+            });
+        } else {
+            self.visit_expression(&f.right);
+            self.with_lexical(&[], &left, |me| me.visit_statement(&f.body));
+        }
+    }
+    fn visit_catch_clause(&mut self, c: &oxc_ast::ast::CatchClause<'a>) {
+        // `catch (e)` binds `e` for the handler body exactly as a parameter binds it for
+        // a function body — the third form of the same shadow, after parameters and
+        // destructured declarations.
+        let names = c
+            .param
+            .as_ref()
+            .map(|p| {
+                p.pattern
+                    .get_binding_identifiers()
+                    .into_iter()
+                    .map(|i| i.name.to_string())
+                    .collect()
+            })
+            .unwrap_or_default();
+        self.param_scopes.push(names);
+        walk::walk_catch_clause(self, c);
+        self.param_scopes.pop();
+    }
+
+    fn visit_arrow_function_expression(&mut self, f: &oxc_ast::ast::ArrowFunctionExpression<'a>) {
+        // A block-bodied arrow hoists exactly as a function does; only its parameters
+        // were being recorded. Its top-level `let`/`const` need the same treatment as a
+        // function body's: an arrow's `FunctionBody` is not a `BlockStatement`, so the
+        // block visitor never sees them either.
+        let mut hoisted = param_names(&f.params);
+        let mut declared = HashSet::new();
+        collect_lexical(&f.body.statements, &mut declared);
+        collect_hoisted(&f.body.statements, &mut declared);
+        // Same two-way filter the function body uses: an enum local OR a factory
+        // parameter, the latter because a receiver name is never an enum.
+        hoisted.extend(
+            declared.into_iter().filter(|n| {
+                self.locals.contains_key(n.as_str()) || self.factory_params.contains(n)
+            }),
+        );
+        self.param_scopes.push(hoisted);
+        walk::walk_arrow_function_expression(self, f);
+        self.param_scopes.pop();
     }
 
     fn visit_assignment_expression(&mut self, a: &AssignmentExpression<'a>) {
         if let Some(m) = a.left.as_member_expression()
             && let Some(prop) = m.static_property_name()
+            && self.is_export_object(m.object())
         {
             if let Some(data) = enum_object(&a.right).and_then(parse_enum) {
-                self.exports.entry(prop.to_string()).or_insert(data);
+                // First write wins, but a SECOND write with a different body means the
+                // module publishes one name for two value sets and this pass cannot say
+                // which a consumer will see. Refusing beats picking.
+                match self.exports.get(prop) {
+                    Some(prev) if *prev != data => {
+                        self.conflicting.insert(prop.to_string());
+                    }
+                    _ => {
+                        self.exports.entry(prop.to_string()).or_insert(data);
+                    }
+                }
             } else if prop == "exports"
                 && let Some(o) = as_object(&a.right)
             {
@@ -232,12 +965,59 @@ impl<'a> Visit<'a> for NamedResolver {
                 for (key, value) in wa_oxc::obj_props(o) {
                     if let Some(data) = enum_object(value).and_then(parse_enum) {
                         self.exports.entry(key.to_string()).or_insert(data);
-                    } else if let Some(id) = as_identifier(value) {
+                    } else if let Some(id) = as_identifier(value)
+                        // The same deferred-alias guard as the single-property branch
+                        // below: `pending` resolves after the walk, when the parameter
+                        // stack is unwound, so a parameter-shadowed name has to be
+                        // refused HERE or it silently resolves to the module local.
+                        && !self.param_shadows(id)
+                    {
                         self.pending.push((key.to_string(), id.to_string()));
                     }
                 }
-            } else if let Some(id) = as_identifier(&a.right) {
+            } else if let Some(id) = as_identifier(&a.right)
+                // `pending` is resolved AFTER the walk, when the parameter stack is
+                // already unwound, so the scope has to be recorded now: `function f(e){
+                // i.OUT = e }` would otherwise export the module-local `e`.
+                && !self.param_shadows(id)
+            {
                 self.pending.push((prop.to_string(), id.to_string()));
+            }
+        } else if a.left.get_identifier_name().is_none() && a.left.as_member_expression().is_none()
+        {
+            // A destructuring ASSIGNMENT (`({e} = obj)`) rebinds without declaring, so no
+            // declarator ever runs and the cached body survived a write that replaced it.
+            for name in assignment_target_names(&a.left) {
+                if !self.param_shadows(&name) && self.locals.contains_key(name.as_str()) {
+                    self.shadowed.insert(name);
+                }
+            }
+        } else if let Some(name) = a.left.get_identifier_name() {
+            // A bare `e = …` rebinding, which `visit_variable_declarator` never sees.
+            // Without this, only `var`-form rebindings reached `shadowed`, so a module
+            // that reassigns an operand before composing it still published the stale
+            // body — the same wrong closed set the shadow guard was added to prevent,
+            // reached through the one form it did not watch.
+            // Deliberately does NOT fall back to `merge_extends` the way the `var` form
+            // does. A self-referential rebind (`e = extends({}, e, {B:"b"})`) is only
+            // resolvable if you know whether a given read of `e` happens before or after
+            // it, and this pass has no ordering model for reads — so publishing the
+            // merged set would over-claim for every read that precedes the composition.
+            // Refusing costs nothing here: the merge yields a body different from the one
+            // already bound, so `bind_local` would mark the name shadowed anyway.
+            if self.param_shadows(name) {
+                // Local to the body that binds it — see the declarator path.
+                walk::walk_assignment_expression(self, a);
+                return;
+            }
+            match enum_object(&a.right).and_then(parse_enum) {
+                Some(data) => self.bind_local(name, data),
+                // Rebound to something this pass cannot read: whatever `locals` still
+                // holds for the name is no longer what the runtime has, so the name is
+                // no more usable than an ambiguous one.
+                None => {
+                    self.shadowed.insert(name.to_string());
+                }
             }
         }
         walk::walk_assignment_expression(self, a);
@@ -407,6 +1187,535 @@ fn parse_enum(obj: &ObjectExpression) -> Option<EnumData> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_composed_enum_merges_its_operands() {
+        // WA composes enums as well as declaring them, and the composed ones are the
+        // interesting ones: `VISIBILITY_WITH_ERROR` is `VISIBILITY` plus the `error`
+        // sentinel the parser checks for. Recognising only literals left 41 constraints
+        // unresolvable — the largest single entry in `dropsByReason`.
+        let module = r#"__d("WAWebPrivacySettings",[],(function(t,n,r,o,a,i){
+            var e={all:"all",contacts:"contacts",none:"none"},
+                l=babelHelpers.extends({},e,{error:"error"});
+            i.VISIBILITY=e,i.VISIBILITY_WITH_ERROR=l
+        }),66);"#;
+        let def = resolve_named_enum(module, "WAWebPrivacySettings", "VISIBILITY_WITH_ERROR")
+            .expect("the composed export resolves");
+        let values: Vec<&str> = def
+            .variants
+            .iter()
+            .map(|v| match &v.value {
+                Scalar::Str(s) => s.as_str(),
+                _ => "<non-string>",
+            })
+            .collect();
+        assert_eq!(
+            values,
+            ["all", "contacts", "none", "error"],
+            "in merge order"
+        );
+        // The base is still resolvable on its own, and does NOT gain the sentinel.
+        let base = resolve_named_enum(module, "WAWebPrivacySettings", "VISIBILITY").unwrap();
+        assert_eq!(base.variants.len(), 3);
+    }
+
+    #[test]
+    fn a_composition_that_mutates_its_target_is_refused() {
+        // `extends(base, {B:"b"})` adds `B` to `base` ITSELF at runtime. Recovering only
+        // the result would publish a `BASE` export missing a member the runtime has —
+        // an enum that claims to reject a value it accepts. WA's convention is an empty
+        // target, so requiring one costs nothing and rules the mutation out.
+        let module = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"},l=babelHelpers.extends(e,{B:"b"});
+            i.BASE=e,i.WITH=l
+        }),1);"#;
+        assert!(resolve_named_enum(module, "M", "WITH").is_none());
+        // ...and the TARGET is refused too. This once asserted that `BASE` still resolved
+        // with its one written member — which is precisely the enum "claiming to reject a
+        // value it accepts" that the paragraph above calls out. The comment described the
+        // hazard and the assertion below it enshrined the hazard; refusing is the only
+        // answer consistent with both.
+        assert!(
+            resolve_named_enum(module, "M", "BASE").is_none(),
+            "`extends` wrote `B` into `e`, so the pre-merge body is not what the runtime has"
+        );
+    }
+
+    #[test]
+    fn a_name_the_module_rebinds_is_refused_everywhere_it_is_read() {
+        // `locals` is flat; JavaScript is not. A minifier that reuses `e` inside a nested
+        // function must not leak into the outer binding the composition below reads. This
+        // once asserted REFUSAL on both, which was the conservative approximation of a
+        // resolver that could not tell an inner `e` from an outer one; now that parameter,
+        // hoisted and catch scopes are modelled, the honest answer is the lexical one —
+        // and keeping a refusal here would throw away two resolvable enums. What still
+        // refuses is ambiguity the pass genuinely cannot order, below.
+        let module = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"};
+            function f(){var e={X:"x"};return e}
+            var l=babelHelpers.extends({},e,{B:"b"});
+            i.WITH=l,i.ALIAS=e
+        }),1);"#;
+        // Now that the pass models scopes, the honest answer here is to RESOLVE: the inner
+        // `var e` is local to `f`, and both reads below are outer ones that never see it.
+        // The refusal this once asserted was the conservative approximation of a resolver
+        // that could not tell the two apart — worth keeping only while that was true.
+        assert_eq!(
+            resolve_named_enum(module, "M", "WITH")
+                .expect("the outer composition is unambiguous")
+                .variants
+                .len(),
+            2,
+            "outer `e` plus `B`, not the inner `{{X}}`"
+        );
+        assert_eq!(
+            resolve_named_enum(module, "M", "ALIAS")
+                .expect("the outer alias is unambiguous")
+                .variants
+                .len(),
+            1
+        );
+        // A bare `e = …` rebinding is invisible to `visit_variable_declarator`, so only
+        // the `var` form reached `shadowed` at first — the same stale-body bug through
+        // the one write form the guard did not watch.
+        let assigned = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"};
+            function f(){e={X:"x"}}
+            var l=babelHelpers.extends({},e,{B:"b"});
+            i.WITH=l,i.ALIAS=e
+        }),1);"#;
+        assert!(resolve_named_enum(assigned, "M", "WITH").is_none());
+        assert!(resolve_named_enum(assigned, "M", "ALIAS").is_none());
+
+        // Rebound to something unreadable is no better: whatever `locals` still holds is
+        // not what the runtime has.
+        let opaque = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"};
+            function f(){e=computed()}
+            i.ALIAS=e
+        }),1);"#;
+        assert!(resolve_named_enum(opaque, "M", "ALIAS").is_none());
+
+        // A PARAMETER binds the name for its whole body, which neither the declarator nor
+        // the assignment path sees.
+        let param = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"};
+            function f(e){ var l=babelHelpers.extends({},e,{B:"b"}); i.WITH=l }
+            f({X:"x"})
+        }),1);"#;
+        assert!(resolve_named_enum(param, "M", "WITH").is_none());
+
+        // ...but only INSIDE that body. Refusing the name module-wide was measured against
+        // the pinned bundles and lost a real constraint (`STANZA_MSG_TYPES`), so a merge
+        // outside the shadowing function must still resolve.
+        let outside = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"};
+            function f(e){ return e }
+            var l=babelHelpers.extends({},e,{B:"b"});
+            i.WITH=l
+        }),1);"#;
+        let def = resolve_named_enum(outside, "M", "WITH").expect("resolves outside the body");
+        assert_eq!(def.variants.len(), 2);
+
+        // A redeclaration this pass cannot READ shadows just as much as one it can.
+        let unreadable = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"};
+            function f(){ var e=getEnum(); var l=babelHelpers.extends({},e,{B:"b"}); i.OUT=l }
+        }),1);"#;
+        assert!(resolve_named_enum(unreadable, "M", "OUT").is_none());
+
+        // A deferred alias (`i.OUT = e`) is resolved after the walk, when the parameter
+        // stack is already unwound — so the shadow has to be recorded at the assignment.
+        let deferred = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"};
+            function f(e){ i.OUT=e }
+            f({X:"x"})
+        }),1);"#;
+        assert!(resolve_named_enum(deferred, "M", "OUT").is_none());
+
+        // A DESTRUCTURED parameter binds its names too, and a rest element is not even
+        // in `items` — both were invisible to the plain-name lookup.
+        let destructured = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"};
+            function f({e}){ var x=babelHelpers.extends({},e,{B:"b"}); i.OUT=x }
+            f({e:{X:"x"}})
+        }),1);"#;
+        assert!(resolve_named_enum(destructured, "M", "OUT").is_none());
+
+        let rest = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"};
+            function f(q, ...e){ var x=babelHelpers.extends({},e,{B:"b"}); i.OUT=x }
+        }),1);"#;
+        assert!(resolve_named_enum(rest, "M", "OUT").is_none());
+
+        // The exports BAG defers aliases the same way the single-property form does, so
+        // it needs the same parameter guard.
+        let bag = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"};
+            function f(e){ i.exports={OUT:e} }
+            f({X:"x"})
+        }),1);"#;
+        assert!(resolve_named_enum(bag, "M", "OUT").is_none());
+
+        // A bare rebind to a composition is REFUSED, not resolved: which body a read of
+        // `e` sees depends on whether it precedes the rebind, and nothing here models
+        // that order. See the note at the assignment branch.
+        let composed = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"};
+            e=babelHelpers.extends({},e,{B:"b"});
+            i.OUT=e
+        }),1);"#;
+        assert!(resolve_named_enum(composed, "M", "OUT").is_none());
+
+        // A DESTRUCTURED declaration binds its names too, and `get_identifier_name` sees
+        // none of them.
+        let destructured_var = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"};
+            function f(obj){ var {e}=obj; var x=babelHelpers.extends({},e,{B:"b"}); i.OUT=x }
+        }),1);"#;
+        assert!(resolve_named_enum(destructured_var, "M", "OUT").is_none());
+
+        // `catch (e)` binds for the handler body — the third form of the same shadow.
+        let caught = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"};
+            try { risky() } catch(e) { var x=babelHelpers.extends({},e,{B:"b"}); i.OUT=x }
+        }),1);"#;
+        assert!(resolve_named_enum(caught, "M", "OUT").is_none());
+        // Sanity: the SAME shape without the catch binding must resolve, or the assertion
+        // above proves nothing about catch.
+        let no_catch = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"};
+            try { risky() } catch(q) { var x=babelHelpers.extends({},e,{B:"b"}); i.OUT=x }
+        }),1);"#;
+        assert_eq!(
+            resolve_named_enum(no_catch, "M", "OUT")
+                .expect("resolves when catch binds another name")
+                .variants
+                .len(),
+            2
+        );
+
+        // A nested `function e(){}` hoists a binding over the enclosing body.
+        let fn_name = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"};
+            function g(){ function e(){} var x=babelHelpers.extends({},e,{B:"b"}); i.OUT=x }
+        }),1);"#;
+        assert!(resolve_named_enum(fn_name, "M", "OUT").is_none());
+
+        // ...and hoisting means the declaration may come AFTER the composition that reads
+        // the name. A source-ordered check misses exactly this order.
+        let hoisted_after = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"};
+            function g(){ var x=babelHelpers.extends({},e,{B:"b"}); function e(){} i.OUT=x }
+        }),1);"#;
+        assert!(resolve_named_enum(hoisted_after, "M", "OUT").is_none());
+
+        // `var` is hoisted over the whole function too, so one written AFTER the
+        // composition still binds the operand it reads.
+        let var_after = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"};
+            function g(){ var x=babelHelpers.extends({},e,{B:"b"}); var e={X:"x"}; i.OUT=x }
+        }),1);"#;
+        assert!(resolve_named_enum(var_after, "M", "OUT").is_none());
+
+        // ...and a `var` nested in a block is function-scoped all the same.
+        let var_in_block = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"};
+            function g(){ var x=babelHelpers.extends({},e,{B:"b"}); if (c) { var e={X:"x"} } i.OUT=x }
+        }),1);"#;
+        assert!(resolve_named_enum(var_in_block, "M", "OUT").is_none());
+
+        // A named function EXPRESSION binds its own name inside its body.
+        let self_named = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"};
+            var f=function e(){ var x=babelHelpers.extends({},e,{B:"b"}); i.OUT=x };
+        }),1);"#;
+        assert!(resolve_named_enum(self_named, "M", "OUT").is_none());
+
+        // A destructured shadow is LEXICAL: after the body that binds it, an unrelated
+        // outer composition must still resolve.
+        let outer_after_destructure = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"};
+            function f(obj){ var {e}=obj; return e }
+            var l=babelHelpers.extends({},e,{B:"b"});
+            i.OUT=l
+        }),1);"#;
+        assert_eq!(
+            resolve_named_enum(outer_after_destructure, "M", "OUT")
+                .expect("the outer composition never sees the inner binding")
+                .variants
+                .len(),
+            2
+        );
+
+        // A loop HEADER declares too, and `var` there hoists across the function. All
+        // three forms, because each takes a different arm of the prescan.
+        for header in [
+            "for (var e = 0; e < 1; e++) {}",
+            "for (var e in xs) {}",
+            "for (var e of xs) {}",
+        ] {
+            let src = format!(
+                r#"__d("M",[],(function(t,n,r,o,a,i){{
+                    var e={{A:"a"}};
+                    function f(xs){{ var x=babelHelpers.extends({{}},e,{{B:"b"}}); {header} i.OUT=x }}
+                }}),1);"#
+            );
+            assert!(
+                resolve_named_enum(&src, "M", "OUT").is_none(),
+                "the header's `var e` binds for the whole function: {header}"
+            );
+        }
+
+        // A destructuring ASSIGNMENT rebinds without declaring, so no declarator runs.
+        let destructure_assign = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"};
+            ({e}=obj);
+            var x=babelHelpers.extends({},e,{B:"b"});
+            i.OUT=x
+        }),1);"#;
+        assert!(resolve_named_enum(destructure_assign, "M", "OUT").is_none());
+
+        // Nested and rest patterns write just as much as a direct element does.
+        for pat in [
+            "({x: {e}} = obj)",
+            "({...e} = obj)",
+            "([[e]] = xs)",
+            "({e = 1} = obj)",
+        ] {
+            let src = format!(
+                r#"__d("M",[],(function(t,n,r,o,a,i){{
+                    var e={{A:"a"}};
+                    {pat};
+                    var x=babelHelpers.extends({{}},e,{{B:"b"}});
+                    i.OUT=x
+                }}),1);"#
+            );
+            assert!(
+                resolve_named_enum(&src, "M", "OUT").is_none(),
+                "the pattern rebinds `e`: {pat}"
+            );
+        }
+
+        // A `let` in a NESTED BLOCK is scoped to that block, so a composition written
+        // outside it must still resolve — hoisting it function-wide was over-refusal.
+        let block_let = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"};
+            function f(){ { let e = 1; } var x=babelHelpers.extends({},e,{B:"b"}); i.OUT=x }
+        }),1);"#;
+        assert_eq!(
+            resolve_named_enum(block_let, "M", "OUT")
+                .expect("a block-scoped `let` does not shadow the outer read")
+                .variants
+                .len(),
+            2
+        );
+
+        // A `let` shadows INSIDE its block, even though it does not hoist to the function.
+        let block_let_inside = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"};
+            { let e=get(); var x=babelHelpers.extends({},e,{B:"b"}); i.OUT=x }
+        }),1);"#;
+        assert!(resolve_named_enum(block_let_inside, "M", "OUT").is_none());
+
+        // `X.Name = {…}` is an EXPORT only when `X` is the module's export object. A
+        // private local assigned the same way would otherwise be published as a named
+        // enum and attached as a closed set to fields the runtime never checks against it.
+        let private_obj = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var tmp={};
+            tmp.Target={A:"a",B:"b"};
+        }),1);"#;
+        assert!(resolve_named_enum(private_obj, "M", "Target").is_none());
+        // ...and the real export object still works.
+        let real_export = r#"__d("M",[],(function(t,n,r,o,a,i){
+            i.Target={A:"a",B:"b"};
+        }),1);"#;
+        assert_eq!(
+            resolve_named_enum(real_export, "M", "Target")
+                .expect("an assignment on the factory's export param resolves")
+                .variants
+                .len(),
+            2
+        );
+
+        // A lexical binding in a loop HEADER or a `switch` case shadows inside it too —
+        // neither is a `BlockStatement`, so both were invisible.
+        for shape in [
+            "for (let e = get(); ; ) { var x=babelHelpers.extends({},e,{B:\"b\"}); i.OUT=x }",
+            "for (const e of xs) { var x=babelHelpers.extends({},e,{B:\"b\"}); i.OUT=x }",
+            "switch (k) { case 1: let e=get(); var x=babelHelpers.extends({},e,{B:\"b\"}); i.OUT=x }",
+        ] {
+            let src = format!(
+                r#"__d("M",[],(function(t,n,r,o,a,i){{
+                    var e={{A:"a"}};
+                    function f(xs,k){{ {shape} }}
+                }}),1);"#
+            );
+            assert!(
+                resolve_named_enum(&src, "M", "OUT").is_none(),
+                "the lexical binding shadows inside its construct: {shape}"
+            );
+        }
+
+        // A body's own top-level `let` binds for the whole body, including a read written
+        // before it — no block encloses it, so the block visitor never sees it.
+        let body_let = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"};
+            function f(){ var x=babelHelpers.extends({},e,{B:"b"}); let e=get(); i.OUT=x }
+        }),1);"#;
+        assert!(resolve_named_enum(body_let, "M", "OUT").is_none());
+
+        // An arrow's body is not a `BlockStatement` either, so its own top-level `let`
+        // was as invisible as a function body's was.
+        let arrow_let = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"};
+            var f=()=>{ let e=get(); var x=babelHelpers.extends({},e,{B:"b"}); i.OUT=x };
+        }),1);"#;
+        assert!(resolve_named_enum(arrow_let, "M", "OUT").is_none());
+
+        // `class e {}` binds lexically over its scope exactly as `let` does.
+        for shape in [
+            "function g(){ class e {} var x=babelHelpers.extends({},e,{B:\"b\"}); i.OUT=x }",
+            "function g(){ { class e {} var x=babelHelpers.extends({},e,{B:\"b\"}); i.OUT=x } }",
+        ] {
+            let src = format!(
+                r#"__d("M",[],(function(t,n,r,o,a,i){{
+                    var e={{A:"a"}};
+                    {shape}
+                }}),1);"#
+            );
+            assert!(
+                resolve_named_enum(&src, "M", "OUT").is_none(),
+                "the class binding shadows: {shape}"
+            );
+        }
+
+        // A nested function that SHADOWS the export receiver writes to its own parameter.
+        let shadowed_receiver = r#"__d("M",[],(function(t,n,r,o,a,i){
+            function f(i){ i.OUT={A:"a",B:"b"} }
+        }),1);"#;
+        assert!(resolve_named_enum(shadowed_receiver, "M", "OUT").is_none());
+        // ...while the module's own receiver still exports.
+        let real = r#"__d("M",[],(function(t,n,r,o,a,i){
+            function f(){ i.OUT={A:"a",B:"b"} }
+        }),1);"#;
+        assert_eq!(
+            resolve_named_enum(real, "M", "OUT")
+                .expect("the module's export object still works from a nested function")
+                .variants
+                .len(),
+            2
+        );
+
+        // A `var` that shadows the export receiver is the same hazard as a parameter.
+        let var_receiver = r#"__d("M",[],(function(t,n,r,o,a,i){
+            function f(){ var i={}; i.OUT={A:"a",B:"b"} }
+        }),1);"#;
+        assert!(resolve_named_enum(var_receiver, "M", "OUT").is_none());
+
+        // `extends(e, …)` mutates `e` as a bare STATEMENT too, not only as an initializer.
+        let stmt_mutation = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"};
+            babelHelpers.extends(e,{B:"b"});
+            i.BASE=e
+        }),1);"#;
+        assert!(resolve_named_enum(stmt_mutation, "M", "BASE").is_none());
+
+        // An ARROW shadowing the receiver is the same hazard as a function doing it.
+        let arrow_receiver = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var f=()=>{ var i={}; i.OUT={A:"a",B:"b"} };
+        }),1);"#;
+        assert!(resolve_named_enum(arrow_receiver, "M", "OUT").is_none());
+
+        // `tmp = extends(e, …)` mutates `e` just as the bare call does.
+        let assigned_mutation = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"},tmp;
+            tmp=babelHelpers.extends(e,{B:"b"});
+            i.BASE=e
+        }),1);"#;
+        assert!(resolve_named_enum(assigned_mutation, "M", "BASE").is_none());
+
+        // Two writes to one export with DIFFERENT bodies: which one a consumer sees is
+        // not something this pass can say, so it says nothing.
+        let conflicting = r#"__d("M",[],(function(t,n,r,o,a,i){
+            i.OUT={A:"a"};
+            i.OUT={X:"x"};
+        }),1);"#;
+        assert!(resolve_named_enum(conflicting, "M", "OUT").is_none());
+        // ...but an identical repeat is not a conflict.
+        let same_twice = r#"__d("M",[],(function(t,n,r,o,a,i){
+            i.OUT={A:"a",B:"b"};
+            i.OUT={A:"a",B:"b"};
+        }),1);"#;
+        assert_eq!(
+            resolve_named_enum(same_twice, "M", "OUT")
+                .expect("an identical repeat still resolves")
+                .variants
+                .len(),
+            2
+        );
+
+        // A mutating `extends` NESTED in another expression mutates all the same.
+        for shape in [
+            "(babelHelpers.extends(e,{B:\"b\"}), 0);",
+            "c && babelHelpers.extends(e,{B:\"b\"});",
+            "if (babelHelpers.extends(e,{B:\"b\"})) {}",
+        ] {
+            let src = format!(
+                r#"__d("M",[],(function(t,n,r,o,a,i){{
+                    var e={{A:"a"}};
+                    {shape}
+                    i.BASE=e
+                }}),1);"#
+            );
+            assert!(
+                resolve_named_enum(&src, "M", "BASE").is_none(),
+                "the nested call mutates `e`: {shape}"
+            );
+        }
+
+        // A LEXICAL loop head puts its name in the TDZ while the RHS runs, so a read there
+        // throws rather than reaching the outer enum — `var` is the opposite.
+        let tdz = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"};
+            function f(){ for (let e of (i.OUT=e, [])) {} }
+        }),1);"#;
+        assert!(resolve_named_enum(tdz, "M", "OUT").is_none());
+
+        // A DEFERRED alias that disagrees with an inline write to the same export.
+        let alias_conflict = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={B:"b"};
+            i.OUT={A:"a"};
+            i.OUT=e
+        }),1);"#;
+        assert!(resolve_named_enum(alias_conflict, "M", "OUT").is_none());
+
+        // A name rebound to the SAME body is not ambiguous — refusing it would throw away
+        // a resolvable enum for nothing.
+        let same = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"};
+            function f(){var e={A:"a"};return e}
+            i.ALIAS=e
+        }),1);"#;
+        assert_eq!(
+            resolve_named_enum(same, "M", "ALIAS")
+                .expect("an identical rebinding is still resolvable")
+                .variants
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn a_composition_over_something_unreadable_is_refused() {
+        // A partial merge is a CLOSED value set missing members the runtime accepts —
+        // worse than recording the loss, so an unresolvable operand refuses the whole.
+        let module = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={all:"all"},l=babelHelpers.extends({},e,computed());
+            i.WITH=l
+        }),1);"#;
+        assert!(resolve_named_enum(module, "M", "WITH").is_none());
+    }
 
     fn run(src: &str) -> Vec<InternalEnumDef> {
         let defs = wa_transform::extract_module_definitions(src);

@@ -383,6 +383,8 @@ fn emit_action_tables(notifications: &[NotificationDef]) -> String {
     l.push_str("    pub name: &'static str,\n");
     l.push_str("    pub wire_tag: &'static str,\n");
     l.push_str("    pub fields: &'static [NotifActionField],\n");
+    l.push_str("    /// Whether every branch producing this action carries the list.\n");
+    l.push_str("    pub required: bool,\n");
     l.push_str("}\n\n");
     l.push_str("/// One arm of a notification's payload action union.\n");
     l.push_str("#[derive(Debug, Clone, Copy)]\n");
@@ -450,10 +452,11 @@ fn emit_action_tables(notifications: &[NotificationDef]) -> String {
                 .iter()
                 .map(|c| {
                     format!(
-                        "NotifActionChild {{ name: {}, wire_tag: {}, fields: {} }}",
+                        "NotifActionChild {{ name: {}, wire_tag: {}, fields: {}, required: {} }}",
                         rust_lit(&c.name),
                         rust_lit(&c.wire_tag),
-                        field_list(&c.fields)
+                        field_list(&c.fields),
+                        c.required
                     )
                 })
                 .collect();

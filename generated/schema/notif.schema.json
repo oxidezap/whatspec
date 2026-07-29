@@ -183,6 +183,11 @@
           "description": "The output field the mapped list lands in (`\"participants\"`).",
           "type": "string"
         },
+        "required": {
+          "description": "Whether EVERY branch producing this action carries the collection.\n\n`if (c) return {actionType: A, participants: …}; return {actionType: A}` yields two\nlegal shapes for one action, and only one of them has `participants`. Without this\nthe metadata claimed the list is always present — the same over-assertion that\n`required` on a scalar field exists to prevent, one level up.\n\nAlways serialized. Skipping the `true` case would leave a non-Rust consumer —\nwhich is who the IR is for — unable to tell \"required by default\" from\n\"unspecified\", and the JSON Schema cannot carry the default either.\n\nThe JSON Schema cannot say so: `serde(default)` makes schemars drop the property\nfrom `required`, and `schemars(required)` is a no-op on a non-`Option` field. A\ndocument omitting it therefore validates clean, which is the ambiguity above\nreappearing through the published contract — so `lint-ir.py` enforces the presence\ninstead. The serde default stays, so an older document still deserializes.",
+          "type": "boolean",
+          "default": true
+        },
         "wireTag": {
           "description": "The repeated element's wire tag (`\"participant\"`).",
           "type": "string"

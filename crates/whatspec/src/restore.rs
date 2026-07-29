@@ -1109,7 +1109,7 @@ mod tests {
     // ── wasm restore ────────────────────────────────────────────────────────────────
 
     fn wasm_lock_for(entries: &[(&str, &str, &[u8])]) -> crate::lock::WasmLock {
-        crate::lock::WasmLock::new(
+        crate::lock::WasmLock::with_bootloader(
             "2.3000.TEST",
             entries
                 .iter()
@@ -1121,6 +1121,7 @@ mod tests {
                     size: bytes.len() as u64,
                 })
                 .collect(),
+            None,
         )
     }
 

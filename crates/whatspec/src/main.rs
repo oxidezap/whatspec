@@ -2,7 +2,10 @@
 //! versioned artifacts (IQ specs, WAProto.proto, mex operations, appstate
 //! schemas) to disk, ready to be committed — locally or from CI.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
+// Only the fetch path builds the bootloader pin map from it.
+#[cfg(feature = "fetch")]
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -277,6 +280,8 @@ fn update(args: &[String]) -> Result<()> {
         source,
         bundles,
         wasm,
+        boot_pins,
+        live_handle_ids,
         authoritative,
     } = load_source(&opts)?;
     eprintln!("WhatsApp version: {wa_version}");
@@ -349,12 +354,33 @@ fn update(args: &[String]) -> Result<()> {
     // `update` (no `--wasm`) must leave a previously committed wasm lock alone rather
     // than truncate it to an empty set it never looked for.
     if authoritative && opts.wasm && wasm.is_empty() {
-        warn_if_wasm_lock_is_now_stale(&opts.out.join(WASM_LOCK_NAME), &wa_version);
+        let lock_path = opts.out.join(WASM_LOCK_NAME);
+        warn_if_wasm_lock_is_now_stale(&lock_path, &wa_version);
+        // A blocked or changed bootloader is EXACTLY the state the pins were added to
+        // record, and it is also the state that yields no payloads — so dropping them
+        // here would lose the diagnostic precisely when it matters. The recorded payload
+        // set is preserved (that is what the emptiness guard protects); only the
+        // bootloader section is rewritten.
+        // Gated with the function it calls: without `fetch` there is no bootloader to
+        // have asked, and `boot_pins` is always `None`. The call site was NOT gated when
+        // the function was, so the no-default-features build stopped compiling — a
+        // configuration `cargo test --workspace` never exercises.
+        #[cfg(feature = "fetch")]
+        if let Some(pins) = &boot_pins
+            && let Err(e) = update_lock_bootloader(&lock_path, pins, &wa_version, &live_handle_ids)
+        {
+            eprintln!("  wasm lock not updated with the bootloader map: {e:#}");
+        }
     }
     if authoritative && !wasm.is_empty() {
         let lock_path = opts.out.join(WASM_LOCK_NAME);
         warn_if_wasm_shrank(&lock_path, &wasm);
-        let lock = WasmLock::new(&wa_version, wasm);
+        // Accumulated here too, not only on the empty path. A run that resolves a SMALLER
+        // endpoint subset still succeeds, and replacing the section with its own sample
+        // would delete ids an earlier run resolved — the same shrink, just reached by a
+        // productive run instead of a blocked one.
+        let boot_pins = pins_with_prior(&lock_path, boot_pins, &wa_version, &live_handle_ids);
+        let lock = WasmLock::with_bootloader(&wa_version, wasm, boot_pins);
         fs::write(&lock_path, lock.to_pretty_json())
             .with_context(|| format!("write {}", lock_path.display()))?;
         eprintln!(
@@ -934,6 +960,14 @@ struct Loaded {
     /// for on the fetch path. Never part of `source`: these are binaries, and the
     /// extractors parse `source` as JavaScript.
     wasm: Vec<WasmLockEntry>,
+    /// What the bootloader yielded this run, when the fetch path ran — see
+    /// [`lock::BootloaderPins`]. `None` for a local `--bundles` regen, which never
+    /// asks the bootloader anything and must not clobber a recorded map with nothing.
+    boot_pins: Option<lock::BootloaderPins>,
+    /// `bx` ids this run actually observed live, whether or not their binding survived
+    /// the CDN filter. Absence from the pins then means "rejected", not "never seen", and
+    /// the prior lock must not restore it.
+    live_handle_ids: BTreeSet<String>,
     /// `true` only for the fetch path, which knows every bundle's origin URL and is
     /// therefore the *authoritative* source of a full lockfile. The offline `--bundles`
     /// path fingerprints the same inputs (for `--check`) but never rewrites the lock,
@@ -959,6 +993,8 @@ fn load_source(opts: &Options) -> Result<Loaded> {
                 // directory of `.js` files, so it stays empty (and the committed wasm
                 // lock is left untouched — see `authoritative`).
                 wasm: Vec::new(),
+                boot_pins: None,
+                live_handle_ids: BTreeSet::new(),
                 authoritative: false,
             })
         }
@@ -1072,12 +1108,15 @@ fn fetch_source(opts: &Options) -> Result<Loaded> {
                     bundles.len()
                 );
                 maybe_save_bundles(opts, &bundles)?;
-                let wasm = load_wasm(opts, &discovered, Some(remote_version.as_str()))?;
+                let (wasm, boot_pins, live_handle_ids) =
+                    load_wasm(opts, &discovered, Some(remote_version.as_str()))?;
                 return Ok(Loaded {
                     wa_version: version,
                     source: concat_bundles(&bundles),
                     bundles: bundle_ids(&bundles),
                     wasm,
+                    boot_pins,
+                    live_handle_ids,
                     authoritative: true,
                 });
             }
@@ -1122,12 +1161,15 @@ fn fetch_source(opts: &Options) -> Result<Loaded> {
     // must never be able to cost the (expensive) JS download a retry.
     // The discovered version keys the cache; it does not gate the fetch. A run stamped
     // with `--wa-version` over an unreadable page still collects its payloads.
-    let wasm = load_wasm(opts, &discovered, discovered.wa_version.as_deref())?;
+    let (wasm, boot_pins, live_handle_ids) =
+        load_wasm(opts, &discovered, discovered.wa_version.as_deref())?;
     Ok(Loaded {
         wa_version: version,
         source: concat_bundles(&outcome.bundles),
         bundles: bundle_ids(&outcome.bundles),
         wasm,
+        boot_pins,
+        live_handle_ids,
         authoritative: true,
     })
 }
@@ -1179,9 +1221,13 @@ fn load_wasm(
     opts: &Options,
     discovered: &wa_fetch::Discovered,
     remote_version: Option<&str>,
-) -> Result<Vec<WasmLockEntry>> {
+) -> Result<(
+    Vec<WasmLockEntry>,
+    Option<lock::BootloaderPins>,
+    BTreeSet<String>,
+)> {
     if !opts.wasm {
-        return Ok(Vec::new());
+        return Ok((Vec::new(), None, BTreeSet::new()));
     }
 
     // The cache is keyed by the *discovered* version. Without one it can't be used at all
@@ -1285,21 +1331,61 @@ fn load_wasm(
             String::new()
         }
     );
+    // Handles: what this run resolved, plus what the cache recorded for payloads it is
+    // carrying over (their `bx` ids were learned in the run that downloaded them).
+    // Built before the empty-payload exit so the pins describe the accumulated map even
+    // when this particular run resolved nothing.
+    let mut handles = invert(&discovered.bx_data);
+    if let Some(cache) = &cache {
+        // Version-scoped: a cache for the previous release must not contribute its ids
+        // to this one's pins. `wasm_payloads` below already refuses such a manifest, so
+        // reading the handles unversioned mixed releases through the one door left open.
+        handles.extend(cache.wasm_handles(remote_version.unwrap_or_default()));
+    }
+    handles.extend(resolution.handle_by_url());
+    // A handle the live response REBOUND now names a different URL, and the cache's old
+    // `A -> 11` would otherwise sit beside the new `B -> 11`: `wasm_entries` would stamp
+    // `bxId: 11` on both payloads while the pins say 11 resolves to B — a lock that
+    // contradicts itself. The live map wins, so any other URL claiming a live id goes.
+    drop_stale_aliases(&mut handles, &resolution.by_id, &resolution.observed_ids);
+
+    // The PINS are built from the id → URL direction instead, because `handles` is
+    // URL-keyed and therefore already lossy: `invert`/`handle_by_url` keep the lowest id
+    // where several `bx` ids alias one wasm URL, and reversing that back recovers only
+    // that one. `wasm_handles` promises every id that resolved, and a JS reference using
+    // one of the dropped aliases would find nothing in the map. (The cache's own record
+    // is URL-keyed too, so its aliases were already lost when it was written; the two
+    // authoritative sources are not.)
+    let mut ids: BTreeMap<String, String> = discovered.bx_data.clone();
+    ids.extend(resolution.by_id.clone());
+    if let Some(cache) = &cache {
+        for (url, id) in cache.wasm_handles(remote_version.unwrap_or_default()) {
+            // Skipped when the run SAW this id: `by_id` above already inserted the live
+            // binding if it survived, and if it did not, the cache's URL is the one the
+            // response replaced. `live_handle_ids` can only suppress the prior-LOCK
+            // merge, so an entry inserted here would reach the pins unchallenged.
+            if resolution.observed_ids.contains(&id) {
+                continue;
+            }
+            ids.entry(id).or_insert(url);
+        }
+    }
+    // Every id the run OBSERVED, before the CDN/wasm filter drops any of them: absence
+    // from the pins then distinguishes "rejected" from "never seen". Taken from
+    // `observed_ids`, NOT `by_id` — the latter holds only the survivors, so building the
+    // tombstone from it failed for exactly the case the tombstone exists to cover. Taken from
+    // , NOT  — the latter holds only the survivors, so building the
+    // tombstone from it failed for precisely the case the tombstone exists to cover.
+    let live_ids: BTreeSet<String> = resolution.observed_ids.clone();
+    let pins = bootloader_pins(&resolution, &ids);
+
     if payloads.is_empty() {
         // Still sweep: an explicit `--wasm-out` that produced nothing must not leave the
         // previous run's payloads behind, or a runner would consume a set no lock
         // describes. Not an error — a blocked resolution must not fail a spec update.
         maybe_save_wasm(opts, &payloads)?;
-        return Ok(Vec::new());
+        return Ok((Vec::new(), Some(pins), live_ids));
     }
-
-    // Handles: what this run resolved, plus what the cache recorded for payloads it is
-    // carrying over (their `bx` ids were learned in the run that downloaded them).
-    let mut handles = invert(&discovered.bx_data);
-    if let Some(cache) = &cache {
-        handles.extend(cache.wasm_handles());
-    }
-    handles.extend(resolution.handle_by_url());
 
     // The wasm cache attaches to the JS cache for the same version; if that isn't there
     // (e.g. the JS came straight from a download with no `--cache`), skip caching rather
@@ -1312,7 +1398,7 @@ fn load_wasm(
 
     let entries = wasm_entries(&payloads, &handles);
     maybe_save_wasm(opts, &payloads)?;
-    Ok(entries)
+    Ok((entries, Some(pins), live_ids))
 }
 
 /// Give every payload a file name that is unique across the set and safe on disk, deriving
@@ -1395,6 +1481,70 @@ fn truncate_on_char_boundary(s: &str, max_bytes: usize) -> &str {
         .last()
         .unwrap_or(0);
     &s[..end]
+}
+
+/// The bootloader section of the wasm lock: what this run learned about turning a numeric
+/// `bx` handle into something fetchable, which nothing else records.
+///
+/// `handles` is the map ACCUMULATED for this version (page + cache + this run), not this
+/// run's sample. The endpoint answers the same request with different subsets, so pinning
+/// the latest sample would let a later successful run DELETE ids a previous one resolved —
+/// while their payloads stay in the set — and the supposedly diffable map would differ
+/// between two runs of an unchanged release.
+///
+/// Only wasm entries the DOWNLOAD path would accept are pinned. The page's `bxData` is
+/// server-supplied and may name any absolute URL; `resolve_wasm_with` already refuses a
+/// non-CDN one, but the pins were built from the unfiltered page map behind a
+/// filename-suffix check alone, so the committed lockfile — which `restore` treats as
+/// trusted — could publish `https://attacker.example/payload.wasm` as a resolved handle
+/// that the fetcher itself had rejected. Same predicate as the fetch path, not a second
+/// copy of it.
+///
+/// Only the wasm entries are pinned, as the field name promises. `handles` starts from the
+/// page's `bxData`, the bootloader's map of EVERY resource — images and the rest — while
+/// the other two contributors are already wasm-filtered (`by_id` keeps only wasm URLs, and
+/// the cache filters against stored wasm payloads). Pinning the lot broke the field's
+/// contract and swamped the diff signal it exists for, since unrelated resources churn far
+/// more often than the wasm set does. `handles` itself is left whole: `store_wasm` and
+/// `wasm_entries` look it up by a payload's own URL, where a non-wasm entry never matches.
+#[cfg(feature = "fetch")]
+fn bootloader_pins(
+    resolution: &wa_fetch::WasmResolution,
+    ids: &BTreeMap<String, String>,
+) -> lock::BootloaderPins {
+    lock::BootloaderPins {
+        handles_from_page: resolution.from_page,
+        wasm_handles: ids
+            .iter()
+            .filter(|(_, url)| wa_fetch::is_wasm_url(url) && wa_fetch::is_cdn_payload(url))
+            .map(|(id, url)| (id.clone(), url.clone()))
+            .collect(),
+        requests: resolution.requests,
+        failed_requests: resolution.failed_requests,
+        degradations: resolution.failures.len(),
+    }
+}
+
+#[cfg(feature = "fetch")]
+/// Remove URL → id entries whose id the live response has REBOUND to another URL.
+///
+/// The cache's `A -> 11` would otherwise sit beside a fresh `B -> 11`: `wasm_entries`
+/// stamps `bxId: 11` on both payloads while the pins, built from the id side where the
+/// live value wins, say 11 is B — a lock that contradicts itself. An id this run never
+/// saw is left alone; it is still the best record there is.
+fn drop_stale_aliases(
+    handles: &mut BTreeMap<String, String>,
+    live_by_id: &BTreeMap<String, String>,
+    observed: &BTreeSet<String>,
+) {
+    handles.retain(|url, id| match live_by_id.get(id) {
+        Some(live_url) => live_url == url,
+        // Seen but NOT in `by_id`: the live binding was rejected by the wasm/CDN filter.
+        // Keeping the cached alias would stamp `bxId` on a payload while the pins — which
+        // tombstone the same id — say it resolves to nothing. Reconciling against the
+        // post-filter map alone left exactly that contradiction.
+        None => !observed.contains(id),
+    });
 }
 
 /// `bx` id → URI inverted into URI → `bx` id, lowest id winning on a shared URI (the
@@ -2043,6 +2193,128 @@ struct NotifCounts {
     actions: usize,
     action_shapes: usize,
     drops: std::collections::BTreeMap<String, usize>,
+}
+
+/// Rewrite only the bootloader section of an existing wasm lock, leaving the payload set
+/// it records untouched.
+///
+/// Used when a run resolved no payloads: the emptiness guard exists so an unproductive
+/// run cannot truncate the committed set, but the bootloader outcome from that same run
+/// is the diagnostic worth keeping. A missing or unreadable lock is left alone — there is
+/// no payload set to preserve, and inventing one from an empty run is what the guard
+/// forbids.
+///
+/// The handle map ACCUMULATES over the lock's own previous value; only the request
+/// diagnostics are replaced. Everywhere else the accumulation comes from the cache, but
+/// the update workflow runs `--wasm-out` with no `--cache`, so on that path the lock is
+/// the only surviving record of what earlier runs resolved from the endpoint — and
+/// replacing the section wholesale would delete those ids while deliberately keeping the
+/// payloads they resolved. That is precisely the "a later run must not shrink the map"
+/// rule the pins were introduced to honour.
+///
+/// Accumulating is only sound WITHIN one release, so a lock stamped for a different
+/// `wa_version` is left untouched. On a version bump that resolves nothing, the lock still
+/// pins the previous release's payloads (`warn_if_wasm_lock_is_now_stale` says so); writing
+/// this run's handles into it would attribute the new release's ids to the old one, and —
+/// because the map accumulates — interleave two releases' ids into a provenance record
+/// whose whole purpose is being diffable.
+#[cfg(feature = "fetch")]
+fn update_lock_bootloader(
+    lock_path: &Path,
+    pins: &lock::BootloaderPins,
+    wa_version: &str,
+    seen_live: &BTreeSet<String>,
+) -> Result<()> {
+    let raw = fs::read_to_string(lock_path)?;
+    let mut lock: WasmLock = serde_json::from_str(&raw)?;
+    if lock.wa_version != wa_version {
+        eprintln!(
+            "  bootloader map not written: {} is stamped for {}, not {wa_version}",
+            lock_path.display(),
+            lock.wa_version
+        );
+        return Ok(());
+    }
+    let mut pins = pins.clone();
+    merge_prior_handles(&mut pins, lock.bootloader.as_ref(), seen_live);
+    let pins = &pins;
+    if lock.bootloader.as_ref() == Some(pins) {
+        return Ok(());
+    }
+    lock.bootloader = Some(pins.clone());
+    fs::write(lock_path, lock.to_pretty_json())
+        .with_context(|| format!("write {}", lock_path.display()))?;
+    eprintln!(
+        "updated {} bootloader map ({} wasm handle(s), {} request(s), {} failed)",
+        lock_path.display(),
+        pins.wasm_handles.len(),
+        pins.requests,
+        pins.failed_requests
+    );
+    Ok(())
+}
+
+/// Fold the handles a previous run recorded into `pins`, current run winning a collision.
+///
+/// The map is a best-effort SUPERSET for one release: the bootloader endpoint answers the
+/// same request with different subsets, so whichever run happens to be last must not get
+/// to decide the whole map. Its ids are provenance, not identity — they do not enter
+/// `wasmSetHash` — so keeping one whose payload this run did not re-resolve costs nothing,
+/// while dropping it makes an unchanged release diff against itself.
+fn merge_prior_handles(
+    pins: &mut lock::BootloaderPins,
+    prior: Option<&lock::BootloaderPins>,
+    seen_live: &BTreeSet<String>,
+) {
+    let Some(prior) = prior else { return };
+    for (id, url) in &prior.wasm_handles {
+        // An id the run SAW but whose new binding the pins filtered out (rebound to a
+        // non-CDN or non-wasm URL) is absent from `pins` for a reason. Reading that
+        // absence as "never observed" restored the stale entry, so the lock kept
+        // provenance the page had explicitly replaced. `seen_live` is the tombstone.
+        if seen_live.contains(id) {
+            continue;
+        }
+        pins.wasm_handles.entry(id.clone()).or_insert(url.clone());
+    }
+}
+
+/// [`merge_prior_handles`] against whatever the lock on disk already holds, for the write
+/// paths that build a whole new [`WasmLock`] rather than editing the existing one.
+///
+/// Only within the same release — a lock stamped for another `wa_version` describes a
+/// different set of ids, and merging across the two would produce a map belonging to
+/// neither. An unreadable or absent lock simply contributes nothing.
+///
+/// Deliberately NOT `#[cfg(feature = "fetch")]`: its caller is on the ordinary write path
+/// and compiles in every configuration. Gating the callee and not the caller is exactly
+/// what broke the no-default-features build twice in this branch.
+fn pins_with_prior(
+    lock_path: &Path,
+    pins: Option<lock::BootloaderPins>,
+    wa_version: &str,
+    seen_live: &BTreeSet<String>,
+) -> Option<lock::BootloaderPins> {
+    let mut pins = pins?;
+    // A lock that exists but cannot be parsed is NOT the same as one that is absent: the
+    // ids it held are about to be dropped, and the whole point of accumulating is that
+    // they must not be. Say so rather than let a corrupt file look like a first run.
+    let prior = match fs::read_to_string(lock_path) {
+        Ok(raw) => match serde_json::from_str::<WasmLock>(&raw) {
+            Ok(l) if l.wa_version == wa_version => l.bootloader,
+            Ok(_) => None,
+            Err(e) => {
+                eprintln!(
+                    "  {} is unreadable ({e}); its bootloader handles cannot be carried over",
+                    lock_path.display()
+                );
+                None
+            }
+        },
+        Err(_) => None,
+    };
+    merge_prior_handles(&mut pins, prior.as_ref(), seen_live);
+    Some(pins)
 }
 
 /// Emit the incoming content-stanza read-shape catalog (`incoming/index.json`) — the
@@ -2922,6 +3194,254 @@ mod tests {
             "all distinct even when the fallback was taken: {names:?}"
         );
         assert!(names.iter().all(|n| n.ends_with(".wasm") && n.len() <= 128));
+    }
+
+    #[cfg(feature = "fetch")]
+    #[test]
+    fn an_empty_run_accumulates_the_bootloader_map_instead_of_replacing_it() {
+        // The update workflow runs `--wasm-out` with NO `--cache`, so on that path the
+        // lock is the only record of what earlier runs resolved from the endpoint. A
+        // wholesale replace would drop those ids while keeping the payloads they
+        // resolved — the exact shrink the pins exist to prevent. Diagnostics are the
+        // opposite: they describe THIS run, so they must not accumulate.
+        let dir = std::env::temp_dir().join(format!("ws-boot-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("scratch dir");
+        let path = dir.join("wasm.lock.json");
+        let pins = |handles: &[(&str, &str)], requests, failed| lock::BootloaderPins {
+            handles_from_page: 1,
+            wasm_handles: handles
+                .iter()
+                .map(|(a, b)| (a.to_string(), b.to_string()))
+                .collect(),
+            requests,
+            failed_requests: failed,
+            degradations: 0,
+        };
+
+        let before = lock::WasmLock::with_bootloader(
+            "2.3000.test",
+            vec![],
+            Some(pins(&[("11", "https://x/a.wasm")], 4, 0)),
+        );
+        fs::write(&path, before.to_pretty_json()).expect("seed the lock");
+
+        // An unproductive run that saw only the page's own handle.
+        update_lock_bootloader(
+            &path,
+            &pins(&[("22", "https://x/b.wasm")], 1, 1),
+            "2.3000.test",
+            &BTreeSet::new(),
+        )
+        .expect("rewrite the section");
+
+        let after: lock::WasmLock =
+            serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        let boot = after.bootloader.expect("bootloader section");
+        assert_eq!(
+            boot.wasm_handles.keys().collect::<Vec<_>>(),
+            ["11", "22"],
+            "the earlier endpoint-resolved id survives"
+        );
+        assert_eq!(boot.requests, 1, "diagnostics describe THIS run");
+        assert_eq!(boot.failed_requests, 1);
+
+        // ...but only within one release. On a version bump that resolved nothing, the
+        // lock still describes the PREVIOUS release, so accumulating this run's ids into
+        // it would interleave two releases in a record whose point is being diffable.
+        update_lock_bootloader(
+            &path,
+            &pins(&[("33", "https://x/c.wasm")], 9, 9),
+            "2.3000.next",
+            &BTreeSet::new(),
+        )
+        .expect("a stale lock is not an error");
+        let untouched: lock::WasmLock =
+            serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(
+            untouched.bootloader.expect("still there"),
+            boot,
+            "a lock stamped for another version is left exactly as it was"
+        );
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_productive_run_accumulates_the_handle_map_too() {
+        // The empty-run path was fixed first, but a run that resolves a SMALLER endpoint
+        // subset also succeeds — and rebuilding the lock from its own sample deletes ids
+        // an earlier run resolved. Same shrink, reached by a productive run. Without
+        // `--cache` (which is how the update workflow runs) the lock is the only record,
+        // so nothing else would have restored them.
+        let dir = std::env::temp_dir().join(format!("ws-boot-nonempty-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("scratch dir");
+        let path = dir.join("wasm.lock.json");
+        let pins = |handles: &[(&str, &str)]| lock::BootloaderPins {
+            handles_from_page: 1,
+            wasm_handles: handles
+                .iter()
+                .map(|(a, b)| (a.to_string(), b.to_string()))
+                .collect(),
+            requests: 4,
+            failed_requests: 0,
+            degradations: 0,
+        };
+        let seed = lock::WasmLock::with_bootloader(
+            "2.3000.test",
+            vec![],
+            Some(pins(&[
+                ("11", "https://x/a.wasm"),
+                ("22", "https://x/b.wasm"),
+            ])),
+        );
+        fs::write(&path, seed.to_pretty_json()).expect("seed the lock");
+
+        // This run saw only one of the two, and one the earlier run had not.
+        let merged = pins_with_prior(
+            &path,
+            Some(pins(&[
+                ("22", "https://x/b.wasm"),
+                ("33", "https://x/c.wasm"),
+            ])),
+            "2.3000.test",
+            &BTreeSet::new(),
+        )
+        .expect("pins were supplied");
+        assert_eq!(
+            merged.wasm_handles.keys().collect::<Vec<_>>(),
+            ["11", "22", "33"],
+            "the id this run did not re-resolve survives"
+        );
+
+        // A lock for another release contributes nothing — merging across two would
+        // produce a map belonging to neither.
+        let isolated = pins_with_prior(
+            &path,
+            Some(pins(&[("33", "https://x/c.wasm")])),
+            "2.3000.next",
+            &BTreeSet::new(),
+        )
+        .expect("pins were supplied");
+        assert_eq!(isolated.wasm_handles.keys().collect::<Vec<_>>(), ["33"]);
+
+        // An id the run SAW but whose new binding the CDN filter dropped must not be
+        // restored from the prior lock: absent-from-pins means rejected, not unseen.
+        let tombstoned = pins_with_prior(
+            &path,
+            Some(pins(&[("22", "https://x/b.wasm")])),
+            "2.3000.test",
+            &BTreeSet::from(["11".to_string()]),
+        )
+        .expect("pins were supplied");
+        assert_eq!(
+            tombstoned.wasm_handles.keys().collect::<Vec<_>>(),
+            ["22"],
+            "the page rebound 11 to something the filter refused; the stale URL stays gone"
+        );
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[cfg(feature = "fetch")]
+    #[test]
+    fn a_rebound_handle_drops_its_stale_url() {
+        // The cache says 11 resolved A; the live response says 11 resolves B. Keeping both
+        // `A -> 11` and `B -> 11` in the URL-keyed map would stamp `bxId: 11` on two
+        // payloads while the pins — built from the id side, where the live value wins —
+        // say 11 is B. The lock would contradict itself.
+        let live: BTreeMap<String, String> = [(
+            "11".to_string(),
+            "https://static.whatsapp.net/b.wasm".to_string(),
+        )]
+        .into_iter()
+        .collect();
+        let mut handles: BTreeMap<String, String> = [
+            ("https://static.whatsapp.net/a.wasm", "11"),
+            ("https://static.whatsapp.net/b.wasm", "11"),
+            ("https://static.whatsapp.net/c.wasm", "22"),
+        ]
+        .iter()
+        .map(|(u, i)| (u.to_string(), i.to_string()))
+        .collect();
+        drop_stale_aliases(&mut handles, &live, &BTreeSet::from(["11".to_string()]));
+        assert_eq!(
+            handles.keys().collect::<Vec<_>>(),
+            [
+                "https://static.whatsapp.net/b.wasm",
+                "https://static.whatsapp.net/c.wasm"
+            ],
+            "the stale alias for a rebound id goes; an id the run never saw stays"
+        );
+
+        // ...and an id the run SAW but whose live binding the filter rejected loses its
+        // cached alias too: absence from `by_id` is not absence from the response.
+        let mut cached: BTreeMap<String, String> = [(
+            "https://static.whatsapp.net/a.wasm".to_string(),
+            "11".to_string(),
+        )]
+        .into_iter()
+        .collect();
+        drop_stale_aliases(
+            &mut cached,
+            &BTreeMap::new(),
+            &BTreeSet::from(["11".to_string()]),
+        );
+        assert!(
+            cached.is_empty(),
+            "the page rebound 11 to something refused; its cached URL must not survive"
+        );
+    }
+
+    #[cfg(feature = "fetch")]
+    #[test]
+    fn only_wasm_handles_are_pinned() {
+        // The page's `bxData` maps EVERY resource, not just wasm, and it is one of the
+        // three sources folded into `handles`. Pinning the lot broke the field's own
+        // contract and swamped its diff signal with images that change far more often
+        // than the wasm set does.
+        // id -> URL, the direction the page and the resolver actually record: two ids may
+        // alias one wasm URL, and the URL-keyed index this used to be built from kept only
+        // the lowest of them.
+        let handles: BTreeMap<String, String> = [
+            ("11", "https://static.whatsapp.net/a.wasm"),
+            ("22", "https://static.whatsapp.net/logo.png"),
+            ("33", "https://static.whatsapp.net/b.wasm?v=3"),
+            ("44", "https://static.whatsapp.net/a.wasm"),
+            // Server-supplied `bxData` may name any host. The fetcher refuses these; the
+            // lockfile is trusted by `restore`, so it must refuse them too.
+            ("55", "https://attacker.example/payload.wasm"),
+            ("66", "http://static.whatsapp.net/downgraded.wasm"),
+            (
+                "77",
+                "https://static.whatsapp.net:443@attacker.example/x.wasm",
+            ),
+        ]
+        .iter()
+        .map(|(i, u)| (i.to_string(), u.to_string()))
+        .collect();
+        let resolution = wa_fetch::WasmResolution {
+            from_page: 1,
+            requests: 2,
+            failed_requests: 0,
+            // Degradation that never reached a request: the pins must still carry it, or
+            // a capped run whose requests all succeeded looks identical to a clean one.
+            failures: vec!["component list capped".into()],
+            ..Default::default()
+        };
+        let pins = bootloader_pins(&resolution, &handles);
+        assert_eq!(
+            pins.wasm_handles.keys().collect::<Vec<_>>(),
+            ["11", "33", "44"],
+            "the image is dropped, a query string does not hide a .wasm, an aliasing id \
+             is kept, and nothing off the CDN is pinned"
+        );
+        // The diagnostics still come from the resolution, untouched by the filter.
+        assert_eq!((pins.handles_from_page, pins.requests), (1, 2));
+        assert_eq!(
+            (pins.failed_requests, pins.degradations),
+            (0, 1),
+            "no request failed, but coverage was still short"
+        );
     }
 
     #[test]

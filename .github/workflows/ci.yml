@@ -83,6 +83,15 @@ jobs:
           pip install --quiet jsonschema
           python scripts/validate-schemas.py generated
 
+      # The schemas check SHAPE; this checks that the document is usable. A
+      # consumer generating code from the IR — in any language — has to trust
+      # that an enum names its values, a byte pin matches its length, a union
+      # has alternatives. Those are invariants JSON Schema cannot express, and
+      # the counted states are held to a baseline so a constraint that starts
+      # slipping through shows up as a rise rather than as silence.
+      - name: Check IR internal consistency
+        run: python scripts/lint-ir.py generated
+
   # Reproducibility gate: restore the *exact* bundle set generated/ was built from
   # (from the durable release store, verified against the committed lockfile) and
   # regenerate in --check mode. Proves every committed generated/ is byte-for-byte
