@@ -1853,22 +1853,6 @@
               },
               {
                 "method": "mapChildrenWithTag",
-                "name": "participant",
-                "type": "string",
-                "required": true,
-                "tag": "participant",
-                "children": [
-                  {
-                    "method": "attrUserJid",
-                    "name": "jid",
-                    "type": "user_jid",
-                    "required": true
-                  }
-                ],
-                "repeats": true
-              },
-              {
-                "method": "mapChildrenWithTag",
                 "name": "sub_group_suggestion",
                 "type": "string",
                 "required": true,
@@ -1890,22 +1874,6 @@
                     "method": "attrString",
                     "name": "reason",
                     "type": "string",
-                    "required": true
-                  }
-                ],
-                "repeats": true
-              },
-              {
-                "method": "mapChildrenWithTag",
-                "name": "sub_group_suggestion",
-                "type": "string",
-                "required": true,
-                "tag": "sub_group_suggestion",
-                "children": [
-                  {
-                    "method": "attrGroupJid",
-                    "name": "jid",
-                    "type": "group_jid",
                     "required": true
                   }
                 ],

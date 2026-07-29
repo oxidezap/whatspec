@@ -5,7 +5,7 @@
     "incoming": {
       "dropsByReason": {
         "response enum argument not structurally resolvable": 1,
-        "shadowedCallbackRead": 2
+        "shadowedCallbackRead": 6
       }
     },
     "iq": {
@@ -28,7 +28,7 @@
         "iq builder substring present but no AST iq call": 5,
         "mixin fragment (folded into requests, not a standalone stanza)": 66,
         "response enum argument not structurally resolvable": 33,
-        "shadowedCallbackRead": 4
+        "shadowedCallbackRead": 6
       },
       "excludedFragments": 66,
       "stanzas": 143,
@@ -82,7 +82,7 @@
     "notif": {
       "file": "notif/index.json",
       "schema": "schema/notif.schema.json",
-      "sha256": "83e59bdfdb97026a2340ca44049f5303839caa06b295456a811e6808b3263f04"
+      "sha256": "37f3f25e5d6ee409f09d33d34d07c772bd5c61490fb862565aff07c0c36763b7"
     },
     "proto": {
       "file": "proto/WAProto.proto",

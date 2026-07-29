@@ -460,6 +460,11 @@ struct BoundNames {
     lexical: Vec<(Span, String)>,
     /// Enclosing blocks during collection, innermost last.
     blocks: Vec<Span>,
+    /// Whether the binding being collected reaches the whole function: a parameter, or a
+    /// `var`. Everything else — `let`, `const`, `class`, a `catch` parameter — is confined
+    /// to the extent it sits in, so that is the default and only the hoisted forms are
+    /// named. Enumerating the block-scoped forms instead kept missing one.
+    hoist: bool,
 }
 
 impl BoundNames {
@@ -474,7 +479,9 @@ impl BoundNames {
         if let Some(n) = own_name {
             c.names.insert(n.to_string());
         }
+        c.hoist = true;
         c.visit_formal_parameters(params);
+        c.hoist = false;
         c.blocks.push(body.span);
         c.visit_function_body(body);
         c.blocks.pop();
@@ -484,22 +491,19 @@ impl BoundNames {
 
 impl<'a> Visit<'a> for BoundNames {
     fn visit_binding_identifier(&mut self, id: &oxc_ast::ast::BindingIdentifier<'a>) {
-        self.names.insert(id.name.as_str().to_string());
+        if self.hoist {
+            self.names.insert(id.name.as_str().to_string());
+        } else if let Some(&extent) = self.blocks.last() {
+            self.lexical.push((extent, id.name.as_str().to_string()));
+        }
     }
 
     fn visit_variable_declaration(&mut self, decl: &VariableDeclaration<'a>) {
-        if !decl.kind.is_lexical() {
-            walk::walk_variable_declaration(self, decl);
-            return;
-        }
-        // `let`/`const` reach only to the end of their block, so record the extent instead
-        // of letting the name stand for the whole function.
-        let block = self.blocks.last().copied().unwrap_or(decl.span);
-        for d in &decl.declarations {
-            for id in d.id.get_binding_identifiers() {
-                self.lexical.push((block, id.name.as_str().to_string()));
-            }
-        }
+        let outer = self.hoist;
+        // `var` reaches the whole function; `let`/`const` stop at their extent.
+        self.hoist = !decl.kind.is_lexical();
+        walk::walk_variable_declaration(self, decl);
+        self.hoist = outer;
     }
 
     fn visit_block_statement(&mut self, block: &oxc_ast::ast::BlockStatement<'a>) {
@@ -536,16 +540,9 @@ impl<'a> Visit<'a> for BoundNames {
     }
 
     fn visit_catch_clause(&mut self, clause: &oxc_ast::ast::CatchClause<'a>) {
-        // `catch (e)` binds to the clause. Left to the generic collector it would land in
-        // `names` and pass for a function-wide binding — and minified handlers reuse `e`.
+        // `catch (e)` binds to the clause — and minified handlers reuse `e` freely.
         self.blocks.push(clause.span);
-        if let Some(param) = clause.param.as_ref() {
-            for id in param.pattern.get_binding_identifiers() {
-                self.lexical
-                    .push((clause.span, id.name.as_str().to_string()));
-            }
-        }
-        self.visit_block_statement(&clause.body);
+        walk::walk_catch_clause(self, clause);
         self.blocks.pop();
     }
 
@@ -780,7 +777,13 @@ impl ParserAnalyzer<'_, '_> {
                 || self.bound_by_inner_scope(n, call.span)
         });
         if reads_a_node {
-            self.unresolved.push(format!("{SHADOWED_READ}@{method}"));
+            // Name the read, not just the accessor: `dropsByReason` counts these per site
+            // through a set, so two `attrString`s would collapse into one and the ratchet
+            // would not move when a third field started going missing.
+            let node = as_identifier(obj).unwrap_or("?");
+            let what = arg_str(call, 0).unwrap_or("?");
+            self.unresolved
+                .push(format!("{SHADOWED_READ}@{method}:{node}.{what}"));
         }
     }
 
@@ -1397,11 +1400,36 @@ fn arg_str<'b>(call: &'b CallExpression, n: usize) -> Option<&'b str> {
 /// misattributed to the root — flat, unrepeated, and one level too high.
 fn place(fields: &mut Vec<ParsedField>, parent_tag: &str, f: ParsedField) {
     if parent_tag.is_empty() {
-        fields.push(f);
+        merge_or_push(fields, f);
         return;
     }
     let idx = find_or_create_field(fields, parent_tag, "child", true);
-    fields[idx].children.get_or_insert_with(Vec::new).push(f);
+    merge_or_push(fields[idx].children.get_or_insert_with(Vec::new), f);
+}
+
+/// Add `f`, folding it into a field that already maps the same tag the same way.
+///
+/// Two branches mapping `<row>` with different callbacks are one repeated element that
+/// carries both shapes. Appending them as siblings left a later de-dup by name to keep the
+/// first and drop the other branch's fields without a word.
+fn merge_or_push(into: &mut Vec<ParsedField>, f: ParsedField) {
+    let Some(i) = into
+        .iter()
+        .position(|g| g.method == f.method && g.tag == f.tag && g.name == f.name)
+    else {
+        into.push(f);
+        return;
+    };
+    let Some(incoming) = f.children else { return };
+    let existing = into[i].children.get_or_insert_with(Vec::new);
+    for c in incoming {
+        if !existing
+            .iter()
+            .any(|e| e.name == c.name && e.method == c.method)
+        {
+            existing.push(c);
+        }
+    }
 }
 
 /// The bound name and body source of a child callback, written either as
@@ -1877,6 +1905,83 @@ mod tests {
     }
 
     #[test]
+    fn a_class_binding_shadows_only_its_block() {
+        // Block-scoped forms are not a list to keep up with: anything that is not a
+        // parameter or a `var` is recorded against the extent it sits in. A `class` in a
+        // nested block must not reach the reads around it.
+        let r = analyze_parser_ast(
+            r#"{ var x = e.child("meta");
+                 e.mapChildrenWithTag("row", function(row){
+                   x.attrString("before");
+                   { class x {} }
+                   x.attrString("after");
+                 }); }"#,
+            "e",
+        );
+        assert_eq!(
+            r.fields
+                .iter()
+                .find(|f| f.name == "meta")
+                .and_then(|f| f.children.as_ref())
+                .map(|c| c.iter().map(|f| f.name.as_str()).collect::<Vec<_>>()),
+            Some(vec!["before", "after"]),
+        );
+    }
+
+    #[test]
+    fn each_displaced_read_is_counted_on_its_own() {
+        // `dropsByReason` folds these through a set keyed by site plus detail, so a bare
+        // accessor name made two lost fields indistinguishable — and the ratchet could not
+        // move when a third went missing.
+        let r = analyze_parser_ast(
+            r#"{ var t = e.child("d"); t.child("l").mapChildren(function(e){ e.attrString("a"); e.attrString("b"); }); }"#,
+            "e",
+        );
+        let mut shadowed: Vec<&str> = r
+            .unresolved
+            .iter()
+            .filter(|u| u.starts_with(SHADOWED_READ))
+            .map(|u| u.as_str())
+            .collect();
+        shadowed.sort_unstable();
+        shadowed.dedup();
+        assert_eq!(
+            shadowed,
+            [
+                "shadowedCallbackRead@attrString:e.a",
+                "shadowedCallbackRead@attrString:e.b"
+            ],
+            "two lost reads stay two: {:?}",
+            r.unresolved
+        );
+    }
+
+    #[test]
+    fn two_branches_mapping_the_same_tag_become_one_element() {
+        // The walk is structural, so both arms of a conditional are visited. Appending them
+        // as sibling `row` fields left a later de-dup by name to keep the first and drop the
+        // other branch's reads without a word.
+        let r = analyze_parser_ast(
+            r#"{ c ? e.mapChildrenWithTag("row", function(x){ x.attrString("jid"); })
+                   : e.mapChildrenWithTag("row", function(x){ x.attrString("lid"); }); }"#,
+            "e",
+        );
+        assert_eq!(
+            r.fields.iter().map(|f| f.name.as_str()).collect::<Vec<_>>(),
+            ["row"],
+            "one element, not two"
+        );
+        assert_eq!(
+            r.fields[0]
+                .children
+                .as_ref()
+                .map(|c| c.iter().map(|f| f.name.as_str()).collect::<Vec<_>>()),
+            Some(vec!["jid", "lid"]),
+            "carrying what either branch accepts"
+        );
+    }
+
+    #[test]
     fn a_recursed_callback_is_not_also_reported_as_a_loss() {
         // The callback re-binds `e`, so the shadow check would discount its reads — but
         // `process_child_method` already read them in their own scope. Only what no
@@ -1920,7 +2025,7 @@ mod tests {
         assert!(
             r.unresolved
                 .iter()
-                .any(|u| u == "shadowedCallbackRead@contentUint"),
+                .any(|u| u == "shadowedCallbackRead@contentUint:e.?"),
             "and the read the walk could not place is still counted: {:?}",
             r.unresolved
         );
