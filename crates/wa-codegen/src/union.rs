@@ -19,9 +19,9 @@
 //!   raw content (and any leaf fields it reads). The child is read optionally, so an
 //!   absent or unrecognized value yields `None`.
 //! * **Same-node value** — variants carry attribute leaves read off the SAME node,
-//!   told apart by which variant's required attrs are all present (first-success).
-//!   The separability check rejects a union whose earlier arm would shadow a later
-//!   one.
+//!   told apart by what each one pins and by which of its required attrs are present
+//!   (first-success). The separability check rejects a union whose earlier arm would
+//!   shadow a later one.
 //! * **Tag-discriminated** — variants share one node's tag but carry richer payloads
 //!   (nested children/unions). Each becomes a newtype enum arm over its own generated
 //!   struct; the parser tries them first-success, gated by each variant's pinned attr
@@ -94,6 +94,10 @@ pub(crate) struct ContentArm {
 pub(crate) struct ValueArm {
     pub variant: String,
     pub fields: Vec<ParsedField>,
+    /// What the arm pins besides the attributes it reads. Carried because the guard has
+    /// to enforce it: told apart by presence alone, an arm pinned to
+    /// `unknown_identifier="true"` also matched `"false"`.
+    pub assertions: Vec<ResponseAssertion>,
 }
 
 /// The enum type name for a union field — deterministic from the field name and the
@@ -277,6 +281,7 @@ fn classify_content(f: &ParsedField, variants: &[UnionVariant]) -> Option<UnionS
                 fallback = Some(ValueArm {
                     variant: v.name.clone(),
                     fields: v.fields.clone(),
+                    assertions: v.assertions.clone(),
                 });
             }
         }
@@ -379,7 +384,15 @@ fn classify_same_node(f: &ParsedField, variants: &[UnionVariant]) -> Option<Unio
         return None; // a descent isn't a same-node read
     }
     for v in variants {
-        if tag_assert(&v.assertions).is_some() || content_assert(&v.assertions).is_some() {
+        // Every assertion has to reach the guard, or the arm accepts more than the source
+        // parser does — an attr dispatch [`classify_attr_discriminated`] declined (two arms
+        // pinning `kind` AND `mode`) landed here and was emitted as a presence union over
+        // the payloads alone, reading neither attribute. An attr pin the guard CAN spell is
+        // kept and enforced; anything else declines the shape.
+        if v.assertions
+            .iter()
+            .any(|a| a.kind != AssertionKind::Attr || a.name.is_none())
+        {
             return None;
         }
         if v.fields.is_empty() || !v.fields.iter().all(is_simple_leaf) {
@@ -403,6 +416,7 @@ fn classify_same_node(f: &ParsedField, variants: &[UnionVariant]) -> Option<Unio
         .map(|v| ValueArm {
             variant: v.name.clone(),
             fields: v.fields.clone(),
+            assertions: v.assertions.clone(),
         })
         .collect();
     Some(UnionShape::SameNode { arms })
@@ -740,7 +754,7 @@ fn emit_attr_discriminated(
             // — `maybeAttrEnum("mode", …)` rejects `mode="invalid"` at the source, and
             // skipping the check exposed it as `Some("invalid")`.
             .filter(|f| f.required || enum_values(f).is_some() || is_typed(f))
-            .map(|f| {
+            .filter_map(|f| {
                 // Decoding, not just presence: an unparseable `attrInt` or a malformed JID
                 // would otherwise reach `unwrap_or_default` and become a fabricated value
                 // where ordinary required-field parsing would have failed. An enum decodes
@@ -757,17 +771,17 @@ fn emit_attr_discriminated(
                     // Content first: a `contentEnum` is validated against the node's text,
                     // and looking for an attribute of that name found nothing.
                     if wap::is_content_method(&f.method) {
-                        return format!(
+                        return Some(format!(
                             "matches!({node_var}.content_str().as_deref(), {})",
                             arms.join(" | ")
-                        );
+                        ));
                     }
                     let wire = f.wire_name.as_deref().unwrap_or(&f.name);
-                    return format!(
+                    return Some(format!(
                         "matches!({node_var}.get_attr({}).map(|x| x.as_str()).as_deref(), {})",
                         rust_lit(wire),
                         arms.join(" | ")
-                    );
+                    ));
                 }
                 if wap::is_content_method(&f.method) {
                     // The content decoders all end in `unwrap_or_default`, so the value
@@ -787,36 +801,65 @@ fn emit_attr_discriminated(
                     // Text that decodes to a number: any content at all passed, and the
                     // decoder then turned `abc` into `0` where the accessor rejects it.
                     // `u64` because that is what the field materializes as.
-                    if raw == "content_str()"
+                    let decodes = if raw == "content_str()"
                         && wap::method_field_type(&f.method) == ParsedFieldType::Integer
                     {
-                        return format!(
+                        format!(
                             "{node_var}.content_str().and_then(|s| s.parse::<u64>().ok()).is_some()"
-                        );
-                    }
-                    let len = match (f.byte_length, f.byte_min, f.byte_max) {
-                        (Some(n), _, _) => format!("b.len() == {n}"),
-                        (None, Some(lo), Some(hi)) => {
-                            format!("({lo}..={hi}).contains(&b.len())")
+                        )
+                    } else {
+                        match (f.byte_length, f.byte_min, f.byte_max) {
+                            (Some(n), _, _) => {
+                                format!("{node_var}.{raw}.is_some_and(|b| b.len() == {n})")
+                            }
+                            (None, Some(lo), Some(hi)) => format!(
+                                "{node_var}.{raw}.is_some_and(|b| ({lo}..={hi}).contains(&b.len()))"
+                            ),
+                            (None, Some(lo), None) => {
+                                format!("{node_var}.{raw}.is_some_and(|b| b.len() >= {lo})")
+                            }
+                            (None, None, Some(hi)) => {
+                                format!("{node_var}.{raw}.is_some_and(|b| b.len() <= {hi})")
+                            }
+                            // Nothing pinned: presence is the whole of it.
+                            (None, None, None) => {
+                                // An arm the parser enters without reading the content is
+                                // not selected by carrying one — and gating on presence
+                                // turned an absent payload the source accepts into no
+                                // variant at all.
+                                if !f.required {
+                                    return None;
+                                }
+                                format!("{node_var}.{raw}.is_some()")
+                            }
                         }
-                        (None, Some(lo), None) => format!("b.len() >= {lo}"),
-                        (None, None, Some(hi)) => format!("b.len() <= {hi}"),
-                        (None, None, None) => return format!("{node_var}.{raw}.is_some()"),
                     };
-                    return format!("{node_var}.{raw}.is_some_and(|b| {len})");
+                    if f.required {
+                        return Some(decodes);
+                    }
+                    // Absence is what `required: false` means; only a payload that IS
+                    // there has to satisfy the accessor.
+                    return Some(format!("({node_var}.{raw}.is_none() || {decodes})"));
                 }
                 let mut probe = f.clone();
                 probe.required = false;
-                let decodes = format!("{}.is_some()", field_expr(&probe, node_var));
+                let read = field_expr(&probe, node_var);
+                // A bounded accessor rejects a value outside its band, and reading it as a
+                // bare `attrInt` let `attrIntRange("count", 1, 10)` select the arm on a
+                // `count="99"` the source parser turns away.
+                let decodes = match int_band(f) {
+                    Some(band) => format!("{read}.is_some_and(|n| {band})"),
+                    None => format!("{read}.is_some()"),
+                };
                 if f.required {
-                    return decodes;
+                    return Some(decodes);
                 }
                 let wire = f.wire_name.as_deref().unwrap_or(&f.name);
-                format!(
+                Some(format!(
                     "({}.get_attr({}).is_none() || {decodes})",
                     node_var,
                     rust_lit(wire)
-                )
+                ))
             })
             .collect();
         let guard = if required.is_empty() {
@@ -887,18 +930,37 @@ fn descend_opt_expr(node_var: &str, segs: &[String]) -> String {
     expr
 }
 
-/// The `if` condition selecting a same-node variant: all its required attrs present.
-/// `None` when the variant has no required attr (an unconditional fallback).
+/// The `if` condition selecting a same-node variant: everything it pins, then all its
+/// required attrs present. `None` when the variant constrains nothing (an unconditional
+/// fallback).
 fn same_node_guard(arm: &ValueArm, node_var: &str) -> Option<String> {
-    let conds: Vec<String> = arm
-        .fields
-        .iter()
-        .filter(|f| f.required && f.method.starts_with("attr"))
-        .map(|f| {
-            let wire = f.wire_name.as_deref().unwrap_or(&f.name);
-            format!("{node_var}.get_attr({}).is_some()", rust_lit(wire))
-        })
-        .collect();
+    // The pins first, and they subsume a presence test on the same attribute: an arm
+    // selected on `unknown_identifier` being THERE also took `unknown_identifier="false"`,
+    // which the source parser rejects.
+    let mut conds: Vec<String> = Vec::new();
+    let mut pinned: BTreeSet<&str> = BTreeSet::new();
+    for a in &arm.assertions {
+        let Some(name) = a.name.as_deref() else {
+            continue;
+        };
+        pinned.insert(name);
+        conds.push(match a.value.as_deref() {
+            Some(v) => format!(
+                "{node_var}.get_attr({}).map(|x| x.as_str()) == Some({})",
+                rust_lit(name),
+                rust_lit(v)
+            ),
+            None => format!("{node_var}.get_attr({}).is_some()", rust_lit(name)),
+        });
+    }
+    conds.extend(
+        arm.fields
+            .iter()
+            .filter(|f| f.required && f.method.starts_with("attr"))
+            .map(|f| f.wire_name.as_deref().unwrap_or(&f.name))
+            .filter(|wire| !pinned.contains(wire))
+            .map(|wire| format!("{node_var}.get_attr({}).is_some()", rust_lit(wire))),
+    );
     if conds.is_empty() {
         None
     } else {
@@ -924,6 +986,26 @@ fn value_payload(enum_name: &str, variant: &str, fields: &[ParsedField], node_va
 /// A leaf read as an EXPRESSION (no `?`), for an enum variant struct-init. Mirrors
 /// `emit_field_parse`'s type mapping but defaults required leaves instead of failing
 /// (the variant guard already proved the required attrs present).
+/// The band a bounded integer accessor enforces, as a test on the decoded `n` —
+/// `attrIntRange(node, "count", 1, 10)` → `(1u64..=10u64).contains(&n)`.
+///
+/// `u64` because that is what the field materializes as, spelled on the literals so the
+/// `parse()` feeding it has a type to infer. A bound below zero is one no `u64` can fail,
+/// so the band is taken from what is left of it (and dropped when nothing is).
+fn int_band(f: &ParsedField) -> Option<String> {
+    if wap::method_field_type(&f.method) != ParsedFieldType::Integer {
+        return None;
+    }
+    let lo = f.int_min.filter(|n| *n > 0);
+    let hi = f.int_max.filter(|n| *n >= 0);
+    match (lo, hi) {
+        (Some(lo), Some(hi)) => Some(format!("({lo}u64..={hi}u64).contains(&n)")),
+        (Some(lo), None) => Some(format!("n >= {lo}u64")),
+        (None, Some(hi)) => Some(format!("n <= {hi}u64")),
+        (None, None) => None,
+    }
+}
+
 /// Whether a leaf decodes to something other than a plain string, so a value that is
 /// present can still fail to parse.
 fn is_typed(f: &ParsedField) -> bool {
@@ -948,6 +1030,11 @@ fn field_expr(f: &ParsedField, node_var: &str) -> String {
     // `is_attr_field` and `child_content_type`, so a `contentUint` inside a union variant
     // fell through to the attribute path and was read as an attribute that does not exist.
     if wap::is_content_method(method) {
+        // An arm that reads its content only sometimes declares the member `Option<T>`
+        // (`rust_field_type` reads the IR's `required`), so the read has to hand one back.
+        if !f.required {
+            return format!("{node_var}.{}", crate::emit::content_decoder_opt(method));
+        }
         return format!("{node_var}.{}", crate::emit::content_decoder(method));
     }
     let wire = f.wire_name.as_deref().unwrap_or(&f.name);
@@ -1545,6 +1632,122 @@ mod tests {
         assert!(
             classify_union(&f).is_none(),
             "an arm whose only required field is a repeated child shadows later arms"
+        );
+    }
+    #[test]
+    fn a_same_node_arm_enforces_what_it_pins_not_only_what_it_reads() {
+        // Two arms pinning `kind` AND `mode`: `classify_attr_discriminated` refuses them
+        // (it matches one attribute), and the presence cascade used to take them while
+        // emitting neither — a parser selecting the arm on its payload alone, for every
+        // `kind`/`mode` the source rejects.
+        let f = union_field(serde_json::json!({
+            "method": "dispatch", "name": "kind_dispatch", "type": "union", "required": true,
+            "unionVariants": [
+                {"name": "a",
+                 "assertions": [{"kind": "attr", "name": "kind", "value": "a"},
+                                {"kind": "attr", "name": "mode", "value": "x"}],
+                 "fields": [{"method": "attrString", "name": "payloadA",
+                             "wireName": "payload_a", "type": "string", "required": true}]},
+                {"name": "b",
+                 "assertions": [{"kind": "attr", "name": "kind", "value": "b"},
+                                {"kind": "attr", "name": "mode", "value": "y"}],
+                 "fields": [{"method": "attrString", "name": "payloadB",
+                             "wireName": "payload_b", "type": "string", "required": true}]}
+            ]
+        }));
+        let (lines, _) = emit_union_read(&f, "node", "Spec", "").expect("emitted");
+        let src = lines.join("\n");
+        assert!(
+            src.contains(r#"node.get_attr("kind").map(|x| x.as_str()) == Some("a")"#)
+                && src.contains(r#"node.get_attr("mode").map(|x| x.as_str()) == Some("x")"#),
+            "the arm is selected on the values it pins: {src}"
+        );
+    }
+
+    #[test]
+    fn a_same_node_pin_outranks_a_presence_test_of_the_same_attribute() {
+        // The blocklist shape: the last arm reads `unknown_identifier` AND pins it to
+        // `"true"`. Told apart by presence, it also matched `unknown_identifier="false"`.
+        let f = union_field(serde_json::json!({
+            "method": "", "name": "blocklistIds", "type": "union", "required": true,
+            "unionVariants": [
+                {"name": "Username",
+                 "fields": [{"method": "attrString", "name": "username",
+                             "wireName": "username", "type": "string", "required": true}]},
+                {"name": "UnknownIdentifier",
+                 "assertions": [{"kind": "attr", "name": "unknown_identifier",
+                                 "value": "true"}],
+                 "fields": [{"method": "attrString", "name": "unknownIdentifier",
+                             "wireName": "unknown_identifier", "type": "string",
+                             "required": true, "literalValue": "true"}]}
+            ]
+        }));
+        let (lines, _) = emit_union_read(&f, "node", "Spec", "").expect("emitted");
+        let src = lines.join("\n");
+        assert!(
+            src.contains(
+                r#"node.get_attr("unknown_identifier").map(|x| x.as_str()) == Some("true")"#
+            ),
+            "the pin is the test: {src}"
+        );
+        assert!(
+            !src.contains(r#"node.get_attr("unknown_identifier").is_some()"#),
+            "and it is not ALSO tested for presence: {src}"
+        );
+    }
+
+    #[test]
+    fn an_arm_reading_content_only_sometimes_keeps_its_option() {
+        // The member is typed from the IR's `required`; defaulting the read handed a
+        // `String` to an `Option<String>` field and the module did not compile.
+        let f = union_field(serde_json::json!({
+            "method": "dispatch", "name": "kind_dispatch", "type": "union", "required": true,
+            "unionVariants": [
+                {"name": "a",
+                 "assertions": [{"kind": "attr", "name": "kind", "value": "a"}],
+                 "fields": [{"method": "contentString", "name": "body",
+                             "type": "string", "required": false}]},
+                {"name": "b",
+                 "assertions": [{"kind": "attr", "name": "kind", "value": "b"}],
+                 "fields": []}
+            ]
+        }));
+        let (_field, enums, _s) = collect_union(&f, "Spec").expect("classified");
+        assert_eq!(enums[0].variants[0].fields[0].rust_type, "Option<String>");
+        let (lines, _) = emit_union_read(&f, "node", "Spec", "").expect("emitted");
+        let src = lines.join("\n");
+        assert!(
+            src.contains("body: node.content_str().map(|s| s.to_string())"),
+            "the read yields what the member is declared as: {src}"
+        );
+        assert!(
+            src.contains(r#"Some("a") => Some(SpecKindDispatch::A {"#),
+            "an absent payload the source accepts still selects the arm: {src}"
+        );
+    }
+
+    #[test]
+    fn a_bounded_integer_arm_guards_on_the_band_it_pins() {
+        // `attrIntRange("count", 1, 10)` rejects `count="99"` at the source; guarded on
+        // parsing alone the arm materialized a value the parser turns away.
+        let f = union_field(serde_json::json!({
+            "method": "dispatch", "name": "kind_dispatch", "type": "union", "required": true,
+            "unionVariants": [
+                {"name": "a",
+                 "assertions": [{"kind": "attr", "name": "kind", "value": "a"}],
+                 "fields": [{"method": "attrIntRange", "name": "count", "wireName": "count",
+                             "type": "integer", "required": true,
+                             "intMin": 1, "intMax": 10}]},
+                {"name": "b",
+                 "assertions": [{"kind": "attr", "name": "kind", "value": "b"}],
+                 "fields": []}
+            ]
+        }));
+        let (lines, _) = emit_union_read(&f, "node", "Spec", "").expect("emitted");
+        let src = lines.join("\n");
+        assert!(
+            src.contains("is_some_and(|n| (1u64..=10u64).contains(&n))"),
+            "the guard enforces the band: {src}"
         );
     }
 }
