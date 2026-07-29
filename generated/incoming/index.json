@@ -114,6 +114,547 @@
           },
           {
             "method": "maybeChild",
+            "name": "bot",
+            "type": "string",
+            "required": false,
+            "tag": "bot",
+            "children": [
+              {
+                "method": "maybeAttrString",
+                "name": "sender_timestamp_ms",
+                "type": "string",
+                "required": false
+              },
+              {
+                "method": "maybeAttrString",
+                "name": "edit_target_id",
+                "type": "string",
+                "required": false
+              },
+              {
+                "method": "maybeAttrString",
+                "name": "edit",
+                "type": "string",
+                "required": false
+              },
+              {
+                "method": "attrString",
+                "name": "biz_bot",
+                "type": "string",
+                "required": false
+              },
+              {
+                "method": "maybeAttrString",
+                "name": "type",
+                "type": "string",
+                "required": false
+              }
+            ]
+          },
+          {
+            "method": "attrJidWithType",
+            "name": "from",
+            "type": "jid_typed",
+            "required": true
+          },
+          {
+            "method": "attrDeviceJid",
+            "name": "participant",
+            "type": "device_jid",
+            "required": false
+          },
+          {
+            "method": "maybeChild",
+            "name": "unavailable",
+            "type": "string",
+            "required": false,
+            "tag": "unavailable",
+            "children": [
+              {
+                "method": "maybeAttrString",
+                "name": "hosted",
+                "type": "string",
+                "required": false
+              },
+              {
+                "method": "maybeAttrString",
+                "name": "type",
+                "type": "string",
+                "required": false
+              }
+            ]
+          },
+          {
+            "method": "attrEnum",
+            "name": "type",
+            "type": "enum",
+            "required": true,
+            "enumRef": {
+              "name": "STANZA_MSG_TYPES",
+              "module": "WAWebHandleMsgCommon",
+              "variants": [
+                {
+                  "name": "text",
+                  "value": "text"
+                },
+                {
+                  "name": "media",
+                  "value": "media"
+                },
+                {
+                  "name": "medianotify",
+                  "value": "medianotify"
+                },
+                {
+                  "name": "pay",
+                  "value": "pay"
+                },
+                {
+                  "name": "poll",
+                  "value": "poll"
+                },
+                {
+                  "name": "reaction",
+                  "value": "reaction"
+                },
+                {
+                  "name": "event",
+                  "value": "event"
+                }
+              ]
+            }
+          },
+          {
+            "method": "maybeChild",
+            "name": "meta",
+            "type": "string",
+            "required": false,
+            "tag": "meta",
+            "children": [
+              {
+                "method": "attrEnumOrNullIfUnknown",
+                "name": "polltype",
+                "type": "enum",
+                "required": true,
+                "enumRef": {
+                  "name": "POLL_TYPES",
+                  "module": "WAWebHandleMsgCommon",
+                  "variants": [
+                    {
+                      "name": "creation",
+                      "value": "creation"
+                    },
+                    {
+                      "name": "quiz_creation",
+                      "value": "quiz_creation"
+                    },
+                    {
+                      "name": "vote",
+                      "value": "vote"
+                    },
+                    {
+                      "name": "result_snapshot",
+                      "value": "result_snapshot"
+                    },
+                    {
+                      "name": "edit",
+                      "value": "edit"
+                    }
+                  ]
+                }
+              },
+              {
+                "method": "maybeAttrString",
+                "name": "status_mentioned",
+                "type": "string",
+                "required": false
+              },
+              {
+                "method": "maybeAttrEnum",
+                "name": "origin",
+                "type": "enum",
+                "required": false,
+                "enumRef": {
+                  "name": "STANZA_MSG_ORIGIN",
+                  "module": "WAWebHandleMsgCommon",
+                  "variants": [
+                    {
+                      "name": "ctwa",
+                      "value": "ctwa"
+                    }
+                  ]
+                }
+              },
+              {
+                "method": "maybeAttrEnum",
+                "name": "appdata",
+                "type": "enum",
+                "required": false,
+                "enumRef": {
+                  "name": "APPDATA",
+                  "module": "WAWebHandleMsgCommon",
+                  "variants": [
+                    {
+                      "name": "default",
+                      "value": "default"
+                    },
+                    {
+                      "name": "member_tag",
+                      "value": "member_tag"
+                    },
+                    {
+                      "name": "group_history",
+                      "value": "group_history"
+                    }
+                  ]
+                }
+              },
+              {
+                "method": "attrString",
+                "name": "content",
+                "type": "string",
+                "required": true
+              },
+              {
+                "method": "attrString",
+                "name": "thread_msg_id",
+                "type": "string",
+                "required": false
+              },
+              {
+                "method": "attrJidWithType",
+                "name": "thread_msg_sender_jid",
+                "type": "jid_typed",
+                "required": false
+              },
+              {
+                "method": "attrString",
+                "name": "target_id",
+                "type": "string",
+                "required": false
+              },
+              {
+                "method": "attrJidWithType",
+                "name": "target_sender_jid",
+                "type": "jid_typed",
+                "required": false
+              },
+              {
+                "method": "attrJidWithType",
+                "name": "target_chat_jid",
+                "type": "jid_typed",
+                "required": false
+              },
+              {
+                "method": "attrJidWithType",
+                "name": "target_chat_jid_lid",
+                "type": "jid_typed",
+                "required": false
+              },
+              {
+                "method": "attrJidWithType",
+                "name": "from",
+                "type": "jid_typed",
+                "required": false
+              },
+              {
+                "method": "attrString",
+                "name": "capi",
+                "type": "string",
+                "required": false
+              },
+              {
+                "method": "attrEnum",
+                "name": "event_type",
+                "type": "enum",
+                "required": false,
+                "enumRef": {
+                  "name": "EVENT_TYPES",
+                  "module": "WAWebHandleMsgCommon",
+                  "variants": [
+                    {
+                      "name": "creation",
+                      "value": "creation"
+                    },
+                    {
+                      "name": "response",
+                      "value": "response"
+                    },
+                    {
+                      "name": "edit",
+                      "value": "edit"
+                    }
+                  ]
+                }
+              },
+              {
+                "method": "attrString",
+                "name": "context_source",
+                "type": "string",
+                "required": false
+              },
+              {
+                "method": "attrString",
+                "name": "read",
+                "type": "string",
+                "required": false
+              },
+              {
+                "method": "maybeAttrString",
+                "name": "is_group_status",
+                "type": "string",
+                "required": false
+              },
+              {
+                "method": "maybeAttrString",
+                "name": "session_scope",
+                "type": "string",
+                "required": false
+              },
+              {
+                "method": "maybeAttrString",
+                "name": "type",
+                "type": "string",
+                "required": false
+              },
+              {
+                "method": "maybeAttrInt",
+                "name": "st",
+                "type": "integer",
+                "required": false
+              },
+              {
+                "method": "maybeChild",
+                "name": "key",
+                "type": "string",
+                "required": false,
+                "tag": "key",
+                "children": [
+                  {
+                    "method": "maybeAttrString",
+                    "name": "rkid",
+                    "type": "string",
+                    "required": false
+                  },
+                  {
+                    "method": "contentBytes",
+                    "name": "content",
+                    "type": "bytes",
+                    "required": true
+                  }
+                ],
+                "contentType": "bytes"
+              }
+            ]
+          },
+          {
+            "method": "attrString",
+            "name": "t",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "maybeChild",
+            "name": "verified_name",
+            "type": "string",
+            "required": false,
+            "tag": "verified_name",
+            "children": [
+              {
+                "method": "contentBytes",
+                "name": "content",
+                "type": "bytes",
+                "required": true
+              }
+            ]
+          },
+          {
+            "method": "child",
+            "name": "verified_name",
+            "type": "string",
+            "required": false,
+            "tag": "verified_name",
+            "children": []
+          },
+          {
+            "method": "maybeAttrEnum",
+            "name": "verified_level",
+            "type": "enum",
+            "required": false,
+            "enumRef": {
+              "name": "MSG_VERIFIED_LEVEL",
+              "module": "WAWebHandleMsgCommon",
+              "variants": [
+                {
+                  "name": "high",
+                  "value": "high"
+                },
+                {
+                  "name": "low",
+                  "value": "low"
+                },
+                {
+                  "name": "unknown",
+                  "value": "unknown"
+                }
+              ]
+            }
+          },
+          {
+            "method": "attrInt",
+            "name": "verified_name",
+            "type": "integer",
+            "required": false
+          },
+          {
+            "method": "maybeChild",
+            "name": "biz",
+            "type": "string",
+            "required": false,
+            "tag": "biz",
+            "children": [
+              {
+                "method": "maybeAttrInt",
+                "name": "actual_actors",
+                "type": "integer",
+                "required": false
+              },
+              {
+                "method": "maybeAttrInt",
+                "name": "host_storage",
+                "type": "integer",
+                "required": false
+              },
+              {
+                "method": "maybeAttrInt",
+                "name": "privacy_mode_ts",
+                "type": "integer",
+                "required": false
+              },
+              {
+                "method": "maybeAttrString",
+                "name": "native_flow_name",
+                "type": "string",
+                "required": false
+              },
+              {
+                "method": "maybeAttrString",
+                "name": "campaign_id",
+                "type": "string",
+                "required": false
+              }
+            ]
+          },
+          {
+            "method": "child",
+            "name": "pay",
+            "type": "string",
+            "required": false,
+            "tag": "pay",
+            "children": []
+          },
+          {
+            "method": "child",
+            "name": "transaction",
+            "type": "string",
+            "required": false,
+            "tag": "transaction",
+            "children": []
+          },
+          {
+            "method": "attrJidWithType",
+            "name": "participant",
+            "type": "jid_typed",
+            "required": false
+          },
+          {
+            "method": "attrString",
+            "name": "recipient",
+            "type": "string",
+            "required": true
+          },
+          {
+            "method": "attrInt",
+            "name": "t",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "method": "maybeChild",
+            "name": "hsm",
+            "type": "string",
+            "required": false,
+            "tag": "hsm",
+            "children": [
+              {
+                "method": "maybeAttrString",
+                "name": "tag",
+                "type": "string",
+                "required": false
+              },
+              {
+                "method": "maybeAttrString",
+                "name": "category",
+                "type": "string",
+                "required": false
+              }
+            ]
+          },
+          {
+            "method": "maybeChild",
+            "name": "reporting",
+            "type": "string",
+            "required": false,
+            "tag": "reporting",
+            "children": [
+              {
+                "method": "maybeChild",
+                "name": "reporting_token",
+                "type": "string",
+                "required": false,
+                "tag": "reporting_token",
+                "children": [
+                  {
+                    "method": "contentBytes",
+                    "name": "content",
+                    "type": "bytes",
+                    "required": true
+                  },
+                  {
+                    "method": "attrInt",
+                    "name": "v",
+                    "type": "integer",
+                    "required": true
+                  }
+                ],
+                "contentType": "bytes"
+              },
+              {
+                "method": "maybeChild",
+                "name": "reporting_tag",
+                "type": "string",
+                "required": false,
+                "tag": "reporting_tag",
+                "children": [
+                  {
+                    "method": "contentBytes",
+                    "name": "content",
+                    "type": "bytes",
+                    "required": true
+                  }
+                ],
+                "contentType": "bytes"
+              }
+            ]
+          },
+          {
+            "method": "attrTime",
+            "name": "t",
+            "type": "integer",
+            "required": true
+          },
+          {
+            "method": "maybeChild",
             "name": "rcat",
             "type": "string",
             "required": false,
@@ -182,6 +723,45 @@
             "required": true
           },
           {
+            "method": "maybeChild",
+            "name": "bot",
+            "type": "string",
+            "required": false,
+            "tag": "bot",
+            "children": [
+              {
+                "method": "maybeAttrString",
+                "name": "sender_timestamp_ms",
+                "type": "string",
+                "required": false
+              },
+              {
+                "method": "maybeAttrString",
+                "name": "edit_target_id",
+                "type": "string",
+                "required": false
+              },
+              {
+                "method": "maybeAttrString",
+                "name": "edit",
+                "type": "string",
+                "required": false
+              },
+              {
+                "method": "attrString",
+                "name": "biz_bot",
+                "type": "string",
+                "required": false
+              },
+              {
+                "method": "maybeAttrString",
+                "name": "type",
+                "type": "string",
+                "required": false
+              }
+            ]
+          },
+          {
             "method": "attrString",
             "name": "id",
             "type": "string",
@@ -197,7 +777,7 @@
             "method": "attrDeviceJid",
             "name": "participant",
             "type": "device_jid",
-            "required": true
+            "required": false
           }
         ]
       }
@@ -317,7 +897,7 @@
                 "method": "attrString",
                 "name": "reason",
                 "type": "string",
-                "required": true
+                "required": false
               },
               {
                 "method": "attrString",
@@ -338,7 +918,7 @@
                 "method": "forEachChildWithTag",
                 "name": "user",
                 "type": "string",
-                "required": true,
+                "required": false,
                 "tag": "user",
                 "children": [
                   {
@@ -380,7 +960,7 @@
                     "method": "attrUserJid",
                     "name": "participant_pn",
                     "type": "user_jid",
-                    "required": true
+                    "required": false
                   },
                   {
                     "method": "maybeAttrString",
@@ -395,15 +975,143 @@
                 "method": "attrString",
                 "name": "message_id",
                 "type": "string",
-                "required": true
+                "required": false
+              },
+              {
+                "method": "mapChildrenWithTag",
+                "name": "user",
+                "type": "string",
+                "required": false,
+                "tag": "user",
+                "children": [
+                  {
+                    "method": "attrDeviceJid",
+                    "name": "jid",
+                    "type": "device_jid",
+                    "required": true
+                  },
+                  {
+                    "method": "attrTime",
+                    "name": "t",
+                    "type": "integer",
+                    "required": true
+                  },
+                  {
+                    "method": "attrUserJid",
+                    "name": "participant_pn",
+                    "type": "user_jid",
+                    "required": false
+                  },
+                  {
+                    "method": "maybeAttrString",
+                    "name": "participant_username",
+                    "type": "string",
+                    "required": false
+                  }
+                ],
+                "repeats": true
               },
               {
                 "method": "attrString",
                 "name": "key",
                 "type": "string",
-                "required": true
+                "required": false
               }
             ]
+          },
+          {
+            "method": "attrDeviceJid",
+            "name": "participant",
+            "type": "device_jid",
+            "required": false
+          },
+          {
+            "method": "attrUserJid",
+            "name": "recipient",
+            "type": "user_jid",
+            "required": false
+          },
+          {
+            "method": "child",
+            "name": "list",
+            "type": "string",
+            "required": false,
+            "tag": "list",
+            "children": [
+              {
+                "method": "mapChildrenWithTag",
+                "name": "item",
+                "type": "string",
+                "required": false,
+                "tag": "item",
+                "children": [
+                  {
+                    "method": "attrString",
+                    "name": "server_id",
+                    "type": "string",
+                    "required": false
+                  },
+                  {
+                    "method": "attrString",
+                    "name": "id",
+                    "type": "string",
+                    "required": false
+                  }
+                ],
+                "repeats": true
+              }
+            ]
+          },
+          {
+            "method": "child",
+            "name": "biz",
+            "type": "string",
+            "required": false,
+            "tag": "biz",
+            "children": [
+              {
+                "method": "maybeAttrInt",
+                "name": "actual_actors",
+                "type": "integer",
+                "required": false
+              },
+              {
+                "method": "maybeAttrInt",
+                "name": "host_storage",
+                "type": "integer",
+                "required": false
+              },
+              {
+                "method": "maybeAttrInt",
+                "name": "privacy_mode_ts",
+                "type": "integer",
+                "required": false
+              }
+            ]
+          },
+          {
+            "method": "attrString",
+            "name": "is_lid",
+            "type": "string",
+            "required": false
+          },
+          {
+            "method": "attrUserJid",
+            "name": "participant_pn",
+            "type": "user_jid",
+            "required": false
+          },
+          {
+            "method": "maybeAttrString",
+            "name": "participant_username",
+            "type": "string",
+            "required": false
+          },
+          {
+            "method": "attrTime",
+            "name": "t",
+            "type": "integer",
+            "required": false
           }
         ]
       }
@@ -436,19 +1144,19 @@
             "method": "attrDeviceJid",
             "name": "participant",
             "type": "device_jid",
-            "required": true
+            "required": false
           },
           {
             "method": "attrString",
             "name": "is_lid",
             "type": "string",
-            "required": true
+            "required": false
           },
           {
             "method": "attrDeviceJid",
             "name": "recipient",
             "type": "device_jid",
-            "required": true
+            "required": false
           },
           {
             "method": "child",
@@ -477,69 +1185,120 @@
             "type": "string",
             "required": false,
             "tag": "keys",
-            "children": []
-          },
-          {
-            "method": "child",
-            "name": "identity",
-            "type": "string",
-            "required": true,
-            "tag": "identity",
             "children": [
               {
-                "method": "contentBytes",
-                "name": "content",
-                "type": "bytes",
+                "method": "child",
+                "name": "identity",
+                "type": "string",
                 "required": true,
-                "byteLength": 32
-              }
-            ]
-          },
-          {
-            "method": "child",
-            "name": "id",
-            "type": "string",
-            "required": true,
-            "tag": "id",
-            "children": [
+                "tag": "identity",
+                "children": [
+                  {
+                    "method": "contentBytes",
+                    "name": "content",
+                    "type": "bytes",
+                    "required": true,
+                    "byteLength": 32
+                  }
+                ]
+              },
               {
-                "method": "contentUint",
-                "name": "content",
-                "type": "integer",
+                "method": "child",
+                "name": "skey",
+                "type": "string",
                 "required": true,
-                "byteLength": 3
-              }
-            ]
-          },
-          {
-            "method": "child",
-            "name": "value",
-            "type": "string",
-            "required": true,
-            "tag": "value",
-            "children": [
+                "tag": "skey",
+                "children": [
+                  {
+                    "method": "child",
+                    "name": "id",
+                    "type": "string",
+                    "required": true,
+                    "tag": "id",
+                    "children": [
+                      {
+                        "method": "contentUint",
+                        "name": "content",
+                        "type": "integer",
+                        "required": true,
+                        "byteLength": 3
+                      }
+                    ]
+                  },
+                  {
+                    "method": "child",
+                    "name": "value",
+                    "type": "string",
+                    "required": true,
+                    "tag": "value",
+                    "children": [
+                      {
+                        "method": "contentBytes",
+                        "name": "content",
+                        "type": "bytes",
+                        "required": true,
+                        "byteLength": 32
+                      }
+                    ]
+                  },
+                  {
+                    "method": "child",
+                    "name": "signature",
+                    "type": "string",
+                    "required": true,
+                    "tag": "signature",
+                    "children": [
+                      {
+                        "method": "contentBytes",
+                        "name": "content",
+                        "type": "bytes",
+                        "required": true,
+                        "byteLength": 64
+                      }
+                    ]
+                  }
+                ]
+              },
               {
-                "method": "contentBytes",
-                "name": "content",
-                "type": "bytes",
-                "required": true,
-                "byteLength": 32
-              }
-            ]
-          },
-          {
-            "method": "child",
-            "name": "signature",
-            "type": "string",
-            "required": true,
-            "tag": "signature",
-            "children": [
-              {
-                "method": "contentBytes",
-                "name": "content",
-                "type": "bytes",
-                "required": true,
-                "byteLength": 64
+                "method": "maybeChild",
+                "name": "key",
+                "type": "string",
+                "required": false,
+                "tag": "key",
+                "children": [
+                  {
+                    "method": "child",
+                    "name": "id",
+                    "type": "string",
+                    "required": true,
+                    "tag": "id",
+                    "children": [
+                      {
+                        "method": "contentUint",
+                        "name": "content",
+                        "type": "integer",
+                        "required": true,
+                        "byteLength": 3
+                      }
+                    ]
+                  },
+                  {
+                    "method": "child",
+                    "name": "value",
+                    "type": "string",
+                    "required": true,
+                    "tag": "value",
+                    "children": [
+                      {
+                        "method": "contentBytes",
+                        "name": "content",
+                        "type": "bytes",
+                        "required": true,
+                        "byteLength": 32
+                      }
+                    ]
+                  }
+                ]
               }
             ]
           },
@@ -683,7 +1442,7 @@
             "method": "attrJidWithType",
             "name": "sender_lid",
             "type": "jid_typed",
-            "required": true
+            "required": false
           },
           {
             "method": "maybeAttrString",
@@ -764,13 +1523,13 @@
             "method": "attrDeviceJid",
             "name": "participant",
             "type": "device_jid",
-            "required": true
+            "required": false
           },
           {
             "method": "attrUserJid",
             "name": "recipient",
             "type": "user_jid",
-            "required": true
+            "required": false
           }
         ]
       }
@@ -2626,7 +3385,7 @@
             "method": "attrEnum",
             "name": "readreceipts",
             "type": "enum",
-            "required": true,
+            "required": false,
             "enumRef": {
               "name": "ALL_NONE",
               "module": "WAWebPrivacySettings",
@@ -2679,7 +3438,7 @@
             "method": "attrString",
             "name": "refresh_lid",
             "type": "string",
-            "required": true
+            "required": false
           },
           {
             "method": "maybeAttrString",

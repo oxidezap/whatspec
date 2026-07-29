@@ -108,6 +108,23 @@ pub(crate) fn content_decoder(method: &str) -> &'static str {
     }
 }
 
+/// The same read for a leaf the parser only takes sometimes — yielding `Option<T>` where
+/// [`content_decoder`] yields `T`.
+///
+/// A union variant's member is typed from the IR's `required`, so an arm reading its
+/// content behind a guard is declared `Option<String>`; defaulting the read instead
+/// produced a `String` for that member and the generated module did not compile.
+pub(crate) fn content_decoder_opt(method: &str) -> &'static str {
+    if method == "contentUint" {
+        return "content_bytes().map(|b| b.iter().fold(0u64, |acc, &x| (acc << 8) | x as u64))";
+    }
+    match wap::method_field_type(method) {
+        ParsedFieldType::Bytes => "content_bytes().map(|b| b.to_vec())",
+        ParsedFieldType::Integer => "content_str().and_then(|s| s.parse().ok())",
+        _ => "content_str().map(|s| s.to_string())",
+    }
+}
+
 /// Emit the body of `parse_response`, ending with `Ok(<ResponseType> {{ ... }})`.
 pub(crate) fn emit_response_parser(
     fields: &[ParsedField],

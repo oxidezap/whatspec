@@ -5,7 +5,7 @@
     "incoming": {
       "dropsByReason": {
         "response enum argument not structurally resolvable": 1,
-        "shadowedCallbackRead": 6
+        "shadowedCallbackRead": 7
       }
     },
     "iq": {
@@ -25,10 +25,11 @@
       },
       "degradedResponses": 4,
       "dropsByReason": {
+        "incompatibleRepeatedRead": 1,
         "iq builder substring present but no AST iq call": 5,
         "mixin fragment (folded into requests, not a standalone stanza)": 66,
         "response enum argument not structurally resolvable": 33,
-        "shadowedCallbackRead": 6
+        "shadowedCallbackRead": 5
       },
       "excludedFragments": 66,
       "stanzas": 143,
@@ -67,12 +68,12 @@
     "incoming": {
       "file": "incoming/index.json",
       "schema": "schema/incoming.schema.json",
-      "sha256": "9f5bd37d7ee117444d3e454ebeb34ec4239098621037aa33b32793cc9b2619b3"
+      "sha256": "bb2c756b6e5abaad53fefb7b8d887df8c5535261c6abb7596e773cff7bf92eac"
     },
     "iq": {
       "file": "iq/index.json",
       "schema": "schema/iq.schema.json",
-      "sha256": "e8ceb7a840fd6ddfaff0c5fa075a147000b22cc1a50189b457fa6d0113a23b79"
+      "sha256": "bb74bf868daf5ee69b5ef3e0cd26d133eec862a4d421a28aa1af8f99aadb6ec3"
     },
     "mex": {
       "file": "mex/index.json",
@@ -82,7 +83,7 @@
     "notif": {
       "file": "notif/index.json",
       "schema": "schema/notif.schema.json",
-      "sha256": "37f3f25e5d6ee409f09d33d34d07c772bd5c61490fb862565aff07c0c36763b7"
+      "sha256": "1838dc3c61e73070311d245fa1230ef0bc94408f925c94f6d5993635248d9380"
     },
     "proto": {
       "file": "proto/WAProto.proto",
