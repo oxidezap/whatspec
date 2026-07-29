@@ -869,11 +869,25 @@ fn emit_attr_discriminated(
                 // records for a string and for an integer alike.
                 if let Some(lit) = f.literal_value.as_deref() {
                     let wire = f.wire_name.as_deref().unwrap_or(&f.name);
-                    let pinned = format!(
-                        "{node_var}.get_attr({}).map(|x| x.as_str()) == Some({})",
-                        rust_lit(wire),
-                        rust_lit(lit)
-                    );
+                    // An integer pin is compared AFTER decoding. The IR records the literal
+                    // as text, but the accessor yields a number, so `"0429"` is a value the
+                    // source accepts and a raw text compare against `"429"` turned away —
+                    // selecting no variant for an element the parser reads happily.
+                    let int_pin = (wap::method_field_type(&f.method) == ParsedFieldType::Integer)
+                        .then(|| lit.parse::<u64>().ok())
+                        .flatten();
+                    let pinned = match int_pin {
+                        Some(n) => format!(
+                            "{node_var}.get_attr({}).and_then(|v| v.as_str().parse::<u64>().ok()) \
+                             == Some({n}u64)",
+                            rust_lit(wire)
+                        ),
+                        None => format!(
+                            "{node_var}.get_attr({}).map(|x| x.as_str()) == Some({})",
+                            rust_lit(wire),
+                            rust_lit(lit)
+                        ),
+                    };
                     if f.required {
                         return Some(pinned);
                     }
@@ -1874,6 +1888,27 @@ mod tests {
         assert!(
             emit_union_read(&f, "node", "Spec", "").is_none(),
             "a band nothing satisfies declines the shape"
+        );
+    }
+    #[test]
+    fn an_integer_pin_is_compared_after_decoding() {
+        // `literal(attrInt, node, "code", 429)` accepts a wire `"0429"`; a raw text
+        // compare against `"429"` turned that element away and selected no variant.
+        let f = union_field(serde_json::json!({
+            "method": "dispatch", "name": "kind_dispatch", "type": "union", "required": true,
+            "unionVariants": [
+                {"name": "a", "assertions": [{"kind": "attr", "name": "kind", "value": "a"}],
+                 "fields": [{"method": "attrInt", "name": "code", "wireName": "code",
+                             "type": "integer", "required": true, "literalValue": "429"}]},
+                {"name": "b", "assertions": [{"kind": "attr", "name": "kind", "value": "b"}],
+                 "fields": []}
+            ]
+        }));
+        let (lines, _) = emit_union_read(&f, "node", "Spec", "").expect("emitted");
+        let src = lines.join("\n");
+        assert!(
+            src.contains("parse::<u64>().ok()) == Some(429u64)"),
+            "the pin is compared as a number: {src}"
         );
     }
 }

@@ -3209,7 +3209,13 @@ fn discriminated_children(
     let accumulator = {
         // Frequency alone let a cache written by more arms than the result win, and its
         // property names became the generated API. The name the body hands back settles it.
-        let returned = returned_names(body_src);
+        // A returned name that stands for one object or another depending on which path
+        // ran cannot settle the accumulator, and guessing hands the API to whichever
+        // object a branch happens to name.
+        let (returned, ambiguous) = returned_names(body_src);
+        if ambiguous {
+            return None;
+        }
         let mut per_arm: HashMap<String, usize> = HashMap::new();
         for (_, span) in &collector.arms {
             let src = &body_src[span.start as usize..span.end as usize];
@@ -3273,7 +3279,17 @@ fn discriminated_children(
         let mut in_this_arm: std::collections::HashSet<String> = Default::default();
         for f in structural {
             count_paths(&f, &f.name, &mut in_this_arm);
-            merge_or_push(&mut common, f, lost);
+            // A child lifted out of the arms carries ONE set of constraints, so two arms
+            // pinning the same leaf differently — `count` in `1..=10` for `a` and
+            // `20..=30` for `b` — cannot both be honoured there. The merge reports the
+            // clash; keeping the first arm's band silently rejected values the source
+            // accepts for the other, so the dispatch is refused instead.
+            let mut clash = Vec::new();
+            merge_or_push(&mut common, f, &mut clash);
+            if clash.iter().any(|m| m.starts_with(MERGE_CONFLICT)) {
+                return None;
+            }
+            lost.extend(clash);
         }
         for path in in_this_arm {
             for lit in lits {
@@ -3409,17 +3425,22 @@ fn discriminated_children(
 
 /// The names a body hands back — `return result` — ignoring what nested callbacks return,
 /// which belong to their own scope.
-fn returned_names(src: &str) -> std::collections::HashSet<String> {
+fn returned_names(src: &str) -> (std::collections::HashSet<String>, bool) {
     let alloc = Allocator::default();
     let ret = wa_oxc::parse_cjs(&alloc, src);
     if ret.panicked {
-        return Default::default();
+        return (Default::default(), false);
     }
     struct Returns {
         depth: usize,
         out: std::collections::HashSet<String>,
         /// `var alias = result` — the name on the left stands for the one on the right.
         aliases: HashMap<String, String>,
+        /// Conditionals open around the alias being recorded.
+        cond: usize,
+        /// Set when the returned name stands for one object or another depending on which
+        /// path ran — `alias = result; if (flag) alias = cache; return alias`.
+        ambiguous: bool,
     }
     impl<'a> Visit<'a> for Returns {
         fn visit_function(&mut self, f: &Function<'a>, flags: ScopeFlags) {
@@ -3441,6 +3462,14 @@ fn returned_names(src: &str) -> std::collections::HashSet<String> {
                     if let Some(name) = decl.id.get_identifier_name()
                         && let Some(init) = decl.init.as_ref().and_then(as_identifier)
                     {
+                        if self.cond > 0
+                            && self
+                                .aliases
+                                .get(name.as_str())
+                                .is_some_and(|prev| prev != init)
+                        {
+                            self.ambiguous = true;
+                        }
                         self.aliases
                             .insert(name.as_str().to_string(), init.to_string());
                     }
@@ -3458,10 +3487,50 @@ fn returned_names(src: &str) -> std::collections::HashSet<String> {
                 && let oxc_ast::ast::AssignmentTarget::AssignmentTargetIdentifier(id) = &e.left
                 && let Some(from) = as_identifier(&e.right)
             {
-                self.aliases
-                    .insert(id.name.as_str().to_string(), from.to_string());
+                let name = id.name.as_str().to_string();
+                // Down a branch it may not run, so the name stands for the earlier target
+                // on the other path. Overwriting the map handed the accumulator choice to
+                // whichever object the branch happens to name.
+                if self.cond > 0 && self.aliases.get(&name).is_some_and(|prev| prev != from) {
+                    self.ambiguous = true;
+                }
+                self.aliases.insert(name, from.to_string());
             }
             walk::walk_assignment_expression(self, e);
+        }
+
+        fn visit_if_statement(&mut self, stmt: &oxc_ast::ast::IfStatement<'a>) {
+            self.visit_expression(&stmt.test);
+            self.cond += 1;
+            self.visit_statement(&stmt.consequent);
+            if let Some(alt) = &stmt.alternate {
+                self.visit_statement(alt);
+            }
+            self.cond -= 1;
+        }
+
+        fn visit_switch_statement(&mut self, stmt: &oxc_ast::ast::SwitchStatement<'a>) {
+            self.visit_expression(&stmt.discriminant);
+            self.cond += 1;
+            for case in &stmt.cases {
+                self.visit_switch_case(case);
+            }
+            self.cond -= 1;
+        }
+
+        fn visit_conditional_expression(&mut self, e: &oxc_ast::ast::ConditionalExpression<'a>) {
+            self.visit_expression(&e.test);
+            self.cond += 1;
+            self.visit_expression(&e.consequent);
+            self.visit_expression(&e.alternate);
+            self.cond -= 1;
+        }
+
+        fn visit_logical_expression(&mut self, e: &oxc_ast::ast::LogicalExpression<'a>) {
+            self.visit_expression(&e.left);
+            self.cond += 1;
+            self.visit_expression(&e.right);
+            self.cond -= 1;
         }
 
         fn visit_return_statement(&mut self, r: &oxc_ast::ast::ReturnStatement<'a>) {
@@ -3478,6 +3547,8 @@ fn returned_names(src: &str) -> std::collections::HashSet<String> {
         depth: 0,
         out: Default::default(),
         aliases: HashMap::new(),
+        cond: 0,
+        ambiguous: false,
     };
     f.visit_program(&ret.program);
     // `var result = {}, alias = result; … return alias` hands back the accumulator under
@@ -3498,7 +3569,7 @@ fn returned_names(src: &str) -> std::collections::HashSet<String> {
             at = next.clone();
         }
     }
-    out
+    (out, f.ambiguous)
 }
 
 /// The bound name and body source of a child callback, written either as
@@ -8091,6 +8162,53 @@ mod tests {
         assert!(
             !kids.iter().any(|f| f.field_type == ParsedFieldType::Union),
             "declined, so the reads stay flat: {:?}",
+            kids.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+    }
+    #[test]
+    fn an_accumulator_a_branch_may_repoint_declines() {
+        // `alias = result; { if (flag) alias = cache; } return alias` hands back one object
+        // or the other; guessing gives the API to whichever a branch names.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   var result = {}, alias;
+                   alias = result;
+                   { if (flag) { alias = cache; } }
+                   if (n === "a") { result.foo = e.attrString("f1");
+                                    cache.wrongA = e.attrString("w1"); }
+                   if (n === "b") { result.bar = e.attrString("b1");
+                                    cache.wrongB = e.attrString("w2"); }
+                   return alias;
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        assert!(
+            !kids.iter().any(|f| f.field_type == ParsedFieldType::Union),
+            "declined, so the reads stay flat: {:?}",
+            kids.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn arms_that_pin_one_lifted_leaf_differently_decline() {
+        // A child lifted out of the arms carries one band; `1..=10` for `a` and `20..=30`
+        // for `b` cannot both be honoured there.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   if (n === "a") { e.child("detail").attrIntRange("count", 1, 10);
+                                    t.alpha = e.attrString("va"); }
+                   if (n === "b") { e.child("detail").attrIntRange("count", 20, 30);
+                                    t.beta = e.attrString("vb"); }
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        assert!(
+            !kids.iter().any(|f| f.field_type == ParsedFieldType::Union),
+            "declined rather than publishing one arm's band for both: {:?}",
             kids.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
         );
     }
