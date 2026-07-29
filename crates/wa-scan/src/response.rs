@@ -538,9 +538,26 @@ impl<'a> Visit<'a> for BoundNames {
     }
 
     fn visit_switch_statement(&mut self, stmt: &oxc_ast::ast::SwitchStatement<'a>) {
-        self.blocks.push(stmt.span);
+        // The cases share one block, and the discriminant is evaluated outside it: a `let`
+        // in a case must not shadow a name the discriminant itself reads.
+        let body = stmt.cases.first().map_or(stmt.span, |first| {
+            Span::new(first.span.start, stmt.span.end)
+        });
+        self.blocks.push(body);
         walk::walk_switch_statement(self, stmt);
         self.blocks.pop();
+    }
+
+    fn visit_class(&mut self, class: &oxc_ast::ast::Class<'a>) {
+        // Like a function: a declaration introduces its name in the enclosing extent, a
+        // named class *expression* binds it only inside itself.
+        if class.r#type == oxc_ast::ast::ClassType::ClassDeclaration
+            && let Some(id) = class.id.as_ref()
+            && let Some(&extent) = self.blocks.last()
+        {
+            self.lexical.push((extent, id.name.as_str().to_string()));
+        }
+        self.visit_class_body(&class.body);
     }
 
     fn visit_catch_clause(&mut self, clause: &oxc_ast::ast::CatchClause<'a>) {
@@ -644,7 +661,11 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
         };
         let own = func.id.as_ref().map(|i| i.name.as_str());
         self.scopes.push(BoundNames::of(own, &func.params, body));
+        // What a callback binds dies with it. An alias may overwrite an outer entry of the
+        // same name, and the alias' own extent expiring would not put the outer one back.
+        let outer_vars = self.child_vars.clone();
         walk::walk_function(self, func, flags);
+        self.child_vars = outer_vars;
         self.scopes.pop();
     }
 
@@ -654,7 +675,9 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
     ) {
         self.scopes
             .push(BoundNames::of(None, &func.params, &func.body));
+        let outer_vars = self.child_vars.clone();
         walk::walk_arrow_function_expression(self, func);
+        self.child_vars = outer_vars;
         self.scopes.pop();
     }
 
@@ -761,7 +784,7 @@ impl ParserAnalyzer<'_, '_> {
     fn passes_an_outer_node(&self, call: &CallExpression) -> bool {
         call.arguments.iter().any(|a| {
             arg_expr(a).and_then(as_identifier).is_some_and(|n| {
-                self.child_vars.contains_key(n) && !self.bound_by_inner_scope(n, call.span)
+                self.child_vars.contains_key(n) && self.names_an_outer_node(n, call.span)
             })
         })
     }
@@ -771,9 +794,15 @@ impl ParserAnalyzer<'_, '_> {
             .and_then(base_identifier)
             .is_some_and(|n| {
                 (n == self.param || self.child_vars.contains_key(n))
-                    && (!self.bound_by_inner_scope(n, call.span)
-                        || self.aliases_outer(n, call.span))
+                    && self.names_an_outer_node(n, call.span)
             })
+    }
+
+    /// Whether `name`, at `span`, still means the node it was bound to outside every
+    /// enclosing callback — either because none of them re-bound it, or because the one
+    /// that did bound it to an outer node.
+    fn names_an_outer_node(&self, name: &str, span: Span) -> bool {
+        !self.bound_by_inner_scope(name, span) || self.aliases_outer(name, span)
     }
 
     /// Whether `name`, at `span`, is a callback's own binding standing for a node from
@@ -801,7 +830,11 @@ impl ParserAnalyzer<'_, '_> {
         // A node of the callback's own counts too: `var o = r.maybeChild("error")` reads a
         // real element, and it is no more placeable here than a read through the stale
         // outer binding it shadows.
-        let reads_a_node = as_identifier(obj).is_some_and(|n| {
+        // Through the chain's base, not only a bare identifier: `e.child("x").attrString(…)`
+        // loses the outer accessor too, and counting only the inner `child` left the ratchet
+        // blind to it.
+        let base = base_identifier(obj);
+        let reads_a_node = base.is_some_and(|n| {
             n == self.param
                 || self.child_vars.contains_key(n)
                 || self.bound_by_inner_scope(n, call.span)
@@ -810,7 +843,7 @@ impl ParserAnalyzer<'_, '_> {
             // Name the read, not just the accessor: `dropsByReason` counts these per site
             // through a set, so two `attrString`s would collapse into one and the ratchet
             // would not move when a third field started going missing.
-            let node = as_identifier(obj).unwrap_or("?");
+            let node = base.unwrap_or("?");
             let what = arg_str(call, 0).unwrap_or("?");
             self.unresolved
                 .push(format!("{SHADOWED_READ}@{method}:{node}.{what}"));
@@ -1083,7 +1116,7 @@ impl ParserAnalyzer<'_, '_> {
         // fields off whatever node that name used to mean.
         let Some((arg_idx, tag)) = call.arguments.iter().enumerate().find_map(|(i, a)| {
             let id = arg_expr(a).and_then(as_identifier)?;
-            if self.bound_by_inner_scope(id, call.span) {
+            if !self.names_an_outer_node(id, call.span) {
                 return None;
             }
             self.child_vars.get(id).map(|t| (i, t.clone()))
@@ -2075,6 +2108,122 @@ mod tests {
                 .map(|c| c.iter().map(|f| f.name.as_str()).collect::<Vec<_>>()),
             Some(vec!["a", "b"]),
             "both arms' nested reads survive"
+        );
+    }
+
+    #[test]
+    fn an_alias_does_not_outlive_the_callback_that_bound_it() {
+        // The alias registers under the same name as an outer child var. Its own extent
+        // expires, but the entry it overwrote in `child_vars` would not have — so the read
+        // after the callback attached under `inner` instead of `meta`.
+        let r = analyze_parser_ast(
+            r#"{ var x = e.child("meta");
+                 e.mapChildrenWithTag("row", function(row){ var x = e.child("inner"); x.attrString("a"); });
+                 x.attrString("b"); }"#,
+            "e",
+        );
+        let kids = |n: &str| {
+            r.fields
+                .iter()
+                .find(|f| f.name == n)
+                .and_then(|f| f.children.as_ref())
+                .map(|c| c.iter().map(|g| g.name.as_str()).collect::<Vec<_>>())
+        };
+        assert_eq!(kids("meta"), Some(vec!["b"]), "the outer binding is back");
+        assert_eq!(
+            kids("inner"),
+            Some(vec!["a"]),
+            "and the alias kept its own read"
+        );
+    }
+
+    #[test]
+    fn an_alias_reaches_helper_descent_too() {
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function d(b){ b.mapChildrenWithTag("user", function(u){ u.attrString("jid"); }); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                e.mapChildrenWithTag("row", function(row){ var x=e.child("meta"); d(x); });
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        assert!(
+            p.fields
+                .iter()
+                .find(|f| f.tag.as_deref() == Some("meta"))
+                .and_then(|f| f.children.as_ref())
+                .is_some_and(|c| c.iter().any(|g| g.tag.as_deref() == Some("user"))),
+            "the helper's fields hang off the aliased node: {:?}",
+            p.fields
+        );
+    }
+
+    #[test]
+    fn a_chained_shadowed_read_is_counted_apart_from_its_receiver() {
+        // Counting only the inner `child` left the outer accessor invisible, so adding or
+        // removing the lost `id` moved no number.
+        let r = analyze_parser_ast(
+            r#"{ var t = e.child("d"); t.child("l").mapChildren(function(e){ e.child("x").attrString("id"); }); }"#,
+            "e",
+        );
+        let mut got: Vec<&str> = r
+            .unresolved
+            .iter()
+            .filter(|u| u.starts_with(SHADOWED_READ))
+            .map(|u| u.as_str())
+            .collect();
+        got.sort_unstable();
+        got.dedup();
+        assert_eq!(
+            got,
+            [
+                "shadowedCallbackRead@attrString:e.id",
+                "shadowedCallbackRead@child:e.x"
+            ],
+            "both the child and the accessor on it are counted: {:?}",
+            r.unresolved
+        );
+    }
+
+    #[test]
+    fn a_named_class_expression_binds_only_inside_itself() {
+        let r = analyze_parser_ast(
+            r#"{ var x = e.child("meta");
+                 e.mapChildrenWithTag("row", function(row){
+                   const C = class x {};
+                   x.attrString("id");
+                 }); }"#,
+            "e",
+        );
+        assert_eq!(
+            r.fields
+                .iter()
+                .find(|f| f.name == "meta")
+                .and_then(|f| f.children.as_ref())
+                .map(|c| c.iter().map(|f| f.name.as_str()).collect::<Vec<_>>()),
+            Some(vec!["id"]),
+        );
+    }
+
+    #[test]
+    fn a_switch_discriminant_is_read_outside_the_case_scope() {
+        // JS evaluates the discriminant before the cases' block exists, so a `let` in a
+        // case does not shadow the name the discriminant reads through.
+        let r = analyze_parser_ast(
+            r#"{ var x = e.child("meta");
+                 e.mapChildrenWithTag("row", function(row){
+                   switch (x.attrString("kind")) { case "a": let x = row.child("inner"); }
+                 }); }"#,
+            "e",
+        );
+        assert_eq!(
+            r.fields
+                .iter()
+                .find(|f| f.name == "meta")
+                .and_then(|f| f.children.as_ref())
+                .map(|c| c.iter().map(|f| f.name.as_str()).collect::<Vec<_>>()),
+            Some(vec!["kind"]),
         );
     }
 
