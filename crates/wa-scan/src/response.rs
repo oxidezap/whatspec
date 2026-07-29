@@ -2724,6 +2724,16 @@ fn assigned_names(src: &str, param: &str) -> HashMap<String, Vec<(String, String
                         .then(|| read_key(call))?
                     });
                 if let Some(wire) = wire {
+                    // One property, one value: `t.value = x; t.value = y` returns `y`, and
+                    // naming both reads after it gave a variant two fields called `value`
+                    // — a struct the codegen cannot emit. The earlier read still happened,
+                    // so it keeps its wire name rather than disappearing.
+                    for (w, names) in self.named.iter_mut() {
+                        if *w != wire {
+                            names.retain(|(r, p)| !(*r == receiver && *p == property));
+                        }
+                    }
+                    self.named.retain(|_, names| !names.is_empty());
                     // Keyed by the object written to as well: an assignment to something
                     // else — a cache, a log — is not a field of the result, and taking its
                     // property name exposed an API field the parser never returns.
@@ -6920,5 +6930,44 @@ mod tests {
         let f = p.fields.iter().find(|f| f.name == "k").expect("field");
         assert!(f.enum_keys.is_none(), "an incomplete table is not the set");
         assert_eq!(f.pending_enum_ref, Some(wa_ir::PendingEnum::Unresolvable));
+    }
+    #[test]
+    fn two_reads_into_one_property_name_only_the_one_it_keeps() {
+        // `t.value = x; t.value = y` returns ONE `value` — the second read. Naming both
+        // after it gave the variant two fields of that name, which the codegen emits as a
+        // struct that does not compile.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   if (n === "a") { var x = e.attrString("first"); t.value = x;
+                                    var y = e.attrString("second"); t.value = y; }
+                   if (n === "b") { var z = e.attrString("third"); t.other = z; }
+                 }); }"#,
+            "e",
+        );
+        let union = r.fields[0]
+            .children
+            .as_ref()
+            .unwrap()
+            .iter()
+            .find(|f| f.field_type == ParsedFieldType::Union)
+            .expect("a dispatch");
+        let a = union
+            .union_variants
+            .as_ref()
+            .unwrap()
+            .iter()
+            .find(|v| v.name == "a")
+            .expect("the first arm");
+        let named: Vec<(&str, Option<&str>)> = a
+            .fields
+            .iter()
+            .map(|f| (f.name.as_str(), f.wire_name.as_deref()))
+            .collect();
+        assert_eq!(
+            named,
+            [("first", None), ("value", Some("second"))],
+            "the property takes the read it ends up holding; the other keeps its wire name"
+        );
     }
 }
