@@ -2191,6 +2191,24 @@ fn exits_unconditionally(stmt: &Statement<'_>) -> bool {
         // non-exiting, which is the harmful direction: the arms after it were then merged
         // and their payload required of a value the parser never reaches them for.
         // `break` is the one thing that neither exits nor falls through.
+        // `try { return r; } finally { … }` returns; the finalizer runs on the way out
+        // without stopping it, and a finalizer that returns of its own leaves on every
+        // path. With a `catch`, the try block's exit is not the only outcome, so the
+        // handler has to reach one too.
+        Statement::TryStatement(t) => {
+            let finalizer = t
+                .finalizer
+                .as_ref()
+                .is_some_and(|f| f.body.iter().any(exits_unconditionally));
+            if finalizer {
+                return true;
+            }
+            let block = t.block.body.iter().any(exits_unconditionally);
+            match t.handler.as_ref() {
+                Some(h) => block && h.body.body.iter().any(exits_unconditionally),
+                None => block,
+            }
+        }
         Statement::SwitchStatement(s) => {
             let mut exits_from = vec![false; s.cases.len()];
             for i in (0..s.cases.len()).rev() {
@@ -2896,6 +2914,13 @@ fn assigned_names(src: &str, param: &str) -> (HashMap<String, Vec<(String, Strin
                 });
                 match rebound.and_then(read_key) {
                     Some(wire) => {
+                        // Rebound only down a branch, the alias names the earlier read or
+                        // the later one depending on which path ran. Overwriting the map
+                        // published the later one unconditionally, so a `t.value = x`
+                        // after it claimed a read the callback often does not return.
+                        if self.depth > 0 && self.from_wire.get(&name).is_some_and(|w| *w != wire) {
+                            self.branch_dependent = true;
+                        }
                         self.from_wire.insert(name, wire);
                     }
                     None => {
@@ -3328,6 +3353,8 @@ fn returned_names(src: &str) -> std::collections::HashSet<String> {
     struct Returns {
         depth: usize,
         out: std::collections::HashSet<String>,
+        /// `var alias = result` — the name on the left stands for the one on the right.
+        aliases: HashMap<String, String>,
     }
     impl<'a> Visit<'a> for Returns {
         fn visit_function(&mut self, f: &Function<'a>, flags: ScopeFlags) {
@@ -3343,6 +3370,20 @@ fn returned_names(src: &str) -> std::collections::HashSet<String> {
             walk::walk_arrow_function_expression(self, f);
             self.depth -= 1;
         }
+        fn visit_variable_declaration(&mut self, d: &VariableDeclaration<'a>) {
+            if self.depth == 0 {
+                for decl in &d.declarations {
+                    if let Some(name) = decl.id.get_identifier_name()
+                        && let Some(init) = decl.init.as_ref().and_then(as_identifier)
+                    {
+                        self.aliases
+                            .insert(name.as_str().to_string(), init.to_string());
+                    }
+                }
+            }
+            walk::walk_variable_declaration(self, d);
+        }
+
         fn visit_return_statement(&mut self, r: &oxc_ast::ast::ReturnStatement<'a>) {
             if self.depth == 0
                 && let Some(a) = &r.argument
@@ -3356,9 +3397,28 @@ fn returned_names(src: &str) -> std::collections::HashSet<String> {
     let mut f = Returns {
         depth: 0,
         out: Default::default(),
+        aliases: HashMap::new(),
     };
     f.visit_program(&ret.program);
-    f.out
+    // `var result = {}, alias = result; … return alias` hands back the accumulator under
+    // another name. Comparing the returned identifier directly found nothing that matched,
+    // so the choice fell to the frequency tie-break and a cache written by more arms than
+    // the result took the API. Following the alias chain settles it; the bound stops a
+    // `a = b; b = a` cycle from spinning.
+    let mut out = f.out.clone();
+    for name in f.out {
+        let mut at = name;
+        for _ in 0..8 {
+            let Some(next) = f.aliases.get(&at) else {
+                break;
+            };
+            if !out.insert(next.clone()) {
+                break;
+            }
+            at = next.clone();
+        }
+    }
+    out
 }
 
 /// The bound name and body source of a child callback, written either as
@@ -7686,6 +7746,117 @@ mod tests {
             !kids.iter().any(|f| f.field_type == ParsedFieldType::Union),
             "declined, so the reads stay flat: {:?}",
             kids.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+    }
+    #[test]
+    fn a_return_through_a_finally_ends_that_value_too() {
+        // The finalizer runs on the way out without stopping the return.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   if (n === "a") { t.alpha = e.attrString("va");
+                     try { return t; } finally { cleanup(); } }
+                   if (n === "b") { t.beta = e.attrString("vb"); }
+                   if (n === "a") { t.gamma = e.attrString("vc"); }
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        let a_fields: Vec<String> = kids
+            .iter()
+            .find(|f| f.field_type == ParsedFieldType::Union)
+            .and_then(|f| f.union_variants.as_ref())
+            .and_then(|vs| vs.iter().find(|v| v.name == "a"))
+            .map(|v| v.fields.iter().map(|f| f.name.clone()).collect())
+            .unwrap_or_default();
+        assert!(
+            !a_fields.iter().any(|n| n == "gamma"),
+            "the unreachable arm is not part of the variant: {a_fields:?}"
+        );
+    }
+
+    #[test]
+    fn a_caught_try_only_exits_when_the_handler_does_too() {
+        // With a `catch` that falls through, the statements after the try still run.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   if (n === "a") { t.alpha = e.attrString("va");
+                     try { return t; } catch (err) { logged(); } }
+                   if (n === "b") { t.beta = e.attrString("vb"); }
+                   if (n === "a") { t.gamma = e.attrString("vc"); }
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        let a_fields: Vec<String> = kids
+            .iter()
+            .find(|f| f.field_type == ParsedFieldType::Union)
+            .and_then(|f| f.union_variants.as_ref())
+            .and_then(|vs| vs.iter().find(|v| v.name == "a"))
+            .map(|v| v.fields.iter().map(|f| f.name.clone()).collect())
+            .unwrap_or_default();
+        assert!(
+            a_fields.iter().any(|n| n == "gamma"),
+            "the later arm still runs and is merged: {a_fields:?}"
+        );
+    }
+
+    #[test]
+    fn an_alias_rebound_down_a_branch_does_not_name_the_later_read() {
+        // `var x = first; if (flag) x = second; t.value = x` returns one or the other.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   if (n === "a") { var x = e.attrString("first");
+                                    if (flag) { x = e.attrString("second"); }
+                                    t.value = x; }
+                   if (n === "b") { t.other = e.attrString("third"); }
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        assert!(
+            !kids.iter().any(|f| f.field_type == ParsedFieldType::Union),
+            "declined, so the reads stay flat: {:?}",
+            kids.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn the_accumulator_is_found_through_the_alias_it_is_returned_as() {
+        // `var result = {}, alias = result; … return alias` hands the accumulator back
+        // under another name; the direct comparison found nothing and a cache written by
+        // more arms took the API.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   var result = {}, alias = result;
+                   if (n === "a") { result.foo = e.attrString("f1");
+                                    cache.wrongA = e.attrString("w1");
+                                    cache.wrongB = e.attrString("w2"); }
+                   if (n === "b") { result.bar = e.attrString("b1");
+                                    cache.wrongC = e.attrString("w3");
+                                    cache.wrongD = e.attrString("w4"); }
+                   return alias;
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        let a_fields: Vec<String> = kids
+            .iter()
+            .find(|f| f.field_type == ParsedFieldType::Union)
+            .and_then(|f| f.union_variants.as_ref())
+            .and_then(|vs| vs.iter().find(|v| v.name == "a"))
+            .map(|v| v.fields.iter().map(|f| f.name.clone()).collect())
+            .unwrap_or_default();
+        assert!(
+            a_fields.iter().any(|n| n == "foo"),
+            "the returned object names the field: {a_fields:?}"
+        );
+        assert!(
+            !a_fields.iter().any(|n| n.starts_with("wrong")),
+            "and the cache does not: {a_fields:?}"
         );
     }
 }
