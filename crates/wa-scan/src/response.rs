@@ -2869,6 +2869,48 @@ fn assigned_names(src: &str, param: &str) -> (HashMap<String, Vec<(String, Strin
             self.depth -= 1;
         }
 
+        // A loop that runs zero times performs no write, so a property set in its body may
+        // still hold whatever an earlier read put there. The init runs regardless; the
+        // test, the update and the body do not. `do`/`while` is deliberately absent — its
+        // body always runs once, so a write there really is unconditional.
+        fn visit_for_statement(&mut self, s: &oxc_ast::ast::ForStatement<'a>) {
+            if let Some(init) = &s.init {
+                walk::walk_for_statement_init(self, init);
+            }
+            self.depth += 1;
+            if let Some(test) = &s.test {
+                self.visit_expression(test);
+            }
+            if let Some(update) = &s.update {
+                self.visit_expression(update);
+            }
+            self.visit_statement(&s.body);
+            self.depth -= 1;
+        }
+
+        fn visit_for_of_statement(&mut self, s: &oxc_ast::ast::ForOfStatement<'a>) {
+            self.visit_expression(&s.right);
+            self.depth += 1;
+            walk::walk_for_statement_left(self, &s.left);
+            self.visit_statement(&s.body);
+            self.depth -= 1;
+        }
+
+        fn visit_for_in_statement(&mut self, s: &oxc_ast::ast::ForInStatement<'a>) {
+            self.visit_expression(&s.right);
+            self.depth += 1;
+            walk::walk_for_statement_left(self, &s.left);
+            self.visit_statement(&s.body);
+            self.depth -= 1;
+        }
+
+        fn visit_while_statement(&mut self, s: &oxc_ast::ast::WhileStatement<'a>) {
+            self.visit_expression(&s.test);
+            self.depth += 1;
+            self.visit_statement(&s.body);
+            self.depth -= 1;
+        }
+
         fn visit_block_statement(&mut self, block: &oxc_ast::ast::BlockStatement<'a>) {
             self.blocks.push(Vec::new());
             walk::walk_block_statement(self, block);
@@ -3382,6 +3424,21 @@ fn returned_names(src: &str) -> std::collections::HashSet<String> {
                 }
             }
             walk::walk_variable_declaration(self, d);
+        }
+
+        // `var alias; alias = result;` stands for the accumulator exactly as the
+        // declarator form does — reading only initializers left the returned name
+        // unresolved and the choice fell back to frequency.
+        fn visit_assignment_expression(&mut self, e: &oxc_ast::ast::AssignmentExpression<'a>) {
+            if self.depth == 0
+                && e.operator == oxc_syntax::operator::AssignmentOperator::Assign
+                && let oxc_ast::ast::AssignmentTarget::AssignmentTargetIdentifier(id) = &e.left
+                && let Some(from) = as_identifier(&e.right)
+            {
+                self.aliases
+                    .insert(id.name.as_str().to_string(), from.to_string());
+            }
+            walk::walk_assignment_expression(self, e);
         }
 
         fn visit_return_statement(&mut self, r: &oxc_ast::ast::ReturnStatement<'a>) {
@@ -7857,6 +7914,93 @@ mod tests {
         assert!(
             !a_fields.iter().any(|n| n.starts_with("wrong")),
             "and the cache does not: {a_fields:?}"
+        );
+    }
+    #[test]
+    fn an_accumulator_aliased_by_assignment_is_found_too() {
+        // `var alias; alias = result;` stands for the accumulator as much as the
+        // declarator form; reading only initializers left the cache winning on frequency.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   var result = {}, alias;
+                   alias = result;
+                   if (n === "a") { result.foo = e.attrString("f1");
+                                    cache.wrongA = e.attrString("w1");
+                                    cache.wrongB = e.attrString("w2"); }
+                   if (n === "b") { result.bar = e.attrString("b1");
+                                    cache.wrongC = e.attrString("w3");
+                                    cache.wrongD = e.attrString("w4"); }
+                   return alias;
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        let a_fields: Vec<String> = kids
+            .iter()
+            .find(|f| f.field_type == ParsedFieldType::Union)
+            .and_then(|f| f.union_variants.as_ref())
+            .and_then(|vs| vs.iter().find(|v| v.name == "a"))
+            .map(|v| v.fields.iter().map(|f| f.name.clone()).collect())
+            .unwrap_or_default();
+        assert!(
+            a_fields.iter().any(|n| n == "foo") && !a_fields.iter().any(|n| n.starts_with("wrong")),
+            "the returned object names the fields, not the cache: {a_fields:?}"
+        );
+    }
+
+    #[test]
+    fn a_property_written_in_a_loop_does_not_overwrite() {
+        // A loop that runs zero times performs no write, so `value` may still hold the
+        // earlier read — one field cannot say both.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   if (n === "a") { t.value = e.attrString("first");
+                                    for (var i = 0; i < m; i++) { t.value = e.attrString("second"); } }
+                   if (n === "b") { t.other = e.attrString("third"); }
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        assert!(
+            !kids.iter().any(|f| f.field_type == ParsedFieldType::Union),
+            "declined, so the reads stay flat: {:?}",
+            kids.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_do_while_body_always_runs_so_its_write_stands() {
+        // `do { … } while (…)` performs the write at least once, so the later read really
+        // is what the property holds — declining here would lose a union needlessly.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   if (n === "a") { t.value = e.attrString("first");
+                                    do { t.value = e.attrString("second"); } while (m); }
+                   if (n === "b") { t.other = e.attrString("third"); }
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        let a_fields: Vec<(String, Option<String>)> = kids
+            .iter()
+            .find(|f| f.field_type == ParsedFieldType::Union)
+            .and_then(|f| f.union_variants.as_ref())
+            .and_then(|vs| vs.iter().find(|v| v.name == "a"))
+            .map(|v| {
+                v.fields
+                    .iter()
+                    .map(|f| (f.name.clone(), f.wire_name.clone()))
+                    .collect()
+            })
+            .unwrap_or_default();
+        assert!(
+            a_fields
+                .iter()
+                .any(|(n, w)| n == "value" && w.as_deref() == Some("second")),
+            "the property holds the read it keeps: {a_fields:?}"
         );
     }
 }
