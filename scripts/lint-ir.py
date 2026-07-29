@@ -38,7 +38,11 @@ BASELINE = {
     # discriminator and the runtime's output names (`lastSeen`, `callAdd`, …). A consumer
     # gets one key with ten contradictory constraints. Recorded rather than certified;
     # fixing the shape is an extractor change, not a linter one.
-    "object key filled twice in one array": 15,
+    #
+    # 42 is the number of EXTRA entries across all such arrays, measured — an earlier
+    # guess of 24 was wrong, and counting arrays instead let an eleventh duplicate in an
+    # array already holding ten pass unnoticed.
+    "object key filled twice in one array": 42,
 }
 
 # The enums no extraction path could resolve, by IDENTITY rather than by total.
@@ -875,8 +879,10 @@ def check_action_keys(node, path, errors, counts):
         names_in = [
             it["name"] for it in node[key] if isinstance(it, dict) and "name" in it
         ]
-        if len(set(names_in)) < len(names_in):
-            counts["object key filled twice in one array"] += 1
+        # Counted per EXTRA entry, not per array: counting arrays meant an eleventh
+        # `value` in an array already carrying ten changed nothing, which is the same
+        # count-vs-identity blind spot the unresolved-enum baseline had twice.
+        counts["object key filled twice in one array"] += len(names_in) - len(set(names_in))
 
     if len(arrays) < 2:
         return
