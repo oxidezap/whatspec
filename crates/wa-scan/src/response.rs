@@ -2137,7 +2137,13 @@ fn rust_member_form(s: &str) -> String {
 /// only the last value. Merged into one variant they sat side by side — two members of one
 /// name, which the codegen emits as a struct that does not compile. The earlier read still
 /// happened, so it keeps its wire name rather than disappearing.
-fn one_read_per_property(fields: &mut [ParsedField]) {
+///
+/// False when the variant still cannot be spelled: the wire name a displaced read falls
+/// back to can be one another property already took — `t.value = first; t.value = second;
+/// t.first = third` leaves two members called `first` — and there is no name left that is
+/// both free and true. The caller declines rather than emitting a struct that will not
+/// compile.
+fn one_read_per_property(fields: &mut [ParsedField]) -> bool {
     let mut last: HashMap<String, usize> = HashMap::new();
     for (i, f) in fields.iter().enumerate() {
         last.insert(f.name.clone(), i);
@@ -2149,6 +2155,8 @@ fn one_read_per_property(fields: &mut [ParsedField]) {
             f.name = wire;
         }
     }
+    let mut seen: std::collections::HashSet<&str> = Default::default();
+    fields.iter().all(|f| seen.insert(f.name.as_str()))
 }
 
 /// Whether `stmt` ends the body on every path it can take. A bare `return`/`throw`, or a
@@ -2270,6 +2278,8 @@ impl DispatchChain {
             return None;
         }
         let mut arms: Vec<(Vec<String>, Span)> = Vec::new();
+        // Values whose arm ended the callback, so a later arm naming one cannot run.
+        let mut exited: std::collections::HashSet<String> = Default::default();
         for stmt in stmts.iter() {
             // Nothing after an unconditional exit runs, so a comparison there is not an
             // alternative the element can take. A block is as final as a bare statement —
@@ -2313,6 +2323,17 @@ impl DispatchChain {
                 let owned: Vec<String> = lits.into_iter().map(str::to_string).collect();
                 if owned.iter().any(|l| !in_this_chain.insert(l.clone())) {
                     return None;
+                }
+                // An arm that ends the callback makes a LATER arm for the same value
+                // unreachable — the merge of two arms sharing a literal is sound only
+                // because both run. Merging past an exit required of that value a payload
+                // the parser never reads for it. Arms for other values are untouched:
+                // the exit only rules out the value that reached it.
+                if owned.iter().any(|l| exited.contains(l)) {
+                    return None;
+                }
+                if exits_unconditionally(&current.consequent) {
+                    exited.extend(owned.iter().cloned());
                 }
                 arms.push((owned, current.consequent.span()));
                 match &current.alternate {
@@ -2682,11 +2703,11 @@ fn read_key(call: &CallExpression<'_>) -> Option<String> {
     }
 }
 
-fn assigned_names(src: &str, param: &str) -> HashMap<String, Vec<(String, String)>> {
+fn assigned_names(src: &str, param: &str) -> (HashMap<String, Vec<(String, String)>>, bool) {
     let alloc = Allocator::default();
     let ret = wa_oxc::parse_cjs(&alloc, src);
     if ret.panicked {
-        return HashMap::new();
+        return (HashMap::new(), false);
     }
     struct Finder<'s> {
         param: &'s str,
@@ -2696,6 +2717,15 @@ fn assigned_names(src: &str, param: &str) -> HashMap<String, Vec<(String, String
         blocks: Vec<Vec<(String, Option<String>)>>,
         /// Wire attribute → the (object, property) pairs its value is assigned to.
         named: HashMap<String, Vec<(String, String)>>,
+        /// Conditionals open around the assignment being visited.
+        depth: u32,
+        /// The depth each property was last claimed at, to tell a straight-line
+        /// overwrite from one that only happens down a branch.
+        claimed_at: HashMap<(String, String), u32>,
+        /// Set when a property is claimed by two reads that do not overwrite each other:
+        /// `if (flag) t.value = a; else t.value = b` returns one or the other, and
+        /// naming the later one alone published a field the parser often does not return.
+        branch_dependent: bool,
     }
     impl<'a> Visit<'a> for Finder<'_> {
         // A nested callback reusing the parameter's name reads a different node; its
@@ -2742,6 +2772,34 @@ fn assigned_names(src: &str, param: &str) -> HashMap<String, Vec<(String, String
                 }
             }
             walk::walk_variable_declaration(self, decl);
+        }
+
+        // Only the branches: the test itself runs on every path through the statement.
+        fn visit_if_statement(&mut self, stmt: &oxc_ast::ast::IfStatement<'a>) {
+            self.visit_expression(&stmt.test);
+            self.depth += 1;
+            self.visit_statement(&stmt.consequent);
+            if let Some(alt) = &stmt.alternate {
+                self.visit_statement(alt);
+            }
+            self.depth -= 1;
+        }
+
+        fn visit_conditional_expression(&mut self, e: &oxc_ast::ast::ConditionalExpression<'a>) {
+            self.visit_expression(&e.test);
+            self.depth += 1;
+            self.visit_expression(&e.consequent);
+            self.visit_expression(&e.alternate);
+            self.depth -= 1;
+        }
+
+        fn visit_switch_statement(&mut self, stmt: &oxc_ast::ast::SwitchStatement<'a>) {
+            self.visit_expression(&stmt.discriminant);
+            self.depth += 1;
+            for case in &stmt.cases {
+                self.visit_switch_case(case);
+            }
+            self.depth -= 1;
         }
 
         fn visit_block_statement(&mut self, block: &oxc_ast::ast::BlockStatement<'a>) {
@@ -2815,12 +2873,31 @@ fn assigned_names(src: &str, param: &str) -> HashMap<String, Vec<(String, String
                     // naming both reads after it gave a variant two fields called `value`
                     // — a struct the codegen cannot emit. The earlier read still happened,
                     // so it keeps its wire name rather than disappearing.
+                    let key = (receiver.clone(), property.clone());
+                    let taken = self
+                        .named
+                        .iter()
+                        .find(|(w, names)| {
+                            **w != wire
+                                && names.iter().any(|(r, p)| *r == receiver && *p == property)
+                        })
+                        .is_some();
+                    // A later assignment overwrites an earlier one only when both are on
+                    // the same path. Under a conditional it may not run at all, and the
+                    // property then holds whichever read the taken branch performed —
+                    // something one field cannot say, so the shape is refused instead.
+                    if taken
+                        && (self.depth > 0 || self.claimed_at.get(&key).is_some_and(|d| *d > 0))
+                    {
+                        self.branch_dependent = true;
+                    }
                     for (w, names) in self.named.iter_mut() {
                         if *w != wire {
                             names.retain(|(r, p)| !(*r == receiver && *p == property));
                         }
                     }
                     self.named.retain(|_, names| !names.is_empty());
+                    self.claimed_at.insert(key, self.depth);
                     // Keyed by the object written to as well: an assignment to something
                     // else — a cache, a log — is not a field of the result, and taking its
                     // property name exposed an API field the parser never returns.
@@ -2838,9 +2915,12 @@ fn assigned_names(src: &str, param: &str) -> HashMap<String, Vec<(String, String
         from_wire: HashMap::new(),
         blocks: Vec::new(),
         named: HashMap::new(),
+        depth: 0,
+        claimed_at: HashMap::new(),
+        branch_dependent: false,
     };
     f.visit_program(&ret.program);
-    f.named
+    (f.named, f.branch_dependent)
 }
 
 /// Add back every flat read the dispatch does not already account for.
@@ -2984,7 +3064,7 @@ fn discriminated_children(
         for (_, span) in &collector.arms {
             let src = &body_src[span.start as usize..span.end as usize];
             let mut here: std::collections::HashSet<String> = Default::default();
-            for pairs in assigned_names(src, param).values() {
+            for pairs in assigned_names(src, param).0.values() {
                 here.extend(pairs.iter().map(|(r, _)| r.clone()));
             }
             for r in here {
@@ -3022,7 +3102,12 @@ fn discriminated_children(
             outer_bindings,
             outside.child_vars.clone(),
         );
-        let runtime_names = assigned_names(arm_src, param);
+        // An arm whose property mapping depends on which branch ran cannot be spelled as
+        // one variant; declining leaves the body extracted flat.
+        let (runtime_names, branch_dependent) = assigned_names(arm_src, param);
+        if branch_dependent {
+            return None;
+        }
         // Only the leaf the arm selects belongs to the variant. Anything structural it
         // also reads — the `<error>` its reporting helper picks up — is the element's.
         let (leaves, structural): (Vec<_>, Vec<_>) = arm
@@ -3134,7 +3219,9 @@ fn discriminated_children(
     // Applied after every arm has been merged in: within one arm the last assignment
     // already wins, but two arms testing one literal are merged here and both survived.
     for v in &mut variants {
-        one_read_per_property(&mut v.fields);
+        if !one_read_per_property(&mut v.fields) {
+            return None;
+        }
     }
 
     let mut union = mk_field("dispatch", &wire, ParsedFieldType::Union, true);
@@ -7254,6 +7341,79 @@ mod tests {
             (f.int_min, f.int_max),
             (Some(0), None),
             "only the bound it spells"
+        );
+    }
+    #[test]
+    fn a_property_two_branches_disagree_on_declines() {
+        // `if (flag) t.value = first; else t.value = second` returns one or the other;
+        // naming the later read alone published a field the parser often does not return.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   if (n === "a") {
+                     if (flag) { t.value = e.attrString("first"); }
+                     else { t.value = e.attrString("second"); }
+                   }
+                   if (n === "b") { t.other = e.attrString("third"); }
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        assert!(
+            !kids.iter().any(|f| f.field_type == ParsedFieldType::Union),
+            "declined, so the reads stay flat: {:?}",
+            kids.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_displaced_read_with_nowhere_to_fall_back_declines() {
+        // The wire name a displaced read falls back to can be one another property already
+        // took, leaving two members called `first` — a struct the codegen cannot emit.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   if (n === "a") {
+                     t.value = e.attrString("first");
+                     t.value = e.attrString("second");
+                     t.first = e.attrString("third");
+                   }
+                   if (n === "b") { t.other = e.attrString("fourth"); }
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        assert!(
+            !kids.iter().any(|f| f.field_type == ParsedFieldType::Union),
+            "declined rather than emitting one name twice: {:?}",
+            kids.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn an_arm_after_that_value_already_returned_is_not_merged_into_it() {
+        // `if (kind === "a") { …; return t; }` ends the callback for `a`, so a later `a`
+        // arm cannot run — merging it required of `a` a payload the parser never reads.
+        // The `b` arm between them is untouched by that exit.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   if (n === "a") { t.alpha = e.attrString("va"); return t; }
+                   if (n === "b") { t.beta = e.attrString("vb"); }
+                   if (n === "a") { t.gamma = e.attrString("vc"); }
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        let union = kids.iter().find(|f| f.field_type == ParsedFieldType::Union);
+        let a_fields: Vec<String> = union
+            .and_then(|f| f.union_variants.as_ref())
+            .and_then(|vs| vs.iter().find(|v| v.name == "a"))
+            .map(|v| v.fields.iter().map(|f| f.name.clone()).collect())
+            .unwrap_or_default();
+        assert!(
+            !a_fields.iter().any(|n| n == "gamma"),
+            "the unreachable arm is not part of the variant: {a_fields:?}"
         );
     }
 }
