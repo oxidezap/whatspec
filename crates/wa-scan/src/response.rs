@@ -2170,6 +2170,10 @@ fn one_read_per_property(fields: &mut [ParsedField]) -> bool {
 fn exits_unconditionally(stmt: &Statement<'_>) -> bool {
     match stmt {
         Statement::ReturnStatement(_) | Statement::ThrowStatement(_) => true,
+        // `break x` jumps past the labelled block the chain lives in, so the value that
+        // reached it takes no later arm. An UNLABELLED break leaves only the nearest loop
+        // or switch, and is read where those are.
+        Statement::BreakStatement(b) => b.label.is_some(),
         // Only an unconditional one: a `return` under an `if` inside the block is a path,
         // not the block's outcome, so the statements after it still run.
         Statement::BlockStatement(b) => b.body.iter().any(exits_unconditionally),
@@ -2290,6 +2294,18 @@ fn rebinds_subject(stmt: &Statement<'_>, subject: &str) -> (usize, bool) {
                 self.written = true;
             }
             walk::walk_assignment_expression(self, e);
+        }
+
+        // `[kind] = values` overwrites it as surely as `kind = …`; matching only a bare
+        // identifier on the left let the comparisons after it be read as alternatives
+        // keyed on a wire attribute the subject no longer holds.
+        fn visit_assignment_target(&mut self, t: &oxc_ast::ast::AssignmentTarget<'a>) {
+            if let oxc_ast::ast::AssignmentTarget::AssignmentTargetIdentifier(id) = t
+                && id.name == self.subject
+            {
+                self.written = true;
+            }
+            walk::walk_assignment_target(self, t);
         }
 
         // `kind++` writes it as surely as `kind = …`, and the comparisons after it test
@@ -2966,6 +2982,13 @@ fn assigned_names(src: &str, param: &str) -> (HashMap<String, Vec<(String, Strin
                         self.from_wire.insert(name, wire);
                     }
                     None => {
+                        // Down a branch, `x = "fixed"` leaves `x` holding the read on the
+                        // other path, so a later `t.value = x` names it there and not
+                        // here. Dropping the mapping silently published the read under its
+                        // wire name as though the property never claimed it.
+                        if self.depth > 0 && self.from_wire.contains_key(&name) {
+                            self.branch_dependent = true;
+                        }
                         self.from_wire.remove(&name);
                     }
                 }
@@ -8001,6 +8024,74 @@ mod tests {
                 .iter()
                 .any(|(n, w)| n == "value" && w.as_deref() == Some("second")),
             "the property holds the read it keeps: {a_fields:?}"
+        );
+    }
+    #[test]
+    fn a_labeled_break_ends_that_value_too() {
+        // `break x` jumps past the labelled block the chain lives in.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   x: { if (n === "a") { t.alpha = e.attrString("va"); break x; }
+                        if (n === "b") { t.beta = e.attrString("vb"); }
+                        if (n === "a") { t.gamma = e.attrString("vc"); } }
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        let a_fields: Vec<String> = kids
+            .iter()
+            .find(|f| f.field_type == ParsedFieldType::Union)
+            .and_then(|f| f.union_variants.as_ref())
+            .and_then(|vs| vs.iter().find(|v| v.name == "a"))
+            .map(|v| v.fields.iter().map(|f| f.name.clone()).collect())
+            .unwrap_or_default();
+        assert!(
+            !a_fields.iter().any(|n| n == "gamma"),
+            "the unreachable arm is not part of the variant: {a_fields:?}"
+        );
+    }
+
+    #[test]
+    fn a_discriminator_destructured_into_declines_the_chain() {
+        // `[n] = values` replaces what the comparisons test, so they are not alternatives
+        // keyed on the wire attribute any more.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   [n] = values;
+                   if (n === "a") { t.alpha = e.attrString("va"); }
+                   if (n === "b") { t.beta = e.attrString("vb"); }
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        assert!(
+            !kids.iter().any(|f| f.field_type == ParsedFieldType::Union),
+            "declined, so the reads stay flat: {:?}",
+            kids.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn an_alias_overwritten_by_a_constant_down_a_branch_declines() {
+        // `if (flag) x = "fixed"` leaves `x` holding the read on the other path, so
+        // `t.value = x` names it there and not here.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   if (n === "a") { var x = e.attrString("first");
+                                    if (flag) { x = "fixed"; }
+                                    t.value = x; }
+                   if (n === "b") { t.other = e.attrString("third"); }
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        assert!(
+            !kids.iter().any(|f| f.field_type == ParsedFieldType::Union),
+            "declined, so the reads stay flat: {:?}",
+            kids.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
         );
     }
 }
