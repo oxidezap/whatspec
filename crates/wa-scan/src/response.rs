@@ -430,6 +430,8 @@ fn analyze_with_scope(code: &str, param: &str, module: &ModuleScope) -> ParserRe
         unresolved_enum_attrs: Default::default(),
         unresolved: Vec::new(),
         outer_aliases: Vec::new(),
+        blocks: Vec::new(),
+        shadowed_vars: Vec::new(),
         helper_depth: 0,
     };
     a.visit_program(&ret.program);
@@ -649,6 +651,13 @@ struct ParserAnalyzer<'src, 'ms> {
     /// resolve the `e` it came from. Scoped, so the alias cannot outlive its callback the
     /// way a bare entry in `child_vars` would.
     outer_aliases: Vec<(Span, String)>,
+    /// Blocks enclosing the node being walked, innermost last — the extent a `let` alias is
+    /// good for, which is shorter than the callback that contains it.
+    blocks: Vec<Span>,
+    /// What a lexical alias overwrote in [`Self::child_vars`], to put back when its block
+    /// ends. `var` needs no entry here: it reaches the whole function, and the function's
+    /// own restore covers it.
+    shadowed_vars: Vec<(Span, String, Option<String>)>,
     /// Recursion guard for module-scope helper descent (`m(n,i)` → analyze `m`'s body).
     helper_depth: u32,
 }
@@ -681,6 +690,24 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
         self.scopes.pop();
     }
 
+    fn visit_block_statement(&mut self, block: &oxc_ast::ast::BlockStatement<'a>) {
+        self.blocks.push(block.span);
+        walk::walk_block_statement(self, block);
+        self.blocks.pop();
+        // A `let` alias stops meaning its node here, so whatever it displaced comes back.
+        while self
+            .shadowed_vars
+            .last()
+            .is_some_and(|(e, ..)| *e == block.span)
+        {
+            let (_, name, prev) = self.shadowed_vars.pop().expect("just checked");
+            match prev {
+                Some(tag) => self.child_vars.insert(name, tag),
+                None => self.child_vars.remove(&name),
+            };
+        }
+    }
+
     fn visit_variable_declaration(&mut self, decl: &VariableDeclaration<'a>) {
         // A descendant bound inside a callback that has its own scope — whether the
         // recursion read it or the shadow check will discount it — must not rebind the
@@ -710,13 +737,24 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
                             .and_then(arg_expr)
                             .and_then(as_string_lit)
                     {
-                        self.child_vars
+                        let prev = self
+                            .child_vars
                             .insert(name.as_str().to_string(), tag.to_string());
                         // Bound inside a callback but naming a node from outside it: the
-                        // read through it is the parser's, for as long as that scope lasts.
-                        if inner_owns_it && let Some(extent) = self.scopes.last().map(|s| s.extent)
-                        {
+                        // read through it is the parser's, for as long as that binding is —
+                        // its block when it is `let` or `const`, the whole callback when it
+                        // is `var`.
+                        let extent = if decl.kind.is_lexical() {
+                            self.blocks.last().copied()
+                        } else {
+                            self.scopes.last().map(|s| s.extent)
+                        };
+                        if inner_owns_it && let Some(extent) = extent {
                             self.outer_aliases.push((extent, name.as_str().to_string()));
+                            if decl.kind.is_lexical() {
+                                self.shadowed_vars
+                                    .push((extent, name.as_str().to_string(), prev));
+                            }
                         }
                     }
                 }
@@ -1407,6 +1445,8 @@ fn analyze_child_node(
         unresolved_enum_attrs: Default::default(),
         unresolved: Vec::new(),
         outer_aliases: Vec::new(),
+        blocks: Vec::new(),
+        shadowed_vars: Vec::new(),
         helper_depth: depth,
     };
     a.visit_program(&ret.program);
@@ -2134,6 +2174,55 @@ mod tests {
             kids("inner"),
             Some(vec!["a"]),
             "and the alias kept its own read"
+        );
+    }
+
+    #[test]
+    fn a_lexical_alias_gives_the_name_back_at_the_end_of_its_block() {
+        // Restoring only when the callback exits left the overwrite standing for the rest
+        // of the body, so the read after the block attached under `inner`, not `meta`.
+        let r = analyze_parser_ast(
+            r#"{ var x = e.child("meta");
+                 e.mapChildrenWithTag("row", function(row){
+                   { let x = e.child("inner"); x.attrString("a"); }
+                   x.attrString("b");
+                 }); }"#,
+            "e",
+        );
+        let kids = |n: &str| {
+            r.fields
+                .iter()
+                .find(|f| f.name == n)
+                .and_then(|f| f.children.as_ref())
+                .map(|c| c.iter().map(|g| g.name.as_str()).collect::<Vec<_>>())
+        };
+        assert_eq!(kids("inner"), Some(vec!["a"]), "the block's own read");
+        assert_eq!(
+            kids("meta"),
+            Some(vec!["b"]),
+            "and the outer name is back after it"
+        );
+    }
+
+    #[test]
+    fn a_var_alias_still_reaches_past_its_block() {
+        // `var` is function-scoped: declared in a block, it goes on meaning its node for
+        // the rest of the callback, so the block boundary must not put anything back.
+        let r = analyze_parser_ast(
+            r#"{ var x = e.child("meta");
+                 e.mapChildrenWithTag("row", function(row){
+                   { var x = e.child("inner"); }
+                   x.attrString("a");
+                 }); }"#,
+            "e",
+        );
+        assert_eq!(
+            r.fields
+                .iter()
+                .find(|f| f.name == "inner")
+                .and_then(|f| f.children.as_ref())
+                .map(|c| c.iter().map(|g| g.name.as_str()).collect::<Vec<_>>()),
+            Some(vec!["a"]),
         );
     }
 
