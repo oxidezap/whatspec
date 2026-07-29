@@ -645,6 +645,37 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
         walk::walk_variable_declaration(self, decl);
     }
 
+    fn visit_statement(&mut self, stmt: &Statement<'a>) {
+        // One place asks the question, so a construct that introduces a non-taken path
+        // cannot be forgotten the way `switch`, the loops and `try` each were in turn.
+        if skips_on_some_path(stmt) {
+            self.conditional_depth += 1;
+            walk::walk_statement(self, stmt);
+            self.conditional_depth -= 1;
+        } else {
+            walk::walk_statement(self, stmt);
+        }
+    }
+
+    /// `try`/`catch`/`finally` cannot be answered by [`skips_on_some_path`] alone: the
+    /// three parts differ from each other, and the walk reaches them through one node.
+    fn visit_try_statement(&mut self, stmt: &oxc_ast::ast::TryStatement<'a>) {
+        // The block may abort partway — that is what having a handler means — so what it
+        // reads past the throwing call is not read on every path.
+        self.conditional_depth += 1;
+        self.visit_block_statement(&stmt.block);
+        // The handler runs only when the block failed.
+        if let Some(h) = &stmt.handler {
+            self.visit_catch_clause(h);
+        }
+        self.conditional_depth -= 1;
+        // The finalizer runs whichever way the block went, so it is not conditional on
+        // anything. Weakening it would call a read the parser always performs optional.
+        if let Some(f) = &stmt.finalizer {
+            self.visit_block_statement(f);
+        }
+    }
+
     fn visit_if_statement(&mut self, stmt: &oxc_ast::ast::IfStatement<'a>) {
         self.visit_expression(&stmt.test);
         // `if (e.hasAttr("x")) …` says the element may lack `x` only on the path where it
@@ -2167,6 +2198,39 @@ fn one_read_per_property(fields: &mut [ParsedField]) -> bool {
 /// Whether `stmt` ends the body on every path it can take. A bare `return`/`throw`, or a
 /// block that reaches one — `{ return result; }` runs exactly as the bare statement does,
 /// and the arms after either of them are unreachable.
+/// Whether control can reach past `stmt` without having run what is inside it — the
+/// question `conditional_depth` exists to answer, asked once instead of at each visitor.
+///
+/// A helper called only down such a path does not make its payload required of every
+/// element, and its guards are that path's rather than the caller's. Enumerating the
+/// forms at the point of use is how `switch`, then the loops, then a caught `try` each
+/// arrived separately as the same bug: the guards of a helper reached one way only were
+/// hoisted onto every element, and generated decoding then rejected the paths the parser
+/// accepts.
+///
+/// `if`, `?:` and `&&` are absent on purpose — they raise the counter in their own
+/// visitors, which also track *what* the test proved. `try` is absent because its three
+/// parts disagree and the walk reaches them through one node; see `visit_try_statement`.
+fn skips_on_some_path(stmt: &Statement<'_>) -> bool {
+    match stmt {
+        // A case runs for its own value; the others reach past it. True even with a
+        // `default`: an exhaustive switch whose every case reads the same field would be
+        // required after all, but under-requiring only accepts more than the parser does,
+        // where over-requiring rejects what it accepts.
+        Statement::SwitchStatement(_) => true,
+        // Zero iterations is a path through the loop that runs none of the body.
+        Statement::WhileStatement(_)
+        | Statement::ForStatement(_)
+        | Statement::ForInStatement(_)
+        | Statement::ForOfStatement(_) => true,
+        // `do` runs its body before the test, so one pass is guaranteed — unless a `break`
+        // or `continue` can cut that pass short, which leaves the rest of the body no more
+        // certain than a branch.
+        Statement::DoWhileStatement(d) => contains_exit(&d.body),
+        _ => false,
+    }
+}
+
 fn exits_unconditionally(stmt: &Statement<'_>) -> bool {
     match stmt {
         Statement::ReturnStatement(_) | Statement::ThrowStatement(_) => true,
@@ -6357,6 +6421,71 @@ mod tests {
         let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
         let id = p.fields.iter().find(|f| f.name == "id").expect("recovered");
         assert!(id.required, "every path reads it");
+    }
+
+    /// A module whose parser reaches `parse` only through `body`.
+    fn helper_reached_via(body: &str) -> Vec<ParsedField> {
+        let module = format!(
+            r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){{
+            function parse(p){{ p.attrString("id"); }}
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){{
+                e.assertTag("receipt");
+                {body}
+            }});
+        }}),1);"#
+        );
+        parse_module_wap_parsers(&module)
+            .into_iter()
+            .find(|r| r.parser_name == "p")
+            .expect("parser")
+            .fields
+    }
+
+    #[test]
+    fn a_helper_reached_only_down_one_switch_case_is_not_required() {
+        // `case "a"` runs for its own value and every other value reaches past it, so what
+        // the helper reads is not read of every element. Counting only `if`/`?:`/`&&` as
+        // branches had the 44-case `w:gp2` subtype dispatch demand a `<description>` of
+        // participant-add notifications, which never carry one.
+        let fields =
+            helper_reached_via(r#"switch (mode) { case "a": parse(e); break; default: break; }"#);
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(!id.required, "one case is not every path: {id:?}");
+    }
+
+    #[test]
+    fn a_helper_reached_only_inside_a_loop_is_not_required() {
+        // A loop that runs zero times calls nothing.
+        let fields = helper_reached_via("while (more) { parse(e); }");
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(!id.required, "zero iterations read nothing: {id:?}");
+    }
+
+    #[test]
+    fn a_helper_reached_only_inside_a_caught_try_is_not_required() {
+        // The source catches the failure and carries on; hoisting the helper's assertions
+        // would have generated decoding reject the node the parser accepted.
+        let fields = helper_reached_via("try { parse(e); } catch (x) {}");
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(!id.required, "the handler swallows the failure: {id:?}");
+    }
+
+    #[test]
+    fn a_helper_called_in_a_finally_is_still_required() {
+        // The finalizer runs whichever way the block went. Weakening every part of a `try`
+        // alike would call a read the parser always performs optional.
+        let fields = helper_reached_via("try { g(); } finally { parse(e); }");
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(id.required, "the finalizer always runs: {id:?}");
+    }
+
+    #[test]
+    fn a_helper_called_in_a_do_while_is_still_required() {
+        // `do` runs its body before the test, so one pass is guaranteed — the asymmetry
+        // with `while`/`for` that makes this a separate answer rather than "a loop".
+        let fields = helper_reached_via("do { parse(e); } while (more);");
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(id.required, "the first pass always runs: {id:?}");
     }
 
     #[test]

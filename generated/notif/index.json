@@ -1213,13 +1213,13 @@
                     "method": "contentBytes",
                     "name": "content",
                     "type": "bytes",
-                    "required": true
+                    "required": false
                   },
                   {
                     "method": "attrTime",
                     "name": "t",
                     "type": "integer",
-                    "required": true
+                    "required": false
                   }
                 ],
                 "repeats": true
@@ -1593,14 +1593,14 @@
                 "method": "child",
                 "name": "group",
                 "type": "string",
-                "required": true,
+                "required": false,
                 "tag": "group",
                 "children": [
                   {
                     "method": "mapChildrenWithTag",
                     "name": "participant",
                     "type": "string",
-                    "required": true,
+                    "required": false,
                     "tag": "participant",
                     "children": [
                       {
@@ -1649,7 +1649,7 @@
                         "method": "attrUserJid",
                         "name": "jid",
                         "type": "user_jid",
-                        "required": true
+                        "required": false
                       },
                       {
                         "method": "maybeAttrString",
@@ -1676,21 +1676,21 @@
                     "method": "child",
                     "name": "description",
                     "type": "string",
-                    "required": true,
+                    "required": false,
                     "tag": "description",
                     "children": [
                       {
                         "method": "child",
                         "name": "body",
                         "type": "string",
-                        "required": true,
+                        "required": false,
                         "tag": "body",
                         "children": [
                           {
                             "method": "contentString",
                             "name": "content",
                             "type": "string",
-                            "required": true
+                            "required": false
                           }
                         ],
                         "contentType": "string"
@@ -1699,7 +1699,7 @@
                         "method": "attrString",
                         "name": "id",
                         "type": "string",
-                        "required": true
+                        "required": false
                       }
                     ]
                   },
@@ -1713,14 +1713,14 @@
                     "method": "child",
                     "name": "ephemeral",
                     "type": "string",
-                    "required": true,
+                    "required": false,
                     "tag": "ephemeral",
                     "children": [
                       {
                         "method": "attrInt",
                         "name": "expiration",
                         "type": "integer",
-                        "required": true
+                        "required": false
                       },
                       {
                         "method": "maybeAttrString",
@@ -1734,7 +1734,7 @@
                     "method": "attrString",
                     "name": "subject",
                     "type": "string",
-                    "required": true
+                    "required": false
                   },
                   {
                     "method": "attrUserJid",
@@ -1758,7 +1758,7 @@
                     "method": "attrTime",
                     "name": "creation",
                     "type": "integer",
-                    "required": true
+                    "required": false
                   },
                   {
                     "method": "attrUserJid",
@@ -2028,7 +2028,7 @@
                 "method": "attrString",
                 "name": "unlink_type",
                 "type": "string",
-                "required": true
+                "required": false
               },
               {
                 "method": "attrString",
@@ -2100,39 +2100,39 @@
                 "method": "child",
                 "name": "sub_group_suggestion",
                 "type": "string",
-                "required": true,
+                "required": false,
                 "tag": "sub_group_suggestion",
                 "children": [
                   {
                     "method": "attrGroupJid",
                     "name": "jid",
                     "type": "group_jid",
-                    "required": true
+                    "required": false
                   },
                   {
                     "method": "attrUserJid",
                     "name": "creator",
                     "type": "user_jid",
-                    "required": true
+                    "required": false
                   },
                   {
                     "method": "attrTime",
                     "name": "creation",
                     "type": "integer",
-                    "required": true
+                    "required": false
                   },
                   {
                     "method": "child",
                     "name": "subject",
                     "type": "string",
-                    "required": true,
+                    "required": false,
                     "tag": "subject",
                     "children": [
                       {
                         "method": "contentString",
                         "name": "content",
                         "type": "string",
-                        "required": true
+                        "required": false
                       }
                     ],
                     "contentType": "string"
@@ -2141,21 +2141,21 @@
                     "method": "child",
                     "name": "description",
                     "type": "string",
-                    "required": true,
+                    "required": false,
                     "tag": "description",
                     "children": [
                       {
                         "method": "child",
                         "name": "body",
                         "type": "string",
-                        "required": true,
+                        "required": false,
                         "tag": "body",
                         "children": [
                           {
                             "method": "contentString",
                             "name": "content",
                             "type": "string",
-                            "required": true
+                            "required": false
                           }
                         ],
                         "contentType": "string"
@@ -2166,14 +2166,14 @@
                     "method": "child",
                     "name": "is_existing_group",
                     "type": "string",
-                    "required": true,
+                    "required": false,
                     "tag": "is_existing_group",
                     "children": [
                       {
                         "method": "contentString",
                         "name": "content",
                         "type": "string",
-                        "required": true
+                        "required": false
                       }
                     ],
                     "contentType": "string"
@@ -2182,14 +2182,14 @@
                     "method": "child",
                     "name": "participant_count",
                     "type": "string",
-                    "required": true,
+                    "required": false,
                     "tag": "participant_count",
                     "children": [
                       {
                         "method": "contentInt",
                         "name": "content",
                         "type": "integer",
-                        "required": true
+                        "required": false
                       }
                     ],
                     "contentType": "integer"
