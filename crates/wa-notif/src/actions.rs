@@ -1949,8 +1949,12 @@ fn mapped_child<'b, 'a>(
     // `disabled ? 0 : node.mapChildrenWithTag(…)` — the same shape written the other way
     // round — dropped the child entirely, while the absence check beside it already looks
     // at both. Reversing an equivalent ternary must not erase the collection.
-    let call = as_call(strip_guard(e))
-        .or_else(|| match e {
+    // Unwrapped first: `(cond ? 0 : map(…))` hides the conditional behind a paren, and
+    // matching on the wrapper answers "not a conditional". Third time this wrapper has
+    // cost this file something.
+    let unwrapped = strip_parens(e);
+    let call = as_call(strip_guard(unwrapped))
+        .or_else(|| match unwrapped {
             Expression::ConditionalExpression(c) => as_call(strip_guard(&c.alternate)),
             _ => None,
         })
@@ -2105,6 +2109,14 @@ fn guard_admits_absence(e: &Expression) -> bool {
         }
         _ => false,
     }
+}
+
+/// Peel `(…)` wrappers, which the minifier and `babelHelpers` output both produce.
+fn strip_parens<'b, 'a>(mut e: &'b Expression<'a>) -> &'b Expression<'a> {
+    while let Expression::ParenthesizedExpression(p) = e {
+        e = &p.expression;
+    }
+    e
 }
 
 /// Whether the expression is a literal absence — the far side of a presence guard.

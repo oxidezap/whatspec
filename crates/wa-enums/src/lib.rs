@@ -496,6 +496,8 @@ impl NamedResolver {
         // parameter, not to the module's export object. Frame 0 is the module factory
         // itself — its parameters ARE the receivers — so a rebinding is any frame after
         // it that carries the name.
+        // `param_scopes` frames beyond the module factory carry parameters AND hoisted
+        // `var`s, so `function f(){ var i = {}; i.OUT = … }` is caught by the same test.
         !self.param_scopes.iter().skip(1).any(|s| s.contains(name))
     }
 
@@ -632,6 +634,18 @@ impl<'a> Visit<'a> for NamedResolver {
         self.in_var_decl = was;
     }
 
+    fn visit_expression_statement(&mut self, st: &oxc_ast::ast::ExpressionStatement<'a>) {
+        // `extends(e, {B:"b"})` mutates `e` wherever it is written, not only as a
+        // declarator's initializer — a bare expression statement does it too, and the
+        // declarator path below could not see that.
+        if let Some(target) = Self::mutated_extends_target(&st.expression)
+            && !self.param_shadows(target)
+        {
+            self.shadowed.insert(target.to_string());
+        }
+        walk::walk_expression_statement(self, st);
+    }
+
     fn visit_variable_declarator(&mut self, d: &VariableDeclarator<'a>) {
         // `var x = extends(e, {B:"b"})` MUTATES `e`. `merge_extends` already refuses to
         // publish `x`, but `e` itself kept its pre-merge body and a later `i.BASE = e`
@@ -740,11 +754,14 @@ impl<'a> Visit<'a> for NamedResolver {
             // a function, so an unconditional sweep made its own `var e = {…}` shadow the
             // local it declares — every enum in the catalog refused itself. Parameters
             // stay unconditional: they can never BE the module local.
-            hoisted.extend(
-                declared
-                    .into_iter()
-                    .filter(|n| self.locals.contains_key(n.as_str())),
-            );
+            // Kept when the name collides with an enum local — the shadow that matters
+            // for operand lookup — OR with a factory parameter, which is what
+            // `is_export_object` consults: `function f(){ var i = {}; i.OUT = … }` writes
+            // to a private object, and filtering on `locals` alone let it through because
+            // a receiver name is not an enum.
+            hoisted.extend(declared.into_iter().filter(|n| {
+                self.locals.contains_key(n.as_str()) || self.factory_params.contains(n)
+            }));
         }
         self.param_scopes.push(hoisted);
         walk::walk_function(self, f, flags);
@@ -1512,6 +1529,20 @@ mod tests {
                 .len(),
             2
         );
+
+        // A `var` that shadows the export receiver is the same hazard as a parameter.
+        let var_receiver = r#"__d("M",[],(function(t,n,r,o,a,i){
+            function f(){ var i={}; i.OUT={A:"a",B:"b"} }
+        }),1);"#;
+        assert!(resolve_named_enum(var_receiver, "M", "OUT").is_none());
+
+        // `extends(e, …)` mutates `e` as a bare STATEMENT too, not only as an initializer.
+        let stmt_mutation = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"};
+            babelHelpers.extends(e,{B:"b"});
+            i.BASE=e
+        }),1);"#;
+        assert!(resolve_named_enum(stmt_mutation, "M", "BASE").is_none());
 
         // A name rebound to the SAME body is not ambiguous — refusing it would throw away
         // a resolvable enum for nothing.
