@@ -1741,7 +1741,7 @@ fn arg_str<'b>(call: &'b CallExpression, n: usize) -> Option<&'b str> {
 /// `maybeChild` step as a required `child` would have the IR demand an element the source
 /// parser explicitly allows to be absent.
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct PathSeg {
+pub(crate) struct PathSeg {
     tag: String,
     method: String,
 }
