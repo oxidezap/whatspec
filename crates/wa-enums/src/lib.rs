@@ -754,7 +754,10 @@ impl<'a> Visit<'a> for NamedResolver {
             oxc_ast::ast::ForStatementLeft::VariableDeclaration(d) => vec![&**d],
             _ => vec![],
         };
-        self.with_lexical(&[], &left, |me| walk::walk_for_in_statement(me, f));
+        // The RIGHT-hand expression is evaluated before the loop binding exists, so it
+        // reads in the enclosing scope; only the body sees the binding.
+        self.visit_expression(&f.right);
+        self.with_lexical(&[], &left, |me| me.visit_statement(&f.body));
     }
 
     fn visit_switch_statement(&mut self, sw: &oxc_ast::ast::SwitchStatement<'a>) {
@@ -766,11 +769,23 @@ impl<'a> Visit<'a> for NamedResolver {
             collect_lexical(&case.consequent, &mut lexical);
         }
         lexical.retain(|n| self.locals.contains_key(n.as_str()));
+        // The DISCRIMINANT is read where the switch is written, before any case binding
+        // exists, so it belongs to the enclosing scope. Visiting it under the pushed one
+        // only refused a resolvable composition — safe, but the point of modelling scopes
+        // is not to guess in either direction.
+        self.visit_expression(&sw.discriminant);
         let pushed = !lexical.is_empty();
         if pushed {
             self.param_scopes.push(lexical);
         }
-        walk::walk_switch_statement(self, sw);
+        for case in &sw.cases {
+            if let Some(test) = &case.test {
+                self.visit_expression(test);
+            }
+            for stmt in &case.consequent {
+                self.visit_statement(stmt);
+            }
+        }
         if pushed {
             self.param_scopes.pop();
         }
@@ -787,7 +802,10 @@ impl<'a> Visit<'a> for NamedResolver {
             oxc_ast::ast::ForStatementLeft::VariableDeclaration(d) => vec![&**d],
             _ => vec![],
         };
-        self.with_lexical(&[], &left, |me| walk::walk_for_of_statement(me, f));
+        // The RIGHT-hand expression is evaluated before the loop binding exists, so it
+        // reads in the enclosing scope; only the body sees the binding.
+        self.visit_expression(&f.right);
+        self.with_lexical(&[], &left, |me| me.visit_statement(&f.body));
     }
     fn visit_catch_clause(&mut self, c: &oxc_ast::ast::CatchClause<'a>) {
         // `catch (e)` binds `e` for the handler body exactly as a parameter binds it for
