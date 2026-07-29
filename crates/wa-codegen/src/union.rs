@@ -34,8 +34,8 @@ use wa_ir::{AssertionKind, ParsedField, ParsedFieldType, ResponseAssertion, Unio
 
 use crate::emit::emit_struct_parser;
 use crate::fields::{
-    RustChildStruct, RustEnum, RustEnumVariant, RustField, collect_response_fields, is_attr_field,
-    rust_field_type,
+    RustChildStruct, RustEnum, RustEnumVariant, RustField, admits_negative,
+    collect_response_fields, integer_width, is_attr_field, rust_field_type,
 };
 use crate::naming::{pascal_case, rust_ident, rust_lit, rust_lit_inner};
 use crate::spec::parser_is_valid;
@@ -894,17 +894,20 @@ fn value_payload(enum_name: &str, variant: &str, fields: &[ParsedField], node_va
 ///   two cannot be compared without knowing the decoder's exact type;
 /// - a **request reference** — smax's `optionalLiteral(…, request.to)` — is an equality
 ///   whose other side a response decoder is never handed;
-/// - an **upper bound below zero** admits no `u64`, so the arm can never be taken at all;
-/// - an **integer pin outside `u64`** cannot be compared as a number, and comparing it as
-///   text selects the arm on `"-1"` while the payload decodes that to `0`.
+/// - an **upper bound below zero on an unsigned field** admits no value, so the arm can
+///   never be taken at all — a field whose declared minimum is also negative is signed,
+///   and there the same bound is ordinary;
+/// - an **integer pin outside the width** cannot be compared as a number, and comparing it
+///   as text selects the arm on `"-1"` while the payload decodes that to something else.
 fn arm_payload_representable(fields: &[ParsedField]) -> bool {
     !fields.iter().any(|f| {
         let content_literal = wap::is_content_method(&f.method) && f.literal_value.is_some();
-        let unreachable_band = f.int_max.is_some_and(|n| n < 0);
+        let width = integer_width(f);
+        let unreachable_band = !admits_negative(f) && f.int_max.is_some_and(|n| n < 0);
         let unrepresentable_pin = wap::method_field_type(&f.method) == ParsedFieldType::Integer
             && f.literal_value
                 .as_deref()
-                .is_some_and(|l| l.parse::<u64>().is_err());
+                .is_some_and(|l| !l.parse::<i128>().is_ok_and(|n| representable(n, width)));
         content_literal || f.reference_path.is_some() || unreachable_band || unrepresentable_pin
     })
 }
@@ -967,7 +970,10 @@ fn leaf_guard(f: &ParsedField, node_var: &str) -> Option<String> {
         let decodes = if raw == "content_str()"
             && wap::method_field_type(&f.method) == ParsedFieldType::Integer
         {
-            format!("{node_var}.content_str().and_then(|s| s.parse::<u64>().ok()).is_some()")
+            format!(
+                "{node_var}.content_str().and_then(|s| s.parse::<{}>().ok()).is_some()",
+                integer_width(f)
+            )
         } else {
             match (f.byte_length, f.byte_min, f.byte_max) {
                 (Some(n), _, _) => {
@@ -1013,13 +1019,14 @@ fn leaf_guard(f: &ParsedField, node_var: &str) -> Option<String> {
         // as text, but the accessor yields a number, so `"0429"` is a value the
         // source accepts and a raw text compare against `"429"` turned away —
         // selecting no variant for an element the parser reads happily.
+        let w = integer_width(f);
         let int_pin = (wap::method_field_type(&f.method) == ParsedFieldType::Integer)
-            .then(|| lit.parse::<u64>().ok())
+            .then(|| lit.parse::<i128>().ok().filter(|n| representable(*n, w)))
             .flatten();
         let pinned = match int_pin {
             Some(n) => format!(
-                "{node_var}.get_attr({}).and_then(|v| v.as_str().parse::<u64>().ok()) \
-                         == Some({n}u64)",
+                "{node_var}.get_attr({}).and_then(|v| v.as_str().parse::<{w}>().ok()) \
+                         == Some({n}{w})",
                 rust_lit(wire)
             ),
             None => format!(
@@ -1065,6 +1072,16 @@ fn leaf_guard(f: &ParsedField, node_var: &str) -> Option<String> {
     ))
 }
 
+/// Whether `n` fits the width the field materializes as. A pin outside it cannot be
+/// compared as a number at all, and comparing it as text selects the arm on `"-1"` while
+/// the payload decodes that to something else.
+fn representable(n: i128, width: &str) -> bool {
+    match width {
+        "i64" => i64::try_from(n).is_ok(),
+        _ => u64::try_from(n).is_ok(),
+    }
+}
+
 /// The band a bounded integer accessor enforces, as a test on the decoded `n` —
 /// `attrIntRange(node, "count", 1, 10)` → `(1u64..=10u64).contains(&n)`.
 ///
@@ -1075,12 +1092,17 @@ fn int_band(f: &ParsedField) -> Option<String> {
     if wap::method_field_type(&f.method) != ParsedFieldType::Integer {
         return None;
     }
-    let lo = f.int_min.filter(|n| *n > 0);
-    let hi = f.int_max.filter(|n| *n >= 0);
+    let w = integer_width(f);
+    // A bound no value of the width can fail says nothing, and emitting it only invited
+    // a clippy lint. Signed, every bound is meaningful — dropping the negative lower one
+    // is what left `samplingWeight` guarded by its maximum alone over an unsigned parse.
+    let signed = admits_negative(f);
+    let lo = f.int_min.filter(|n| signed || *n > 0);
+    let hi = f.int_max.filter(|n| signed || *n >= 0);
     match (lo, hi) {
-        (Some(lo), Some(hi)) => Some(format!("({lo}u64..={hi}u64).contains(&n)")),
-        (Some(lo), None) => Some(format!("n >= {lo}u64")),
-        (None, Some(hi)) => Some(format!("n <= {hi}u64")),
+        (Some(lo), Some(hi)) => Some(format!("({lo}{w}..={hi}{w}).contains(&n)")),
+        (Some(lo), None) => Some(format!("n >= {lo}{w}")),
+        (None, Some(hi)) => Some(format!("n <= {hi}{w}")),
         (None, None) => None,
     }
 }
@@ -1895,9 +1917,11 @@ mod tests {
         );
     }
     #[test]
-    fn an_arm_whose_band_no_value_can_enter_is_declined() {
-        // `attrIntRange("count", -10, -1)` admits no `u64`, so the arm can never be taken;
-        // dropping the negative maximum left the guard accepting everything that parses.
+    fn a_band_reaching_below_zero_is_guarded_as_signed() {
+        // `attrIntRange("count", -10, -1)` was declined for admitting no `u64` — but the
+        // band is ordinary, it is the width that was wrong. The guard has to carry BOTH
+        // bounds: keeping only the maximum over an unsigned parse is what made a wire
+        // `-500` fail `samplingWeight`'s guard and take the whole union field down with it.
         let f = union_field(serde_json::json!({
             "method": "dispatch", "name": "kind_dispatch", "type": "union", "required": true,
             "unionVariants": [
@@ -1905,6 +1929,32 @@ mod tests {
                  "fields": [{"method": "attrInt", "name": "count", "wireName": "count",
                              "type": "integer", "required": true,
                              "intMin": -10, "intMax": -1}]},
+                {"name": "b", "assertions": [{"kind": "attr", "name": "kind", "value": "b"}],
+                 "fields": []}
+            ]
+        }));
+        let (lines, _) = emit_union_read(&f, "node", "Spec", "").expect("emitted");
+        let src = lines.join("\n");
+        assert!(
+            src.contains("(-10i64..=-1i64).contains(&n)"),
+            "both bounds, signed: {src}"
+        );
+        assert!(
+            !src.contains("u64"),
+            "and the payload agrees with the guard: {src}"
+        );
+    }
+
+    #[test]
+    fn an_unsigned_band_no_value_can_enter_is_declined() {
+        // A maximum below zero with no negative minimum is not a signed band, it is a
+        // contradiction: nothing satisfies it, so the arm can never be taken.
+        let f = union_field(serde_json::json!({
+            "method": "dispatch", "name": "kind_dispatch", "type": "union", "required": true,
+            "unionVariants": [
+                {"name": "a", "assertions": [{"kind": "attr", "name": "kind", "value": "a"}],
+                 "fields": [{"method": "attrInt", "name": "count", "wireName": "count",
+                             "type": "integer", "required": true, "intMax": -1}]},
                 {"name": "b", "assertions": [{"kind": "attr", "name": "kind", "value": "b"}],
                  "fields": []}
             ]

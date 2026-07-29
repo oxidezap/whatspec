@@ -74,6 +74,28 @@ fn tag_or_name(f: &ParsedField) -> &str {
     f.tag.as_deref().unwrap_or(&f.name)
 }
 
+/// Whether the range the IR declares for `f` admits a negative value.
+///
+/// Every integer materialized as `u64`, so a field the parser accepts down to `-10000` had
+/// no representation at all. `samplingWeight` in `iq`'s `configs` and
+/// `experimentOrSamplingConfigMixinGroup` is declared `intMin: -10000`, and both emit as a
+/// tag cascade — each arm decoded inside a closure, an `Err` skipping to the next. A wire
+/// value of `-500` therefore failed `parse()`, dropped the `SamplingConfig` arm, and fell
+/// off the end of the cascade: the whole union field came back `None`, not just that leaf.
+///
+/// The width has to follow the declared range, and one predicate answers it for the type,
+/// the decoder and a union arm's band alike. Spelling it separately at each is what let a
+/// guard and the payload it admits disagree.
+pub(crate) fn admits_negative(f: &ParsedField) -> bool {
+    wap::method_field_type(&f.method) == ParsedFieldType::Integer
+        && f.int_min.is_some_and(|n| n < 0)
+}
+
+/// The Rust integer width `f` materializes as.
+pub(crate) fn integer_width(f: &ParsedField) -> &'static str {
+    if admits_negative(f) { "i64" } else { "u64" }
+}
+
 /// The Rust type for a response field, derived from the method's canonical
 /// [`wap::method_field_type`] + optionality — one mapping, no per-consumer drift.
 pub(crate) fn rust_field_type(field: &ParsedField) -> &'static str {
@@ -82,7 +104,7 @@ pub(crate) fn rust_field_type(field: &ParsedField) -> &'static str {
         return "bool";
     }
     let base = match wap::method_field_type(&field.method) {
-        ParsedFieldType::Integer => "u64",
+        ParsedFieldType::Integer => integer_width(field),
         ParsedFieldType::Bytes => "Vec<u8>",
         // Every JID flavor materializes as one `Jid` today; the flavor lives in the IR.
         t if t.is_jid() => "Jid",
@@ -98,6 +120,7 @@ pub(crate) fn rust_field_type(field: &ParsedField) -> &'static str {
     if wap::is_optional_method(&field.method) || !field.required {
         match base {
             "u64" => "Option<u64>",
+            "i64" => "Option<i64>",
             "Vec<u8>" => "Option<Vec<u8>>",
             "Jid" => "Option<Jid>",
             _ => "Option<String>",

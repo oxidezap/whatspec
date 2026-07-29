@@ -60,7 +60,10 @@ pub(crate) fn emit_field_parse(f: &ParsedField, node_var: &str, indent: &str) ->
             "{indent}let {name} = {node_var}.get_attr({flit}).and_then(|v| v.as_str().parse().ok());"
         )],
         ParsedFieldType::Integer => vec![
-            format!("{indent}let {name}: u64 = {node_var}.get_attr({flit})"),
+            format!(
+                "{indent}let {name}: {} = {node_var}.get_attr({flit})",
+                super::fields::integer_width(f)
+            ),
             format!("{indent}    .ok_or_else(|| anyhow::anyhow!(\"missing {fmsg}\"))?"),
             format!("{indent}    .as_str()"),
             format!("{indent}    .parse()?;"),
