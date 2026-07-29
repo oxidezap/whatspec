@@ -2101,13 +2101,10 @@ fn presence_tested(test: &Expression<'_>) -> Vec<(String, String)> {
                 walk(&l.left, out);
                 walk(&l.right, out);
             }
-            // `!e.hasAttr("x")` establishes absence on the branch taken, not presence:
-            // whatever it reads there is not excused by this test.
-            Expression::UnaryExpression(_) => {}
-            Expression::BinaryExpression(b) => {
-                walk(&b.left, out);
-                walk(&b.right, out);
-            }
+            // Anything else — a negation, a comparison, a call whose result is tested
+            // against something — is not the plain truth test this rule is about. Naming
+            // the forms that INVERT kept missing one (`!x`, then `x || y`, then the `else`
+            // branch, then `x === false`); requiring the form that ESTABLISHES cannot.
             _ => {
                 if let Some(call) = as_call(e)
                     && matches!(callee_method(call), Some(wap::HAS_ATTR) | Some("hasChild"))
@@ -4293,6 +4290,29 @@ mod tests {
             .find(|f| f.name == "detail")
             .expect("hoisted");
         assert!(!detail.required, "only the `a` arm reads it");
+    }
+
+    #[test]
+    fn only_a_plain_presence_test_excuses_a_read() {
+        // Listing the forms that invert kept missing one. These all reach the accessor
+        // somewhere in the condition; none of them is the plain `hasAttr(x)` that says the
+        // element may lack `x` on the branch taken.
+        for guard in [
+            r#"!e.hasAttr("id")"#,
+            r#"e.hasAttr("id") === false"#,
+            r#"e.hasAttr("id") != true"#,
+            r#"flag || e.hasAttr("id")"#,
+        ] {
+            let src = format!(r#"{{ if ({guard}) {{ e.attrString("id"); }} }}"#);
+            let r = analyze_parser_ast(&src, "e");
+            assert!(
+                r.fields.iter().find(|f| f.name == "id").unwrap().required,
+                "`{guard}` does not establish that `id` may be absent here"
+            );
+        }
+        // The form that does.
+        let r = analyze_parser_ast(r#"{ if (e.hasAttr("id")) { e.attrString("id"); } }"#, "e");
+        assert!(!r.fields.iter().find(|f| f.name == "id").unwrap().required);
     }
 
     #[test]
