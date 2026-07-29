@@ -500,6 +500,47 @@ impl<'a> Visit<'a> for BoundNames {
         self.blocks.pop();
     }
 
+    // A loop header, a `switch` and a `catch` each bound their own lexical declarations
+    // just as a block does. Without an extent of their own, `for (let x = 0; …)` would
+    // shadow a captured `x` for everything around the loop.
+    fn visit_for_statement(&mut self, stmt: &oxc_ast::ast::ForStatement<'a>) {
+        self.blocks.push(stmt.span);
+        walk::walk_for_statement(self, stmt);
+        self.blocks.pop();
+    }
+
+    fn visit_for_in_statement(&mut self, stmt: &oxc_ast::ast::ForInStatement<'a>) {
+        self.blocks.push(stmt.span);
+        walk::walk_for_in_statement(self, stmt);
+        self.blocks.pop();
+    }
+
+    fn visit_for_of_statement(&mut self, stmt: &oxc_ast::ast::ForOfStatement<'a>) {
+        self.blocks.push(stmt.span);
+        walk::walk_for_of_statement(self, stmt);
+        self.blocks.pop();
+    }
+
+    fn visit_switch_statement(&mut self, stmt: &oxc_ast::ast::SwitchStatement<'a>) {
+        self.blocks.push(stmt.span);
+        walk::walk_switch_statement(self, stmt);
+        self.blocks.pop();
+    }
+
+    fn visit_catch_clause(&mut self, clause: &oxc_ast::ast::CatchClause<'a>) {
+        // `catch (e)` binds to the clause. Left to the generic collector it would land in
+        // `names` and pass for a function-wide binding — and minified handlers reuse `e`.
+        self.blocks.push(clause.span);
+        if let Some(param) = clause.param.as_ref() {
+            for id in param.pattern.get_binding_identifiers() {
+                self.lexical
+                    .push((clause.span, id.name.as_str().to_string()));
+            }
+        }
+        self.visit_block_statement(&clause.body);
+        self.blocks.pop();
+    }
+
     // A nested function's parameters and locals belong to *its* scope, not this one; only
     // the name it introduces here does. Descending would let an inner binding pass for an
     // outer one and discount reads that are genuinely the enclosing node's.
@@ -634,10 +675,14 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
             // through a node that scope never bound, which only this walk can resolve.
             if self.reads_an_outer_node(call) {
                 self.handle_call(call);
+            } else if self.passes_an_outer_node(call) {
+                self.try_helper_descent(call);
             }
         } else if self.param_shadowed(call.span) {
             if self.reads_an_outer_node(call) {
                 self.handle_call(call);
+            } else if self.passes_an_outer_node(call) {
+                self.try_helper_descent(call);
             } else {
                 self.note_shadowed_read(call);
             }
@@ -678,6 +723,16 @@ impl ParserAnalyzer<'_, '_> {
     /// Whether `call` reads through a node bound outside every enclosing callback — the
     /// parser's own parameter, or a child var it captured. Those are the reads no inner
     /// scope accounts for, so only this walk can place them.
+    /// Whether the call hands a captured child node to a module-scope helper. The helper's
+    /// fields belong to that node, and the recursion has no binding to reach it by.
+    fn passes_an_outer_node(&self, call: &CallExpression) -> bool {
+        call.arguments.iter().any(|a| {
+            arg_expr(a).and_then(as_identifier).is_some_and(|n| {
+                self.child_vars.contains_key(n) && !self.bound_by_inner_scope(n, call.span)
+            })
+        })
+    }
+
     fn reads_an_outer_node(&self, call: &CallExpression) -> bool {
         callee_object(call)
             .and_then(base_identifier)
@@ -1735,6 +1790,52 @@ mod tests {
     }
 
     #[test]
+    fn a_loop_header_binding_shadows_only_the_loop() {
+        // `for (let x = 0; …)` binds to the loop, not to the callback. Recording it against
+        // the enclosing body made both reads around the loop look callback-owned.
+        let r = analyze_parser_ast(
+            r#"{ var x = e.child("meta");
+                 e.mapChildrenWithTag("row", function(row){
+                   x.attrString("before");
+                   for (let x = 0; x < 3; x++) { row.attrString("v"); }
+                   x.attrString("after");
+                 }); }"#,
+            "e",
+        );
+        assert_eq!(
+            r.fields
+                .iter()
+                .find(|f| f.name == "meta")
+                .and_then(|f| f.children.as_ref())
+                .map(|c| c.iter().map(|f| f.name.as_str()).collect::<Vec<_>>()),
+            Some(vec!["before", "after"]),
+            "reads on either side of the loop still target the captured node"
+        );
+    }
+
+    #[test]
+    fn a_catch_binding_shadows_only_its_clause() {
+        // Minified handlers write `catch (e)` inside parsers whose parameter is also `e`.
+        let r = analyze_parser_ast(
+            r#"{ var x = e.child("meta");
+                 e.mapChildrenWithTag("row", function(row){
+                   try { row.attrString("v"); } catch (x) { }
+                   x.attrString("after");
+                 }); }"#,
+            "e",
+        );
+        assert_eq!(
+            r.fields
+                .iter()
+                .find(|f| f.name == "meta")
+                .and_then(|f| f.children.as_ref())
+                .map(|c| c.iter().map(|f| f.name.as_str()).collect::<Vec<_>>()),
+            Some(vec!["after"]),
+            "the catch parameter does not reach past its clause"
+        );
+    }
+
+    #[test]
     fn a_recursed_callback_is_not_also_reported_as_a_loss() {
         // The callback re-binds `e`, so the shadow check would discount its reads — but
         // `process_child_method` already read them in their own scope. Only what no
@@ -2057,6 +2158,36 @@ mod tests {
         assert!(
             attrs.contains(&"jid") && attrs.contains(&"t"),
             "user attrs: {attrs:?}"
+        );
+    }
+
+    #[test]
+    fn descends_into_a_helper_handed_a_node_captured_by_a_callback() {
+        // The helper call sits inside a mapped child, so the recursion owns that body — but
+        // `i` was bound outside it and the nested analyser has no binding for it. Only this
+        // walk can descend, and the `<user>` grandchildren hang off `participants`.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function d(e,t){ t.mapChildrenWithTag("user", function(u){ u.attrDeviceJid("jid"); }); return {}; }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                var i=e.maybeChild("participants");
+                e.mapChildrenWithTag("row", function(row){ row.attrString("v"); d(e, i); });
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let participants = p
+            .fields
+            .iter()
+            .find(|f| f.tag.as_deref() == Some("participants"))
+            .expect("participants field");
+        assert!(
+            participants
+                .children
+                .as_ref()
+                .is_some_and(|c| c.iter().any(|g| g.tag.as_deref() == Some("user"))),
+            "helper descent still reaches the captured node: {:?}",
+            participants.children
         );
     }
 
