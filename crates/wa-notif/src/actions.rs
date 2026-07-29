@@ -2118,12 +2118,35 @@ fn find_mapped_call<'b, 'a>(e: &'b Expression<'a>) -> Option<&'b oxc_ast::ast::C
     let is_map =
         |c: &&oxc_ast::ast::CallExpression| callee_method(c) == Some(wap::MAP_CHILDREN_WITH_TAG);
     let e = strip_parens(e);
-    if let Some(c) = as_call(strip_guard(e)).filter(is_map) {
+    // A conditional is reconciled BEFORE the `strip_guard` shortcut: that shortcut follows
+    // the consequent, so `cond ? map("p") : map("q")` would return the first map and never
+    // reach the comparison below.
+    if !matches!(e, Expression::ConditionalExpression(_))
+        && let Some(c) = as_call(strip_guard(e)).filter(is_map)
+    {
         return Some(c);
     }
     match e {
         Expression::ConditionalExpression(c) => {
-            find_mapped_call(&c.alternate).or_else(|| find_mapped_call(&c.consequent))
+            // BOTH branches, reconciled. Taking the first one reached published one wire
+            // tag for a shape that produces two: `cond ? map("p", …) : map("q", …)` is
+            // two different collections, and picking either is a guess. Same tag on both
+            // sides is one collection written twice and keeps working.
+            match (
+                find_mapped_call(&c.consequent),
+                find_mapped_call(&c.alternate),
+            ) {
+                (Some(a), Some(b)) => {
+                    fn tag<'x>(c: &'x oxc_ast::ast::CallExpression) -> Option<&'x str> {
+                        c.arguments
+                            .first()
+                            .and_then(arg_expr)
+                            .and_then(as_string_lit)
+                    }
+                    (tag(a) == tag(b)).then_some(a)
+                }
+                (found, None) | (None, found) => found,
+            }
         }
         _ => None,
     }

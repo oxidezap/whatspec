@@ -569,7 +569,11 @@ impl NamedResolver {
     /// that rejects a value it accepts — which the refusal in `merge_extends` prevents
     /// for the RESULT, and which this exists to prevent for the target itself.
     fn mutated_extends_target<'e>(e: &'e Expression) -> Option<&'e str> {
-        let call = as_call(e)?;
+        Self::mutated_extends_target_of(as_call(e)?)
+    }
+
+    /// The local an `extends(target, …)` mutates, given the call itself.
+    fn mutated_extends_target_of<'e>(call: &'e oxc_ast::ast::CallExpression) -> Option<&'e str> {
         let callee = wa_oxc::as_member(&call.callee)?;
         if callee.1 != "extends" || as_identifier(callee.0) != Some("babelHelpers") {
             return None;
@@ -639,6 +643,18 @@ impl<'a> Visit<'a> for NamedResolver {
         let was = std::mem::replace(&mut self.in_var_decl, d.kind.is_var());
         walk::walk_variable_declaration(self, d);
         self.in_var_decl = was;
+    }
+
+    fn visit_call_expression(&mut self, c: &oxc_ast::ast::CallExpression<'a>) {
+        // Wherever the call appears — a sequence, a logical operand, a condition test, a
+        // return value. Detecting it at the statement or declarator level missed every
+        // nested position, and the generic walk reaches all of them.
+        if let Some(target) = Self::mutated_extends_target_of(c)
+            && !self.param_shadows(target)
+        {
+            self.shadowed.insert(target.to_string());
+        }
+        walk::walk_call_expression(self, c);
     }
 
     fn visit_expression_statement(&mut self, st: &oxc_ast::ast::ExpressionStatement<'a>) {
@@ -795,10 +811,23 @@ impl<'a> Visit<'a> for NamedResolver {
             oxc_ast::ast::ForStatementLeft::VariableDeclaration(d) => vec![&**d],
             _ => vec![],
         };
-        // The RIGHT-hand expression is evaluated before the loop binding exists, so it
-        // reads in the enclosing scope; only the body sees the binding.
-        self.visit_expression(&f.right);
-        self.with_lexical(&[], &left, |me| me.visit_statement(&f.body));
+        // For `var`, the RHS is evaluated with no new binding in place, so it reads in the
+        // enclosing scope. For `let`/`const` the bound name is already in its TEMPORAL
+        // DEAD ZONE while the RHS runs — a read there throws rather than reaching an outer
+        // enum — so the scope covers the RHS too.
+        let lexical_head = matches!(
+            &f.left,
+            oxc_ast::ast::ForStatementLeft::VariableDeclaration(d) if !d.kind.is_var()
+        );
+        if lexical_head {
+            self.with_lexical(&[], &left, |me| {
+                me.visit_expression(&f.right);
+                me.visit_statement(&f.body);
+            });
+        } else {
+            self.visit_expression(&f.right);
+            self.with_lexical(&[], &left, |me| me.visit_statement(&f.body));
+        }
     }
 
     fn visit_switch_statement(&mut self, sw: &oxc_ast::ast::SwitchStatement<'a>) {
@@ -843,10 +872,23 @@ impl<'a> Visit<'a> for NamedResolver {
             oxc_ast::ast::ForStatementLeft::VariableDeclaration(d) => vec![&**d],
             _ => vec![],
         };
-        // The RIGHT-hand expression is evaluated before the loop binding exists, so it
-        // reads in the enclosing scope; only the body sees the binding.
-        self.visit_expression(&f.right);
-        self.with_lexical(&[], &left, |me| me.visit_statement(&f.body));
+        // For `var`, the RHS is evaluated with no new binding in place, so it reads in the
+        // enclosing scope. For `let`/`const` the bound name is already in its TEMPORAL
+        // DEAD ZONE while the RHS runs — a read there throws rather than reaching an outer
+        // enum — so the scope covers the RHS too.
+        let lexical_head = matches!(
+            &f.left,
+            oxc_ast::ast::ForStatementLeft::VariableDeclaration(d) if !d.kind.is_var()
+        );
+        if lexical_head {
+            self.with_lexical(&[], &left, |me| {
+                me.visit_expression(&f.right);
+                me.visit_statement(&f.body);
+            });
+        } else {
+            self.visit_expression(&f.right);
+            self.with_lexical(&[], &left, |me| me.visit_statement(&f.body));
+        }
     }
     fn visit_catch_clause(&mut self, c: &oxc_ast::ast::CatchClause<'a>) {
         // `catch (e)` binds `e` for the handler body exactly as a parameter binds it for
@@ -1603,6 +1645,33 @@ mod tests {
                 .len(),
             2
         );
+
+        // A mutating `extends` NESTED in another expression mutates all the same.
+        for shape in [
+            "(babelHelpers.extends(e,{B:\"b\"}), 0);",
+            "c && babelHelpers.extends(e,{B:\"b\"});",
+            "if (babelHelpers.extends(e,{B:\"b\"})) {}",
+        ] {
+            let src = format!(
+                r#"__d("M",[],(function(t,n,r,o,a,i){{
+                    var e={{A:"a"}};
+                    {shape}
+                    i.BASE=e
+                }}),1);"#
+            );
+            assert!(
+                resolve_named_enum(&src, "M", "BASE").is_none(),
+                "the nested call mutates `e`: {shape}"
+            );
+        }
+
+        // A LEXICAL loop head puts its name in the TDZ while the RHS runs, so a read there
+        // throws rather than reaching the outer enum — `var` is the opposite.
+        let tdz = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={A:"a"};
+            function f(){ for (let e of (i.OUT=e, [])) {} }
+        }),1);"#;
+        assert!(resolve_named_enum(tdz, "M", "OUT").is_none());
 
         // A name rebound to the SAME body is not ambiguous — refusing it would throw away
         // a resolvable enum for nothing.

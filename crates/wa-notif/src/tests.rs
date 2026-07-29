@@ -709,7 +709,8 @@ __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGr
             reversed_: t.hasChild("rv") ? 0 : t.mapChildrenWithTag("reversed_user", function(x){ return {id:x.attrUserJid("jid")}; }),
             parenRev: (t.hasChild("pr") ? 0 : t.mapChildrenWithTag("paren_rev_user", function(x){ return {id:x.attrUserJid("jid")}; })),
             callRev: t.hasChild("cr") ? other(t) : t.mapChildrenWithTag("call_rev_user", function(x){ return {id:x.attrUserJid("jid")}; }),
-            nestedRev: t.hasChild("n1") ? other(t) : (t.hasChild("n2") ? other(t) : t.mapChildrenWithTag("nested_rev_user", function(x){ return {id:x.attrUserJid("jid")}; }))};
+            nestedRev: t.hasChild("n1") ? other(t) : (t.hasChild("n2") ? other(t) : t.mapChildrenWithTag("nested_rev_user", function(x){ return {id:x.attrUserJid("jid")}; })),
+            twoMaps: t.hasChild("tm") ? t.mapChildrenWithTag("tm_p", function(x){ return {id:x.attrUserJid("jid")}; }) : t.mapChildrenWithTag("tm_q", function(x){ return {id:x.attrUserJid("jid")}; })};
         }
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.REVOKE_INVITE:
           return {actionType:o("WAWebGroupType").GROUP_ACTIONS.REVOKE_INVITE, participants:t.mapChildrenWithTag("participant", function(p){ return {id:p.attrUserJid("jid"), expiration:p.attrInt("expiration")}; }), owners:t.mapChildrenWithTag("owner", p=>o("WAWebJidToWid").userJidToUserWid(p.maybeAttrPhoneUserJid("phone_number")))};
@@ -992,6 +993,12 @@ fn a_mapped_child_is_optional_only_when_the_guard_admits_absence() {
     // ...and nested one level deeper: looking at a single alternate found the inner
     // conditional, not the map inside it.
     assert_eq!(child("nestedRev").wire_tag, "nested_rev_user");
+    // Two DIFFERENT collections, one per branch: publishing either tag would describe a
+    // shape the runtime produces only half the time, so the child is refused instead.
+    assert!(
+        !arm.children.iter().any(|c| c.name == "twoMaps"),
+        "conflicting tags in the two branches must not resolve to one of them"
+    );
 
     let paren_rev = child("parenRev");
     assert_eq!(paren_rev.wire_tag, "paren_rev_user");
