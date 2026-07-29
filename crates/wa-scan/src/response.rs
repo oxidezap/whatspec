@@ -13,7 +13,7 @@ use oxc_ast::ast::{
     VariableDeclarator,
 };
 use oxc_ast_visit::{Visit, walk};
-use oxc_span::GetSpan;
+use oxc_span::{GetSpan, Span};
 use oxc_syntax::scope::ScopeFlags;
 use wa_ir::wap;
 use wa_ir::{
@@ -421,6 +421,7 @@ fn analyze_with_scope(code: &str, param: &str, module: &ModuleScope) -> ParserRe
         code,
         param,
         module,
+        recursed: Vec::new(),
         param_shadow_depth: 0,
         assertions: Vec::new(),
         fields: Vec::new(),
@@ -451,16 +452,32 @@ fn params_bind(params: &oxc_ast::ast::FormalParameters, name: &str) -> bool {
             .is_some_and(|r| binds(&r.rest.argument))
 }
 
+/// The `dropsByReason` key for a read inside a callback that re-binds the parser's
+/// parameter and that no recursion covered.
+const SHADOWED_READ: &str = "shadowedCallbackRead";
+
 struct ParserAnalyzer<'src, 'ms> {
     code: &'src str,
     param: &'src str,
+    /// Source ranges of callback bodies [`process_child_method`] already analysed in their
+    /// own scope.
+    ///
+    /// Extraction is name-based: `obj_is_param` compares identifiers, and `child_vars` maps
+    /// them to tags. Minified callbacks reuse both — `mapChildrenWithTag("enc", function(e){…})`
+    /// inside a parser whose own parameter is `e`, or an inner `var t = e.maybeChild("id")`
+    /// over an outer `var t = e.child("product_list")`. Reading such a body twice emitted its
+    /// fields at the root as well, flat and one level too high, resolved against whichever
+    /// binding the outer analyser happened to hold.
+    ///
+    /// Suppressing by span rather than by name only skips what the recursion demonstrably
+    /// covered: a callback `process_child_method` declined to descend into is still read
+    /// here, as before, instead of vanishing.
+    recursed: Vec<Span>,
     /// How many enclosing functions re-bind [`Self::param`]'s name.
     ///
-    /// `obj_is_param` is a name comparison, and minified callbacks routinely reuse the
-    /// parser's parameter name — `mapChildrenWithTag("enc", function(e){ … })` inside a
-    /// parser whose own parameter is `e`. Those reads belong to the mapped child, which
-    /// `process_child_method` already builds by re-analysing the callback; counting them
-    /// at the root as well emitted every one of them twice, flat and one level too high.
+    /// A callback the recursion did not descend into is still walked here, and its reads
+    /// resolve against the outer bindings — landing at the root, flat and one level too
+    /// high. They are neither kept there nor dropped in silence: see [`SHADOWED_READ`].
     param_shadow_depth: u32,
     /// The enclosing module's pre-extracted helpers/maps (empty when there is no module),
     /// for resolving module-scope sibling helpers and enum value maps.
@@ -506,6 +523,13 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
     }
 
     fn visit_variable_declaration(&mut self, decl: &VariableDeclaration<'a>) {
+        // A descendant bound inside a callback that has its own scope — whether the
+        // recursion read it or the shadow check will discount it — must not rebind the
+        // outer name, or later reads land against the wrong node.
+        if self.inside_recursed(decl.span) || self.param_shadow_depth > 0 {
+            walk::walk_variable_declaration(self, decl);
+            return;
+        }
         for d in &decl.declarations {
             // Track `var t = param.child("tag")` (or chained off another child var).
             if let (Some(name), Some(init)) = (d.id.get_identifier_name(), d.init.as_ref())
@@ -534,14 +558,48 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
     }
 
     fn visit_call_expression(&mut self, call: &CallExpression<'a>) {
-        self.handle_call(call);
-        self.try_helper_descent(call);
+        if self.inside_recursed(call.span) {
+            // Already read in its own scope by `process_child_method`.
+        } else if self.param_shadow_depth > 0 {
+            self.note_shadowed_read(call);
+        } else {
+            self.handle_call(call);
+            self.try_helper_descent(call);
+        }
         // Always descend: chained calls expose both inner and outer nodes.
         walk::walk_call_expression(self, call);
     }
 }
 
 impl ParserAnalyzer<'_, '_> {
+    /// Whether `span` falls inside a callback body already analysed in its own scope.
+    fn inside_recursed(&self, span: Span) -> bool {
+        self.recursed
+            .iter()
+            .any(|r| span.start >= r.start && span.end <= r.end)
+    }
+
+    /// Count a wire read the outer walk cannot place: it sits in a callback that re-binds
+    /// the parser's parameter, so the name it reads through is not the node it names here.
+    /// Keeping it would publish a field at the wrong level; dropping it quietly would let
+    /// coverage shrink unnoticed.
+    fn note_shadowed_read(&mut self, call: &CallExpression) {
+        let Some(method) = callee_method(call) else {
+            return;
+        };
+        if !(is_value_method(method) || is_child_method(method)) {
+            return;
+        }
+        let Some(obj) = callee_object(call) else {
+            return;
+        };
+        let reads_a_known_node =
+            as_identifier(obj).is_some_and(|n| n == self.param || self.child_vars.contains_key(n));
+        if reads_a_known_node {
+            self.unresolved.push(format!("{SHADOWED_READ}@{method}"));
+        }
+    }
+
     fn handle_call(&mut self, call: &CallExpression) {
         let Some(method) = callee_method(call) else {
             return;
@@ -550,8 +608,7 @@ impl ParserAnalyzer<'_, '_> {
             return;
         };
         let param = self.param;
-        // Not the parser's node when an inner function has taken the name.
-        let obj_is_param = self.param_shadow_depth == 0 && as_identifier(obj) == Some(param);
+        let obj_is_param = as_identifier(obj) == Some(param);
 
         // ── Assertions on the param ──
         if is_assert_method(method) && obj_is_param {
@@ -671,7 +728,18 @@ impl ParserAnalyzer<'_, '_> {
         // its parameter after the parser's — landing at the root, flat and unrepeated.
 
         if is_child_method(method) && obj_is_param {
-            process_child_method(method, call, "", &mut self.fields, self.code, self.module);
+            process_child_method(
+                method,
+                call,
+                "",
+                &mut ChildSink {
+                    fields: &mut self.fields,
+                    unresolved: &mut self.unresolved,
+                    recursed: &mut self.recursed,
+                },
+                self.code,
+                self.module,
+            );
             return;
         }
 
@@ -684,7 +752,18 @@ impl ParserAnalyzer<'_, '_> {
             && let Some(parent_tag) = arg_str(inner, 0)
         {
             let pt = parent_tag.to_string();
-            process_child_method(method, call, &pt, &mut self.fields, self.code, self.module);
+            process_child_method(
+                method,
+                call,
+                &pt,
+                &mut ChildSink {
+                    fields: &mut self.fields,
+                    unresolved: &mut self.unresolved,
+                    recursed: &mut self.recursed,
+                },
+                self.code,
+                self.module,
+            );
             return;
         }
 
@@ -698,7 +777,11 @@ impl ParserAnalyzer<'_, '_> {
                 method,
                 call,
                 &parent_tag,
-                &mut self.fields,
+                &mut ChildSink {
+                    fields: &mut self.fields,
+                    unresolved: &mut self.unresolved,
+                    recursed: &mut self.recursed,
+                },
                 self.code,
                 self.module,
             );
@@ -1059,6 +1142,7 @@ fn analyze_child_node(
         // parameters (the base result it also carries) contribute nothing.
         param: "",
         module,
+        recursed: Vec::new(),
         param_shadow_depth: 0,
         assertions: Vec::new(),
         fields: Vec::new(),
@@ -1130,11 +1214,39 @@ fn place(fields: &mut Vec<ParsedField>, parent_tag: &str, f: ParsedField) {
     fields[idx].children.get_or_insert_with(Vec::new).push(f);
 }
 
+/// The bound name and body source of a child callback, written either as
+/// `function (n) {…}` or as an arrow — including the expression-bodied `n => n.attrString(…)`.
+fn callback_scope<'c>(expr: &Expression<'_>, code: &'c str) -> Option<(String, &'c str, Span)> {
+    let (params, body) = match expr {
+        Expression::FunctionExpression(f) => {
+            (&f.params, f.body.as_ref()? as &oxc_ast::ast::FunctionBody)
+        }
+        Expression::ArrowFunctionExpression(f) => {
+            (&f.params, &f.body as &oxc_ast::ast::FunctionBody)
+        }
+        _ => return None,
+    };
+    let param = params.items.first()?.pattern.get_identifier_name()?;
+    Some((
+        param.as_str().to_string(),
+        &code[body.span.start as usize..body.span.end as usize],
+        body.span,
+    ))
+}
+
+/// Where [`process_child_method`] writes what re-analysing a callback produced.
+struct ChildSink<'a> {
+    fields: &'a mut Vec<ParsedField>,
+    unresolved: &'a mut Vec<String>,
+    /// See [`ParserAnalyzer::recursed`].
+    recursed: &'a mut Vec<Span>,
+}
+
 fn process_child_method(
     method: &str,
     call: &CallExpression,
     parent_tag: &str,
-    fields: &mut Vec<ParsedField>,
+    sink: &mut ChildSink,
     code: &str,
     module: &ModuleScope,
 ) {
@@ -1143,50 +1255,38 @@ fn process_child_method(
             let Some(child_tag) = arg_str(call, 0) else {
                 return;
             };
-            let Some(Expression::FunctionExpression(cb)) = call.arguments.get(1).and_then(arg_expr)
-            else {
+            let Some(cb) = call.arguments.get(1).and_then(arg_expr) else {
                 return;
             };
-            let Some(cb_param) = cb
-                .params
-                .items
-                .first()
-                .and_then(|p| p.pattern.get_identifier_name())
-            else {
+            let Some((cb_param, cb_body, cb_span)) = callback_scope(cb, code) else {
                 return;
             };
-            let Some(body) = cb.body.as_ref() else { return };
-            let cb_body = &code[body.span.start as usize..body.span.end as usize];
-            let child_result = analyze_with_scope(cb_body, cb_param.as_str(), module);
+            sink.recursed.push(cb_span);
+            let child_result = analyze_with_scope(cb_body, &cb_param, module);
 
             let mut f = mk_field(method, child_tag, ParsedFieldType::String, true);
             f.tag = Some(child_tag.to_string());
             f.children = Some(child_result.fields);
             f.repeats = Some(true);
-            place(fields, parent_tag, f);
+            // What the child's own scope could not resolve is still a loss for the parser.
+            sink.unresolved.extend(child_result.unresolved);
+            place(sink.fields, parent_tag, f);
         }
         "mapChildren" => {
-            let Some(Expression::FunctionExpression(cb)) =
-                call.arguments.first().and_then(arg_expr)
-            else {
+            let Some(cb) = call.arguments.first().and_then(arg_expr) else {
                 return;
             };
-            let Some(cb_param) = cb
-                .params
-                .items
-                .first()
-                .and_then(|p| p.pattern.get_identifier_name())
-            else {
+            let Some((cb_param, cb_body, cb_span)) = callback_scope(cb, code) else {
                 return;
             };
-            let Some(body) = cb.body.as_ref() else { return };
-            let cb_body = &code[body.span.start as usize..body.span.end as usize];
-            let child_result = analyze_with_scope(cb_body, cb_param.as_str(), module);
+            sink.recursed.push(cb_span);
+            let child_result = analyze_with_scope(cb_body, &cb_param, module);
 
             let mut f = mk_field("mapChildren", "children", ParsedFieldType::String, true);
             f.children = Some(child_result.fields);
             f.repeats = Some(true);
-            place(fields, parent_tag, f);
+            sink.unresolved.extend(child_result.unresolved);
+            place(sink.fields, parent_tag, f);
         }
         _ => {}
     }
@@ -1288,6 +1388,164 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["type", "count"],
             "the callback's reads belong to the child, once"
+        );
+    }
+
+    #[test]
+    fn an_arrow_callback_builds_the_child_too() {
+        // Suppressing the shadowed parameter without teaching the recursion about arrows
+        // would drop the callback's reads entirely instead of nesting them.
+        let r = analyze_parser_ast(
+            r#"{ e.mapChildrenWithTag("enc", (e) => { e.attrString("type"); }); }"#,
+            "e",
+        );
+        let names: Vec<&str> = r.fields.iter().map(|f| f.name.as_str()).collect();
+        assert_eq!(names, ["enc"], "the arrow callback still builds its child");
+        assert_eq!(
+            r.fields[0]
+                .children
+                .as_ref()
+                .map(|c| c.iter().map(|f| f.name.as_str()).collect::<Vec<_>>()),
+            Some(vec!["type"]),
+            "and its reads land inside, not nowhere"
+        );
+    }
+
+    #[test]
+    fn an_expression_bodied_arrow_callback_builds_the_child_too() {
+        let r = analyze_parser_ast(
+            r#"{ e.mapChildrenWithTag("enc", (e) => e.attrString("type")); }"#,
+            "e",
+        );
+        assert_eq!(
+            r.fields.iter().map(|f| f.name.as_str()).collect::<Vec<_>>(),
+            ["enc"]
+        );
+        assert_eq!(
+            r.fields[0]
+                .children
+                .as_ref()
+                .map(|c| c.iter().map(|f| f.name.as_str()).collect::<Vec<_>>()),
+            Some(vec!["type"]),
+        );
+    }
+
+    #[test]
+    fn a_child_var_inside_a_shadowed_callback_stays_inside() {
+        // The shadow counter suppresses direct calls on the reused name, but a descendant
+        // bound inside the callback must not register in the outer analyzer's child map —
+        // its reads would surface a second time at the response root.
+        let r = analyze_parser_ast(
+            r#"{ e.mapChildrenWithTag("row", function(e){ var x = e.child("inner"); x.attrString("id"); }); }"#,
+            "e",
+        );
+        let names: Vec<&str> = r.fields.iter().map(|f| f.name.as_str()).collect();
+        assert_eq!(
+            names,
+            ["row"],
+            "no `inner` leaking to the root beside `row`"
+        );
+    }
+
+    #[test]
+    fn a_callback_rebinding_an_outer_child_var_does_not_misplace_its_reads() {
+        // `productListResponse` binds `var t = e.child("product_list")`, then inside the
+        // mapped callback binds `var t = e.maybeChild("id")` over it. Reading the callback
+        // twice resolved `t.contentString()` against whichever binding the outer analyser
+        // held — landing under `id` at the root, or under `product_list`. Both are wrong:
+        // it belongs to the `id` of each `product`.
+        let r = analyze_parser_ast(
+            r#"{ var t = e.child("product_list");
+                 t.forEachChildWithTag("product", function(e){
+                   var t = e.maybeChild("id");
+                   t.contentString();
+                 }); }"#,
+            "e",
+        );
+        let names: Vec<&str> = r.fields.iter().map(|f| f.name.as_str()).collect();
+        assert_eq!(names, ["product_list"], "nothing beside the one child");
+        let product_list = &r.fields[0];
+        let kids = product_list.children.as_ref().unwrap();
+        assert_eq!(
+            kids.iter().map(|f| f.name.as_str()).collect::<Vec<_>>(),
+            ["product"],
+            "`product_list` holds only the mapped child — no stray `content`"
+        );
+        assert_eq!(
+            kids[0]
+                .children
+                .as_ref()
+                .map(|c| c.iter().map(|f| f.name.as_str()).collect::<Vec<_>>()),
+            Some(vec!["id"]),
+            "the rebound read belongs to the product's `id`"
+        );
+    }
+
+    #[test]
+    fn a_recursed_callback_is_not_also_reported_as_a_loss() {
+        // The callback re-binds `e`, so the shadow check would discount its reads — but
+        // `process_child_method` already read them in their own scope. Only what no
+        // recursion covered is a drop; counting these too would report losses that are
+        // sitting right there in the tree.
+        let r = analyze_parser_ast(
+            r#"{ e.mapChildrenWithTag("enc", function(e){ e.attrString("type"); }); }"#,
+            "e",
+        );
+        assert_eq!(
+            r.fields[0]
+                .children
+                .as_ref()
+                .map(|c| c.iter().map(|f| f.name.as_str()).collect::<Vec<_>>()),
+            Some(vec!["type"]),
+            "the read is in the tree"
+        );
+        assert!(
+            r.unresolved.is_empty(),
+            "so it is not also counted as lost: {:?}",
+            r.unresolved
+        );
+    }
+
+    #[test]
+    fn a_shadowed_read_no_recursion_covered_is_counted_not_kept() {
+        // `digestResponseParser` writes `t.child("list").mapChildren(function(e){…})` — a
+        // child method chained off a tracked var, a form `process_child_method` does not
+        // descend into. The callback re-binds `e`, so its read is not a read of the
+        // parser's own node; publishing it at the root put `content` beside `digest`.
+        let r = analyze_parser_ast(
+            r#"{ var t = e.child("digest"); t.child("list").mapChildren(function(e){ return e.contentUint(3); }); }"#,
+            "e",
+        );
+        let names: Vec<&str> = r.fields.iter().map(|f| f.name.as_str()).collect();
+        assert_eq!(
+            names,
+            ["digest"],
+            "no `content` leaking beside the real child"
+        );
+        assert!(
+            r.unresolved
+                .iter()
+                .any(|u| u == "shadowedCallbackRead@contentUint"),
+            "and the read the walk could not place is still counted: {:?}",
+            r.unresolved
+        );
+    }
+
+    #[test]
+    fn a_direct_child_callback_reports_what_it_could_not_resolve() {
+        // The reads of a directly mapped child are re-analysed in their own scope; a
+        // constraint that scope could not resolve has to reach the outer diagnostics,
+        // or coverage can shrink silently.
+        let r = analyze_parser_ast(
+            r#"{ e.mapChildrenWithTag("enc", function(e){ e.contentBytesRange(a, b); }); }"#,
+            "e",
+        );
+        assert!(
+            r.unresolved
+                .iter()
+                .any(|u| u.starts_with("contentBytesRange")),
+            "the loss inside the callback is still counted: {:?}",
+            r.unresolved
         );
     }
 

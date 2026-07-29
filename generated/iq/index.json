@@ -4704,59 +4704,6 @@
                 "repeats": true
               }
             ]
-          },
-          {
-            "method": "child",
-            "name": "error",
-            "type": "string",
-            "required": true,
-            "tag": "error",
-            "children": [
-              {
-                "method": "attrInt",
-                "name": "code",
-                "type": "integer",
-                "required": true
-              },
-              {
-                "method": "attrString",
-                "name": "text",
-                "type": "string",
-                "required": true
-              }
-            ]
-          },
-          {
-            "method": "child",
-            "name": "type",
-            "type": "string",
-            "required": true,
-            "tag": "type",
-            "children": [
-              {
-                "method": "contentBytes",
-                "name": "content",
-                "type": "bytes",
-                "required": true,
-                "byteLength": 1
-              }
-            ]
-          },
-          {
-            "method": "child",
-            "name": "identity",
-            "type": "string",
-            "required": true,
-            "tag": "identity",
-            "children": [
-              {
-                "method": "contentBytes",
-                "name": "content",
-                "type": "bytes",
-                "required": true,
-                "byteLength": 32
-              }
-            ]
           }
         ]
       }
@@ -35304,27 +35251,6 @@
                 "repeats": true
               }
             ]
-          },
-          {
-            "method": "child",
-            "name": "error",
-            "type": "string",
-            "required": true,
-            "tag": "error",
-            "children": [
-              {
-                "method": "attrInt",
-                "name": "code",
-                "type": "integer",
-                "required": true
-              },
-              {
-                "method": "attrString",
-                "name": "text",
-                "type": "string",
-                "required": true
-              }
-            ]
           }
         ]
       }
@@ -44669,38 +44595,6 @@
                 "repeats": true
               }
             ]
-          },
-          {
-            "method": "child",
-            "name": "status",
-            "type": "string",
-            "required": true,
-            "tag": "status",
-            "children": [
-              {
-                "method": "contentString",
-                "name": "content",
-                "type": "string",
-                "required": true
-              }
-            ],
-            "contentType": "string"
-          },
-          {
-            "method": "child",
-            "name": "id",
-            "type": "string",
-            "required": true,
-            "tag": "id",
-            "children": [
-              {
-                "method": "contentString",
-                "name": "content",
-                "type": "string",
-                "required": true
-              }
-            ],
-            "contentType": "string"
           }
         ]
       }
