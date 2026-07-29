@@ -222,13 +222,13 @@
                 "method": "attrInt",
                 "name": "duration",
                 "type": "integer",
-                "required": false
+                "required": true
               },
               {
                 "method": "attrInt",
                 "name": "t",
                 "type": "integer",
-                "required": false
+                "required": true
               }
             ]
           },
@@ -243,7 +243,7 @@
                 "method": "attrString",
                 "name": "id",
                 "type": "string",
-                "required": false
+                "required": true
               },
               {
                 "method": "maybeAttrString",
@@ -261,7 +261,7 @@
                 "method": "attrInt",
                 "name": "t",
                 "type": "integer",
-                "required": false
+                "required": true
               }
             ]
           },
@@ -499,7 +499,7 @@
                 "method": "contentBytes",
                 "name": "content",
                 "type": "bytes",
-                "required": false
+                "required": true
               }
             ],
             "contentType": "bytes"
@@ -515,7 +515,7 @@
                 "method": "attrUserJid",
                 "name": "jid",
                 "type": "user_jid",
-                "required": false
+                "required": true
               }
             ]
           },
@@ -530,13 +530,13 @@
                 "method": "attrUserJid",
                 "name": "new",
                 "type": "user_jid",
-                "required": false
+                "required": true
               },
               {
                 "method": "attrUserJid",
                 "name": "old",
                 "type": "user_jid",
-                "required": false
+                "required": true
               },
               {
                 "method": "maybeAttrUserJid",
@@ -548,7 +548,7 @@
                 "method": "attrLidUserJid",
                 "name": "new_lid",
                 "type": "lid_user_jid",
-                "required": false
+                "required": true
               },
               {
                 "method": "maybeAttrUserJid",
@@ -560,7 +560,7 @@
                 "method": "attrLidUserJid",
                 "name": "old_lid",
                 "type": "lid_user_jid",
-                "required": false
+                "required": true
               }
             ]
           },
@@ -575,7 +575,7 @@
                 "method": "attrTime",
                 "name": "after",
                 "type": "integer",
-                "required": false
+                "required": true
               }
             ]
           }
@@ -858,7 +858,7 @@
                 "method": "attrInt",
                 "name": "code",
                 "type": "integer",
-                "required": false
+                "required": true
               }
             ]
           },
@@ -878,7 +878,7 @@
             "method": "attrString",
             "name": "id",
             "type": "string",
-            "required": false
+            "required": true
           },
           {
             "method": "child",
@@ -1141,31 +1141,31 @@
             "method": "attrChatJid",
             "name": "from",
             "type": "jid",
-            "required": false
+            "required": true
           },
           {
             "method": "attrTime",
             "name": "t",
             "type": "integer",
-            "required": false
+            "required": true
           },
           {
             "method": "attrString",
             "name": "t",
             "type": "string",
-            "required": false
+            "required": true
           },
           {
             "method": "attrUserJid",
             "name": "from",
             "type": "user_jid",
-            "required": false
+            "required": true
           },
           {
             "method": "attrTime",
             "name": "t",
             "type": "integer",
-            "required": false
+            "required": true
           }
         ]
       }
@@ -1510,31 +1510,31 @@
             "method": "attrUserJid",
             "name": "from",
             "type": "user_jid",
-            "required": false
+            "required": true
           },
           {
             "method": "attrString",
             "name": "notify",
             "type": "string",
-            "required": false
+            "required": true
           },
           {
             "method": "attrTime",
             "name": "t",
             "type": "integer",
-            "required": false
+            "required": true
           },
           {
             "method": "attrUserJid",
             "name": "from",
             "type": "user_jid",
-            "required": false
+            "required": true
           },
           {
             "method": "attrString",
             "name": "from",
             "type": "string",
-            "required": false
+            "required": true
           }
         ]
       }
@@ -1556,7 +1556,7 @@
             "method": "attrString",
             "name": "to",
             "type": "string",
-            "required": false
+            "required": true
           },
           {
             "method": "attrGroupJid",
@@ -1707,7 +1707,7 @@
                             "method": "contentString",
                             "name": "content",
                             "type": "string",
-                            "required": false
+                            "required": true
                           }
                         ],
                         "contentType": "string"
@@ -1716,7 +1716,7 @@
                         "method": "attrString",
                         "name": "id",
                         "type": "string",
-                        "required": false
+                        "required": true
                       }
                     ]
                   },
@@ -1970,13 +1970,13 @@
                 "method": "attrString",
                 "name": "id",
                 "type": "string",
-                "required": false
+                "required": true
               },
               {
                 "method": "attrString",
                 "name": "id",
                 "type": "string",
-                "required": false
+                "required": true
               },
               {
                 "method": "child",
@@ -1989,7 +1989,7 @@
                     "method": "contentString",
                     "name": "content",
                     "type": "string",
-                    "required": false
+                    "required": true
                   }
                 ]
               },
@@ -2009,7 +2009,7 @@
                 "method": "attrInt",
                 "name": "expiration",
                 "type": "integer",
-                "required": false
+                "required": true
               },
               {
                 "method": "attrInt",
@@ -2021,7 +2021,7 @@
                 "method": "attrInt",
                 "name": "expiration",
                 "type": "integer",
-                "required": false
+                "required": true
               },
               {
                 "method": "attrInt",
@@ -2224,7 +2224,7 @@
                             "method": "contentString",
                             "name": "content",
                             "type": "string",
-                            "required": false
+                            "required": true
                           }
                         ],
                         "contentType": "string"
@@ -2242,7 +2242,7 @@
                         "method": "contentString",
                         "name": "content",
                         "type": "string",
-                        "required": false
+                        "required": true
                       }
                     ],
                     "contentType": "string"
@@ -2258,7 +2258,7 @@
                         "method": "contentInt",
                         "name": "content",
                         "type": "integer",
-                        "required": false
+                        "required": true
                       }
                     ],
                     "contentType": "integer"

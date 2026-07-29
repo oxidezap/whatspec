@@ -107,7 +107,7 @@
                 "method": "contentBytes",
                 "name": "content",
                 "type": "bytes",
-                "required": false
+                "required": true
               }
             ],
             "contentType": "bytes"
@@ -141,7 +141,7 @@
                 "method": "attrString",
                 "name": "biz_bot",
                 "type": "string",
-                "required": false
+                "required": true
               },
               {
                 "method": "maybeAttrString",
@@ -235,7 +235,7 @@
                 "method": "attrEnumOrNullIfUnknown",
                 "name": "polltype",
                 "type": "enum",
-                "required": false,
+                "required": true,
                 "enumRef": {
                   "name": "POLL_TYPES",
                   "module": "WAWebHandleMsgCommon",
@@ -440,7 +440,7 @@
                     "method": "contentBytes",
                     "name": "content",
                     "type": "bytes",
-                    "required": false
+                    "required": true
                   }
                 ],
                 "contentType": "bytes"
@@ -464,7 +464,7 @@
                 "method": "contentBytes",
                 "name": "content",
                 "type": "bytes",
-                "required": false
+                "required": true
               }
             ]
           },
@@ -557,7 +557,7 @@
             "method": "attrString",
             "name": "recipient",
             "type": "string",
-            "required": false
+            "required": true
           },
           {
             "method": "maybeChild",
@@ -725,7 +725,7 @@
                 "method": "attrString",
                 "name": "biz_bot",
                 "type": "string",
-                "required": false
+                "required": true
               },
               {
                 "method": "maybeAttrString",
@@ -1023,13 +1023,13 @@
                     "method": "attrString",
                     "name": "server_id",
                     "type": "string",
-                    "required": false
+                    "required": true
                   },
                   {
                     "method": "attrString",
                     "name": "id",
                     "type": "string",
-                    "required": false
+                    "required": true
                   }
                 ],
                 "repeats": true
@@ -1165,14 +1165,14 @@
             "method": "child",
             "name": "identity",
             "type": "string",
-            "required": false,
+            "required": true,
             "tag": "identity",
             "children": [
               {
                 "method": "contentBytes",
                 "name": "content",
                 "type": "bytes",
-                "required": false,
+                "required": true,
                 "byteLength": 32
               }
             ]
@@ -1181,14 +1181,14 @@
             "method": "child",
             "name": "id",
             "type": "string",
-            "required": false,
+            "required": true,
             "tag": "id",
             "children": [
               {
                 "method": "contentUint",
                 "name": "content",
                 "type": "integer",
-                "required": false,
+                "required": true,
                 "byteLength": 3
               }
             ]
@@ -1197,14 +1197,14 @@
             "method": "child",
             "name": "value",
             "type": "string",
-            "required": false,
+            "required": true,
             "tag": "value",
             "children": [
               {
                 "method": "contentBytes",
                 "name": "content",
                 "type": "bytes",
-                "required": false,
+                "required": true,
                 "byteLength": 32
               }
             ]
@@ -1213,14 +1213,14 @@
             "method": "child",
             "name": "signature",
             "type": "string",
-            "required": false,
+            "required": true,
             "tag": "signature",
             "children": [
               {
                 "method": "contentBytes",
                 "name": "content",
                 "type": "bytes",
-                "required": false,
+                "required": true,
                 "byteLength": 64
               }
             ]

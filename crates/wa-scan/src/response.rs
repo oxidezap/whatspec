@@ -443,6 +443,7 @@ fn analyze_with_scope(
         unfollowable: Vec::new(),
         local_bindings: Default::default(),
         conditional_depth: 0,
+        guarded_names: Vec::new(),
         helper_depth: 0,
     };
     // A helper the ENCLOSING parser bound shadows the module's here too, and this
@@ -680,6 +681,11 @@ struct ParserAnalyzer<'src, 'ms> {
     /// Whether the call being visited sits under a branch. A helper reached only when
     /// `kind === "a"` does not make its payload required of every element.
     conditional_depth: u32,
+    /// Wire names an enclosing guard has tested the presence of. `hasChild(t) ? e.child(t)
+    /// … : null` says the element may not carry `t`; a plain `if (flag)` says nothing about
+    /// any field, and weakening on branch depth alone let an `id` read on every path
+    /// through the parser look optional.
+    guarded_names: Vec<String>,
     /// Recursion guard for module-scope helper descent (`m(n,i)` → analyze `m`'s body).
     helper_depth: u32,
 }
@@ -760,20 +766,28 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
 
     fn visit_if_statement(&mut self, stmt: &oxc_ast::ast::IfStatement<'a>) {
         self.visit_expression(&stmt.test);
+        let tested = presence_tested(&stmt.test);
+        let n = tested.len();
+        self.guarded_names.extend(tested);
         self.conditional_depth += 1;
         self.visit_statement(&stmt.consequent);
         if let Some(alt) = &stmt.alternate {
             self.visit_statement(alt);
         }
         self.conditional_depth -= 1;
+        self.guarded_names.truncate(self.guarded_names.len() - n);
     }
 
     fn visit_conditional_expression(&mut self, expr: &oxc_ast::ast::ConditionalExpression<'a>) {
         self.visit_expression(&expr.test);
+        let tested = presence_tested(&expr.test);
+        let n = tested.len();
+        self.guarded_names.extend(tested);
         self.conditional_depth += 1;
         self.visit_expression(&expr.consequent);
         self.visit_expression(&expr.alternate);
         self.conditional_depth -= 1;
+        self.guarded_names.truncate(self.guarded_names.len() - n);
     }
 
     fn visit_call_expression(&mut self, call: &CallExpression<'a>) {
@@ -893,10 +907,16 @@ impl ParserAnalyzer<'_, '_> {
     /// the accessor itself looks.
     fn read_field(&mut self, method: &str, call: &CallExpression) -> ParsedField {
         let mut f = field_from_call(method, call, self.module, &mut self.unresolved);
-        if self.conditional_depth > 0 {
+        let wire = f.wire_name.clone().unwrap_or_else(|| f.name.clone());
+        if self.presence_guarded(&wire) {
             f.required = false;
         }
         f
+    }
+
+    /// Whether an enclosing guard asked whether this very field is there.
+    fn presence_guarded(&self, wire: &str) -> bool {
+        self.guarded_names.iter().any(|n| n == wire)
     }
 
     fn note_unfollowable_bindings(&mut self, decl: &VariableDeclaration) {
@@ -1061,7 +1081,7 @@ impl ParserAnalyzer<'_, '_> {
         if is_value_method(method)
             && let Some((parent_tag, inner_method)) = self.child_call_parent(obj)
         {
-            let parent_required = inner_method == "child" && self.conditional_depth == 0;
+            let parent_required = inner_method == "child" && !self.presence_guarded(&parent_tag);
             let idx =
                 find_or_create_field(&mut self.fields, &parent_tag, inner_method, parent_required);
             let read = self.read_field(method, call);
@@ -1079,7 +1099,7 @@ impl ParserAnalyzer<'_, '_> {
             {
                 // `hasChild(t) ? e.child(t)… : null` reads a `child`, but only when the
                 // element carries one.
-                let required = method == "child" && self.conditional_depth == 0;
+                let required = method == "child" && !self.presence_guarded(tag);
                 let mut f = mk_field(method, tag, ParsedFieldType::String, required);
                 f.tag = Some(tag.to_string());
                 f.children = Some(Vec::new());
@@ -1305,9 +1325,16 @@ impl ParserAnalyzer<'_, '_> {
         let Some(bound_param) = params.get(arg_idx) else {
             return;
         };
-        let (mut recovered, lost) =
+        let (mut recovered, lost, guards) =
             analyze_node_helper(body_src, bound_param, self.module, self.helper_depth + 1);
         self.unresolved.extend(lost);
+        // What the helper enforces on the node it was handed is a constraint on that node,
+        // and dropping it published a shape that accepts what the parser rejects.
+        for g in guards {
+            if !self.assertions.contains(&g) {
+                self.assertions.push(g);
+            }
+        }
         // Reached only down one branch, its payload is not required of every element —
         // requiring it would have consumers reject the elements the other branch accepts.
         if self.conditional_depth > 0 {
@@ -1575,11 +1602,11 @@ fn analyze_node_helper(
     bound_param: &str,
     module: &ModuleScope,
     depth: u32,
-) -> (Vec<ParsedField>, Vec<String>) {
+) -> (Vec<ParsedField>, Vec<String>, Vec<ResponseAssertion>) {
     let alloc = Allocator::default();
     let ret = wa_oxc::parse_cjs(&alloc, body_src);
     if ret.panicked {
-        return (Vec::new(), Vec::new());
+        return (Vec::new(), Vec::new(), Vec::new());
     }
     let mut a = ParserAnalyzer {
         code: body_src,
@@ -1596,6 +1623,7 @@ fn analyze_node_helper(
         unfollowable: Vec::new(),
         local_bindings: Default::default(),
         conditional_depth: 0,
+        guarded_names: Vec::new(),
         helper_depth: depth,
     };
     a.local_bindings = all_bindings(&ret.program);
@@ -1603,7 +1631,7 @@ fn analyze_node_helper(
     a.attach_pending_enum_keys();
     // What the helper could not resolve is the caller's loss too: reporting the field
     // without it lets the constraint ratchet read as clean while a byte range vanished.
-    (a.fields, a.unresolved)
+    (a.fields, a.unresolved, a.assertions)
 }
 
 fn analyze_child_node(
@@ -1635,6 +1663,7 @@ fn analyze_child_node(
         unfollowable: Vec::new(),
         local_bindings: Default::default(),
         conditional_depth: 0,
+        guarded_names: Vec::new(),
         helper_depth: depth,
     };
     a.local_bindings = all_bindings(&ret.program);
@@ -1844,6 +1873,37 @@ impl<'a> Visit<'a> for ArmCollector<'_> {
     }
 }
 
+/// The wire names a guard asks about — `hasAttr("x")`, `hasChild("x")` — through `&&`,
+/// `||` and parentheses. Only these say a field may be absent; any other condition is
+/// about something else entirely.
+fn presence_tested(test: &Expression<'_>) -> Vec<String> {
+    let mut out = Vec::new();
+    fn walk(e: &Expression<'_>, out: &mut Vec<String>) {
+        match e {
+            Expression::ParenthesizedExpression(p) => walk(&p.expression, out),
+            Expression::LogicalExpression(l) => {
+                walk(&l.left, out);
+                walk(&l.right, out);
+            }
+            Expression::UnaryExpression(u) => walk(&u.argument, out),
+            Expression::BinaryExpression(b) => {
+                walk(&b.left, out);
+                walk(&b.right, out);
+            }
+            _ => {
+                if let Some(call) = as_call(e)
+                    && matches!(callee_method(call), Some(wap::HAS_ATTR) | Some("hasChild"))
+                    && let Some(name) = arg_str(call, 0)
+                {
+                    out.push(name.to_string());
+                }
+            }
+        }
+    }
+    walk(test, &mut out);
+    out
+}
+
 /// Every name a source binds, at any depth — `var` hoists and functions are declared
 /// wherever, so this is a pre-pass rather than something the walk can accumulate.
 #[derive(Default)]
@@ -2039,12 +2099,23 @@ fn assigned_names(src: &str, param: &str) -> HashMap<String, String> {
         }
 
         fn visit_assignment_expression(&mut self, e: &oxc_ast::ast::AssignmentExpression<'a>) {
-            if let oxc_ast::ast::AssignmentTarget::StaticMemberExpression(m) = &e.left
-                && let Some(wire) = as_identifier(&e.right).and_then(|r| self.from_wire.get(r))
-            {
-                self.named
-                    .entry(wire.clone())
-                    .or_insert_with(|| m.property.name.as_str().to_string());
+            if let oxc_ast::ast::AssignmentTarget::StaticMemberExpression(m) = &e.left {
+                // Either spelling: through a temporary, or the accessor written straight
+                // into the result — `t.callAdd = e.attrEnum("value", …)`.
+                let wire = as_identifier(&e.right)
+                    .and_then(|r| self.from_wire.get(r))
+                    .cloned()
+                    .or_else(|| {
+                        let call = as_call(&e.right)?;
+                        (callee_method(call).is_some_and(is_value_method)
+                            && callee_object(call).and_then(as_identifier) == Some(self.param))
+                        .then(|| arg_str(call, 0).map(str::to_string))?
+                    });
+                if let Some(wire) = wire {
+                    self.named
+                        .entry(wire)
+                        .or_insert_with(|| m.property.name.as_str().to_string());
+                }
             }
             walk::walk_assignment_expression(self, e);
         }
@@ -3464,6 +3535,68 @@ mod tests {
             kids.iter().all(|f| f.field_type != ParsedFieldType::Union),
             "left flat: {:?}",
             kids.iter().map(|f| f.name.as_str()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_read_on_every_branch_stays_required() {
+        // Weakening on branch depth alone made an `id` the parser reads down every path
+        // look optional. Only a guard that asks whether THIS field is there says that.
+        let r = analyze_parser_ast(
+            r#"{ if (flag) { e.attrString("id"); } else { e.attrString("id"); }
+                 var c = e.hasChild("meta") ? e.child("meta").contentBytes() : null; }"#,
+            "e",
+        );
+        let by = |n: &str| r.fields.iter().find(|f| f.name == n).unwrap();
+        assert!(
+            by("id").required,
+            "read on both branches, never asked about"
+        );
+        assert!(!by("meta").required, "guarded by hasChild");
+    }
+
+    #[test]
+    fn an_accessor_assigned_straight_to_a_property_is_still_named() {
+        // The other spelling: no temporary between the read and the result property.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   if (n === "a") { t.alpha = e.attrString("value"); }
+                   if (n === "b") { t.beta = e.attrString("value"); }
+                 }); }"#,
+            "e",
+        );
+        let union = r.fields[0]
+            .children
+            .as_ref()
+            .unwrap()
+            .iter()
+            .find(|f| f.field_type == ParsedFieldType::Union)
+            .expect("a union");
+        let v = &union.union_variants.as_ref().unwrap()[0];
+        assert_eq!(v.fields[0].name, "alpha");
+        assert_eq!(v.fields[0].wire_name.as_deref(), Some("value"));
+    }
+
+    #[test]
+    fn an_own_node_helper_carries_its_guards_back() {
+        // The helper enforces `type == "a"` on the node it was handed; publishing its
+        // fields without that accepts exactly what the parser rejects.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.assertAttr("type", "a"); p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                parse(e);
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        assert!(
+            p.assertions.iter().any(|a| a.kind == AssertionKind::Attr
+                && a.name.as_deref() == Some("type")
+                && a.value.as_deref() == Some("a")),
+            "the helper's guard reaches the shape: {:?}",
+            p.assertions
         );
     }
 

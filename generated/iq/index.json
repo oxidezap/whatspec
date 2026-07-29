@@ -4678,13 +4678,13 @@
                         "method": "attrInt",
                         "name": "code",
                         "type": "integer",
-                        "required": false
+                        "required": true
                       },
                       {
                         "method": "attrString",
                         "name": "text",
                         "type": "string",
-                        "required": false
+                        "required": true
                       }
                     ]
                   },
@@ -4692,14 +4692,14 @@
                     "method": "child",
                     "name": "type",
                     "type": "string",
-                    "required": false,
+                    "required": true,
                     "tag": "type",
                     "children": [
                       {
                         "method": "contentBytes",
                         "name": "content",
                         "type": "bytes",
-                        "required": false,
+                        "required": true,
                         "byteLength": 1
                       }
                     ]
@@ -4708,14 +4708,14 @@
                     "method": "child",
                     "name": "identity",
                     "type": "string",
-                    "required": false,
+                    "required": true,
                     "tag": "identity",
                     "children": [
                       {
                         "method": "contentBytes",
                         "name": "content",
                         "type": "bytes",
-                        "required": false,
+                        "required": true,
                         "byteLength": 32
                       }
                     ]
@@ -4724,7 +4724,7 @@
                     "method": "attrDeviceJid",
                     "name": "jid",
                     "type": "device_jid",
-                    "required": false
+                    "required": true
                   }
                 ],
                 "repeats": true
@@ -12122,7 +12122,7 @@
                     "method": "contentString",
                     "name": "content",
                     "type": "string",
-                    "required": false
+                    "required": true
                   }
                 ],
                 "contentType": "string"
@@ -12138,7 +12138,7 @@
                     "method": "contentString",
                     "name": "content",
                     "type": "string",
-                    "required": false
+                    "required": true
                   }
                 ],
                 "contentType": "string"
@@ -12187,14 +12187,14 @@
             "method": "child",
             "name": "greetingMessageBody",
             "type": "string",
-            "required": false,
+            "required": true,
             "tag": "greetingMessageBody",
             "children": [
               {
                 "method": "contentString",
                 "name": "content",
                 "type": "string",
-                "required": false
+                "required": true
               }
             ]
           },
@@ -12202,14 +12202,14 @@
             "method": "child",
             "name": "automatedGreetingMessageShown",
             "type": "string",
-            "required": false,
+            "required": true,
             "tag": "automatedGreetingMessageShown",
             "children": [
               {
                 "method": "contentString",
                 "name": "content",
                 "type": "string",
-                "required": false
+                "required": true
               }
             ]
           }
@@ -35466,20 +35466,20 @@
                     "method": "child",
                     "name": "error",
                     "type": "string",
-                    "required": false,
+                    "required": true,
                     "tag": "error",
                     "children": [
                       {
                         "method": "attrInt",
                         "name": "code",
                         "type": "integer",
-                        "required": false
+                        "required": true
                       },
                       {
                         "method": "attrString",
                         "name": "text",
                         "type": "string",
-                        "required": false
+                        "required": true
                       }
                     ]
                   },
@@ -40545,14 +40545,14 @@
             "method": "child",
             "name": "settings",
             "type": "string",
-            "required": false,
+            "required": true,
             "tag": "settings",
             "children": [
               {
                 "method": "attrString",
                 "name": "webserverkey",
                 "type": "string",
-                "required": false
+                "required": true
               }
             ]
           },
@@ -44824,7 +44824,7 @@
                         "method": "contentString",
                         "name": "content",
                         "type": "string",
-                        "required": false
+                        "required": true
                       }
                     ],
                     "contentType": "string"
@@ -44840,7 +44840,7 @@
                         "method": "contentString",
                         "name": "content",
                         "type": "string",
-                        "required": false
+                        "required": true
                       }
                     ],
                     "contentType": "string"
@@ -96187,14 +96187,14 @@
             "method": "child",
             "name": "picture",
             "type": "string",
-            "required": false,
+            "required": true,
             "tag": "picture",
             "children": [
               {
                 "method": "attrInt",
                 "name": "id",
                 "type": "integer",
-                "required": false
+                "required": true
               }
             ]
           }

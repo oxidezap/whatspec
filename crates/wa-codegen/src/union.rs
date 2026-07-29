@@ -720,7 +720,18 @@ fn emit_attr_discriminated(
             .map(|f| {
                 // Decoding, not just presence: an unparseable `attrInt` or a malformed JID
                 // would otherwise reach `unwrap_or_default` and become a fabricated value
-                // where ordinary required-field parsing would have failed.
+                // where ordinary required-field parsing would have failed. An enum decodes
+                // by membership, which `field_expr` reads as a plain string — so it is
+                // checked here rather than left to accept anything.
+                if let Some(values) = enum_values(f) {
+                    let wire = f.wire_name.as_deref().unwrap_or(&f.name);
+                    let arms: Vec<String> = values.iter().map(|v| rust_lit(v)).collect();
+                    return format!(
+                        "matches!({node_var}.get_attr({}).map(|x| x.as_str()).as_deref(), Some({}))",
+                        rust_lit(wire),
+                        arms.join(" | ")
+                    );
+                }
                 let mut probe = f.clone();
                 probe.required = false;
                 format!("{}.is_some()", field_expr(&probe, node_var))
@@ -831,6 +842,17 @@ fn value_payload(enum_name: &str, variant: &str, fields: &[ParsedField], node_va
 /// A leaf read as an EXPRESSION (no `?`), for an enum variant struct-init. Mirrors
 /// `emit_field_parse`'s type mapping but defaults required leaves instead of failing
 /// (the variant guard already proved the required attrs present).
+/// The values an enum leaf accepts, however the scan recorded them — a resolved module
+/// enum's variants, or the key set an `attrEnumValues` table listed.
+fn enum_values(f: &ParsedField) -> Option<Vec<String>> {
+    if let Some(r) = f.enum_ref.as_ref()
+        && !r.variants.is_empty()
+    {
+        return Some(r.variants.iter().map(|v| v.value.clone()).collect());
+    }
+    f.enum_keys.as_ref().filter(|k| !k.is_empty()).cloned()
+}
+
 fn field_expr(f: &ParsedField, node_var: &str) -> String {
     let method = f.method.as_str();
     // Derived, not enumerated — the same three names were spelled out here as in
@@ -993,6 +1015,31 @@ mod tests {
                 r#"and_then(|v| v.as_str().parse().ok()).is_some() => Some(SpecKindDispatch::A {"#
             ),
             "the guard decodes rather than checking presence: {src}"
+        );
+    }
+
+    #[test]
+    fn attr_discriminated_union_guards_enum_membership() {
+        // The accessor the parser used rejects a value outside the table; read as a plain
+        // string the arm would accept anything and hand back a value WA never sends.
+        let f = union_field(serde_json::json!({
+            "method": "dispatch", "name": "kind_dispatch", "type": "union", "required": true,
+            "unionVariants": [
+                {"name": "a",
+                 "assertions": [{"kind": "attr", "name": "kind", "value": "a"}],
+                 "fields": [{"method": "attrEnum", "name": "mode", "wireName": "value",
+                             "type": "enum", "required": true,
+                             "enumKeys": ["on", "off"]}]},
+                {"name": "b",
+                 "assertions": [{"kind": "attr", "name": "kind", "value": "b"}],
+                 "fields": []}
+            ]
+        }));
+        let (lines, _) = emit_union_read(&f, "node", "Spec", "").expect("emitted");
+        let src = lines.join("\n");
+        assert!(
+            src.contains(r#"matches!(node.get_attr("value").map(|x| x.as_str()).as_deref(), Some("on" | "off"))"#),
+            "membership is checked, not just presence: {src}"
         );
     }
 
