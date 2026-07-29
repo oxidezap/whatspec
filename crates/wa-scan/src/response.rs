@@ -9,7 +9,7 @@ use std::collections::HashMap;
 
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
-    Argument, CallExpression, Expression, Function, NewExpression, VariableDeclaration,
+    Argument, CallExpression, Expression, Function, NewExpression, Statement, VariableDeclaration,
     VariableDeclarator,
 };
 use oxc_ast_visit::{Visit, walk};
@@ -407,7 +407,12 @@ pub(crate) fn analyze_parser_ast_in_module(
     param: &str,
     module_source: &str,
 ) -> ParserResult {
-    analyze_with_scope(code, param, &ModuleScope::from_source(module_source))
+    analyze_with_scope(
+        code,
+        param,
+        &ModuleScope::from_source(module_source),
+        &Default::default(),
+    )
 }
 
 /// Analyze a parser callback body against a *pre-extracted* [`ModuleScope`]. Every
@@ -415,7 +420,12 @@ pub(crate) fn analyze_parser_ast_in_module(
 /// the scope built once by [`ModuleScope::from_source`] instead of re-parsing the whole
 /// module per lookup — and the recursive callback analysis (`process_child_method`) reuses
 /// the same scope, so a module is parsed exactly once per top-level parser.
-fn analyze_with_scope(code: &str, param: &str, module: &ModuleScope) -> ParserResult {
+fn analyze_with_scope(
+    code: &str,
+    param: &str,
+    module: &ModuleScope,
+    outer_bindings: &std::collections::HashSet<String>,
+) -> ParserResult {
     let alloc = Allocator::default();
     let ret = wa_oxc::parse_cjs(&alloc, code);
     let mut a = ParserAnalyzer {
@@ -431,8 +441,14 @@ fn analyze_with_scope(code: &str, param: &str, module: &ModuleScope) -> ParserRe
         unresolved_enum_attrs: Default::default(),
         unresolved: Vec::new(),
         unfollowable: Vec::new(),
+        local_bindings: Default::default(),
+        conditional_depth: 0,
         helper_depth: 0,
     };
+    // A helper the ENCLOSING parser bound shadows the module's here too, and this
+    // scope cannot see that binding on its own.
+    a.local_bindings = all_bindings(&ret.program);
+    a.local_bindings.extend(outer_bindings.iter().cloned());
     a.visit_program(&ret.program);
     a.attach_pending_enum_keys();
     ParserResult {
@@ -636,7 +652,7 @@ struct ParserAnalyzer<'src, 'ms> {
     /// local var name → tag, for `var t = param.child("tag")`. Also pre-seeded when a
     /// helper is re-analyzed with a parameter bound to a caller's child node (see
     /// [`ParserAnalyzer::try_helper_descent`]).
-    child_vars: HashMap<String, Vec<String>>,
+    child_vars: HashMap<String, Vec<PathSeg>>,
     /// wire attr name → its enum's allowed keys, from `attrEnumOrNullIfUnknown("attr", map)`
     /// (the map is module-scope, so it's resolved and stashed here, then attached to the
     /// matching field in a post-pass — order-independent of the plain read of the attr).
@@ -655,6 +671,13 @@ struct ParserAnalyzer<'src, 'ms> {
     /// attached fields to whichever node the name meant somewhere else. Knowing the read
     /// is lost is worth more than guessing where it belongs.
     unfollowable: Vec<(Span, String)>,
+    /// Every name the analysed source binds, collected before the walk. A parser that
+    /// defines its own `parse` shadows the module-scope helper of that name, and resolving
+    /// the callee by identifier text alone attached a stranger's fields to the result.
+    local_bindings: std::collections::HashSet<String>,
+    /// Whether the call being visited sits under a branch. A helper reached only when
+    /// `kind === "a"` does not make its payload required of every element.
+    conditional_depth: u32,
     /// Recursion guard for module-scope helper descent (`m(n,i)` → analyze `m`'s body).
     helper_depth: u32,
 }
@@ -721,13 +744,34 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
                             .and_then(|n| self.child_vars.get(n))
                             .cloned()
                             .unwrap_or_default();
-                        path.push(tag.to_string());
+                        path.push(PathSeg {
+                            tag: tag.to_string(),
+                            method: method.unwrap_or("child").to_string(),
+                        });
                         self.child_vars.insert(name.as_str().to_string(), path);
                     }
                 }
             }
         }
         walk::walk_variable_declaration(self, decl);
+    }
+
+    fn visit_if_statement(&mut self, stmt: &oxc_ast::ast::IfStatement<'a>) {
+        self.visit_expression(&stmt.test);
+        self.conditional_depth += 1;
+        self.visit_statement(&stmt.consequent);
+        if let Some(alt) = &stmt.alternate {
+            self.visit_statement(alt);
+        }
+        self.conditional_depth -= 1;
+    }
+
+    fn visit_conditional_expression(&mut self, expr: &oxc_ast::ast::ConditionalExpression<'a>) {
+        self.visit_expression(&expr.test);
+        self.conditional_depth += 1;
+        self.visit_expression(&expr.consequent);
+        self.visit_expression(&expr.alternate);
+        self.conditional_depth -= 1;
     }
 
     fn visit_call_expression(&mut self, call: &CallExpression<'a>) {
@@ -826,15 +870,19 @@ impl ParserAnalyzer<'_, '_> {
     /// The tags naming the node `base.child(chained)` denotes, outermost first — `["digest",
     /// "list"]` for `t.child("list")` where `t` tracks `<digest>`. `None` when `base` is not
     /// a node this scope can name.
-    fn node_path(&self, base: &str, chained: &str, at: Span) -> Option<Vec<String>> {
+    fn node_path(&self, base: &str, chained: &str, method: &str, at: Span) -> Option<Vec<PathSeg>> {
+        let seg = PathSeg {
+            tag: chained.to_string(),
+            method: method.to_string(),
+        };
         if base == self.param {
-            return Some(vec![chained.to_string()]);
+            return Some(vec![seg]);
         }
         if !self.names_an_outer_node(base, at) {
             return None;
         }
         let mut path = self.child_vars.get(base)?.clone();
-        path.push(chained.to_string());
+        path.push(seg);
         Some(path)
     }
 
@@ -1049,6 +1097,7 @@ impl ParserAnalyzer<'_, '_> {
                     fields: &mut self.fields,
                     unresolved: &mut self.unresolved,
                     recursed: &mut self.recursed,
+                    bindings: &self.local_bindings,
                 },
                 self.code,
                 self.module,
@@ -1068,17 +1117,17 @@ impl ParserAnalyzer<'_, '_> {
             && (inner_method == "child" || inner_method == "maybeChild")
             && let Some(base) = callee_object(inner).and_then(as_identifier)
             && let Some(chained) = arg_str(inner, 0)
-            && let Some(path) = self.node_path(base, chained, call.span)
+            && let Some(path) = self.node_path(base, chained, inner_method, call.span)
         {
-            let borrowed: Vec<&str> = path.iter().map(String::as_str).collect();
             process_child_method_at(
                 method,
                 call,
-                &borrowed,
+                &path,
                 &mut ChildSink {
                     fields: &mut self.fields,
                     unresolved: &mut self.unresolved,
                     recursed: &mut self.recursed,
+                    bindings: &self.local_bindings,
                 },
                 self.code,
                 self.module,
@@ -1092,15 +1141,15 @@ impl ParserAnalyzer<'_, '_> {
                 .and_then(|n| self.child_vars.get(n))
                 .cloned()
         {
-            let borrowed: Vec<&str> = path.iter().map(String::as_str).collect();
             process_child_method_at(
                 method,
                 call,
-                &borrowed,
+                &path,
                 &mut ChildSink {
                     fields: &mut self.fields,
                     unresolved: &mut self.unresolved,
                     recursed: &mut self.recursed,
+                    bindings: &self.local_bindings,
                 },
                 self.code,
                 self.module,
@@ -1181,6 +1230,10 @@ impl ParserAnalyzer<'_, '_> {
         let Some(name) = as_identifier(&call.callee) else {
             return;
         };
+        // A helper the parser binds itself is not the module's.
+        if self.local_bindings.contains(name) {
+            return;
+        }
         // An argument that is a tracked child var — cheap to check before any re-parse.
         // Only an argument still naming the node it was bound to: an enclosing callback may
         // have re-bound the name, and descending on the stale entry would hang the helper's
@@ -1203,13 +1256,18 @@ impl ParserAnalyzer<'_, '_> {
         // The helper's parameter names the node at the end of the path; the caller's tree
         // is where the whole path lives.
         let Some(leaf) = tag.last() else { return };
-        let recovered = analyze_child_node(
+        let mut recovered = analyze_child_node(
             body_src,
             bound_param,
-            leaf,
+            &leaf.tag,
             self.module,
             self.helper_depth + 1,
         );
+        if self.conditional_depth > 0 {
+            for f in &mut recovered {
+                f.required = false;
+            }
+        }
         merge_child_shape_at(&mut self.fields, &tag, recovered);
     }
 
@@ -1224,6 +1282,10 @@ impl ParserAnalyzer<'_, '_> {
         let Some(name) = as_identifier(&call.callee) else {
             return;
         };
+        // A helper the parser binds itself is not the module's.
+        if self.local_bindings.contains(name) {
+            return;
+        }
         let Some(arg_idx) = call.arguments.iter().position(|a| {
             arg_expr(a)
                 .and_then(as_identifier)
@@ -1237,8 +1299,15 @@ impl ParserAnalyzer<'_, '_> {
         let Some(bound_param) = params.get(arg_idx) else {
             return;
         };
-        let recovered =
+        let mut recovered =
             analyze_node_helper(body_src, bound_param, self.module, self.helper_depth + 1);
+        // Reached only down one branch, its payload is not required of every element —
+        // requiring it would have consumers reject the elements the other branch accepts.
+        if self.conditional_depth > 0 {
+            for f in &mut recovered {
+                f.required = false;
+            }
+        }
         for f in recovered {
             if !self
                 .fields
@@ -1518,8 +1587,11 @@ fn analyze_node_helper(
         unresolved_enum_attrs: Default::default(),
         unresolved: Vec::new(),
         unfollowable: Vec::new(),
+        local_bindings: Default::default(),
+        conditional_depth: 0,
         helper_depth: depth,
     };
+    a.local_bindings = all_bindings(&ret.program);
     a.visit_program(&ret.program);
     a.attach_pending_enum_keys();
     a.fields
@@ -1547,13 +1619,16 @@ fn analyze_child_node(
         scopes: Vec::new(),
         assertions: Vec::new(),
         fields: Vec::new(),
-        child_vars: HashMap::from([(node_param.to_string(), vec![tag.to_string()])]),
+        child_vars: HashMap::from([(node_param.to_string(), vec![PathSeg::required(tag)])]),
         pending_enum_keys: HashMap::new(),
         unresolved_enum_attrs: Default::default(),
         unresolved: Vec::new(),
         unfollowable: Vec::new(),
+        local_bindings: Default::default(),
+        conditional_depth: 0,
         helper_depth: depth,
     };
+    a.local_bindings = all_bindings(&ret.program);
     a.visit_program(&ret.program);
     a.attach_pending_enum_keys();
     a.fields
@@ -1567,7 +1642,7 @@ fn analyze_child_node(
 /// `var i = param.maybeChild("tag")` built.
 fn merge_child_shape_at(
     fields: &mut [ParsedField],
-    path: &[String],
+    path: &[PathSeg],
     new_children: Vec<ParsedField>,
 ) {
     let Some(field) = node_at(fields, path) else {
@@ -1599,22 +1674,36 @@ fn arg_str<'b>(call: &'b CallExpression, n: usize) -> Option<&'b str> {
         .and_then(as_string_lit)
 }
 
-/// Handle `forEachChildWithTag` / `mapChildrenWithTag` / `mapChildren` by
-/// recursively analyzing the callback and attaching results under `parent_tag`.
-/// Put a built child field under `parent_tag`, or at the root when there is no parent.
-///
-/// A child method called DIRECTLY on the parser's node (`param.mapChildrenWithTag("enc",
-/// …)`, as `incomingMsgParser` does) has no enclosing tag: the repeated element belongs to
-/// the response root. Only the chained and child-var forms were handled, so for those
-/// parsers the child was never built at all and its reads survived only by being
-/// misattributed to the root — flat, unrepeated, and one level too high.
+/// One step of a tracked path: the tag, and the accessor that reached it. Materialising a
+/// `maybeChild` step as a required `child` would have the IR demand an element the source
+/// parser explicitly allows to be absent.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct PathSeg {
+    tag: String,
+    method: String,
+}
+
+impl PathSeg {
+    fn required(tag: &str) -> Self {
+        Self {
+            tag: tag.to_string(),
+            method: "child".to_string(),
+        }
+    }
+}
+
 /// The node `path` names, creating the chain if it is not there yet.
 fn node_at_mut<'f>(
     fields: &'f mut Vec<ParsedField>,
-    path: &[String],
+    path: &[PathSeg],
 ) -> Option<&'f mut ParsedField> {
-    let (tag, rest) = path.split_first()?;
-    let idx = find_or_create_field(fields, tag, "child", true);
+    let (seg, rest) = path.split_first()?;
+    let idx = find_or_create_field(
+        fields,
+        &seg.tag,
+        &seg.method,
+        is_method_required(&seg.method),
+    );
     if rest.is_empty() {
         return fields.get_mut(idx);
     }
@@ -1623,11 +1712,11 @@ fn node_at_mut<'f>(
 
 /// The node `path` names, without creating anything — for annotating what a read already
 /// built rather than conjuring a node a later read would have to reconcile with.
-fn node_at<'f>(fields: &'f mut [ParsedField], path: &[String]) -> Option<&'f mut ParsedField> {
-    let (tag, rest) = path.split_first()?;
+fn node_at<'f>(fields: &'f mut [ParsedField], path: &[PathSeg]) -> Option<&'f mut ParsedField> {
+    let (seg, rest) = path.split_first()?;
     let node = fields
         .iter_mut()
-        .find(|f| f.tag.as_deref() == Some(tag.as_str()))?;
+        .find(|f| f.tag.as_deref() == Some(seg.tag.as_str()))?;
     if rest.is_empty() {
         return Some(node);
     }
@@ -1639,12 +1728,17 @@ fn node_at<'f>(fields: &'f mut [ParsedField], path: &[String]) -> Option<&'f mut
 /// `t.child("list").mapChildren(…)` names two levels — the tag `t` was bound to and the one
 /// chained off it — and hanging the result off only the last would put a `<list>` beside
 /// `<digest>` instead of inside it.
-fn place_at(fields: &mut Vec<ParsedField>, path: &[&str], f: ParsedField) {
-    let Some((tag, rest)) = path.split_first() else {
+fn place_at(fields: &mut Vec<ParsedField>, path: &[PathSeg], f: ParsedField) {
+    let Some((seg, rest)) = path.split_first() else {
         merge_or_push(fields, f);
         return;
     };
-    let idx = find_or_create_field(fields, tag, "child", true);
+    let idx = find_or_create_field(
+        fields,
+        &seg.tag,
+        &seg.method,
+        is_method_required(&seg.method),
+    );
     place_at(fields[idx].children.get_or_insert_with(Vec::new), rest, f);
 }
 
@@ -1677,6 +1771,9 @@ struct ArmCollector<'s> {
     subject: &'s str,
     /// The literals an arm accepts, and the source range of what it then does.
     arms: Vec<(Vec<String>, Span)>,
+    /// Whether a recognized arm ends in a plain `else`. Its reads belong to no value, and
+    /// folding them beside the union would require them of the arms that never carry them.
+    has_fallback: bool,
 }
 
 impl<'a> Visit<'a> for ArmCollector<'_> {
@@ -1686,9 +1783,37 @@ impl<'a> Visit<'a> for ArmCollector<'_> {
         if !lits.is_empty() {
             let owned = lits.into_iter().map(str::to_string).collect();
             self.arms.push((owned, stmt.consequent.span()));
+            // `else if` continues the chain; a bare `else` is an alternative this shape
+            // cannot name.
+            if stmt
+                .alternate
+                .as_ref()
+                .is_some_and(|a| !matches!(a, Statement::IfStatement(_)))
+            {
+                self.has_fallback = true;
+            }
         }
         walk::walk_if_statement(self, stmt);
     }
+}
+
+/// Every name a source binds, at any depth — `var` hoists and functions are declared
+/// wherever, so this is a pre-pass rather than something the walk can accumulate.
+#[derive(Default)]
+struct AllBindings {
+    names: std::collections::HashSet<String>,
+}
+
+impl<'a> Visit<'a> for AllBindings {
+    fn visit_binding_identifier(&mut self, id: &oxc_ast::ast::BindingIdentifier<'a>) {
+        self.names.insert(id.name.as_str().to_string());
+    }
+}
+
+fn all_bindings(program: &oxc_ast::ast::Program<'_>) -> std::collections::HashSet<String> {
+    let mut c = AllBindings::default();
+    c.visit_program(program);
+    c.names
 }
 
 /// Finds the attribute a dispatch reads once and then branches on.
@@ -1756,17 +1881,18 @@ fn equality_literals<'b>(test: &'b Expression<'_>, name: &str, out: &mut Vec<&'b
 /// Only an assignment whose right-hand side is the value the arm just read counts: an arm
 /// that sets a flag first would otherwise stamp that flag's name onto the field, and a
 /// wrong output name is harder to notice than a missing one.
-fn assigned_property(src: &str, param: &str) -> Option<String> {
+fn assigned_names(src: &str, param: &str) -> HashMap<String, String> {
     let alloc = Allocator::default();
     let ret = wa_oxc::parse_cjs(&alloc, src);
     if ret.panicked {
-        return None;
+        return HashMap::new();
     }
     struct Finder<'s> {
         param: &'s str,
-        /// Names bound from a wire read on the parser's node in this arm.
-        from_wire: std::collections::HashSet<String>,
-        name: Option<String>,
+        /// Local name → the wire attribute it was read from, in this arm.
+        from_wire: HashMap<String, String>,
+        /// Wire attribute → the property its value is assigned to.
+        named: HashMap<String, String>,
     }
     impl<'a> Visit<'a> for Finder<'_> {
         fn visit_variable_declaration(&mut self, decl: &VariableDeclaration<'a>) {
@@ -1775,30 +1901,33 @@ fn assigned_property(src: &str, param: &str) -> Option<String> {
                     && let Some(call) = as_call(init)
                     && callee_method(call).is_some_and(is_value_method)
                     && callee_object(call).and_then(as_identifier) == Some(self.param)
+                    && let Some(wire) = arg_str(call, 0)
                 {
-                    self.from_wire.insert(bound.as_str().to_string());
+                    self.from_wire
+                        .insert(bound.as_str().to_string(), wire.to_string());
                 }
             }
             walk::walk_variable_declaration(self, decl);
         }
 
         fn visit_assignment_expression(&mut self, e: &oxc_ast::ast::AssignmentExpression<'a>) {
-            if self.name.is_none()
-                && let oxc_ast::ast::AssignmentTarget::StaticMemberExpression(m) = &e.left
-                && as_identifier(&e.right).is_some_and(|r| self.from_wire.contains(r))
+            if let oxc_ast::ast::AssignmentTarget::StaticMemberExpression(m) = &e.left
+                && let Some(wire) = as_identifier(&e.right).and_then(|r| self.from_wire.get(r))
             {
-                self.name = Some(m.property.name.as_str().to_string());
+                self.named
+                    .entry(wire.clone())
+                    .or_insert_with(|| m.property.name.as_str().to_string());
             }
             walk::walk_assignment_expression(self, e);
         }
     }
     let mut f = Finder {
         param,
-        from_wire: Default::default(),
-        name: None,
+        from_wire: HashMap::new(),
+        named: HashMap::new(),
     };
     f.visit_program(&ret.program);
-    f.name
+    f.named
 }
 
 /// Add back every flat read the dispatch does not already account for.
@@ -1840,6 +1969,7 @@ fn discriminated_children(
     body_src: &str,
     param: &str,
     module: &ModuleScope,
+    outer_bindings: &std::collections::HashSet<String>,
 ) -> Option<Vec<ParsedField>> {
     let alloc = Allocator::default();
     let ret = wa_oxc::parse_cjs(&alloc, body_src);
@@ -1863,8 +1993,12 @@ fn discriminated_children(
     let mut collector = ArmCollector {
         subject: &bound,
         arms: Vec::new(),
+        has_fallback: false,
     };
     collector.visit_program(&ret.program);
+    if collector.has_fallback {
+        return None;
+    }
 
     // A single arm is a plain conditional, not a dispatch — counted in arms, because one
     // arm accepting two names (`n === "a" || n === "b"`) is still one branch.
@@ -1878,8 +2012,8 @@ fn discriminated_children(
     let mut structural_seen: HashMap<String, usize> = HashMap::new();
     for (lits, span) in &collector.arms {
         let arm_src = &body_src[span.start as usize..span.end as usize];
-        let arm = analyze_with_scope(arm_src, param, module);
-        let runtime_name = assigned_property(arm_src, param);
+        let arm = analyze_with_scope(arm_src, param, module, outer_bindings);
+        let runtime_names = assigned_names(arm_src, param);
         // Only the leaf the arm selects belongs to the variant. Anything structural it
         // also reads — the `<error>` its reporting helper picks up — is the element's.
         let (leaves, structural): (Vec<_>, Vec<_>) = arm
@@ -1897,10 +2031,12 @@ fn discriminated_children(
                 .iter()
                 .cloned()
                 .map(|mut f| {
-                    // The wire name is the same for every arm; the runtime's is not.
-                    if let Some(n) = runtime_name.as_deref() {
+                    // Each leaf takes the name of the property ITS value is assigned to.
+                    // One name for the whole arm renamed every leaf the same, which the
+                    // codegen then emits as duplicate fields of one variant.
+                    if let Some(n) = runtime_names.get(&f.name) {
                         f.wire_name = Some(f.name.clone());
-                        f.name = n.to_string();
+                        f.name = n.clone();
                     }
                     f
                 })
@@ -1973,6 +2109,8 @@ struct ChildSink<'a> {
     unresolved: &'a mut Vec<String>,
     /// See [`ParserAnalyzer::recursed`].
     recursed: &'a mut Vec<Span>,
+    /// See [`ParserAnalyzer::local_bindings`] — the callback inherits what encloses it.
+    bindings: &'a std::collections::HashSet<String>,
 }
 
 fn process_child_method(
@@ -1983,18 +2121,18 @@ fn process_child_method(
     code: &str,
     module: &ModuleScope,
 ) {
-    let path: &[&str] = if parent_tag.is_empty() {
-        &[]
+    let path: Vec<PathSeg> = if parent_tag.is_empty() {
+        Vec::new()
     } else {
-        std::slice::from_ref(&parent_tag)
+        vec![PathSeg::required(parent_tag)]
     };
-    process_child_method_at(method, call, path, sink, code, module);
+    process_child_method_at(method, call, &path, sink, code, module);
 }
 
 fn process_child_method_at(
     method: &str,
     call: &CallExpression,
-    path: &[&str],
+    path: &[PathSeg],
     sink: &mut ChildSink,
     code: &str,
     module: &ModuleScope,
@@ -2011,7 +2149,7 @@ fn process_child_method_at(
                 return;
             };
             sink.recursed.push(cb_span);
-            let child_result = analyze_with_scope(cb_body, &cb_param, module);
+            let child_result = analyze_with_scope(cb_body, &cb_param, module, sink.bindings);
 
             let mut f = mk_field(method, child_tag, ParsedFieldType::String, true);
             f.tag = Some(child_tag.to_string());
@@ -2020,10 +2158,12 @@ fn process_child_method_at(
             // it reads outside the dispatch is still the element's own, and replacing the
             // flat result wholesale dropped it — silently, which is the one outcome this
             // module is built to avoid.
-            f.children = Some(match discriminated_children(cb_body, &cb_param, module) {
-                Some(dispatched) => fold_unaccounted(dispatched, child_result.fields),
-                None => child_result.fields,
-            });
+            f.children = Some(
+                match discriminated_children(cb_body, &cb_param, module, sink.bindings) {
+                    Some(dispatched) => fold_unaccounted(dispatched, child_result.fields),
+                    None => child_result.fields,
+                },
+            );
             f.repeats = Some(true);
             // What the child's own scope could not resolve is still a loss for the parser.
             sink.unresolved.extend(child_result.unresolved);
@@ -2037,7 +2177,7 @@ fn process_child_method_at(
                 return;
             };
             sink.recursed.push(cb_span);
-            let child_result = analyze_with_scope(cb_body, &cb_param, module);
+            let child_result = analyze_with_scope(cb_body, &cb_param, module, sink.bindings);
 
             let mut f = mk_field("mapChildren", "children", ParsedFieldType::String, true);
             f.children = Some(child_result.fields);
@@ -2860,6 +3000,127 @@ mod tests {
             .find(|f| f.name == "detail")
             .expect("lifted beside the union");
         assert!(!detail.required, "only one arm reads it");
+    }
+
+    #[test]
+    fn a_maybe_child_step_of_a_path_stays_optional() {
+        // The path carried only tags, so a step first materialised here became a required
+        // `child` — the IR then demanded an element the parser explicitly allows to be
+        // absent.
+        let r = analyze_parser_ast(
+            r#"{ var outer = e.child("outer"); var inner = outer.maybeChild("inner"); inner.attrString("id"); }"#,
+            "e",
+        );
+        let inner = r.fields[0]
+            .children
+            .as_ref()
+            .and_then(|c| c.iter().find(|f| f.name == "inner"))
+            .expect("`inner` under `outer`");
+        assert_eq!(inner.method, "maybeChild");
+        assert!(!inner.required, "the accessor said it may be absent");
+    }
+
+    #[test]
+    fn a_dispatch_with_a_plain_else_is_declined() {
+        // The `else` payload belongs to no value. Folded beside the union it would be
+        // required of the arms that never carry it, so the shape is left flat instead.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   if (n === "a") { var x = e.attrString("value"); t.alpha = x; }
+                   else if (n === "b") { var y = e.attrString("value"); t.beta = y; }
+                   else { var z = e.attrString("other"); t.rest = z; }
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        assert!(
+            kids.iter().all(|f| f.field_type != ParsedFieldType::Union),
+            "no union claimed: {:?}",
+            kids.iter().map(|f| f.name.as_str()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_dispatch_renames_only_the_leaf_that_was_assigned() {
+        // One name for the whole arm renamed every leaf the same, which the codegen emits
+        // as two identically-named fields of one variant.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   if (n === "a") { e.attrString("id"); var x = e.attrString("value"); t.alpha = x; }
+                   if (n === "b") { var y = e.attrString("value"); t.beta = y; }
+                 }); }"#,
+            "e",
+        );
+        let union = r.fields[0]
+            .children
+            .as_ref()
+            .unwrap()
+            .iter()
+            .find(|f| f.field_type == ParsedFieldType::Union)
+            .unwrap();
+        let names: Vec<&str> = union.union_variants.as_ref().unwrap()[0]
+            .fields
+            .iter()
+            .map(|f| f.name.as_str())
+            .collect();
+        assert_eq!(names, ["id", "alpha"], "only the assigned leaf is renamed");
+    }
+
+    #[test]
+    fn a_helper_the_parser_binds_itself_is_not_the_modules() {
+        // Resolving the callee by identifier text alone attached a stranger's fields.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("from_module"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                var parse = function(q){ q.attrString("from_local"); };
+                e.mapChildrenWithTag("row", function(row){ parse(row); });
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let row = p
+            .fields
+            .iter()
+            .find(|f| f.tag.as_deref() == Some("row"))
+            .expect("row");
+        assert!(
+            row.children
+                .as_ref()
+                .is_none_or(|c| c.iter().all(|f| f.name != "from_module")),
+            "the module helper is shadowed: {:?}",
+            row.children
+        );
+    }
+
+    #[test]
+    fn a_helper_reached_down_one_branch_is_not_required_of_all() {
+        // Two branches each hand the node to a different helper; requiring both payloads
+        // would have consumers reject the elements either branch accepts.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parseA(p){ p.attrString("a_only"); }
+            function parseB(p){ p.attrString("b_only"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                e.mapChildrenWithTag("row", function(row){
+                    if (row.attrString("kind") === "a") { parseA(row); } else { parseB(row); }
+                });
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let kids = p
+            .fields
+            .iter()
+            .find(|f| f.tag.as_deref() == Some("row"))
+            .and_then(|f| f.children.as_ref())
+            .expect("row children");
+        for name in ["a_only", "b_only"] {
+            let f = kids.iter().find(|f| f.name == name).expect(name);
+            assert!(!f.required, "{name} is only read down one branch");
+        }
     }
 
     #[test]

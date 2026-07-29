@@ -322,6 +322,7 @@ fn classify_attr_discriminated(f: &ParsedField, variants: &[UnionVariant]) -> Op
     }
     let mut attr: Option<String> = None;
     let mut seen: BTreeSet<String> = BTreeSet::new();
+    let mut normalized: BTreeSet<String> = BTreeSet::new();
     let mut arms = Vec::new();
     for v in variants {
         if tag_assert(&v.assertions).is_some() || content_assert(&v.assertions).is_some() {
@@ -345,8 +346,10 @@ fn classify_attr_discriminated(f: &ParsedField, variants: &[UnionVariant]) -> Op
             Some(_) => {}
             None => attr = Some(name.to_string()),
         }
-        // Two arms on the same value would shadow each other.
-        if !seen.insert(value.to_string()) {
+        // Two arms on the same value would shadow each other — and two values that spell
+        // the same Rust identifier (`foo-bar`, `foo_bar`) would emit the enum variant
+        // twice, which does not compile.
+        if !seen.insert(value.to_string()) || !normalized.insert(pascal_case(&v.name)) {
             return None;
         }
         arms.push(AttrArm {
@@ -962,6 +965,19 @@ mod tests {
             src.contains("_ => None"),
             "an unknown name decodes to None rather than failing: {src}"
         );
+    }
+
+    #[test]
+    fn attr_discriminated_union_refuses_values_that_spell_one_identifier() {
+        // `foo-bar` and `foo_bar` are different wire values but one Rust variant, and
+        // emitting it twice does not compile.
+        let mut f = category_union();
+        let vs = f.union_variants.as_mut().unwrap();
+        vs[0].name = "foo-bar".to_string();
+        vs[0].assertions[0].value = Some("foo-bar".to_string());
+        vs[1].name = "foo_bar".to_string();
+        vs[1].assertions[0].value = Some("foo_bar".to_string());
+        assert!(classify_union(&f).is_none());
     }
 
     #[test]

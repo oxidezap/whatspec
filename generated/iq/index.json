@@ -11969,10 +11969,10 @@
             "tag": "response",
             "children": [
               {
-                "method": "child",
+                "method": "maybeChild",
                 "name": "not_a_biz",
                 "type": "string",
-                "required": true,
+                "required": false,
                 "tag": "not_a_biz",
                 "children": [
                   {
@@ -12096,10 +12096,10 @@
             "tag": "context",
             "children": [
               {
-                "method": "child",
+                "method": "maybeChild",
                 "name": "sourceApp",
                 "type": "string",
-                "required": true,
+                "required": false,
                 "tag": "sourceApp",
                 "children": [
                   {
@@ -12112,10 +12112,10 @@
                 "contentType": "string"
               },
               {
-                "method": "child",
+                "method": "maybeChild",
                 "name": "ctaPayload",
                 "type": "string",
-                "required": true,
+                "required": false,
                 "tag": "ctaPayload",
                 "children": [
                   {
@@ -12128,10 +12128,10 @@
                 "contentType": "string"
               },
               {
-                "method": "child",
+                "method": "maybeChild",
                 "name": "originalImageUrl",
                 "type": "string",
-                "required": true,
+                "required": false,
                 "tag": "originalImageUrl",
                 "children": [
                   {
@@ -34743,10 +34743,10 @@
             "tag": "privacy",
             "children": [
               {
-                "method": "child",
+                "method": "maybeChild",
                 "name": "list",
                 "type": "string",
-                "required": true,
+                "required": false,
                 "tag": "list",
                 "children": [
                   {

@@ -424,10 +424,10 @@
                 "required": false
               },
               {
-                "method": "child",
+                "method": "maybeChild",
                 "name": "key",
                 "type": "string",
-                "required": true,
+                "required": false,
                 "tag": "key",
                 "children": [
                   {
@@ -588,10 +588,10 @@
             "tag": "reporting",
             "children": [
               {
-                "method": "child",
+                "method": "maybeChild",
                 "name": "reporting_token",
                 "type": "string",
-                "required": true,
+                "required": false,
                 "tag": "reporting_token",
                 "children": [
                   {
@@ -610,10 +610,10 @@
                 "contentType": "bytes"
               },
               {
-                "method": "child",
+                "method": "maybeChild",
                 "name": "reporting_tag",
                 "type": "string",
-                "required": true,
+                "required": false,
                 "tag": "reporting_tag",
                 "children": [
                   {
@@ -892,7 +892,7 @@
                 "method": "forEachChildWithTag",
                 "name": "user",
                 "type": "string",
-                "required": true,
+                "required": false,
                 "tag": "user",
                 "children": [
                   {
@@ -949,13 +949,13 @@
                 "method": "attrString",
                 "name": "message_id",
                 "type": "string",
-                "required": true
+                "required": false
               },
               {
                 "method": "mapChildrenWithTag",
                 "name": "user",
                 "type": "string",
-                "required": true,
+                "required": false,
                 "tag": "user",
                 "children": [
                   {
@@ -989,7 +989,7 @@
                 "method": "attrString",
                 "name": "key",
                 "type": "string",
-                "required": true
+                "required": false
               }
             ]
           },
@@ -997,19 +997,19 @@
             "method": "attrDeviceJid",
             "name": "participant",
             "type": "device_jid",
-            "required": true
+            "required": false
           },
           {
             "method": "attrUserJid",
             "name": "recipient",
             "type": "user_jid",
-            "required": true
+            "required": false
           },
           {
             "method": "child",
             "name": "list",
             "type": "string",
-            "required": true,
+            "required": false,
             "tag": "list",
             "children": [
               {
@@ -1040,7 +1040,7 @@
             "method": "child",
             "name": "biz",
             "type": "string",
-            "required": true,
+            "required": false,
             "tag": "biz",
             "children": [
               {
@@ -1067,13 +1067,13 @@
             "method": "attrString",
             "name": "is_lid",
             "type": "string",
-            "required": true
+            "required": false
           },
           {
             "method": "attrUserJid",
             "name": "participant_pn",
             "type": "user_jid",
-            "required": true
+            "required": false
           },
           {
             "method": "maybeAttrString",
@@ -1085,7 +1085,7 @@
             "method": "attrTime",
             "name": "t",
             "type": "integer",
-            "required": true
+            "required": false
           }
         ]
       }
