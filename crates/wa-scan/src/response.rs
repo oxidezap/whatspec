@@ -422,7 +422,7 @@ fn analyze_with_scope(code: &str, param: &str, module: &ModuleScope) -> ParserRe
         param,
         module,
         recursed: Vec::new(),
-        param_shadow_depth: 0,
+        scopes: Vec::new(),
         assertions: Vec::new(),
         fields: Vec::new(),
         child_vars: HashMap::new(),
@@ -440,16 +440,40 @@ fn analyze_with_scope(code: &str, param: &str, module: &ModuleScope) -> ParserRe
     }
 }
 
-/// Whether a parameter list binds `name`, however the pattern is written.
-fn params_bind(params: &oxc_ast::ast::FormalParameters, name: &str) -> bool {
-    let binds = |p: &oxc_ast::ast::BindingPattern| {
-        p.get_binding_identifiers().iter().any(|i| i.name == name)
-    };
-    params.items.iter().any(|p| binds(&p.pattern))
-        || params
-            .rest
-            .as_ref()
-            .is_some_and(|r| binds(&r.rest.argument))
+/// The identifier a receiver chain bottoms out at: `x` for `x`, for `x.child("a")` and
+/// for `x.child("a").child("b")`.
+fn base_identifier<'b>(expr: &'b Expression<'_>) -> Option<&'b str> {
+    if let Some(n) = as_identifier(expr) {
+        return Some(n);
+    }
+    base_identifier(callee_object(as_call(expr)?)?)
+}
+
+/// Every name a function binds — parameters and the variables declared under it.
+#[derive(Default)]
+struct BoundNames {
+    names: std::collections::HashSet<String>,
+}
+
+impl<'a> Visit<'a> for BoundNames {
+    fn visit_binding_identifier(&mut self, id: &oxc_ast::ast::BindingIdentifier<'a>) {
+        self.names.insert(id.name.as_str().to_string());
+    }
+
+    // A nested function's parameters and locals belong to *its* scope, not this one; only
+    // the name it introduces here does. Descending would let an inner binding pass for an
+    // outer one and discount reads that are genuinely the enclosing node's.
+    fn visit_function(&mut self, func: &Function<'a>, _flags: ScopeFlags) {
+        if let Some(id) = func.id.as_ref() {
+            self.names.insert(id.name.as_str().to_string());
+        }
+    }
+
+    fn visit_arrow_function_expression(
+        &mut self,
+        _func: &oxc_ast::ast::ArrowFunctionExpression<'a>,
+    ) {
+    }
 }
 
 /// The `dropsByReason` key for a read inside a callback that re-binds the parser's
@@ -473,12 +497,17 @@ struct ParserAnalyzer<'src, 'ms> {
     /// covered: a callback `process_child_method` declined to descend into is still read
     /// here, as before, instead of vanishing.
     recursed: Vec<Span>,
-    /// How many enclosing functions re-bind [`Self::param`]'s name.
+    /// The names each enclosing inner function binds, innermost last.
     ///
-    /// A callback the recursion did not descend into is still walked here, and its reads
-    /// resolve against the outer bindings — landing at the root, flat and one level too
-    /// high. They are neither kept there nor dropped in silence: see [`SHADOWED_READ`].
-    param_shadow_depth: u32,
+    /// Suppression is about ownership, not position: a callback's own bindings are not the
+    /// parser's nodes, but a captured outer one still is. `var x = e.child("meta")` read
+    /// inside `mapChildrenWithTag("row", …)` is a read of `meta`, and the recursion cannot
+    /// see it — its analyser starts with no bindings at all — so this walk has to.
+    ///
+    /// A callback the recursion did not descend into is walked here too, and its own
+    /// bindings resolve against the outer ones — landing at the root, flat and one level
+    /// too high. Those are neither kept nor dropped in silence: see [`SHADOWED_READ`].
+    scopes: Vec<std::collections::HashSet<String>>,
     /// The enclosing module's pre-extracted helpers/maps (empty when there is no module),
     /// for resolving module-scope sibling helpers and enum value maps.
     module: &'ms ModuleScope,
@@ -506,27 +535,33 @@ struct ParserAnalyzer<'src, 'ms> {
 
 impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
     fn visit_function(&mut self, func: &Function<'a>, flags: ScopeFlags) {
-        let shadows = params_bind(&func.params, self.param);
-        self.param_shadow_depth += u32::from(shadows);
+        let mut bound = BoundNames::default();
+        bound.visit_formal_parameters(&func.params);
+        if let Some(body) = func.body.as_ref() {
+            bound.visit_function_body(body);
+        }
+        self.scopes.push(bound.names);
         walk::walk_function(self, func, flags);
-        self.param_shadow_depth -= u32::from(shadows);
+        self.scopes.pop();
     }
 
     fn visit_arrow_function_expression(
         &mut self,
         func: &oxc_ast::ast::ArrowFunctionExpression<'a>,
     ) {
-        let shadows = params_bind(&func.params, self.param);
-        self.param_shadow_depth += u32::from(shadows);
+        let mut bound = BoundNames::default();
+        bound.visit_formal_parameters(&func.params);
+        bound.visit_function_body(&func.body);
+        self.scopes.push(bound.names);
         walk::walk_arrow_function_expression(self, func);
-        self.param_shadow_depth -= u32::from(shadows);
+        self.scopes.pop();
     }
 
     fn visit_variable_declaration(&mut self, decl: &VariableDeclaration<'a>) {
         // A descendant bound inside a callback that has its own scope — whether the
         // recursion read it or the shadow check will discount it — must not rebind the
         // outer name, or later reads land against the wrong node.
-        if self.inside_recursed(decl.span) || self.param_shadow_depth > 0 {
+        if self.inside_recursed(decl.span) || self.param_shadowed() {
             walk::walk_variable_declaration(self, decl);
             return;
         }
@@ -559,9 +594,17 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
 
     fn visit_call_expression(&mut self, call: &CallExpression<'a>) {
         if self.inside_recursed(call.span) {
-            // Already read in its own scope by `process_child_method`.
-        } else if self.param_shadow_depth > 0 {
-            self.note_shadowed_read(call);
+            // Read in its own scope by `process_child_method` — unless it reaches back
+            // through a node that scope never bound, which only this walk can resolve.
+            if self.reads_a_captured_child(call) {
+                self.handle_call(call);
+            }
+        } else if self.param_shadowed() {
+            if self.reads_a_captured_child(call) {
+                self.handle_call(call);
+            } else {
+                self.note_shadowed_read(call);
+            }
         } else {
             self.handle_call(call);
             self.try_helper_descent(call);
@@ -579,6 +622,24 @@ impl ParserAnalyzer<'_, '_> {
             .any(|r| span.start >= r.start && span.end <= r.end)
     }
 
+    /// Whether an enclosing inner function re-binds the parser's own parameter.
+    fn param_shadowed(&self) -> bool {
+        self.scopes.iter().any(|s| s.contains(self.param))
+    }
+
+    /// Whether `name` belongs to an enclosing callback rather than to the parser's own body.
+    fn bound_by_inner_scope(&self, name: &str) -> bool {
+        self.scopes.iter().any(|s| s.contains(name))
+    }
+
+    /// Whether `call` reads through a tracked child node captured from outside every
+    /// enclosing callback — a read those callbacks' own scopes cannot account for.
+    fn reads_a_captured_child(&self, call: &CallExpression) -> bool {
+        callee_object(call)
+            .and_then(base_identifier)
+            .is_some_and(|n| self.child_vars.contains_key(n) && !self.bound_by_inner_scope(n))
+    }
+
     /// Count a wire read the outer walk cannot place: it sits in a callback that re-binds
     /// the parser's parameter, so the name it reads through is not the node it names here.
     /// Keeping it would publish a field at the wrong level; dropping it quietly would let
@@ -593,9 +654,13 @@ impl ParserAnalyzer<'_, '_> {
         let Some(obj) = callee_object(call) else {
             return;
         };
-        let reads_a_known_node =
-            as_identifier(obj).is_some_and(|n| n == self.param || self.child_vars.contains_key(n));
-        if reads_a_known_node {
+        // A node of the callback's own counts too: `var o = r.maybeChild("error")` reads a
+        // real element, and it is no more placeable here than a read through the stale
+        // outer binding it shadows.
+        let reads_a_node = as_identifier(obj).is_some_and(|n| {
+            n == self.param || self.child_vars.contains_key(n) || self.bound_by_inner_scope(n)
+        });
+        if reads_a_node {
             self.unresolved.push(format!("{SHADOWED_READ}@{method}"));
         }
     }
@@ -1143,7 +1208,7 @@ fn analyze_child_node(
         param: "",
         module,
         recursed: Vec::new(),
-        param_shadow_depth: 0,
+        scopes: Vec::new(),
         assertions: Vec::new(),
         fields: Vec::new(),
         child_vars: HashMap::from([(node_param.to_string(), tag.to_string())]),
@@ -1478,6 +1543,97 @@ mod tests {
                 .map(|c| c.iter().map(|f| f.name.as_str()).collect::<Vec<_>>()),
             Some(vec!["id"]),
             "the rebound read belongs to the product's `id`"
+        );
+    }
+
+    #[test]
+    fn a_callback_reading_a_captured_child_keeps_that_read() {
+        // The callback's own bindings are not the parser's nodes, but `x` is: it was bound
+        // outside and only captured here. The recursion analyses the body with no bindings
+        // at all, so it cannot place this read — suppressing it by span alone lost `meta`'s
+        // `id` outright.
+        let r = analyze_parser_ast(
+            r#"{ var x = e.child("meta");
+                 e.mapChildrenWithTag("row", function(row){ x.attrString("id"); row.attrString("v"); }); }"#,
+            "e",
+        );
+        let by = |n: &str| r.fields.iter().find(|f| f.name == n);
+        assert_eq!(
+            by("meta")
+                .and_then(|f| f.children.as_ref())
+                .map(|c| c.iter().map(|f| f.name.as_str()).collect::<Vec<_>>()),
+            Some(vec!["id"]),
+            "the captured node keeps the read made through it"
+        );
+        assert_eq!(
+            by("row")
+                .and_then(|f| f.children.as_ref())
+                .map(|c| c.iter().map(|f| f.name.as_str()).collect::<Vec<_>>()),
+            Some(vec!["v"]),
+            "and the callback's own read stays where the recursion put it"
+        );
+        assert!(
+            r.unresolved.is_empty(),
+            "nothing counted lost: {:?}",
+            r.unresolved
+        );
+    }
+
+    #[test]
+    fn a_captured_child_read_survives_a_callback_that_shadows_the_param() {
+        // Same capture, but the callback re-binds `e` as the minifier usually writes it:
+        // the shadow arm has to make the same exception the span arm does.
+        let r = analyze_parser_ast(
+            r#"{ var x = e.child("meta");
+                 e.forEachChildWithTag("row", function(e){ x.attrString("id"); }); }"#,
+            "e",
+        );
+        assert_eq!(
+            r.fields
+                .iter()
+                .find(|f| f.name == "meta")
+                .and_then(|f| f.children.as_ref())
+                .map(|c| c.iter().map(|f| f.name.as_str()).collect::<Vec<_>>()),
+            Some(vec!["id"]),
+        );
+    }
+
+    #[test]
+    fn a_callback_rebinding_an_outer_child_var_does_not_read_through_the_stale_one() {
+        // `usyncParser` binds `r` to `<usync>`, then re-binds `r` inside a `forEach` to a
+        // child of `<result>`. Resolving the inner `r` against the outer binding published
+        // `usync/refresh` and an `<error>` at the response root — neither is where the wire
+        // puts them. `a` is only captured, never re-bound, so reads through it still count.
+        let r = analyze_parser_ast(
+            r#"{ t.assertAttr("type","result"); var n={}, r=t.child("usync"), a=r.child("result");
+                 Object.keys(c).forEach(function(e){
+                   var t=c[e]; var r=a.maybeChild(t);
+                   if(r){ var o=r.maybeChild("error");
+                     o ? n.error[t]={errorCode:o.attrInt("code")}
+                       : (n.refresh[t]=r.attrInt("refresh",0)) } }); }"#,
+            "t",
+        );
+        assert_eq!(
+            r.fields.iter().map(|f| f.name.as_str()).collect::<Vec<_>>(),
+            ["usync"],
+            "no `error` at the root, and no `refresh` under the wrong node"
+        );
+        assert!(
+            r.fields[0]
+                .children
+                .as_ref()
+                .is_none_or(|c| c.iter().all(|f| f.name != "refresh")),
+            "`refresh` is not a child of `usync`"
+        );
+        let shadowed = r
+            .unresolved
+            .iter()
+            .filter(|u| u.starts_with(SHADOWED_READ))
+            .count();
+        assert_eq!(
+            shadowed, 3,
+            "every displaced read is counted: {:?}",
+            r.unresolved
         );
     }
 

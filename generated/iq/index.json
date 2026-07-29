@@ -41062,41 +41062,7 @@
             "type": "string",
             "required": true,
             "tag": "usync",
-            "children": [
-              {
-                "method": "attrInt",
-                "name": "refresh",
-                "type": "integer",
-                "required": true
-              }
-            ]
-          },
-          {
-            "method": "child",
-            "name": "error",
-            "type": "string",
-            "required": true,
-            "tag": "error",
-            "children": [
-              {
-                "method": "attrInt",
-                "name": "code",
-                "type": "integer",
-                "required": true
-              },
-              {
-                "method": "attrString",
-                "name": "text",
-                "type": "string",
-                "required": true
-              },
-              {
-                "method": "attrInt",
-                "name": "backoff",
-                "type": "integer",
-                "required": true
-              }
-            ]
+            "children": []
           }
         ]
       }
