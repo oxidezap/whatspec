@@ -708,7 +708,8 @@ __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGr
             scalarFb: t.hasChild("sf") ? t.mapChildrenWithTag("scalar_user", function(x){ return {id:x.attrUserJid("jid")}; }) : 0,
             reversed_: t.hasChild("rv") ? 0 : t.mapChildrenWithTag("reversed_user", function(x){ return {id:x.attrUserJid("jid")}; }),
             parenRev: (t.hasChild("pr") ? 0 : t.mapChildrenWithTag("paren_rev_user", function(x){ return {id:x.attrUserJid("jid")}; })),
-            callRev: t.hasChild("cr") ? other(t) : t.mapChildrenWithTag("call_rev_user", function(x){ return {id:x.attrUserJid("jid")}; })};
+            callRev: t.hasChild("cr") ? other(t) : t.mapChildrenWithTag("call_rev_user", function(x){ return {id:x.attrUserJid("jid")}; }),
+            nestedRev: t.hasChild("n1") ? other(t) : (t.hasChild("n2") ? other(t) : t.mapChildrenWithTag("nested_rev_user", function(x){ return {id:x.attrUserJid("jid")}; }))};
         }
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.REVOKE_INVITE:
           return {actionType:o("WAWebGroupType").GROUP_ACTIONS.REVOKE_INVITE, participants:t.mapChildrenWithTag("participant", function(p){ return {id:p.attrUserJid("jid"), expiration:p.attrInt("expiration")}; }), owners:t.mapChildrenWithTag("owner", p=>o("WAWebJidToWid").userJidToUserWid(p.maybeAttrPhoneUserJid("phone_number")))};
@@ -988,6 +989,9 @@ fn a_mapped_child_is_optional_only_when_the_guard_admits_absence() {
     // A CALL consequent is the case the `0` fixtures could not reach: filtering the
     // combined result made the fallback fire only when the consequent was not a call.
     assert_eq!(child("callRev").wire_tag, "call_rev_user");
+    // ...and nested one level deeper: looking at a single alternate found the inner
+    // conditional, not the map inside it.
+    assert_eq!(child("nestedRev").wire_tag, "nested_rev_user");
 
     let paren_rev = child("parenRev");
     assert_eq!(paren_rev.wire_tag, "paren_rev_user");

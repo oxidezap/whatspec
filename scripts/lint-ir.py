@@ -212,6 +212,24 @@ WIDTH_BEARING = {"contentUint"}
 # than preserved, so an unknown value loses the channel silently instead of failing.
 WAM_CHANNELS = {"regular", "realtime", "private"}
 
+# What each accessor may decode to. Deliberately a SET per accessor, not one type: an
+# `attrInt` legitimately backs `integer`, `timestamp` and `timestamp_millis`, and a
+# one-to-one map would have failed CI on 27 correct fields. Only accessors whose vocabulary
+# is settled are listed; anything else is left alone rather than guessed at.
+ACCESSOR_TYPES = {
+    "attrInt": {"integer", "timestamp", "timestamp_millis"},
+    "attrString": {"string"},
+    "contentUint": {"integer"},
+    "contentBytes": {"bytes"},
+    "attrEnum": {"enum"},
+    "maybeAttrEnum": {"enum"},
+}
+
+# `contentUint(N)` reads N big-endian bytes and `contentBytes` a fixed run; nothing else
+# has a byte width. A node with NO accessor is request-side (a `constBytes` pin), which
+# carries the length legitimately — 20 of them do.
+WIDTH_ACCESSORS = {"contentUint", "contentBytes"}
+
 # The protobuf message appstate actions nest under. Their `protoEnum`/`valueEnumFields`
 # paths are written relative to it, so it is the one prefix that may be elided.
 APPSTATE_ROOT = "SyncActionValue"
@@ -499,6 +517,18 @@ def check_field(f, path, domain, errors, counts, proto_enums):
             errors.append(f"{path}: byteLength {bl} is below byteMin {lo}")
         if isinstance(hi, int) and not isinstance(hi, bool) and bl > hi:
             errors.append(f"{path}: byteLength {bl} is above byteMax {hi}")
+
+    # The accessor and the declared type have to agree: `attrInt` with `type: "string"`
+    # tells a consumer to read the wire one way and represent it another.
+    allowed = ACCESSOR_TYPES.get(method)
+    if allowed is not None and t not in allowed:
+        errors.append(
+            f"{path}: {method!r} decodes {sorted(allowed)}, not {t!r}"
+        )
+
+    # A byte width belongs to an accessor that HAS one.
+    if "byteLength" in f and method and method not in WIDTH_ACCESSORS:
+        errors.append(f"{path}: byteLength on {method!r}, which has no byte width")
 
     # An echo rule with no path says "this equals something in the request" and
     # then does not say what.

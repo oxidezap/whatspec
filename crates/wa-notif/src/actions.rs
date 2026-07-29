@@ -1952,21 +1952,11 @@ fn mapped_child<'b, 'a>(
     // Unwrapped first: `(cond ? 0 : map(…))` hides the conditional behind a paren, and
     // matching on the wrapper answers "not a conditional". Third time this wrapper has
     // cost this file something.
-    let unwrapped = strip_parens(e);
-    // Each candidate is filtered BEFORE falling back. Filtering the combined result made
-    // `or_else` fire only when the consequent was not a call at all, so
-    // `cond ? otherCall() : map(…)` discarded the wrong call and never looked at the
-    // alternate — and the tests, whose consequent was `0`, could not see it.
-    let is_map =
-        |c: &&oxc_ast::ast::CallExpression| callee_method(c) == Some(wap::MAP_CHILDREN_WITH_TAG);
-    let call = as_call(strip_guard(unwrapped))
-        .filter(is_map)
-        .or_else(|| match unwrapped {
-            Expression::ConditionalExpression(c) => {
-                as_call(strip_guard(&c.alternate)).filter(is_map)
-            }
-            _ => None,
-        })?;
+    // The search filters each candidate on its own and descends into nested branches —
+    // see `find_mapped_call`. Filtering a combined result made the fallback fire only
+    // when the consequent was not a call at all, and looking one level down found an
+    // inner conditional rather than the map inside it.
+    let call = find_mapped_call(e)?;
     let wire_tag = arg_expr(call.arguments.first()?).and_then(as_string_lit)?;
     let mut fields = Vec::new();
     for arg in &call.arguments {
@@ -2116,6 +2106,26 @@ fn guard_admits_absence(e: &Expression) -> bool {
             l.operator == oxc_syntax::operator::LogicalOperator::And
         }
         _ => false,
+    }
+}
+
+/// The `mapChildrenWithTag` call reachable from `e` through guards and ternary branches.
+///
+/// Both sides, RECURSIVELY: `a ? x : (b ? y : map(…))` nests, and looking one level down
+/// found the inner conditional rather than the map. Each step descends into a strictly
+/// smaller node, so it terminates on the expression's own depth.
+fn find_mapped_call<'b, 'a>(e: &'b Expression<'a>) -> Option<&'b oxc_ast::ast::CallExpression<'a>> {
+    let is_map =
+        |c: &&oxc_ast::ast::CallExpression| callee_method(c) == Some(wap::MAP_CHILDREN_WITH_TAG);
+    let e = strip_parens(e);
+    if let Some(c) = as_call(strip_guard(e)).filter(is_map) {
+        return Some(c);
+    }
+    match e {
+        Expression::ConditionalExpression(c) => {
+            find_mapped_call(&c.alternate).or_else(|| find_mapped_call(&c.consequent))
+        }
+        _ => None,
     }
 }
 
