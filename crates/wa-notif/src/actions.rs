@@ -2109,7 +2109,9 @@ fn guard_admits_absence(e: &Expression) -> bool {
 fn is_nullish(e: &Expression) -> bool {
     match e {
         Expression::NullLiteral(_) => true,
-        Expression::BooleanLiteral(b) => !b.value,
+        // EVERY boolean, not just `false`: `enabled ? map(…) : true` yields a boolean on
+        // the disabled path exactly as `: false` does. Neither is a collection.
+        Expression::BooleanLiteral(_) => true,
         Expression::Identifier(i) => i.name == "undefined",
         // A scalar sentinel is no more a collection than `null` is: `enabled ? map(…) : 0`
         // yields a number on the disabled path. Any literal that cannot be a list counts.
@@ -2120,7 +2122,8 @@ fn is_nullish(e: &Expression) -> bool {
             // The minifier writes `undefined` as `void 0`.
             oxc_ast::ast::UnaryOperator::Void => true,
             // ...and  as .
-            oxc_ast::ast::UnaryOperator::LogicalNot => as_int(&u.argument) == Some(1),
+            // `!0` and `!1` are how the minifier writes `true` and `false`.
+            oxc_ast::ast::UnaryOperator::LogicalNot => as_int(&u.argument).is_some(),
             // ...and `false` as `!1`.
             _ => false,
         },

@@ -277,6 +277,34 @@ def collect_unresolved_enums(data, domain, proto_enums, out):
     walk_(data, [])
 
 
+def collect_sync_action_fields(path):
+    """`fieldName -> MessageType` for the direct fields of `message SyncActionValue`.
+
+    Scanned by brace DEPTH, not by a non-greedy match: the message contains nested ones,
+    and a regex stopping at the first `}` reported all 62 fields as missing.
+    """
+    try:
+        text = path.read_text()
+    except OSError:
+        return {}
+    out, depth, inside = {}, 0, False
+    for line in text.splitlines():
+        stripped = line.split("//")[0].strip()
+        if not inside and re.match(r"message\s+SyncActionValue\s*\{", stripped):
+            inside, depth = True, 1
+            continue
+        if not inside:
+            continue
+        if depth == 1:
+            m = re.match(r"(?:optional|required|repeated)\s+([\w.]+)\s+(\w+)\s*=", stripped)
+            if m:
+                out[m.group(2)] = m.group(1)
+        depth += stripped.count("{") - stripped.count("}")
+        if depth <= 0:
+            break
+    return out
+
+
 def collect_proto_messages(path):
     """`Outer.Inner` for every protobuf MESSAGE, in the same two forms as the enums.
 
@@ -426,14 +454,19 @@ def check_field(f, path, domain, errors, counts, proto_enums):
             for i, v in enumerate(variants):
                 if isinstance(v, dict) and v.get("name") == "":
                     errors.append(f"{path}: union alternative {i} has an empty name")
+            # NORMALIZED, as the generator sees them: `collect_union` runs each through
+            # `pascal_case`, so `fooBar` and `foo-bar` emit one variant twice. Same rule
+            # already applied to appstate collections and scopes.
             names = [
-                v.get("name")
+                pascal_case(v["name"])
                 for v in variants
                 if isinstance(v, dict) and isinstance(v.get("name"), str) and v["name"]
             ]
             repeated = sorted({n for n in names if names.count(n) > 1})
             if repeated:
-                errors.append(f"{path}: union alternatives repeat a name ({repeated})")
+                errors.append(
+                    f"{path}: union alternative names collide once normalized ({repeated})"
+                )
 
     # Each pair is the two bounds of ONE range accessor. Inverted is a contradiction;
     # so is half of one — the schema permits either key alone, but a consumer handed
@@ -458,6 +491,15 @@ def check_field(f, path, domain, errors, counts, proto_enums):
         if lo in f and t != owner:
             errors.append(f"{path}: {lo}/{hi} on a {t!r} field, not {owner!r}")
 
+    # A fixed length outside the declared range is two claims no payload can satisfy.
+    bl = f.get("byteLength")
+    if isinstance(bl, int) and not isinstance(bl, bool):
+        lo, hi = f.get("byteMin"), f.get("byteMax")
+        if isinstance(lo, int) and not isinstance(lo, bool) and bl < lo:
+            errors.append(f"{path}: byteLength {bl} is below byteMin {lo}")
+        if isinstance(hi, int) and not isinstance(hi, bool) and bl > hi:
+            errors.append(f"{path}: byteLength {bl} is above byteMax {hi}")
+
     # An echo rule with no path says "this equals something in the request" and
     # then does not say what.
     if "referencePath" in f and not f["referencePath"]:
@@ -475,7 +517,7 @@ def check_field(f, path, domain, errors, counts, proto_enums):
         )
 
 
-def check_enum_ref(node, path, errors):
+def check_enum_ref(node, path, errors, seen_refs=None):
     """An `enumRef` anywhere, not only on a `ParsedField`.
 
     Request-side and stanza attributes carry one too, keyed by `kind` rather than `type`,
@@ -500,6 +542,25 @@ def check_enum_ref(node, path, errors):
     repeated = sorted({m for m in members if members.count(m) > 1})
     if repeated:
         errors.append(f"{path}: enumRef {ref.get('name')!r} defines {repeated} more than once")
+
+    # `(module, name)` denotes ONE exported enum. `stanza_export` dedups references by it
+    # with the first table winning, so two fields carrying that identity with different
+    # variants get different constraints depending on traversal order.
+    if seen_refs is None:
+        return
+    ident = (ref.get("module"), ref.get("name"))
+    if not all(isinstance(x, str) for x in ident):
+        return
+    table = tuple(
+        (v.get("name"), repr(v.get("value")))
+        for v in ref["variants"]
+        if isinstance(v, dict)
+    )
+    prev = seen_refs.setdefault(ident, (table, path))
+    if prev[0] != table:
+        errors.append(
+            f"{path}: enumRef {ident} disagrees with the table at {prev[1]}"
+        )
 
 
 def check_const_bytes(node, path, errors):
@@ -598,9 +659,12 @@ def check_enum_catalog_refs(data, domain, errors):
                         f"{e.get('valueKind')!r} but variant "
                         f"{(v.get('name') or v.get('key'))!r} carries {val!r}"
                     )
-        # Integer members become discriminants of a `#[repr(i64)]` Rust enum, where a
-        # repeat is E0081 — so a catalog the linter certifies would not compile.
-        vals = [
+        # WAM ONLY. There, integer members become discriminants of a `#[repr(i64)]` enum
+        # and a repeat is E0081. `generated/enums/` is emitted as an untyped `(name,
+        # value)` slice, where an upstream ALIAS — two names for one value — is legal and
+        # preserved; rejecting it would have failed CI on correct data the next time WA
+        # shipped one. The `repr` argument belongs to the WAM generator, not to both.
+        vals = [] if domain != "wam" else [
             v.get("value")
             for v in e.get("variants") or []
             if isinstance(v, dict)
@@ -903,7 +967,7 @@ def check_tokens(data, domain, errors):
                 )
 
 
-def check_appstate_collections(data, domain, errors, proto_enums, proto_messages):
+def check_appstate_collections(data, domain, errors, proto_enums, proto_messages, sync_fields):
     """An action's `collection` must be one the document declares.
 
     The schema is only a string. `generate_appstate_schemas` builds the `Collection` enum
@@ -975,6 +1039,23 @@ def check_appstate_collections(data, domain, errors, proto_enums, proto_messages
                 f"{domain}/actions/{name}: valueProtoType {vpt!r} is in no committed "
                 f"protobuf message"
             )
+        # The FIELD too, and that the two agree: a consumer places the message into the
+        # `SyncActionValue` field this names, so a wrong name — or a real name typed as a
+        # different message — leaves the payload unbuildable. Checking only that the
+        # message exists somewhere left `valueField` entirely unverified.
+        vf = a.get("valueField")
+        if isinstance(vf, str) and isinstance(vpt, str):
+            declared = sync_fields.get(vf)
+            if declared is None:
+                errors.append(
+                    f"{domain}/actions/{name}: valueField {vf!r} is not a field of "
+                    f"SyncActionValue"
+                )
+            elif declared.split(".")[-1] != vpt.split(".")[-1]:
+                errors.append(
+                    f"{domain}/actions/{name}: valueField {vf!r} is declared "
+                    f"{declared!r}, not {vpt!r}"
+                )
         # Each `valueEnumFields` value is a protobuf enum PATH, published unchanged for a
         # consumer to interpret. A typo or a removed enum leaves mutation tooling unable
         # to resolve what the IR claims — and the schema is only a string.
@@ -1104,12 +1185,14 @@ def main() -> int:
     errors: list[str] = []
     counts = dict.fromkeys(BASELINE, 0)
     unresolved: dict[str, int] = defaultdict(int)
+    seen_refs: dict[tuple, tuple] = {}
 
     # The protobuf enums an appstate `protoEnum` may name. A path that resolves to
     # nothing is not a constraint — it only looks like one because the string is present,
     # and the schema accepts any string.
     proto_enums = collect_proto_enums(root / "proto" / "WAProto.proto")
     proto_messages = collect_proto_messages(root / "proto" / "WAProto.proto")
+    sync_fields = collect_sync_action_fields(root / "proto" / "WAProto.proto")
 
     docs = sorted(root.glob("*/index.json"))
     if not docs:
@@ -1154,7 +1237,7 @@ def main() -> int:
             if "kind" in node:
                 check_assertion(node, f"{domain}{path}", errors)
             # Independent of the field gate — see each function's note.
-            check_enum_ref(node, f"{domain}{path}", errors)
+            check_enum_ref(node, f"{domain}{path}", errors, seen_refs)
             check_const_bytes(node, f"{domain}{path}", errors)
             check_action_keys(node, f"{domain}{path}", errors)
             check_variant_groups(node, f"{domain}{path}", errors)
@@ -1166,7 +1249,9 @@ def main() -> int:
         check_enum_catalog_refs(data, domain, errors)
         check_event_codes(data, domain, errors)
         check_abprops(data, domain, errors)
-        check_appstate_collections(data, domain, errors, proto_enums, proto_messages)
+        check_appstate_collections(
+            data, domain, errors, proto_enums, proto_messages, sync_fields
+        )
         check_tokens(data, domain, errors)
         collect_unresolved_enums(data, domain, proto_enums, unresolved)
 
