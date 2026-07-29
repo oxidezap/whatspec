@@ -41318,7 +41318,39 @@
             "type": "string",
             "required": true,
             "tag": "usync",
-            "children": []
+            "children": [
+              {
+                "method": "child",
+                "name": "list",
+                "type": "string",
+                "required": true,
+                "tag": "list",
+                "children": [
+                  {
+                    "method": "forEachChildWithTag",
+                    "name": "user",
+                    "type": "string",
+                    "required": true,
+                    "tag": "user",
+                    "children": [
+                      {
+                        "method": "attrDeviceJid",
+                        "name": "jid",
+                        "type": "device_jid",
+                        "required": true
+                      },
+                      {
+                        "method": "attrDeviceJid",
+                        "name": "pn_jid",
+                        "type": "device_jid",
+                        "required": true
+                      }
+                    ],
+                    "repeats": true
+                  }
+                ]
+              }
+            ]
           }
         ]
       }

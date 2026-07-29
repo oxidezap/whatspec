@@ -1646,11 +1646,14 @@ fn analyze_child_node(
 /// Union `new_children` into the children of the node `path` names — the one a local
 /// `var i = param.maybeChild("tag")` built.
 fn merge_child_shape_at(
-    fields: &mut [ParsedField],
+    fields: &mut Vec<ParsedField>,
     path: &[PathSeg],
     new_children: Vec<ParsedField>,
 ) {
-    let Some(field) = node_at(fields, path) else {
+    // Creating, not looking up: a step of the path is only built when a read lands on it,
+    // so for `var u = t.child("b"); helper(u)` the `<b>` node does not exist yet and
+    // everything the helper recovered would be dropped without a word.
+    let Some(field) = node_at_mut(fields, path) else {
         return;
     };
     let existing = field.children.get_or_insert_with(Vec::new);
@@ -1819,17 +1822,28 @@ struct AllBindings {
     fns: Vec<Span>,
 }
 
-impl<'a> Visit<'a> for AllBindings {
-    fn visit_binding_identifier(&mut self, id: &oxc_ast::ast::BindingIdentifier<'a>) {
+impl AllBindings {
+    fn bind(&mut self, name: &str) {
         match self.fns.last() {
-            Some(&extent) => self.scoped.push((extent, id.name.as_str().to_string())),
+            Some(&extent) => self.scoped.push((extent, name.to_string())),
             None => {
-                self.names.insert(id.name.as_str().to_string());
+                self.names.insert(name.to_string());
             }
         }
     }
+}
+
+impl<'a> Visit<'a> for AllBindings {
+    fn visit_binding_identifier(&mut self, id: &oxc_ast::ast::BindingIdentifier<'a>) {
+        self.bind(id.name.as_str());
+    }
 
     fn visit_function(&mut self, func: &Function<'a>, flags: ScopeFlags) {
+        // A declaration binds its name in the scope it sits in — recorded against its own
+        // body, a call beside it would not see the local and would resolve the module's.
+        if let Some(id) = func.id.as_ref() {
+            self.bind(id.name.as_str());
+        }
         self.fns.push(func.span);
         walk::walk_function(self, func, flags);
         self.fns.pop();
@@ -3284,6 +3298,58 @@ mod tests {
                 .any(|d| d.starts_with("contentBytesRange")),
             "the helper's loss reaches the caller: {:?}",
             p.pending_drops
+        );
+    }
+
+    #[test]
+    fn a_helper_reaches_a_node_no_read_has_built_yet() {
+        // Only `<a>` exists when the helper is called: `<b>` is built by the read that
+        // lands on it, and there is none here. Looking the path up instead of creating it
+        // dropped everything the helper recovered, without a word.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("deep"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                var t = e.child("a");
+                var u = t.child("b");
+                parse(u);
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let deep = p
+            .fields
+            .iter()
+            .find(|f| f.tag.as_deref() == Some("a"))
+            .and_then(|f| f.children.as_ref())
+            .and_then(|c| c.iter().find(|f| f.tag.as_deref() == Some("b")))
+            .and_then(|f| f.children.as_ref())
+            .map(|c| c.iter().map(|g| g.name.as_str()).collect::<Vec<_>>());
+        assert_eq!(deep, Some(vec!["deep"]), "in `a`'s `b`: {:?}", p.fields);
+    }
+
+    #[test]
+    fn a_local_function_declaration_shadows_the_module_helper() {
+        // The `var parse = function(){…}` form lands in the top-level set; a `function
+        // parse(){…}` declaration was being recorded against its own body, so a call
+        // beside it did not see the local and resolved the module's.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("from_module"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                function parse(q){ q.attrString("from_local"); }
+                var t = e.child("meta");
+                parse(t);
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let meta = p.fields.iter().find(|f| f.tag.as_deref() == Some("meta"));
+        assert!(
+            meta.and_then(|f| f.children.as_ref())
+                .is_none_or(|c| c.iter().all(|f| f.name != "from_module")),
+            "the local declaration wins: {:?}",
+            meta.and_then(|f| f.children.as_ref())
         );
     }
 
