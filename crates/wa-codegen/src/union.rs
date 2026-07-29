@@ -753,6 +753,14 @@ fn emit_attr_discriminated(
                     };
                     // A range is as much a constraint as a fixed length; checking only
                     // the latter let a payload outside the band decode.
+                    // A pinned value is stricter than any length: the accessor rejects
+                    // every other payload, and checking the size alone let them through.
+                    if let Some(lit) = f.literal_value.as_deref() {
+                        return format!(
+                            "{node_var}.{raw}.is_some_and(|b| b == {})",
+                            rust_lit(lit)
+                        );
+                    }
                     let len = match (f.byte_length, f.byte_min, f.byte_max) {
                         (Some(n), _, _) => format!("b.len() == {n}"),
                         (None, Some(lo), Some(hi)) => {
@@ -1100,6 +1108,31 @@ mod tests {
         assert!(
             !src.contains("unwrap_or_default().is_some()"),
             "the decoders end in a value, which cannot be asked whether it is there: {src}"
+        );
+    }
+
+    #[test]
+    fn attr_discriminated_union_guards_literal_content() {
+        // A pinned value is stricter than any length; checking the size alone accepted
+        // every other one-byte payload.
+        let f = union_field(serde_json::json!({
+            "method": "dispatch", "name": "kind_dispatch", "type": "union", "required": true,
+            "unionVariants": [
+                {"name": "a",
+                 "assertions": [{"kind": "attr", "name": "kind", "value": "a"}],
+                 "fields": [{"method": "contentLiteralBytes", "name": "content",
+                             "type": "bytes", "required": true,
+                             "byteLength": 1, "literalValue": "\u{0005}"}]},
+                {"name": "b",
+                 "assertions": [{"kind": "attr", "name": "kind", "value": "b"}],
+                 "fields": []}
+            ]
+        }));
+        let (lines, _) = emit_union_read(&f, "node", "Spec", "").expect("emitted");
+        let src = lines.join("\n");
+        assert!(
+            src.contains("is_some_and(|b| b == "),
+            "the payload is compared, not just measured: {src}"
         );
     }
 

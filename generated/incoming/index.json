@@ -925,13 +925,13 @@
                     "method": "attrDeviceJid",
                     "name": "jid",
                     "type": "device_jid",
-                    "required": true
+                    "required": false
                   },
                   {
                     "method": "attrTime",
                     "name": "t",
                     "type": "integer",
-                    "required": true
+                    "required": false
                   },
                   {
                     "method": "maybeAttrString",
@@ -988,13 +988,13 @@
                     "method": "attrDeviceJid",
                     "name": "jid",
                     "type": "device_jid",
-                    "required": true
+                    "required": false
                   },
                   {
                     "method": "attrTime",
                     "name": "t",
                     "type": "integer",
-                    "required": true
+                    "required": false
                   },
                   {
                     "method": "attrUserJid",
@@ -1042,20 +1042,20 @@
                 "method": "mapChildrenWithTag",
                 "name": "item",
                 "type": "string",
-                "required": true,
+                "required": false,
                 "tag": "item",
                 "children": [
                   {
                     "method": "attrString",
                     "name": "server_id",
                     "type": "string",
-                    "required": true
+                    "required": false
                   },
                   {
                     "method": "attrString",
                     "name": "id",
                     "type": "string",
-                    "required": true
+                    "required": false
                   }
                 ],
                 "repeats": true

@@ -422,7 +422,6 @@ fn analyze_with_scope(
         param,
         module,
         recursed: Vec::new(),
-        scopes: Vec::new(),
         assertions: Vec::new(),
         fields: Vec::new(),
         child_vars: HashMap::new(),
@@ -458,146 +457,6 @@ fn base_identifier<'b>(expr: &'b Expression<'_>) -> Option<&'b str> {
         return Some(n);
     }
     base_identifier(callee_object(as_call(expr)?)?)
-}
-
-/// What a function introduces, split by how far each binding reaches.
-#[derive(Default)]
-struct BoundNames {
-    /// Parameters, the `var`s hoisted to the function, and the functions declared in it —
-    /// visible throughout the body.
-    names: std::collections::HashSet<String>,
-    /// `let`/`const`, each with the block it is confined to. A declaration in a nested
-    /// block does not shadow a capture read elsewhere in the same function.
-    lexical: Vec<(Span, String)>,
-    /// The function body this frame covers — the extent an alias bound in it is good for.
-    extent: Span,
-    /// Enclosing blocks during collection, innermost last.
-    blocks: Vec<Span>,
-    /// Whether the binding being collected reaches the whole function: a parameter, or a
-    /// `var`. Everything else — `let`, `const`, `class`, a `catch` parameter — is confined
-    /// to the extent it sits in, so that is the default and only the hoisted forms are
-    /// named. Enumerating the block-scoped forms instead kept missing one.
-    hoist: bool,
-}
-
-impl BoundNames {
-    /// Collect over a function body, whose own span bounds any top-level `let`/`const`.
-    fn of(
-        own_name: Option<&str>,
-        params: &oxc_ast::ast::FormalParameters,
-        body: &oxc_ast::ast::FunctionBody,
-    ) -> Self {
-        let mut c = Self::default();
-        // A named function expression binds its own name inside itself, and nowhere else.
-        if let Some(n) = own_name {
-            c.names.insert(n.to_string());
-        }
-        c.extent = body.span;
-        c.hoist = true;
-        c.visit_formal_parameters(params);
-        c.hoist = false;
-        c.blocks.push(body.span);
-        c.visit_function_body(body);
-        c.blocks.pop();
-        c
-    }
-}
-
-impl<'a> Visit<'a> for BoundNames {
-    fn visit_binding_identifier(&mut self, id: &oxc_ast::ast::BindingIdentifier<'a>) {
-        if self.hoist {
-            self.names.insert(id.name.as_str().to_string());
-        } else if let Some(&extent) = self.blocks.last() {
-            self.lexical.push((extent, id.name.as_str().to_string()));
-        }
-    }
-
-    fn visit_variable_declaration(&mut self, decl: &VariableDeclaration<'a>) {
-        let outer = self.hoist;
-        // `var` reaches the whole function; `let`/`const` stop at their extent.
-        self.hoist = !decl.kind.is_lexical();
-        walk::walk_variable_declaration(self, decl);
-        self.hoist = outer;
-    }
-
-    fn visit_block_statement(&mut self, block: &oxc_ast::ast::BlockStatement<'a>) {
-        self.blocks.push(block.span);
-        walk::walk_block_statement(self, block);
-        self.blocks.pop();
-    }
-
-    // A loop header, a `switch` and a `catch` each bound their own lexical declarations
-    // just as a block does. Without an extent of their own, `for (let x = 0; …)` would
-    // shadow a captured `x` for everything around the loop.
-    fn visit_for_statement(&mut self, stmt: &oxc_ast::ast::ForStatement<'a>) {
-        self.blocks.push(stmt.span);
-        walk::walk_for_statement(self, stmt);
-        self.blocks.pop();
-    }
-
-    fn visit_for_in_statement(&mut self, stmt: &oxc_ast::ast::ForInStatement<'a>) {
-        self.blocks.push(stmt.span);
-        walk::walk_for_in_statement(self, stmt);
-        self.blocks.pop();
-    }
-
-    fn visit_for_of_statement(&mut self, stmt: &oxc_ast::ast::ForOfStatement<'a>) {
-        self.blocks.push(stmt.span);
-        walk::walk_for_of_statement(self, stmt);
-        self.blocks.pop();
-    }
-
-    fn visit_switch_statement(&mut self, stmt: &oxc_ast::ast::SwitchStatement<'a>) {
-        // The cases share one block, and the discriminant is evaluated outside it: a `let`
-        // in a case must not shadow a name the discriminant itself reads.
-        let body = stmt.cases.first().map_or(stmt.span, |first| {
-            Span::new(first.span.start, stmt.span.end)
-        });
-        self.blocks.push(body);
-        walk::walk_switch_statement(self, stmt);
-        self.blocks.pop();
-    }
-
-    fn visit_class(&mut self, class: &oxc_ast::ast::Class<'a>) {
-        // Like a function: a declaration introduces its name in the enclosing extent, a
-        // named class *expression* binds it only inside itself.
-        if class.r#type == oxc_ast::ast::ClassType::ClassDeclaration
-            && let Some(id) = class.id.as_ref()
-            && let Some(&extent) = self.blocks.last()
-        {
-            self.lexical.push((extent, id.name.as_str().to_string()));
-        }
-        self.visit_class_body(&class.body);
-    }
-
-    fn visit_catch_clause(&mut self, clause: &oxc_ast::ast::CatchClause<'a>) {
-        // `catch (e)` binds to the clause — and minified handlers reuse `e` freely.
-        self.blocks.push(clause.span);
-        walk::walk_catch_clause(self, clause);
-        self.blocks.pop();
-    }
-
-    // A nested function's parameters and locals belong to *its* scope, not this one; only
-    // the name it introduces here does. Descending would let an inner binding pass for an
-    // outer one and discount reads that are genuinely the enclosing node's.
-    fn visit_function(&mut self, func: &Function<'a>, _flags: ScopeFlags) {
-        // Only a *declaration* introduces its name here — a named function expression binds
-        // it inside itself, and claiming it out here would discount reads through a capture
-        // of the same name. Against the current extent, not the function: at the top of a
-        // body that extent *is* the function, and in a nested block it binds only there.
-        if func.r#type == oxc_ast::ast::FunctionType::FunctionDeclaration
-            && let Some(id) = func.id.as_ref()
-            && let Some(&extent) = self.blocks.last()
-        {
-            self.lexical.push((extent, id.name.as_str().to_string()));
-        }
-    }
-
-    fn visit_arrow_function_expression(
-        &mut self,
-        _func: &oxc_ast::ast::ArrowFunctionExpression<'a>,
-    ) {
-    }
 }
 
 /// The `dropsByReason` key for a read inside a callback that re-binds the parser's
@@ -639,7 +498,7 @@ struct ParserAnalyzer<'src, 'ms> {
     /// A callback the recursion did not descend into is walked here too, and its own
     /// bindings resolve against the outer ones — landing at the root, flat and one level
     /// too high. Those are neither kept nor dropped in silence: see [`SHADOWED_READ`].
-    scopes: Vec<BoundNames>,
+
     /// The enclosing module's pre-extracted helpers/maps (empty when there is no module),
     /// for resolving module-scope sibling helpers and enum value maps.
     module: &'ms ModuleScope,
@@ -690,30 +549,20 @@ struct ParserAnalyzer<'src, 'ms> {
 
 impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
     fn visit_function(&mut self, func: &Function<'a>, flags: ScopeFlags) {
-        let Some(body) = func.body.as_ref() else {
-            walk::walk_function(self, func, flags);
-            return;
-        };
-        let own = func.id.as_ref().map(|i| i.name.as_str());
-        self.scopes.push(BoundNames::of(own, &func.params, body));
         // What a callback binds dies with it. An alias may overwrite an outer entry of the
         // same name, and the alias' own extent expiring would not put the outer one back.
         let outer_vars = self.child_vars.clone();
         walk::walk_function(self, func, flags);
         self.child_vars = outer_vars;
-        self.scopes.pop();
     }
 
     fn visit_arrow_function_expression(
         &mut self,
         func: &oxc_ast::ast::ArrowFunctionExpression<'a>,
     ) {
-        self.scopes
-            .push(BoundNames::of(None, &func.params, &func.body));
         let outer_vars = self.child_vars.clone();
         walk::walk_arrow_function_expression(self, func);
         self.child_vars = outer_vars;
-        self.scopes.pop();
     }
 
     fn visit_variable_declaration(&mut self, decl: &VariableDeclaration<'a>) {
@@ -872,12 +721,7 @@ impl ParserAnalyzer<'_, '_> {
     /// Whether `name`, read at `span`, belongs to an enclosing callback rather than to the
     /// parser's own body.
     fn bound_by_inner_scope(&self, name: &str, span: Span) -> bool {
-        self.scopes.iter().any(|s| {
-            s.names.contains(name)
-                || s.lexical
-                    .iter()
-                    .any(|(b, n)| n == name && span.start >= b.start && span.end <= b.end)
-        })
+        self.local_bindings.bound_inside(name, span)
     }
 
     /// Whether `call` reads through a node bound outside every enclosing callback — the
@@ -991,7 +835,7 @@ impl ParserAnalyzer<'_, '_> {
     }
 
     fn note_unfollowable_bindings(&mut self, decl: &VariableDeclaration) {
-        let Some(extent) = self.scopes.last().map(|s| s.extent) else {
+        let Some(extent) = self.local_bindings.innermost_extent(decl.span) else {
             return;
         };
         for d in &decl.declarations {
@@ -1386,7 +1230,7 @@ impl ParserAnalyzer<'_, '_> {
         );
         if self.conditional_depth > 0 {
             for f in &mut recovered {
-                f.required = false;
+                relax_deeply(f);
             }
         }
         merge_child_shape_at(&mut self.fields, &tag, recovered);
@@ -1407,17 +1251,23 @@ impl ParserAnalyzer<'_, '_> {
         if self.local_bindings.shadows(name, call.span) {
             return;
         }
-        let Some(arg_idx) = call.arguments.iter().position(|a| {
-            arg_expr(a)
-                .and_then(as_identifier)
-                .is_some_and(|id| id == self.param && !self.bound_by_inner_scope(id, call.span))
-        }) else {
+        // Every position it is handed to, not just the first: `parse(e, e)` binds the
+        // node to both parameters, and reading only one dropped what the other saw.
+        let positions: Vec<usize> = call
+            .arguments
+            .iter()
+            .enumerate()
+            .filter(|(_, a)| {
+                arg_expr(a)
+                    .and_then(as_identifier)
+                    .is_some_and(|id| id == self.param && !self.bound_by_inner_scope(id, call.span))
+            })
+            .map(|(i, _)| i)
+            .collect();
+        if positions.is_empty() {
             return;
-        };
+        }
         let Some((params, body_src)) = self.module.functions.get(name) else {
-            return;
-        };
-        let Some(bound_param) = params.get(arg_idx) else {
             return;
         };
         // Past the point where this is known to be a helper handed the node: stopping here
@@ -1427,8 +1277,21 @@ impl ParserAnalyzer<'_, '_> {
             self.unresolved.push(format!("{HELPER_DEPTH}@{name}"));
             return;
         }
-        let (mut recovered, lost, guards) =
-            analyze_node_helper(body_src, bound_param, self.module, self.helper_depth + 1);
+        let mut recovered = Vec::new();
+        let mut lost = Vec::new();
+        let mut guards = Vec::new();
+        for idx in positions {
+            let Some(bound_param) = params.get(idx) else {
+                continue;
+            };
+            let (f, l, g) =
+                analyze_node_helper(body_src, bound_param, self.module, self.helper_depth + 1);
+            for one in f {
+                merge_or_push(&mut recovered, one);
+            }
+            lost.extend(l);
+            guards.extend(g);
+        }
         self.unresolved.extend(lost);
         // What the helper enforces on the node it was handed is a constraint on that node,
         // and dropping it published a shape that accepts what the parser rejects — but only
@@ -1445,7 +1308,7 @@ impl ParserAnalyzer<'_, '_> {
         // requiring it would have consumers reject the elements the other branch accepts.
         if self.conditional_depth > 0 {
             for f in &mut recovered {
-                f.required = false;
+                relax_deeply(f);
             }
         }
         // Merged, not skipped: the caller and the helper can both reach the same child,
@@ -1715,7 +1578,6 @@ fn analyze_node_helper(
         param: bound_param,
         module,
         recursed: Vec::new(),
-        scopes: Vec::new(),
         assertions: Vec::new(),
         fields: Vec::new(),
         child_vars: HashMap::new(),
@@ -1770,7 +1632,6 @@ fn analyze_child_node(
         param: "",
         module,
         recursed: Vec::new(),
-        scopes: Vec::new(),
         assertions: Vec::new(),
         fields: Vec::new(),
         child_vars: HashMap::from([(node_param.to_string(), vec![PathSeg::required(tag)])]),
@@ -1911,6 +1772,16 @@ fn count_paths(f: &ParsedField, path: &str, out: &mut std::collections::HashSet<
     out.insert(path.to_string());
     for k in f.children.iter().flatten() {
         count_paths(k, &format!("{path}/{}", k.name), out);
+    }
+}
+
+/// Loosen a whole shape. A helper reached only down a branch says nothing about any part
+/// of what it reads — weakening its top level and leaving the descendants required made a
+/// present child missing its attributes a rejection the source parser never makes.
+fn relax_deeply(f: &mut ParsedField) {
+    f.required = false;
+    for k in f.children.iter_mut().flatten() {
+        relax_deeply(k);
     }
 }
 
@@ -2268,14 +2139,63 @@ impl<'a> Visit<'a> for AllBindings {
         self.blocks.pop();
     }
 
+    fn visit_function(&mut self, func: &Function<'a>, flags: ScopeFlags) {
+        // A declaration binds its name in the scope it sits in — recorded against its own
+        // body, a call beside it would not see the local and would resolve the module's. A
+        // named function EXPRESSION is the other way round: its name exists only inside it.
+        if let Some(id) = func.id.as_ref() {
+            if func.r#type == oxc_ast::ast::FunctionType::FunctionDeclaration {
+                // In a strict bundle a declaration in a nested block binds only there; at
+                // the top of a body the current extent is the function anyway.
+                self.bind(id.name.as_str(), false);
+            } else {
+                self.scoped.push((func.span, id.name.as_str().to_string()));
+            }
+        }
+        self.fns.push(func.span);
+        let outer = self.hoists;
+        self.hoists = true;
+        walk::walk_function(self, func, flags);
+        self.hoists = outer;
+        self.fns.pop();
+    }
+
+    fn visit_arrow_function_expression(
+        &mut self,
+        func: &oxc_ast::ast::ArrowFunctionExpression<'a>,
+    ) {
+        self.fns.push(func.span);
+        let outer = self.hoists;
+        // An arrow's parameters are its own, the same as any function's. Walking them
+        // without saying so recorded them against the block enclosing the arrow, so an
+        // unrelated `parse => 0` shadowed the module helper for everything around it.
+        self.hoists = true;
+        self.visit_formal_parameters(&func.params);
+        self.hoists = false;
+        self.visit_function_body(&func.body);
+        self.hoists = outer;
+        self.fns.pop();
+    }
+
     fn visit_catch_clause(&mut self, clause: &oxc_ast::ast::CatchClause<'a>) {
         self.blocks.push(clause.span);
+        let outer = self.hoists;
+        self.hoists = false;
         walk::walk_catch_clause(self, clause);
+        self.hoists = outer;
         self.blocks.pop();
     }
 
-    // A loop header binds its own declarations, the same as a block — `for (let parse of
-    // …)` does not shadow a helper called after the loop.
+    fn visit_switch_statement(&mut self, stmt: &oxc_ast::ast::SwitchStatement<'a>) {
+        // The cases share one block, and the discriminant is evaluated outside it.
+        let body = stmt.cases.first().map_or(stmt.span, |first| {
+            Span::new(first.span.start, stmt.span.end)
+        });
+        self.blocks.push(body);
+        walk::walk_switch_statement(self, stmt);
+        self.blocks.pop();
+    }
+
     fn visit_for_statement(&mut self, stmt: &oxc_ast::ast::ForStatement<'a>) {
         self.blocks.push(stmt.span);
         walk::walk_for_statement(self, stmt);
@@ -2294,32 +2214,17 @@ impl<'a> Visit<'a> for AllBindings {
         self.blocks.pop();
     }
 
-    fn visit_function(&mut self, func: &Function<'a>, flags: ScopeFlags) {
-        // A declaration binds its name in the scope it sits in — recorded against its own
-        // body, a call beside it would not see the local and would resolve the module's. A
-        // named function EXPRESSION is the other way round: its name exists only inside it.
-        if let Some(id) = func.id.as_ref() {
-            if func.r#type == oxc_ast::ast::FunctionType::FunctionDeclaration {
-                self.bind(id.name.as_str(), true);
+    fn visit_class(&mut self, class: &oxc_ast::ast::Class<'a>) {
+        // A declaration introduces its name where it sits; a named class expression binds
+        // it only inside itself.
+        if let Some(id) = class.id.as_ref() {
+            if class.r#type == oxc_ast::ast::ClassType::ClassDeclaration {
+                self.bind(id.name.as_str(), false);
             } else {
-                self.scoped.push((func.span, id.name.as_str().to_string()));
+                self.scoped.push((class.span, id.name.as_str().to_string()));
             }
         }
-        self.fns.push(func.span);
-        let outer = self.hoists;
-        self.hoists = true;
-        walk::walk_function(self, func, flags);
-        self.hoists = outer;
-        self.fns.pop();
-    }
-
-    fn visit_arrow_function_expression(
-        &mut self,
-        func: &oxc_ast::ast::ArrowFunctionExpression<'a>,
-    ) {
-        self.fns.push(func.span);
-        walk::walk_arrow_function_expression(self, func);
-        self.fns.pop();
+        self.visit_class_body(&class.body);
     }
 }
 
@@ -2335,11 +2240,26 @@ impl Bindings {
     /// of that name. Scoped by extent: suppressing every call because some unrelated
     /// nested function reused the name is a silent loss of its fields.
     fn shadows(&self, name: &str, at: Span) -> bool {
-        self.names.contains(name)
-            || self
-                .scoped
-                .iter()
-                .any(|(e, n)| n == name && at.start >= e.start && at.end <= e.end)
+        self.names.contains(name) || self.bound_inside(name, at)
+    }
+
+    /// Whether `name` is bound by a scope strictly inside this source that contains `at` —
+    /// a callback's own binding rather than the analysed body's. One collector answers
+    /// this and [`Self::shadows`]: keeping a second one for it meant every extent had to
+    /// be taught twice, and five of them only ever reached one side.
+    fn bound_inside(&self, name: &str, at: Span) -> bool {
+        self.scoped
+            .iter()
+            .any(|(e, n)| n == name && at.start >= e.start && at.end <= e.end)
+    }
+
+    /// The tightest scope containing `at`, which is how far a name bound there reaches.
+    fn innermost_extent(&self, at: Span) -> Option<Span> {
+        self.scoped
+            .iter()
+            .map(|(e, _)| *e)
+            .filter(|e| at.start >= e.start && at.end <= e.end)
+            .min_by_key(|e| e.end - e.start)
     }
 
     /// The names in scope at `at` — what a callback sited there inherits. Not only the
@@ -2522,7 +2442,17 @@ fn assigned_names(src: &str, param: &str) -> HashMap<String, String> {
                     }
                 }
             }
-            if let oxc_ast::ast::AssignmentTarget::StaticMemberExpression(m) = &e.left {
+            let assigned_to = match &e.left {
+                oxc_ast::ast::AssignmentTarget::StaticMemberExpression(m) => {
+                    Some(m.property.name.as_str().to_string())
+                }
+                // `result["callAdd"] = …` names the field as plainly as the dotted form.
+                oxc_ast::ast::AssignmentTarget::ComputedMemberExpression(m) => {
+                    as_string_lit(&m.expression).map(str::to_string)
+                }
+                _ => None,
+            };
+            if let Some(property) = assigned_to {
                 // Either spelling: through a temporary, or the accessor written straight
                 // into the result — `t.callAdd = e.attrEnum("value", …)`.
                 let wire = as_identifier(&e.right)
@@ -2535,9 +2465,7 @@ fn assigned_names(src: &str, param: &str) -> HashMap<String, String> {
                         .then(|| arg_str(call, 0).map(str::to_string))?
                     });
                 if let Some(wire) = wire {
-                    self.named
-                        .entry(wire)
-                        .or_insert_with(|| m.property.name.as_str().to_string());
+                    self.named.entry(wire).or_insert_with(|| property.clone());
                 }
             }
             walk::walk_assignment_expression(self, e);
@@ -2671,6 +2599,9 @@ fn discriminated_children(
         for lit in lits {
             distinct_values.insert(lit.clone());
         }
+        // Each value the arm accepts is a variant it covers; counting the arm once made a
+        // child every variant requires look optional.
+        let covers = lits.len().max(1);
         // Once per arm: an arm reading `<detail>` both as a child and as a mapped element
         // still only proves that ONE arm reaches it.
         let mut in_this_arm: std::collections::HashSet<String> = Default::default();
@@ -2679,7 +2610,7 @@ fn discriminated_children(
             merge_or_push(&mut common, f);
         }
         for path in in_this_arm {
-            *structural_seen.entry(path).or_default() += 1;
+            *structural_seen.entry(path).or_default() += covers;
         }
         for lit in lits {
             let fields: Vec<ParsedField> = leaves
@@ -5046,6 +4977,143 @@ mod tests {
                 .any(|a| a.name.as_deref() == Some("status")),
             "the intersection of the branches: {:?}",
             p.assertions
+        );
+    }
+
+    #[test]
+    fn an_or_arm_covers_every_value_it_accepts() {
+        // One arm handling two values creates two variants; counting it once made a child
+        // every variant requires look optional.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   if (n === "a" || n === "b") { e.child("detail").attrString("x"); }
+                   if (n === "c") { e.child("detail").attrString("y"); }
+                 }); }"#,
+            "e",
+        );
+        let detail = r.fields[0]
+            .children
+            .as_ref()
+            .unwrap()
+            .iter()
+            .find(|f| f.name == "detail")
+            .expect("hoisted");
+        assert!(detail.required, "all three values require it");
+    }
+
+    #[test]
+    fn a_conditional_helper_loosens_its_whole_shape() {
+        // Weakening its top level and leaving the descendants required made a present
+        // `<detail>` without `id` a rejection the source parser never makes.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.child("detail").attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                if (enabled) { parse(e); }
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let id = p
+            .fields
+            .iter()
+            .find(|f| f.tag.as_deref() == Some("detail"))
+            .and_then(|f| f.children.as_ref())
+            .and_then(|c| c.iter().find(|f| f.name == "id"))
+            .expect("under detail");
+        assert!(!id.required, "reached only when the branch runs");
+    }
+
+    #[test]
+    fn a_helper_handed_the_node_twice_is_read_through_both() {
+        // `parse(e, e)` binds it to both parameters; reading only the first dropped what
+        // the second saw.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(a,b){ a.attrString("id"); b.attrString("status"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                parse(e, e);
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let names: Vec<&str> = p.fields.iter().map(|f| f.name.as_str()).collect();
+        assert!(
+            names.contains(&"id") && names.contains(&"status"),
+            "both parameters read the node: {names:?}"
+        );
+    }
+
+    #[test]
+    fn a_computed_property_names_the_field_too() {
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   if (n === "a") { var x = e.attrString("value"); t["callAdd"] = x; }
+                   if (n === "b") { var y = e.attrString("value"); t.beta = y; }
+                 }); }"#,
+            "e",
+        );
+        let union = r.fields[0]
+            .children
+            .as_ref()
+            .unwrap()
+            .iter()
+            .find(|f| f.field_type == ParsedFieldType::Union)
+            .expect("a union");
+        let a = &union.union_variants.as_ref().unwrap()[0];
+        assert_eq!(a.fields[0].name, "callAdd");
+        assert_eq!(a.fields[0].wire_name.as_deref(), Some("value"));
+    }
+
+    #[test]
+    fn an_arrow_parameter_belongs_to_its_arrow() {
+        // Recorded against the enclosing block, an unrelated `parse => 0` shadowed the
+        // module helper for everything around it.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("from_module"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                var unused = parse => 0;
+                var t = e.child("meta");
+                parse(t);
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        assert!(
+            p.fields
+                .iter()
+                .find(|f| f.tag.as_deref() == Some("meta"))
+                .and_then(|f| f.children.as_ref())
+                .is_some_and(|c| c.iter().any(|f| f.name == "from_module")),
+            "the arrow's parameter stayed in the arrow: {:?}",
+            p.fields
+        );
+    }
+
+    #[test]
+    fn a_switch_case_binding_stays_in_the_switch() {
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("from_module"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                switch (flag) { case 1: let parse = 1; }
+                var t = e.child("meta");
+                parse(t);
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        assert!(
+            p.fields
+                .iter()
+                .find(|f| f.tag.as_deref() == Some("meta"))
+                .and_then(|f| f.children.as_ref())
+                .is_some_and(|c| c.iter().any(|f| f.name == "from_module")),
+            "the case's binding ended with the switch: {:?}",
+            p.fields
         );
     }
 
