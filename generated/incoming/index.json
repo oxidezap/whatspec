@@ -554,9 +554,21 @@
             "children": []
           },
           {
+            "method": "attrJidWithType",
+            "name": "participant",
+            "type": "jid_typed",
+            "required": false
+          },
+          {
             "method": "attrString",
             "name": "recipient",
             "type": "string",
+            "required": true
+          },
+          {
+            "method": "attrInt",
+            "name": "t",
+            "type": "integer",
             "required": true
           },
           {
@@ -626,6 +638,12 @@
                 "contentType": "bytes"
               }
             ]
+          },
+          {
+            "method": "attrTime",
+            "name": "t",
+            "type": "integer",
+            "required": true
           },
           {
             "method": "maybeChild",

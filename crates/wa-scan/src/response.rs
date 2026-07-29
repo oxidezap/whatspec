@@ -619,6 +619,9 @@ const SHADOWED_READ: &str = "shadowedCallbackRead";
 /// aliased one of the parser's own nodes.
 const UNKNOWN_RECEIVER: &str = "readThroughUnknownNode";
 
+/// The `dropsByReason` key for a helper chain the descent stopped following.
+const HELPER_DEPTH: &str = "helperChainTooDeep";
+
 struct ParserAnalyzer<'src, 'ms> {
     code: &'src str,
     param: &'src str,
@@ -1323,7 +1326,7 @@ impl ParserAnalyzer<'_, '_> {
     /// child. `try_helper_descent` recognizes arguments only through `child_vars`, so the
     /// helper's reads were never entered and the element came out empty and undiagnosed.
     fn try_own_node_helper_descent(&mut self, call: &CallExpression) {
-        if self.helper_depth >= 2 || self.module.functions.is_empty() || self.param.is_empty() {
+        if self.module.functions.is_empty() || self.param.is_empty() {
             return;
         }
         let Some(name) = as_identifier(&call.callee) else {
@@ -1346,6 +1349,13 @@ impl ParserAnalyzer<'_, '_> {
         let Some(bound_param) = params.get(arg_idx) else {
             return;
         };
+        // Past the point where this is known to be a helper handed the node: stopping here
+        // leaves the shape incomplete, and saying so is the difference between a bounded
+        // descent and a silent one.
+        if self.helper_depth >= 2 {
+            self.unresolved.push(format!("{HELPER_DEPTH}@{name}"));
+            return;
+        }
         let (mut recovered, lost, guards) =
             analyze_node_helper(body_src, bound_param, self.module, self.helper_depth + 1);
         self.unresolved.extend(lost);
@@ -1367,14 +1377,10 @@ impl ParserAnalyzer<'_, '_> {
                 f.required = false;
             }
         }
+        // Merged, not skipped: the caller and the helper can both reach the same child,
+        // and keeping whichever landed first dropped everything the other one saw.
         for f in recovered {
-            if !self
-                .fields
-                .iter()
-                .any(|c| c.tag == f.tag && c.name == f.name)
-            {
-                self.fields.push(f);
-            }
+            merge_or_push(&mut self.fields, f);
         }
     }
 
@@ -3807,6 +3813,57 @@ mod tests {
         assert!(
             r.fields.iter().find(|f| f.name == "id").unwrap().required,
             "the test was about `req`, not about this element"
+        );
+    }
+
+    #[test]
+    fn an_own_node_helper_merges_with_what_the_caller_already_read() {
+        // Both reach `<meta>`; skipping the helper's copy because the tag was there kept
+        // only whichever landed first.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.child("meta").attrString("b"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                e.child("meta").attrString("a");
+                parse(e);
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let kids = p
+            .fields
+            .iter()
+            .find(|f| f.tag.as_deref() == Some("meta"))
+            .and_then(|f| f.children.as_ref())
+            .map(|c| c.iter().map(|g| g.name.as_str()).collect::<Vec<_>>());
+        assert_eq!(kids, Some(vec!["a", "b"]), "both reads: {:?}", p.fields);
+    }
+
+    #[test]
+    fn a_helper_chain_the_descent_stops_following_is_reported() {
+        // Three hops deep the accessors are never reached. Publishing the shape anyway and
+        // calling the extraction complete is the silent kind of incompleteness.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse3(p){ p.attrString("deep"); }
+            function parse2(p){ parse3(p); }
+            function parse(p){ parse2(p); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                parse(e);
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        assert!(
+            p.fields.iter().all(|f| f.name != "deep"),
+            "not reached, as the bound says"
+        );
+        assert!(
+            p.pending_drops
+                .iter()
+                .any(|d| d.starts_with("helperChainTooDeep")),
+            "and the stop is on the record: {:?}",
+            p.pending_drops
         );
     }
 

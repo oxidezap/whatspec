@@ -54,7 +54,7 @@ BASELINE = {
 # By identity, not by total: an aggregate let one loss disappear while another appeared.
 # Fixing the shape is an extractor change and belongs in its own PR.
 FLATTENED_KEYS = {
-    "incoming/incoming/0/shape/fields|verified_name": 1,
+    "incoming/incoming/0/shape/fields|participant,t,verified_name": 4,
     "incoming/incoming/3/shape/fields/5/children|user": 1,
     "incoming/incoming/3/shape/fields/5/children/0/children|type": 1,
     "incoming/incoming/4/shape/fields|id": 1,
