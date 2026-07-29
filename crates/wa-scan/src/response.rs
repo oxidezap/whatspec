@@ -386,6 +386,16 @@ fn find_or_create_field(
     required: bool,
 ) -> usize {
     if let Some(i) = fields.iter().position(|f| f.tag.as_deref() == Some(tag)) {
+        // A node first reached through `maybeChild` and later through `child` IS required:
+        // the second accessor fails on an absent element. Reusing the node untouched left
+        // the accessor spelling behind, and the codegen reads THAT — `f.method ==
+        // "maybeChild"` picks `get_optional_child`, so the emitted decoder accepted an
+        // element the source parser rejects. The reverse never loosens it: one required
+        // read is enough to make the child mandatory.
+        if required && !fields[i].required {
+            fields[i].required = true;
+            fields[i].method = method.to_string();
+        }
         return i;
     }
     let mut f = mk_field(method, tag, ParsedFieldType::String, required);
@@ -2182,6 +2192,16 @@ fn exits_unconditionally(stmt: &Statement<'_>) -> bool {
             exits_unconditionally(&i.consequent)
                 && i.alternate.as_ref().is_some_and(exits_unconditionally)
         }
+        // Every path out of the switch leaves the callback: a `default` so no value falls
+        // past it, and every case reaching a `return`/`throw` of its own. A case with an
+        // empty body falls through to the next one and is not an exit, so `all` over the
+        // cases is deliberately conservative here.
+        Statement::SwitchStatement(s) => {
+            s.cases.iter().any(|c| c.test.is_none())
+                && s.cases
+                    .iter()
+                    .all(|c| c.consequent.iter().any(exits_unconditionally))
+        }
         _ => false,
     }
 }
@@ -2838,6 +2858,17 @@ fn assigned_names(src: &str, param: &str) -> (HashMap<String, Vec<(String, Strin
         }
 
         fn visit_assignment_expression(&mut self, e: &oxc_ast::ast::AssignmentExpression<'a>) {
+            // `t.total += e.attrInt("delta")` returns the SUM, not the read, and `||=` may
+            // not even perform it. Taken as a plain assignment, the variant published the
+            // raw delta under `total` — a value the parser never returns. The read still
+            // happened, so it keeps its own wire name; only the property naming is refused.
+            if e.operator != oxc_syntax::operator::AssignmentOperator::Assign {
+                if let oxc_ast::ast::AssignmentTarget::AssignmentTargetIdentifier(id) = &e.left {
+                    self.from_wire.remove(id.name.as_str());
+                }
+                walk::walk_assignment_expression(self, e);
+                return;
+            }
             // `x = e.attrString("other")` makes `x` name the other attribute — or, if the
             // new value is not a wire read at all, nothing this can follow. Left alone,
             // the property was being attached to whatever `x` used to hold.
@@ -7475,6 +7506,120 @@ mod tests {
             !kids.iter().any(|f| f.field_type == ParsedFieldType::Union),
             "declined rather than emitting one member twice: {:?}",
             kids.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+    }
+    #[test]
+    fn a_switch_that_returns_on_every_path_ends_that_value() {
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   if (n === "a") { t.alpha = e.attrString("va");
+                     switch (m) { case 1: return t; default: return t; } }
+                   if (n === "b") { t.beta = e.attrString("vb"); }
+                   if (n === "a") { t.gamma = e.attrString("vc"); }
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        let a_fields: Vec<String> = kids
+            .iter()
+            .find(|f| f.field_type == ParsedFieldType::Union)
+            .and_then(|f| f.union_variants.as_ref())
+            .and_then(|vs| vs.iter().find(|v| v.name == "a"))
+            .map(|v| v.fields.iter().map(|f| f.name.clone()).collect())
+            .unwrap_or_default();
+        assert!(
+            !a_fields.iter().any(|n| n == "gamma"),
+            "the unreachable arm is not part of the variant: {a_fields:?}"
+        );
+    }
+
+    #[test]
+    fn a_case_that_falls_through_is_not_an_exit() {
+        // An empty case runs the next one's body; treating the switch as exhaustive would
+        // drop an arm the parser really can reach.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   if (n === "a") { t.alpha = e.attrString("va");
+                     switch (m) { case 1: default: break; } }
+                   if (n === "b") { t.beta = e.attrString("vb"); }
+                   if (n === "a") { t.gamma = e.attrString("vc"); }
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        let a_fields: Vec<String> = kids
+            .iter()
+            .find(|f| f.field_type == ParsedFieldType::Union)
+            .and_then(|f| f.union_variants.as_ref())
+            .and_then(|vs| vs.iter().find(|v| v.name == "a"))
+            .map(|v| v.fields.iter().map(|f| f.name.clone()).collect())
+            .unwrap_or_default();
+        assert!(
+            a_fields.iter().any(|n| n == "gamma"),
+            "the later arm still runs and is merged: {a_fields:?}"
+        );
+    }
+
+    #[test]
+    fn a_compound_assignment_does_not_name_the_read_it_folds_in() {
+        // `t.total += e.attrInt("delta")` returns the sum; naming the read `total`
+        // published a value the parser never returns under that property.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   if (n === "a") { t.total += e.attrInt("delta"); }
+                   if (n === "b") { t.other = e.attrString("third"); }
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        let a_fields: Vec<(String, Option<String>)> = kids
+            .iter()
+            .find(|f| f.field_type == ParsedFieldType::Union)
+            .and_then(|f| f.union_variants.as_ref())
+            .and_then(|vs| vs.iter().find(|v| v.name == "a"))
+            .map(|v| {
+                v.fields
+                    .iter()
+                    .map(|f| (f.name.clone(), f.wire_name.clone()))
+                    .collect()
+            })
+            .unwrap_or_default();
+        assert!(
+            a_fields.iter().all(|(n, _)| n != "total"),
+            "the property does not claim the read: {a_fields:?}"
+        );
+        assert!(
+            a_fields.iter().any(|(n, _)| n == "delta"),
+            "and the read is still recorded under its wire name: {a_fields:?}"
+        );
+    }
+
+    #[test]
+    fn a_child_read_twice_takes_the_stricter_accessor() {
+        // `maybeChild` then `child` on one tag: the second fails on an absent element, so
+        // the child IS required — and the codegen reads the accessor spelling, not just
+        // the flag, to choose between `get_optional_child` and the unwrapping form.
+        let r = analyze_parser_ast(
+            r#"{ var o = e.child("outer");
+                 o.maybeChild("inner").attrString("x");
+                 o.child("inner").attrString("id"); }"#,
+            "e",
+        );
+        let outer = r.fields.iter().find(|f| f.name == "outer").expect("outer");
+        let inner = outer
+            .children
+            .as_ref()
+            .unwrap()
+            .iter()
+            .find(|f| f.name == "inner")
+            .expect("inner");
+        assert!(inner.required, "the required read wins");
+        assert_eq!(
+            inner.method, "child",
+            "and the spelling the codegen reads agrees with it"
         );
     }
 }

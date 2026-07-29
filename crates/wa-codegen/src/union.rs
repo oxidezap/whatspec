@@ -354,6 +354,14 @@ fn classify_attr_discriminated(f: &ParsedField, variants: &[UnionVariant]) -> Op
         if v.fields.iter().any(|f| f.reference_path.is_some()) {
             return None;
         }
+        // A band no `u64` can enter — `attrIntRange("count", -10, -1)` — is an arm the
+        // parser can never take. `int_band` drops a bound below zero, which is right for a
+        // MINIMUM (no unsigned value fails it) and wrong for a maximum: dropping it left
+        // the guard accepting everything that parses, so the variant was selected where
+        // the source rejects every value.
+        if v.fields.iter().any(|f| f.int_max.is_some_and(|n| n < 0)) {
+            return None;
+        }
         // Exactly one assertion, and it pins an attr to a value. Anything else the arm
         // enforces — a presence-only pin, a tag, a content literal — is not carried into
         // the match this shape emits, and accepting the variant anyway would construct it
@@ -1846,6 +1854,26 @@ mod tests {
         assert!(
             emit_union_read(&f, "node", "Spec", "").is_none(),
             "an equality it cannot test declines the shape"
+        );
+    }
+    #[test]
+    fn an_arm_whose_band_no_value_can_enter_is_declined() {
+        // `attrIntRange("count", -10, -1)` admits no `u64`, so the arm can never be taken;
+        // dropping the negative maximum left the guard accepting everything that parses.
+        let f = union_field(serde_json::json!({
+            "method": "dispatch", "name": "kind_dispatch", "type": "union", "required": true,
+            "unionVariants": [
+                {"name": "a", "assertions": [{"kind": "attr", "name": "kind", "value": "a"}],
+                 "fields": [{"method": "attrInt", "name": "count", "wireName": "count",
+                             "type": "integer", "required": true,
+                             "intMin": -10, "intMax": -1}]},
+                {"name": "b", "assertions": [{"kind": "attr", "name": "kind", "value": "b"}],
+                 "fields": []}
+            ]
+        }));
+        assert!(
+            emit_union_read(&f, "node", "Spec", "").is_none(),
+            "a band nothing satisfies declines the shape"
         );
     }
 }
