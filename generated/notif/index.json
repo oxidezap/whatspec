@@ -1927,6 +1927,12 @@
             "repeats": true
           },
           {
+            "method": "attrUserJid",
+            "name": "participant",
+            "type": "user_jid",
+            "required": true
+          },
+          {
             "method": "attrString",
             "name": "id",
             "type": "string",

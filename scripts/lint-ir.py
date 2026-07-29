@@ -62,7 +62,7 @@ FLATTENED_KEYS = {
     "notif/notifications/17/content/fields|from,t": 3,
     "notif/notifications/23/content/fields|from": 2,
     "notif/notifications/24/content/fields/8/children|expiration,id,parent_group_jid,participant,reason,request_method,sub_group_suggestion,triggered": 11,
-    "notif/notifications/24/content/fields|t": 1,
+    "notif/notifications/24/content/fields|participant,t": 2,
     "notif/notifications/3/content/fields/7/children|new_lid,old_lid": 2,
     "notif/notifications/3/content/fields|t": 1,
 }

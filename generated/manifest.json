@@ -82,7 +82,7 @@
     "notif": {
       "file": "notif/index.json",
       "schema": "schema/notif.schema.json",
-      "sha256": "69ca69170a912be0904bd4a1e801bed01c058d7d0ab812f93456756c8ae80a2d"
+      "sha256": "83e59bdfdb97026a2340ca44049f5303839caa06b295456a811e6808b3263f04"
     },
     "proto": {
       "file": "proto/WAProto.proto",
