@@ -599,6 +599,37 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
         self.child_vars = outer_vars;
     }
 
+    fn visit_block_statement(&mut self, block: &oxc_ast::ast::BlockStatement<'a>) {
+        // A `let`/`const` naming a child dies with the block, so the outer entry of that
+        // name has to come back — `{ let x = e.child("inner"); } x.attrString("outside")`
+        // read the outside attribute off `<inner>`, which puts a field under a node the
+        // parser never reads it from. Restoring per FUNCTION was not enough, and
+        // restoring the whole map per block would be wrong the other way: `var` is
+        // function-scoped and a child it binds is meant to outlive the block.
+        let shadowed: Vec<(String, Option<Vec<PathSeg>>)> = block
+            .body
+            .iter()
+            .filter_map(|s| match s {
+                Statement::VariableDeclaration(d) if d.kind.is_lexical() => Some(d),
+                _ => None,
+            })
+            .flat_map(|d| d.declarations.iter())
+            .flat_map(|d| d.id.get_binding_identifiers())
+            .map(|i| {
+                let name = i.name.to_string();
+                let before = self.child_vars.get(&name).cloned();
+                (name, before)
+            })
+            .collect();
+        walk::walk_block_statement(self, block);
+        for (name, before) in shadowed {
+            match before {
+                Some(path) => self.child_vars.insert(name, path),
+                None => self.child_vars.remove(&name),
+            };
+        }
+    }
+
     fn visit_variable_declaration(&mut self, decl: &VariableDeclaration<'a>) {
         // A descendant bound inside a callback that has its own scope — whether the
         // recursion read it or the shadow check will discount it — must not rebind the
@@ -6384,6 +6415,60 @@ mod tests {
                     })
                 });
         assert!(has_id, "`detail`'s `id` survives somewhere: {kids:?}");
+    }
+
+    /// The tags a read landed under, as `parent/child` paths, for placement assertions.
+    fn placed_paths(r: &ParserResult) -> Vec<String> {
+        let mut out = Vec::new();
+        for f in &r.fields {
+            if let Some(kids) = &f.children {
+                for k in kids {
+                    out.push(format!("{}/{}", f.name, k.name));
+                }
+            }
+        }
+        out.sort();
+        out
+    }
+
+    #[test]
+    fn a_child_shadowed_by_a_let_in_a_block_is_restored_after_it() {
+        // `let` dies with the block, so the read after it is off `<outer>`. Restoring
+        // `child_vars` per function only left the inner binding in place, and the trailing
+        // attribute was filed under a node the parser never reads it from — a tree that
+        // disagrees with the source about structure, not just about strictness.
+        let r = analyze_parser_ast(
+            r#"{ var x = e.child("outer");
+                 { let x = e.child("inner"); x.attrString("inside"); }
+                 x.attrString("outside"); }"#,
+            "e",
+        );
+        let paths = placed_paths(&r);
+        assert!(
+            paths.contains(&"outer/outside".to_string()),
+            "the trailing read is the outer child's: {paths:?}"
+        );
+        assert!(
+            !paths.contains(&"inner/outside".to_string()),
+            "and not the shadow's: {paths:?}"
+        );
+    }
+
+    #[test]
+    fn a_child_bound_by_var_in_a_block_outlives_it() {
+        // The other direction: `var` is function-scoped, so a child it binds inside a block
+        // is still that name afterwards. Snapshotting the whole map per block would restore
+        // this one too and lose the read.
+        let r = analyze_parser_ast(
+            r#"{ { var y = e.child("late"); }
+                 y.attrString("after"); }"#,
+            "e",
+        );
+        let paths = placed_paths(&r);
+        assert!(
+            paths.contains(&"late/after".to_string()),
+            "`var` outlives the block: {paths:?}"
+        );
     }
 
     #[test]
