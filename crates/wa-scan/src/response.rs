@@ -778,6 +778,15 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
         self.guarded_names.truncate(self.guarded_names.len() - n);
     }
 
+    fn visit_logical_expression(&mut self, expr: &oxc_ast::ast::LogicalExpression<'a>) {
+        // `enabled && parse(e)` runs the right side only sometimes — the same as an `if`,
+        // spelled shorter.
+        self.visit_expression(&expr.left);
+        self.conditional_depth += 1;
+        self.visit_expression(&expr.right);
+        self.conditional_depth -= 1;
+    }
+
     fn visit_conditional_expression(&mut self, expr: &oxc_ast::ast::ConditionalExpression<'a>) {
         self.visit_expression(&expr.test);
         let tested = presence_tested(&expr.test);
@@ -1329,10 +1338,14 @@ impl ParserAnalyzer<'_, '_> {
             analyze_node_helper(body_src, bound_param, self.module, self.helper_depth + 1);
         self.unresolved.extend(lost);
         // What the helper enforces on the node it was handed is a constraint on that node,
-        // and dropping it published a shape that accepts what the parser rejects.
-        for g in guards {
-            if !self.assertions.contains(&g) {
-                self.assertions.push(g);
+        // and dropping it published a shape that accepts what the parser rejects — but only
+        // when the parser always runs it. Reached down one branch, its guards are that
+        // branch's, and hoisting them would reject everything the other branches accept.
+        if self.conditional_depth == 0 {
+            for g in guards {
+                if !self.assertions.contains(&g) {
+                    self.assertions.push(g);
+                }
             }
         }
         // Reached only down one branch, its payload is not required of every element —
@@ -1808,68 +1821,152 @@ fn merge_or_push(into: &mut Vec<ParsedField>, f: ParsedField) {
 
 /// Collects the arms of a dispatch on `subject`, wherever they sit — the minified form
 /// wraps them in a labelled block, but nothing here depends on that.
-struct ArmCollector<'s> {
-    subject: &'s str,
-    /// The literals an arm accepts, and the source range of what it then does.
+/// Reads a dispatch chain where it actually sits, rather than looking for comparisons
+/// anywhere in the body.
+///
+/// Scanning for every `if` against the discriminator kept mistaking things for arms: one
+/// nested inside another arm, one under an unrelated guard, one in a block that shadowed
+/// the binding. Each was a separate patch. Reading the chain structurally settles all of
+/// them at once — a statement is an arm only if it IS one of the chain's own statements,
+/// and anything the chain does not account for declines the transformation.
+struct DispatchChain {
     arms: Vec<(Vec<String>, Span)>,
-    /// Enclosing `if`s that test something else. A comparison under one runs only when
-    /// that guard holds, and a union keyed on the discriminator alone would claim
-    /// otherwise.
-    guarded: u32,
-    /// Whether the discriminator binding is written to after it is read. Later branches
-    /// then compare a different value, and pinning them to the original attribute names
-    /// the wrong variant.
-    reassigned: bool,
-    /// Whether a recognized arm ends in a plain `else`. Its reads belong to no value, and
-    /// folding them beside the union would require them of the arms that never carry them.
-    has_fallback: bool,
 }
 
-impl<'a> Visit<'a> for ArmCollector<'_> {
-    // A nested function has its own node, even when it reuses the parameter's name; its
-    // branches are not this element's dispatch.
-    fn visit_function(&mut self, _f: &Function<'a>, _flags: ScopeFlags) {}
-    fn visit_arrow_function_expression(&mut self, _f: &oxc_ast::ast::ArrowFunctionExpression<'a>) {}
-
-    fn visit_assignment_expression(&mut self, e: &oxc_ast::ast::AssignmentExpression<'a>) {
-        if let oxc_ast::ast::AssignmentTarget::AssignmentTargetIdentifier(id) = &e.left
-            && id.name == self.subject
-        {
-            self.reassigned = true;
-        }
-        walk::walk_assignment_expression(self, e);
+/// The statements a dispatch chain lives among: the callback body, unwrapped through the
+/// braces the slice carries and into the label the minifier wraps the chain in — which the
+/// discriminator's own declaration sits outside of.
+fn chain_statements<'b, 'a>(body: &'b [Statement<'a>]) -> &'b [Statement<'a>] {
+    let mut stmts = body;
+    while let [Statement::BlockStatement(b)] = stmts {
+        stmts = &b.body;
     }
-
-    fn visit_if_statement(&mut self, stmt: &oxc_ast::ast::IfStatement<'a>) {
-        if let Some(lits) = equality_literals(&stmt.test, self.subject)
-            && !lits.is_empty()
+    for stmt in stmts {
+        if let Statement::LabeledStatement(l) = stmt
+            && let Statement::BlockStatement(b) = &l.body
         {
-            if self.guarded > 0 {
-                // Reached only when something else holds — not a plain alternative.
-                self.reassigned = true;
-                return;
+            return &b.body;
+        }
+    }
+    stmts
+}
+
+/// Whether any statement under `stmt` compares `subject` — an arm nested inside another
+/// arm is not a sibling alternative, and the shape cannot say so.
+fn compares_subject(stmt: &Statement<'_>, subject: &str) -> bool {
+    struct Probe<'s> {
+        subject: &'s str,
+        found: bool,
+    }
+    impl<'a> Visit<'a> for Probe<'_> {
+        fn visit_function(&mut self, _f: &Function<'a>, _flags: ScopeFlags) {}
+        fn visit_arrow_function_expression(
+            &mut self,
+            _f: &oxc_ast::ast::ArrowFunctionExpression<'a>,
+        ) {
+        }
+        fn visit_if_statement(&mut self, s: &oxc_ast::ast::IfStatement<'a>) {
+            if equality_literals(&s.test, self.subject).is_some_and(|l| !l.is_empty()) {
+                self.found = true;
             }
-            let owned = lits.into_iter().map(str::to_string).collect();
-            self.arms.push((owned, stmt.consequent.span()));
-            // `else if` continues the chain; a bare `else` is an alternative this shape
-            // cannot name.
-            if stmt
-                .alternate
-                .as_ref()
-                .is_some_and(|a| !matches!(a, Statement::IfStatement(_)))
+            walk::walk_if_statement(self, s);
+        }
+    }
+    let mut p = Probe {
+        subject,
+        found: false,
+    };
+    p.visit_statement(stmt);
+    p.found
+}
+
+/// How many times `subject` is bound under `stmt`, and whether it is ever written to.
+/// The discriminator is bound once, up front; a second binding or any assignment means a
+/// later comparison tests something other than the wire attribute keyed on here.
+fn rebinds_subject(stmt: &Statement<'_>, subject: &str) -> (usize, bool) {
+    struct Counter<'s> {
+        subject: &'s str,
+        bindings: usize,
+        written: bool,
+    }
+    impl<'a> Visit<'a> for Counter<'_> {
+        fn visit_variable_declaration(&mut self, d: &VariableDeclaration<'a>) {
+            for decl in &d.declarations {
+                self.bindings += decl
+                    .id
+                    .get_binding_identifiers()
+                    .iter()
+                    .filter(|i| i.name == self.subject)
+                    .count();
+            }
+            walk::walk_variable_declaration(self, d);
+        }
+        fn visit_assignment_expression(&mut self, e: &oxc_ast::ast::AssignmentExpression<'a>) {
+            if let oxc_ast::ast::AssignmentTarget::AssignmentTargetIdentifier(id) = &e.left
+                && id.name == self.subject
             {
-                self.has_fallback = true;
+                self.written = true;
             }
-            walk::walk_if_statement(self, stmt);
-            return;
+            walk::walk_assignment_expression(self, e);
         }
-        self.visit_expression(&stmt.test);
-        self.guarded += 1;
-        self.visit_statement(&stmt.consequent);
-        if let Some(alt) = &stmt.alternate {
-            self.visit_statement(alt);
+    }
+    let mut c = Counter {
+        subject,
+        bindings: 0,
+        written: false,
+    };
+    c.visit_statement(stmt);
+    (c.bindings, c.written)
+}
+
+impl DispatchChain {
+    /// Read the chain, or decline. Declining leaves the body extracted flat, which is what
+    /// it was before this shape was recognized at all — never a loss.
+    fn read(body: &[Statement<'_>], subject: &str) -> Option<Self> {
+        let stmts = chain_statements(body);
+        // Counted over the whole body, not just the chain: the declaration usually sits
+        // outside the label, and an assignment between the two would be missed there.
+        let mut bindings = 0usize;
+        for stmt in body {
+            let (n, written) = rebinds_subject(stmt, subject);
+            bindings += n;
+            if written {
+                return None;
+            }
         }
-        self.guarded -= 1;
+        if bindings > 1 {
+            return None;
+        }
+        let mut arms: Vec<(Vec<String>, Span)> = Vec::new();
+        for stmt in stmts.iter() {
+            let Statement::IfStatement(first) = stmt else {
+                continue;
+            };
+            let mut current = &**first;
+            loop {
+                let lits = equality_literals(&current.test, subject)?;
+                if lits.is_empty() {
+                    return None;
+                }
+                // The arm's own body must not compare the discriminator again: that
+                // comparison is reachable only inside this arm, never as a sibling.
+                if compares_subject(&current.consequent, subject) {
+                    return None;
+                }
+                arms.push((
+                    lits.into_iter().map(str::to_string).collect(),
+                    current.consequent.span(),
+                ));
+                match &current.alternate {
+                    // `else if` continues the chain — and must also be the discriminator.
+                    Some(Statement::IfStatement(next)) => current = next,
+                    // A plain `else` payload belongs to no value.
+                    Some(_) => return None,
+                    None => break,
+                }
+            }
+        }
+        (arms.len() >= 2).then_some(Self { arms })
     }
 }
 
@@ -2189,23 +2286,7 @@ fn discriminated_children(
         is_method_required(&disc_method),
     );
 
-    let mut collector = ArmCollector {
-        subject: &bound,
-        arms: Vec::new(),
-        guarded: 0,
-        reassigned: false,
-        has_fallback: false,
-    };
-    collector.visit_program(&ret.program);
-    if collector.has_fallback || collector.reassigned {
-        return None;
-    }
-
-    // A single arm is a plain conditional, not a dispatch — counted in arms, because one
-    // arm accepting two names (`n === "a" || n === "b"`) is still one branch.
-    if collector.arms.len() < 2 {
-        return None;
-    }
+    let collector = DispatchChain::read(&ret.program.body, &bound)?;
 
     let mut variants: Vec<UnionVariant> = Vec::new();
     let mut common: Vec<ParsedField> = Vec::new();
@@ -3598,6 +3679,94 @@ mod tests {
             "the helper's guard reaches the shape: {:?}",
             p.assertions
         );
+    }
+
+    /// The dispatch shapes the chain reader declines. Each was its own patch once; reading
+    /// the chain structurally settles them together, and declining only means the body is
+    /// extracted flat — what it was before this shape was recognized at all.
+    #[test]
+    fn a_dispatch_is_declined_when_the_chain_does_not_account_for_it() {
+        let cases: [(&str, &str); 4] = [
+            (
+                "a comparison nested inside another arm is not a sibling",
+                r#"if (n === "a") { if (n === "b") { e.attrString("vb"); } }
+                   if (n === "c") { var y = e.attrString("value"); t.g = y; }"#,
+            ),
+            (
+                "an `else if` on something else leaves a tail the union cannot name",
+                r#"if (n === "a") { var x = e.attrString("value"); t.a = x; }
+                   else if (legacy) { var y = e.attrString("other"); t.b = y; }
+                   if (n === "c") { var z = e.attrString("value"); t.c = z; }"#,
+            ),
+            (
+                "a block that rebinds the discriminator tests a different value",
+                r#"if (n === "a") { var q = e.attrString("value"); t.a = q; }
+                   { let n = "b"; }
+                   if (n === "c") { var z = e.attrString("value"); t.c = z; }"#,
+            ),
+            (
+                "an arm reached only under an unrelated guard is not an alternative",
+                r#"if (enabled) { if (n === "a") { var x = e.attrString("value"); t.a = x; } }
+                   if (n === "b") { var y = e.attrString("value"); t.b = y; }"#,
+            ),
+        ];
+        for (why, chain) in cases {
+            let src = format!(
+                r#"{{ e.forEachChildWithTag("row", function(e){{
+                       var n = e.attrString("kind");
+                       {chain}
+                     }}); }}"#
+            );
+            let r = analyze_parser_ast(&src, "e");
+            let kids = r.fields[0].children.as_ref().unwrap();
+            assert!(
+                kids.iter().all(|f| f.field_type != ParsedFieldType::Union),
+                "{why}: {:?}",
+                kids.iter().map(|f| f.name.as_str()).collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn a_helper_reached_down_one_branch_does_not_lend_its_guards_to_the_parser() {
+        // Its fields are already weakened for a conditional call; its assertions were being
+        // hoisted anyway, which rejects everything the other branches accept.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parseA(p){ p.assertAttr("type", "a"); p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                if (e.attrString("kind") === "a") { parseA(e); }
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        assert!(
+            !p.assertions
+                .iter()
+                .any(|a| a.name.as_deref() == Some("type")),
+            "the branch's guard is not the parser's: {:?}",
+            p.assertions
+        );
+    }
+
+    #[test]
+    fn a_short_circuited_helper_call_is_conditional() {
+        // `enabled && parse(e)` runs the helper only sometimes, the same as an `if`.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("maybe_here"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                enabled && parse(e);
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let f = p
+            .fields
+            .iter()
+            .find(|f| f.name == "maybe_here")
+            .expect("recovered");
+        assert!(!f.required, "reached only when the left side holds");
     }
 
     #[test]
