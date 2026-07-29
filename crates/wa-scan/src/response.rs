@@ -429,6 +429,7 @@ fn analyze_with_scope(code: &str, param: &str, module: &ModuleScope) -> ParserRe
         pending_enum_keys: HashMap::new(),
         unresolved_enum_attrs: Default::default(),
         unresolved: Vec::new(),
+        outer_aliases: Vec::new(),
         helper_depth: 0,
     };
     a.visit_program(&ret.program);
@@ -458,6 +459,8 @@ struct BoundNames {
     /// `let`/`const`, each with the block it is confined to. A declaration in a nested
     /// block does not shadow a capture read elsewhere in the same function.
     lexical: Vec<(Span, String)>,
+    /// The function body this frame covers — the extent an alias bound in it is good for.
+    extent: Span,
     /// Enclosing blocks during collection, innermost last.
     blocks: Vec<Span>,
     /// Whether the binding being collected reaches the whole function: a parameter, or a
@@ -479,6 +482,7 @@ impl BoundNames {
         if let Some(n) = own_name {
             c.names.insert(n.to_string());
         }
+        c.extent = body.span;
         c.hoist = true;
         c.visit_formal_parameters(params);
         c.hoist = false;
@@ -552,11 +556,13 @@ impl<'a> Visit<'a> for BoundNames {
     fn visit_function(&mut self, func: &Function<'a>, _flags: ScopeFlags) {
         // Only a *declaration* introduces its name here — a named function expression binds
         // it inside itself, and claiming it out here would discount reads through a capture
-        // of the same name.
+        // of the same name. Against the current extent, not the function: at the top of a
+        // body that extent *is* the function, and in a nested block it binds only there.
         if func.r#type == oxc_ast::ast::FunctionType::FunctionDeclaration
             && let Some(id) = func.id.as_ref()
+            && let Some(&extent) = self.blocks.last()
         {
-            self.names.insert(id.name.as_str().to_string());
+            self.lexical.push((extent, id.name.as_str().to_string()));
         }
     }
 
@@ -620,6 +626,12 @@ struct ParserAnalyzer<'src, 'ms> {
     /// `dropsByReason` keys. Parked on the produced [`ParsedResponse`] for whoever
     /// finishes it, since the legacy scanner has no diagnostics channel of its own.
     unresolved: Vec<String>,
+    /// Names a callback bound to a node from outside it, each with the extent the binding
+    /// is good for. `function (row) { var x = e.child("meta"); x.attrString("id") }` owns
+    /// `x`, but `x` is `<meta>` — and the recursion, which starts with no bindings, cannot
+    /// resolve the `e` it came from. Scoped, so the alias cannot outlive its callback the
+    /// way a bare entry in `child_vars` would.
+    outer_aliases: Vec<(Span, String)>,
     /// Recursion guard for module-scope helper descent (`m(n,i)` → analyze `m`'s body).
     helper_depth: u32,
 }
@@ -650,10 +662,7 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
         // A descendant bound inside a callback that has its own scope — whether the
         // recursion read it or the shadow check will discount it — must not rebind the
         // outer name, or later reads land against the wrong node.
-        if self.inside_recursed(decl.span) || self.param_shadowed(decl.span) {
-            walk::walk_variable_declaration(self, decl);
-            return;
-        }
+        let inner_owns_it = self.inside_recursed(decl.span) || self.param_shadowed(decl.span);
         for d in &decl.declarations {
             // Track `var t = param.child("tag")` (or chained off another child var).
             if let (Some(name), Some(init)) = (d.id.get_identifier_name(), d.init.as_ref())
@@ -665,7 +674,13 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
                     let on_param = as_identifier(obj) == Some(self.param);
                     let on_child_var =
                         as_identifier(obj).is_some_and(|n| self.child_vars.contains_key(n));
+                    // Only through a name that still means what it was bound to — an
+                    // enclosing callback may have re-bound it.
+                    let reaches_outer = as_identifier(obj)
+                        .is_some_and(|n| !self.bound_by_inner_scope(n, decl.span))
+                        || as_identifier(obj).is_some_and(|n| self.aliases_outer(n, decl.span));
                     if (on_param || on_child_var)
+                        && (!inner_owns_it || reaches_outer)
                         && let Some(tag) = call
                             .arguments
                             .first()
@@ -674,6 +689,12 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
                     {
                         self.child_vars
                             .insert(name.as_str().to_string(), tag.to_string());
+                        // Bound inside a callback but naming a node from outside it: the
+                        // read through it is the parser's, for as long as that scope lasts.
+                        if inner_owns_it && let Some(extent) = self.scopes.last().map(|s| s.extent)
+                        {
+                            self.outer_aliases.push((extent, name.as_str().to_string()));
+                        }
                     }
                 }
             }
@@ -750,8 +771,17 @@ impl ParserAnalyzer<'_, '_> {
             .and_then(base_identifier)
             .is_some_and(|n| {
                 (n == self.param || self.child_vars.contains_key(n))
-                    && !self.bound_by_inner_scope(n, call.span)
+                    && (!self.bound_by_inner_scope(n, call.span)
+                        || self.aliases_outer(n, call.span))
             })
+    }
+
+    /// Whether `name`, at `span`, is a callback's own binding standing for a node from
+    /// outside it. The binding belongs to the callback; the node it names does not.
+    fn aliases_outer(&self, name: &str, span: Span) -> bool {
+        self.outer_aliases
+            .iter()
+            .any(|(e, n)| n == name && span.start >= e.start && span.end <= e.end)
     }
 
     /// Count a wire read the outer walk cannot place: it sits in a callback that re-binds
@@ -1343,6 +1373,7 @@ fn analyze_child_node(
         pending_enum_keys: HashMap::new(),
         unresolved_enum_attrs: Default::default(),
         unresolved: Vec::new(),
+        outer_aliases: Vec::new(),
         helper_depth: depth,
     };
     a.visit_program(&ret.program);
@@ -1422,13 +1453,10 @@ fn merge_or_push(into: &mut Vec<ParsedField>, f: ParsedField) {
     };
     let Some(incoming) = f.children else { return };
     let existing = into[i].children.get_or_insert_with(Vec::new);
+    // Recursively: two branches that both map `<row>` may differ only in what their nested
+    // `<sub>` reads, and taking the first `<sub>` whole would drop what the other accepts.
     for c in incoming {
-        if !existing
-            .iter()
-            .any(|e| e.name == c.name && e.method == c.method)
-        {
-            existing.push(c);
-        }
+        merge_or_push(existing, c);
     }
 }
 
@@ -1978,6 +2006,75 @@ mod tests {
                 .map(|c| c.iter().map(|f| f.name.as_str()).collect::<Vec<_>>()),
             Some(vec!["jid", "lid"]),
             "carrying what either branch accepts"
+        );
+    }
+
+    #[test]
+    fn a_callback_may_bind_a_name_to_the_parser_node() {
+        // `x` is the callback's binding, but it names `<meta>` off the parser's own node.
+        // The recursion starts with no bindings and cannot follow the `e` it came from, so
+        // refusing to record it here dropped `id` while still creating `meta`.
+        let r = analyze_parser_ast(
+            r#"{ e.mapChildrenWithTag("row", function(row){
+                   var x = e.child("meta");
+                   x.attrString("id");
+                 }); }"#,
+            "e",
+        );
+        assert_eq!(
+            r.fields
+                .iter()
+                .find(|f| f.name == "meta")
+                .and_then(|f| f.children.as_ref())
+                .map(|c| c.iter().map(|f| f.name.as_str()).collect::<Vec<_>>()),
+            Some(vec!["id"]),
+            "the alias reaches the node it was bound to: {:?}",
+            r.fields
+        );
+    }
+
+    #[test]
+    fn a_block_function_declaration_shadows_only_its_block() {
+        // In a strict bundle a `function` declared in a nested block binds only there.
+        let r = analyze_parser_ast(
+            r#"{ var x = e.child("meta");
+                 e.mapChildrenWithTag("row", function(row){
+                   x.attrString("before");
+                   { function x(){} }
+                   x.attrString("after");
+                 }); }"#,
+            "e",
+        );
+        assert_eq!(
+            r.fields
+                .iter()
+                .find(|f| f.name == "meta")
+                .and_then(|f| f.children.as_ref())
+                .map(|c| c.iter().map(|f| f.name.as_str()).collect::<Vec<_>>()),
+            Some(vec!["before", "after"]),
+        );
+    }
+
+    #[test]
+    fn merging_two_branches_reaches_the_nested_shapes_too() {
+        // Both arms map `<row>` and both map a nested `<sub>`; keeping the first `<sub>`
+        // whole would publish only what one arm reads.
+        let r = analyze_parser_ast(
+            r#"{ c ? e.mapChildrenWithTag("row", function(x){ x.mapChildrenWithTag("sub", function(y){ y.attrString("a"); }); })
+                   : e.mapChildrenWithTag("row", function(x){ x.mapChildrenWithTag("sub", function(y){ y.attrString("b"); }); }); }"#,
+            "e",
+        );
+        let sub = r.fields[0]
+            .children
+            .as_ref()
+            .and_then(|c| c.iter().find(|f| f.name == "sub"))
+            .expect("one nested sub");
+        assert_eq!(
+            sub.children
+                .as_ref()
+                .map(|c| c.iter().map(|f| f.name.as_str()).collect::<Vec<_>>()),
+            Some(vec!["a", "b"]),
+            "both arms' nested reads survive"
         );
     }
 
