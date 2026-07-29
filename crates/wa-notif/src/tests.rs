@@ -710,7 +710,8 @@ __d("WAWebHandleGroupNotification",["WAWebHandleGroupNotificationConst","WAWebGr
             parenRev: (t.hasChild("pr") ? 0 : t.mapChildrenWithTag("paren_rev_user", function(x){ return {id:x.attrUserJid("jid")}; })),
             callRev: t.hasChild("cr") ? other(t) : t.mapChildrenWithTag("call_rev_user", function(x){ return {id:x.attrUserJid("jid")}; }),
             nestedRev: t.hasChild("n1") ? other(t) : (t.hasChild("n2") ? other(t) : t.mapChildrenWithTag("nested_rev_user", function(x){ return {id:x.attrUserJid("jid")}; })),
-            twoMaps: t.hasChild("tm") ? t.mapChildrenWithTag("tm_p", function(x){ return {id:x.attrUserJid("jid")}; }) : t.mapChildrenWithTag("tm_q", function(x){ return {id:x.attrUserJid("jid")}; })};
+            twoMaps: t.hasChild("tm") ? t.mapChildrenWithTag("tm_p", function(x){ return {id:x.attrUserJid("jid")}; }) : t.mapChildrenWithTag("tm_q", function(x){ return {id:x.attrUserJid("jid")}; }),
+            sameTagDiffCb: t.hasChild("st") ? t.mapChildrenWithTag("same_tag", function(x){ return {id:x.attrUserJid("jid")}; }) : t.mapChildrenWithTag("same_tag", function(x){ return {id:x.attrUserJid("lid")}; })};
         }
         case o("WAWebHandleGroupNotificationConst").GROUP_NOTIFICATION_TAG.REVOKE_INVITE:
           return {actionType:o("WAWebGroupType").GROUP_ACTIONS.REVOKE_INVITE, participants:t.mapChildrenWithTag("participant", function(p){ return {id:p.attrUserJid("jid"), expiration:p.attrInt("expiration")}; }), owners:t.mapChildrenWithTag("owner", p=>o("WAWebJidToWid").userJidToUserWid(p.maybeAttrPhoneUserJid("phone_number")))};
@@ -998,6 +999,12 @@ fn a_mapped_child_is_optional_only_when_the_guard_admits_absence() {
     assert!(
         !arm.children.iter().any(|c| c.name == "twoMaps"),
         "conflicting tags in the two branches must not resolve to one of them"
+    );
+    // Same tag, DIFFERENT callbacks: publishing one would assert `jid` for a branch that
+    // reads `lid`. Equal tag is not equal shape.
+    assert!(
+        !arm.children.iter().any(|c| c.name == "sameTagDiffCb"),
+        "same tag with different callback reads is still ambiguous"
     );
 
     let paren_rev = child("parenRev");

@@ -33,16 +33,6 @@ from pathlib import Path
 # recover is now being lost, and the number has to be updated with a reason.
 BASELINE = {
     "content integer with no byte width": 0,
-    # The extractor flattens a shape discriminated by an attribute — `privacyParser` reads
-    # `<category name="last" value=…>` into ten sibling `value` fields, losing both the
-    # discriminator and the runtime's output names (`lastSeen`, `callAdd`, …). A consumer
-    # gets one key with ten contradictory constraints. Recorded rather than certified;
-    # fixing the shape is an extractor change, not a linter one.
-    #
-    # 42 is the number of EXTRA entries across all such arrays, measured — an earlier
-    # guess of 24 was wrong, and counting arrays instead let an eleventh duplicate in an
-    # array already holding ten pass unnoticed.
-    "object key filled twice in one array": 42,
 }
 
 # The enums no extraction path could resolve, by IDENTITY rather than by total.
@@ -55,6 +45,32 @@ BASELINE = {
 #
 # 155 fields collapse to 30 identities. Adding one, dropping one, or changing a count all
 # fail; each is a deliberate act that costs one line here.
+# Arrays where the extractor FLATTENED a shape discriminated by an attribute, keyed by
+# semantic path and the repeated names. `privacyParser` reads `<category name="last"
+# value=…>` into ten sibling `value` fields, losing the discriminator linkage and the
+# runtime's output names (`lastSeen`, `callAdd`, …); the same ten also appear correctly
+# nested under `category`, so the flat copy is a duplicate rather than the only record.
+#
+# By identity, not by total: an aggregate let one loss disappear while another appeared.
+# Fixing the shape is an extractor change and belongs in its own PR.
+FLATTENED_KEYS = {
+    "incoming/incoming/3/shape/fields/5/children/0/children|type": 1,
+    "incoming/incoming/4/shape/fields|id": 1,
+    "iq/stanzas/22/response/fields|id": 1,
+    "iq/stanzas/49/response/fields/0/children/0/children|value": 9,
+    "iq/stanzas/49/response/fields|value": 9,
+    "iq/stanzas/50/response/fields/0/children/0/children|value": 1,
+    "iq/stanzas/50/response/fields|value": 1,
+    "notif/notifications/0/content/fields|id": 1,
+    "notif/notifications/12/content/fields|id": 1,
+    "notif/notifications/17/content/fields|from,t": 3,
+    "notif/notifications/19/content/fields|id": 1,
+    "notif/notifications/23/content/fields|from": 2,
+    "notif/notifications/24/content/fields|jid,participant,t": 8,
+    "notif/notifications/3/content/fields/7/children|new_lid,old_lid": 2,
+    "notif/notifications/3/content/fields|t": 1,
+}
+
 UNRESOLVED_ENUMS = {
     "incoming|ack|deprecatedEditMixin|edit|attrEnum": 1,
     "iq|AddParticipantsResponseSuccess|participant|addParticipant|addParticipantsParticipantAddedOrNonRegisteredWaUserParticipantErrorLidResponseMixinGroup|AddParticipantsParticipantAddedResponse|addParticipantsParticipantMixins|ParticipantGroupJoinRequest|membershipApprovalRequestError|maybeAttrEnum": 1,
@@ -540,6 +556,22 @@ def check_field(f, path, domain, errors, counts, proto_enums):
     if "byteLength" in f and method and method not in WIDTH_ACCESSORS:
         errors.append(f"{path}: byteLength on {method!r}, which has no byte width")
 
+    # A `*Source` is provenance FOR an inferred value. Alone it tells a consumer where a
+    # constraint allegedly came from and not what to enforce.
+    for src_key, value_keys in (
+        ("byteLengthSource", ("byteLength",)),
+        ("valueSource", ("value", "constBytes")),
+    ):
+        if src_key not in f:
+            continue
+        if not isinstance(f[src_key], str) or not f[src_key]:
+            errors.append(f"{path}: {src_key} is {f[src_key]!r}, not a non-empty string")
+        if not any(k in f for k in value_keys):
+            errors.append(
+                f"{path}: {src_key} without {' or '.join(value_keys)} — provenance for "
+                f"a value that is not there"
+            )
+
     # An echo rule with no path says "this equals something in the request" and
     # then does not say what.
     if "referencePath" in f and not f["referencePath"]:
@@ -858,7 +890,7 @@ def check_event_codes(data, domain, errors):
             )
 
 
-def check_action_keys(node, path, errors, counts):
+def check_action_keys(node, path, errors, flattened):
     """`fields`, `constantFields` and `children` are three representations of ONE object
     key namespace, so a name may appear in only one of them.
 
@@ -879,10 +911,13 @@ def check_action_keys(node, path, errors, counts):
         names_in = [
             it["name"] for it in node[key] if isinstance(it, dict) and "name" in it
         ]
-        # Counted per EXTRA entry, not per array: counting arrays meant an eleventh
-        # `value` in an array already carrying ten changed nothing, which is the same
-        # count-vs-identity blind spot the unresolved-enum baseline had twice.
-        counts["object key filled twice in one array"] += len(names_in) - len(set(names_in))
+        extra = len(names_in) - len(set(names_in))
+        if extra:
+            # By IDENTITY, not by total: one loss disappearing while another appears
+            # elsewhere kept the aggregate at 42 and passed — the third time this exact
+            # blind spot has been found in this file, twice in baselines I wrote.
+            repeated = sorted({n for n in names_in if names_in.count(n) > 1})
+            flattened[f"{path}/{key}|{','.join(repeated)}"] += extra
 
     if len(arrays) < 2:
         return
@@ -1259,6 +1294,7 @@ def main() -> int:
     errors: list[str] = []
     counts = dict.fromkeys(BASELINE, 0)
     unresolved: dict[str, int] = defaultdict(int)
+    flattened: dict[str, int] = defaultdict(int)
     seen_refs: dict[tuple, tuple] = {}
 
     # The protobuf enums an appstate `protoEnum` may name. A path that resolves to
@@ -1313,7 +1349,7 @@ def main() -> int:
             # Independent of the field gate — see each function's note.
             check_enum_ref(node, f"{domain}{path}", errors, seen_refs)
             check_const_bytes(node, f"{domain}{path}", errors)
-            check_action_keys(node, f"{domain}{path}", errors, counts)
+            check_action_keys(node, f"{domain}{path}", errors, flattened)
             check_variant_groups(node, f"{domain}{path}", errors)
             check_child_requiredness(node, f"{domain}{path}", errors)
 
@@ -1336,6 +1372,18 @@ def main() -> int:
     # COUNTS, not just membership: the semantic trail omits array indices for reorder
     # stability, so two sibling fields can share an identity — and with a set, one of them
     # losing its `enumRef` left the set unchanged and passed.
+    for ident in sorted(set(flattened) | set(FLATTENED_KEYS)):
+        now, was = flattened.get(ident, 0), FLATTENED_KEYS.get(ident, 0)
+        if now == was:
+            continue
+        ok = False
+        if was == 0:
+            print(f"REGRESSION  newly flattened shape: {ident} (x{now})")
+        elif now == 0:
+            print(f"IMPROVED    shape no longer flattened: {ident} — drop it")
+        else:
+            print(f"CHANGED     {ident}: {was} -> {now}")
+
     for ident in sorted(set(unresolved) | set(UNRESOLVED_ENUMS)):
         now, was = unresolved.get(ident, 0), UNRESOLVED_ENUMS.get(ident, 0)
         if now == was:

@@ -2143,7 +2143,15 @@ fn find_mapped_call<'b, 'a>(e: &'b Expression<'a>) -> Option<&'b oxc_ast::ast::C
                             .and_then(arg_expr)
                             .and_then(as_string_lit)
                     }
-                    (tag(a) == tag(b)).then_some(a)
+                    // Same tag is not the same shape: callbacks reading `jid` and
+                    // `lid` would publish an always-required `jid` for a branch that
+                    // carries only `lid`. The whole call must match, arguments included.
+                    let same_text =
+                        |x: &oxc_ast::ast::CallExpression, y: &oxc_ast::ast::CallExpression| {
+                            x.span == y.span
+                                || format!("{:?}", x.arguments) == format!("{:?}", y.arguments)
+                        };
+                    (tag(a) == tag(b) && same_text(a, b)).then_some(a)
                 }
                 (found, None) | (None, found) => found,
             }

@@ -298,9 +298,18 @@ fn resolve_pending(r: &mut NamedResolver) {
             continue;
         }
         if let Some(data) = r.locals.get(local) {
-            r.exports
-                .entry(export.clone())
-                .or_insert_with(|| data.clone());
+            // A deferred alias that DISAGREES with an inline write to the same export is
+            // the same conflict the immediate path already refuses — `i.OUT = {A:"a"};
+            // i.OUT = e` exports `e` at runtime, and `or_insert` kept `{A}`.
+            match r.exports.get(export) {
+                Some(prev) if prev != data => {
+                    r.conflicting.insert(export.clone());
+                }
+                Some(_) => {}
+                None => {
+                    r.exports.insert(export.clone(), data.clone());
+                }
+            }
         }
     }
 }
@@ -1672,6 +1681,14 @@ mod tests {
             function f(){ for (let e of (i.OUT=e, [])) {} }
         }),1);"#;
         assert!(resolve_named_enum(tdz, "M", "OUT").is_none());
+
+        // A DEFERRED alias that disagrees with an inline write to the same export.
+        let alias_conflict = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={B:"b"};
+            i.OUT={A:"a"};
+            i.OUT=e
+        }),1);"#;
+        assert!(resolve_named_enum(alias_conflict, "M", "OUT").is_none());
 
         // A name rebound to the SAME body is not ambiguous — refusing it would throw away
         // a resolvable enum for nothing.
