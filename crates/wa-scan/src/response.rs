@@ -2890,6 +2890,24 @@ fn assigned_names(src: &str, param: &str) -> (HashMap<String, Vec<(String, Strin
             self.depth -= 1;
         }
 
+        // Everything after a statement that CAN leave the callback runs only on the paths
+        // that did not. `t.value = first; if (flag) return t; t.value = second` overwrote
+        // the property outright, though the early return hands back the first read.
+        fn visit_statements(&mut self, stmts: &oxc_allocator::Vec<'a, Statement<'a>>) {
+            let mut past_exit = false;
+            for stmt in stmts {
+                if past_exit {
+                    self.depth += 1;
+                }
+                self.visit_statement(stmt);
+                if past_exit {
+                    self.depth -= 1;
+                } else if contains_exit(stmt) {
+                    past_exit = true;
+                }
+            }
+        }
+
         // The `try` body may stop partway and the `catch` runs only when it does, so a
         // write in either is one the other path does not make. Visiting both at depth zero
         // let the catch's assignment look like an unconditional overwrite of the try's.
@@ -3590,9 +3608,13 @@ fn returned_names(src: &str) -> (std::collections::HashSet<String>, bool) {
         fn visit_return_statement(&mut self, r: &oxc_ast::ast::ReturnStatement<'a>) {
             if self.depth == 0
                 && let Some(a) = &r.argument
-                && let Some(n) = as_identifier(a)
             {
-                self.out.insert(n.to_string());
+                // `return flag ? result : cache` hands back one object or the other, and
+                // reading only a bare identifier saw neither — so the accumulator fell to
+                // the frequency tie-break and a cache took the API.
+                let mut named = Vec::new();
+                returned_candidates(a, &mut named);
+                self.out.extend(named);
             }
             walk::walk_return_statement(self, r);
         }
@@ -3610,6 +3632,10 @@ fn returned_names(src: &str) -> (std::collections::HashSet<String>, bool) {
     // so the choice fell to the frequency tie-break and a cache written by more arms than
     // the result took the API. Following the alias chain settles it; the bound stops a
     // `a = b; b = a` cycle from spinning.
+    // Every returned name, followed to the object it ultimately stands for. Two returns
+    // naming aliases of ONE object are no ambiguity at all; two naming different objects
+    // cannot both be the accumulator, and picking either publishes the other's fields.
+    let mut roots: std::collections::HashSet<String> = Default::default();
     let mut out = f.out.clone();
     for name in f.out {
         let mut at = name;
@@ -3617,13 +3643,61 @@ fn returned_names(src: &str) -> (std::collections::HashSet<String>, bool) {
             let Some(next) = f.aliases.get(&at) else {
                 break;
             };
-            if !out.insert(next.clone()) {
+            out.insert(next.clone());
+            if *next == at {
                 break;
             }
             at = next.clone();
         }
+        roots.insert(at);
     }
-    (out, f.ambiguous)
+    (out, f.ambiguous || roots.len() > 1)
+}
+
+/// The objects a `return` can hand back: a bare name, or either side of a ternary or
+/// short-circuit that chooses between them.
+fn returned_candidates(e: &Expression<'_>, out: &mut Vec<String>) {
+    match e {
+        Expression::ParenthesizedExpression(p) => returned_candidates(&p.expression, out),
+        Expression::ConditionalExpression(c) => {
+            returned_candidates(&c.consequent, out);
+            returned_candidates(&c.alternate, out);
+        }
+        Expression::LogicalExpression(l) => {
+            returned_candidates(&l.left, out);
+            returned_candidates(&l.right, out);
+        }
+        _ => {
+            if let Some(n) = as_identifier(e) {
+                out.push(n.to_string());
+            }
+        }
+    }
+}
+
+/// Whether `stmt` can leave the callback — a `return`/`throw` on any path under it,
+/// conditional or not. Statements after one of these do not run on every path.
+fn contains_exit(stmt: &Statement<'_>) -> bool {
+    struct Probe {
+        found: bool,
+    }
+    impl<'a> Visit<'a> for Probe {
+        fn visit_function(&mut self, _f: &Function<'a>, _flags: ScopeFlags) {}
+        fn visit_arrow_function_expression(
+            &mut self,
+            _f: &oxc_ast::ast::ArrowFunctionExpression<'a>,
+        ) {
+        }
+        fn visit_return_statement(&mut self, _r: &oxc_ast::ast::ReturnStatement<'a>) {
+            self.found = true;
+        }
+        fn visit_throw_statement(&mut self, _t: &oxc_ast::ast::ThrowStatement<'a>) {
+            self.found = true;
+        }
+    }
+    let mut p = Probe { found: false };
+    p.visit_statement(stmt);
+    p.found
 }
 
 /// The bound name and body source of a child callback, written either as
@@ -8336,6 +8410,80 @@ mod tests {
             !kids.iter().any(|f| f.field_type == ParsedFieldType::Union),
             "declined, so the reads stay flat: {:?}",
             kids.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+    }
+    #[test]
+    fn a_write_after_a_conditional_exit_does_not_overwrite() {
+        // The early return hands back the first read, so `value` is not always the second.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   if (n === "a") { t.value = e.attrString("first");
+                                    if (flag) { return t; }
+                                    t.value = e.attrString("second"); }
+                   if (n === "b") { t.other = e.attrString("third"); }
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        assert!(
+            !kids.iter().any(|f| f.field_type == ParsedFieldType::Union),
+            "declined, so the reads stay flat: {:?}",
+            kids.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_return_choosing_between_two_objects_declines() {
+        // `return flag ? result : cache` hands back one or the other; reading only a bare
+        // identifier saw neither, and the cache won the frequency tie-break.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   var result = {}, cache = {};
+                   if (n === "a") { result.foo = e.attrString("f1");
+                                    cache.wrongA = e.attrString("w1");
+                                    cache.wrongB = e.attrString("w2"); }
+                   if (n === "b") { result.bar = e.attrString("b1");
+                                    cache.wrongC = e.attrString("w3");
+                                    cache.wrongD = e.attrString("w4"); }
+                   return flag ? result : cache;
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        assert!(
+            !kids.iter().any(|f| f.field_type == ParsedFieldType::Union),
+            "declined rather than publishing one object's names: {:?}",
+            kids.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn two_returns_naming_aliases_of_one_object_are_not_ambiguous() {
+        // Both returns hand back the same accumulator under different names, so the
+        // choice is settled and the dispatch stands.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   var result = {}, alias = result;
+                   if (n === "a") { result.foo = e.attrString("f1"); }
+                   if (n === "b") { result.bar = e.attrString("b1"); }
+                   return alias;
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        let a_fields: Vec<String> = kids
+            .iter()
+            .find(|f| f.field_type == ParsedFieldType::Union)
+            .and_then(|f| f.union_variants.as_ref())
+            .and_then(|vs| vs.iter().find(|v| v.name == "a"))
+            .map(|v| v.fields.iter().map(|f| f.name.clone()).collect())
+            .unwrap_or_default();
+        assert!(
+            a_fields.iter().any(|n| n == "foo"),
+            "one object, so the accumulator is settled: {a_fields:?}"
         );
     }
 }
