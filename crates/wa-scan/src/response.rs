@@ -500,6 +500,9 @@ const UNKNOWN_RECEIVER: &str = "readThroughUnknownNode";
 
 /// The `dropsByReason` key for a helper chain the descent stopped following.
 const HELPER_DEPTH: &str = "helperChainTooDeep";
+/// A helper was handed a node whose name has since been assigned to, so where its reads
+/// belong is no longer known.
+const NODE_REASSIGNED: &str = "reassignedNodeHandedOn";
 
 struct ParserAnalyzer<'src, 'ms> {
     code: &'src str,
@@ -1400,16 +1403,27 @@ impl ParserAnalyzer<'_, '_> {
         if self.local_bindings.shadows(name, call.span) {
             return;
         }
+        // A name that has been assigned to no longer stands for the node it was bound to,
+        // so what the helper reads belongs under whatever it was pointed at instead. The
+        // shape is incomplete either way; saying so is what separates a bounded descent
+        // from a silent one.
+        if self.local_bindings.written_in_scope(self.param, call.span) {
+            self.unresolved.push(format!("{NODE_REASSIGNED}@{name}"));
+            return;
+        }
         // Every position it is handed to, not just the first: `parse(e, e)` binds the
-        // node to both parameters, and reading only one dropped what the other saw.
+        // node to both parameters, and reading only one dropped what the other saw. An
+        // alias of the node is the node — comparing against the parameter's own identifier
+        // alone lost the helper entirely when the callback copied it first.
+        let stands_for = self.local_bindings.names_for(self.param, call.span);
         let positions: Vec<usize> = call
             .arguments
             .iter()
             .enumerate()
             .filter(|(_, a)| {
-                arg_expr(a)
-                    .and_then(as_identifier)
-                    .is_some_and(|id| id == self.param && !self.bound_by_inner_scope(id, call.span))
+                arg_expr(a).and_then(as_identifier).is_some_and(|id| {
+                    stands_for.contains(id) && !self.bound_by_inner_scope(id, call.span)
+                })
             })
             .map(|(i, _)| i)
             .collect();
@@ -2591,6 +2605,17 @@ struct AllBindings {
     /// or a function declaration. `let`, `const`, a class and a `catch` parameter stop at
     /// the block — the same split `BoundNames` keeps, which this collector was missing.
     hoists: bool,
+    /// Names ASSIGNED somewhere in the source, with the function extent the write sits in.
+    /// Being bound and still meaning what you were bound to are different questions, and
+    /// only the first one was collected.
+    writes: Vec<(Span, String)>,
+    /// `var current = row` — a name declared as a bare copy of another. Which node the
+    /// right-hand side names is its own question, so the pair is kept unresolved here.
+    aliases: Vec<(String, String)>,
+    /// Assigned at the top of the analysed source, so the write applies throughout it —
+    /// the same split `names`/`scoped` keeps. A fragment IS a callback body often enough
+    /// that folding these into `writes` under an empty span matched nothing at all.
+    written_throughout: std::collections::HashSet<String>,
 }
 
 impl AllBindings {
@@ -2617,7 +2642,32 @@ impl<'a> Visit<'a> for AllBindings {
         self.bind(id.name.as_str(), self.hoists);
     }
 
+    fn visit_simple_assignment_target(
+        &mut self,
+        target: &oxc_ast::ast::SimpleAssignmentTarget<'a>,
+    ) {
+        // `row = row.child("detail")` and `row++` alike: after either, the name no longer
+        // stands for what it was bound to.
+        if let oxc_ast::ast::SimpleAssignmentTarget::AssignmentTargetIdentifier(id) = target {
+            match self.fns.last().copied() {
+                Some(e) => self.writes.push((e, id.name.as_str().to_string())),
+                None => {
+                    self.written_throughout.insert(id.name.as_str().to_string());
+                }
+            }
+        }
+        walk::walk_simple_assignment_target(self, target);
+    }
+
     fn visit_variable_declaration(&mut self, decl: &VariableDeclaration<'a>) {
+        for d in &decl.declarations {
+            if let (Some(id), Some(Expression::Identifier(src))) =
+                (d.id.get_binding_identifier(), d.init.as_ref())
+            {
+                self.aliases
+                    .push((id.name.to_string(), src.name.to_string()));
+            }
+        }
         let outer = self.hoists;
         self.hoists = !decl.kind.is_lexical();
         walk::walk_variable_declaration(self, decl);
@@ -2724,6 +2774,10 @@ impl<'a> Visit<'a> for AllBindings {
 struct Bindings {
     names: std::collections::HashSet<String>,
     scoped: Vec<(Span, String)>,
+    /// Names the source assigns to, by enclosing function extent.
+    writes: Vec<(Span, String)>,
+    written_throughout: std::collections::HashSet<String>,
+    aliases: Vec<(String, String)>,
 }
 
 impl Bindings {
@@ -2732,6 +2786,52 @@ impl Bindings {
     /// nested function reused the name is a silent loss of its fields.
     fn shadows(&self, name: &str, at: Span) -> bool {
         self.names.contains(name) || self.bound_inside(name, at)
+    }
+
+    /// Whether `name` is written anywhere in the function containing `at`.
+    ///
+    /// Being in scope is not the same as still naming what you were bound to. The
+    /// helper-descent filter asked only about lexical shadowing, so `row =
+    /// row.child("detail"); parse(row)` still counted `row` as the callback's own node and
+    /// merged the helper's reads at the element root instead of under `<detail>`. Any write
+    /// in the extent disqualifies the name: which side of the call it lands on is a
+    /// question this pre-scan cannot order, and guessing puts fields under the wrong node.
+    fn written_in_scope(&self, name: &str, at: Span) -> bool {
+        self.written_throughout.contains(name)
+            || self
+                .writes
+                .iter()
+                .any(|(e, n)| n == name && at.start >= e.start && at.end <= e.end)
+    }
+
+    /// Every name that still stands for `node` at `at`: `node` itself plus anything
+    /// declared as a bare copy of it, transitively, with nothing on the chain written since.
+    ///
+    /// A mapped callback that aliases its node before delegating — `var current = row;
+    /// parse(current)` — matched no argument position, so the helper was never entered and
+    /// its fields left the shape with no drop recorded. Recognizing the alias is the same
+    /// work as resolving it, so it is resolved rather than merely counted.
+    fn names_for(&self, node: &str, at: Span) -> std::collections::HashSet<String> {
+        let mut out: std::collections::HashSet<String> = std::collections::HashSet::new();
+        out.insert(node.to_string());
+        // Bounded: one pass per link, and a `a = b; b = a` pair cannot grow the set twice.
+        for _ in 0..8 {
+            let more: Vec<String> = self
+                .aliases
+                .iter()
+                .filter(|(alias, src)| {
+                    out.contains(src.as_str())
+                        && !out.contains(alias.as_str())
+                        && !self.written_in_scope(alias, at)
+                })
+                .map(|(alias, _)| alias.clone())
+                .collect();
+            if more.is_empty() {
+                break;
+            }
+            out.extend(more);
+        }
+        out
     }
 
     /// Whether `name` is bound by a scope strictly inside this source that contains `at` —
@@ -2774,6 +2874,9 @@ fn all_bindings(program: &oxc_ast::ast::Program<'_>) -> Bindings {
     Bindings {
         names: c.names,
         scoped: c.scoped,
+        writes: c.writes,
+        written_throughout: c.written_throughout,
+        aliases: c.aliases,
     }
 }
 
@@ -6524,6 +6627,117 @@ mod tests {
             .find(|r| r.parser_name == "p")
             .expect("parser")
             .fields
+    }
+
+    #[test]
+    fn a_helper_handed_an_alias_of_the_node_is_still_followed() {
+        // `var current = row; parse(current)` matched no argument position, so the helper
+        // was never entered — its fields simply were not in the shape, and no drop was
+        // recorded either, which is the worse half: the extraction looked complete.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                e.mapChildrenWithTag("row", function(row){
+                    var current = row;
+                    parse(current);
+                });
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let row = p.fields.iter().find(|f| f.name == "row").expect("row");
+        assert!(
+            row.children
+                .as_ref()
+                .is_some_and(|kids| kids.iter().any(|f| f.name == "id")),
+            "the alias is the node: {:?}",
+            row.children
+        );
+    }
+
+    #[test]
+    fn an_alias_of_the_node_that_is_reassigned_is_not_followed() {
+        // An alias only stands for the node while nothing has written to it. Following
+        // `current` after `current = row.child("detail")` would file the helper's reads
+        // under `<row>` when the parser reads them off `<detail>`.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                e.mapChildrenWithTag("row", function(row){
+                    var current = row;
+                    current = row.child("detail");
+                    parse(current);
+                });
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let row = p.fields.iter().find(|f| f.name == "row").expect("row");
+        let at_root = row
+            .children
+            .as_ref()
+            .is_some_and(|kids| kids.iter().any(|f| f.name == "id"));
+        assert!(!at_root, "the write breaks the alias: {:?}", row.children);
+    }
+
+    #[test]
+    fn a_helper_handed_a_reassigned_node_declines_and_says_so() {
+        // `row = row.child("detail"); parse(row)` hands the helper the DETAIL node, so its
+        // reads belong under `<detail>`. The filter asked only whether an inner scope
+        // rebound the name — an assignment binds nothing — so the reads were merged at the
+        // element root and the response tree claimed the parser reads them off `<row>`.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                e.mapChildrenWithTag("row", function(row){
+                    row = row.child("detail");
+                    parse(row);
+                });
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let row = p.fields.iter().find(|f| f.name == "row").expect("row");
+        let at_root = row
+            .children
+            .as_ref()
+            .is_some_and(|kids| kids.iter().any(|f| f.name == "id"));
+        assert!(!at_root, "not the row's own attribute: {:?}", row.children);
+        assert!(
+            p.pending_drops
+                .iter()
+                .any(|u| u == "reassignedNodeHandedOn@parse"),
+            "and the drop is counted rather than silent: {:?}",
+            p.pending_drops
+        );
+    }
+
+    #[test]
+    fn a_helper_handed_the_untouched_node_still_descends() {
+        // The other direction: without a write the descent is exactly as before, so the
+        // reassignment check cannot cost the helper reads it used to recover.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                e.mapChildrenWithTag("row", function(row){
+                    parse(row);
+                });
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let row = p.fields.iter().find(|f| f.name == "row").expect("row");
+        assert!(
+            row.children
+                .as_ref()
+                .is_some_and(|kids| kids.iter().any(|f| f.name == "id")),
+            "the helper's read is the row's: {:?}",
+            row.children
+        );
     }
 
     #[test]
