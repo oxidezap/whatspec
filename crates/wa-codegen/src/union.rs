@@ -336,32 +336,10 @@ fn classify_attr_discriminated(f: &ParsedField, variants: &[UnionVariant]) -> Op
         if !v.fields.iter().all(is_simple_leaf) {
             return None;
         }
-        // A pinned payload is stored as hex text while the accessor yields bytes, and the
-        // guard cannot compare the two without knowing the decoder's exact type. Emitting
-        // a comparison anyway produced Rust that does not compile, and skipping the check
-        // would accept every other payload of that length — so the shape is declined.
-        if v.fields
-            .iter()
-            .any(|f| wap::is_content_method(&f.method) && f.literal_value.is_some())
-        {
+        if !arm_payload_representable(&v.fields) {
             return None;
         }
-        // A leaf pinned to a REQUEST field — smax's `optionalLiteral(…, request.to)` — is
-        // an equality this decoder cannot test: a response parser is handed the node and
-        // nothing else, so the value it must match is not in scope. Emitting the arm
-        // anyway guarded the field on its type at best and not at all when optional,
-        // taking a value the source parser turns away.
-        if v.fields.iter().any(|f| f.reference_path.is_some()) {
-            return None;
-        }
-        // A band no `u64` can enter — `attrIntRange("count", -10, -1)` — is an arm the
-        // parser can never take. `int_band` drops a bound below zero, which is right for a
-        // MINIMUM (no unsigned value fails it) and wrong for a maximum: dropping it left
-        // the guard accepting everything that parses, so the variant was selected where
-        // the source rejects every value.
-        if v.fields.iter().any(|f| f.int_max.is_some_and(|n| n < 0)) {
-            return None;
-        }
+
         // Exactly one assertion, and it pins an attr to a value. Anything else the arm
         // enforces — a presence-only pin, a tag, a content literal — is not carried into
         // the match this shape emits, and accepting the variant anyway would construct it
@@ -412,6 +390,9 @@ fn classify_same_node(f: &ParsedField, variants: &[UnionVariant]) -> Option<Unio
             return None;
         }
         if v.fields.is_empty() || !v.fields.iter().all(is_simple_leaf) {
+            return None;
+        }
+        if !arm_payload_representable(&v.fields) {
             return None;
         }
     }
@@ -904,6 +885,30 @@ fn value_payload(enum_name: &str, variant: &str, fields: &[ParsedField], node_va
 /// A leaf read as an EXPRESSION (no `?`), for an enum variant struct-init. Mirrors
 /// `emit_field_parse`'s type mapping but defaults required leaves instead of failing
 /// (the variant guard already proved the required attrs present).
+/// Whether an arm's payload is one a guard can faithfully reproduce.
+///
+/// Four ways it cannot, all of which were found one at a time against the attr-discriminated
+/// shape while `classify_same_node` quietly accepted the same leaves:
+///
+/// - a **content literal** is stored as hex text while the accessor yields bytes, and the
+///   two cannot be compared without knowing the decoder's exact type;
+/// - a **request reference** — smax's `optionalLiteral(…, request.to)` — is an equality
+///   whose other side a response decoder is never handed;
+/// - an **upper bound below zero** admits no `u64`, so the arm can never be taken at all;
+/// - an **integer pin outside `u64`** cannot be compared as a number, and comparing it as
+///   text selects the arm on `"-1"` while the payload decodes that to `0`.
+fn arm_payload_representable(fields: &[ParsedField]) -> bool {
+    !fields.iter().any(|f| {
+        let content_literal = wap::is_content_method(&f.method) && f.literal_value.is_some();
+        let unreachable_band = f.int_max.is_some_and(|n| n < 0);
+        let unrepresentable_pin = wap::method_field_type(&f.method) == ParsedFieldType::Integer
+            && f.literal_value
+                .as_deref()
+                .is_some_and(|l| l.parse::<u64>().is_err());
+        content_literal || f.reference_path.is_some() || unreachable_band || unrepresentable_pin
+    })
+}
+
 /// Everything an arm must check about ONE leaf before it may be selected: the values an
 /// enum accepts, a content payload's length or decodability, a pinned literal, a bounded
 /// integer's band, or — failing all of those — that a typed accessor decodes at all.
@@ -1950,6 +1955,25 @@ mod tests {
         assert!(
             src.contains("to_jid()") && !src.contains(r#"node.get_attr("pn_jid").is_some()"#),
             "the arm is selected on what the accessor accepts: {src}"
+        );
+    }
+    #[test]
+    fn an_integer_pin_no_u64_can_hold_is_declined() {
+        // Compared as text the arm takes `"-1"`, and the payload then decodes that to `0`
+        // — the source returns the pinned negative integer.
+        let f = union_field(serde_json::json!({
+            "method": "dispatch", "name": "kind_dispatch", "type": "union", "required": true,
+            "unionVariants": [
+                {"name": "a", "assertions": [{"kind": "attr", "name": "kind", "value": "a"}],
+                 "fields": [{"method": "attrInt", "name": "code", "wireName": "code",
+                             "type": "integer", "required": true, "literalValue": "-1"}]},
+                {"name": "b", "assertions": [{"kind": "attr", "name": "kind", "value": "b"}],
+                 "fields": []}
+            ]
+        }));
+        assert!(
+            emit_union_read(&f, "node", "Spec", "").is_none(),
+            "a pin no u64 can hold declines the shape"
         );
     }
 }

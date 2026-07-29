@@ -2890,6 +2890,22 @@ fn assigned_names(src: &str, param: &str) -> (HashMap<String, Vec<(String, Strin
             self.depth -= 1;
         }
 
+        // The `try` body may stop partway and the `catch` runs only when it does, so a
+        // write in either is one the other path does not make. Visiting both at depth zero
+        // let the catch's assignment look like an unconditional overwrite of the try's.
+        fn visit_try_statement(&mut self, t: &oxc_ast::ast::TryStatement<'a>) {
+            self.depth += 1;
+            self.visit_block_statement(&t.block);
+            if let Some(h) = &t.handler {
+                self.visit_catch_clause(h);
+            }
+            self.depth -= 1;
+            // The finalizer runs on every path out, so a write there is not conditional.
+            if let Some(f) = &t.finalizer {
+                self.visit_block_statement(f);
+            }
+        }
+
         // A loop that runs zero times performs no write, so a property set in its body may
         // still hold whatever an earlier read put there. The init runs regardless; the
         // test, the update and the body do not. `do`/`while` is deliberately absent — its
@@ -3520,6 +3536,39 @@ fn returned_names(src: &str) -> (std::collections::HashSet<String>, bool) {
             for case in &stmt.cases {
                 self.visit_switch_case(case);
             }
+            self.cond -= 1;
+        }
+
+        // A body that may run zero times repoints the alias only on some paths, exactly
+        // like a branch. `do`/`while` is absent on purpose: its body always runs, so the
+        // rebinding there really is unconditional.
+        fn visit_for_statement(&mut self, s: &oxc_ast::ast::ForStatement<'a>) {
+            if let Some(init) = &s.init {
+                walk::walk_for_statement_init(self, init);
+            }
+            self.cond += 1;
+            walk::walk_for_statement(self, s);
+            self.cond -= 1;
+        }
+
+        fn visit_for_of_statement(&mut self, s: &oxc_ast::ast::ForOfStatement<'a>) {
+            self.visit_expression(&s.right);
+            self.cond += 1;
+            self.visit_statement(&s.body);
+            self.cond -= 1;
+        }
+
+        fn visit_for_in_statement(&mut self, s: &oxc_ast::ast::ForInStatement<'a>) {
+            self.visit_expression(&s.right);
+            self.cond += 1;
+            self.visit_statement(&s.body);
+            self.cond -= 1;
+        }
+
+        fn visit_while_statement(&mut self, s: &oxc_ast::ast::WhileStatement<'a>) {
+            self.visit_expression(&s.test);
+            self.cond += 1;
+            self.visit_statement(&s.body);
             self.cond -= 1;
         }
 
@@ -8242,6 +8291,51 @@ mod tests {
         assert!(
             !a_fields.iter().any(|n| n == "gamma"),
             "the unreachable arm is not part of the variant: {a_fields:?}"
+        );
+    }
+    #[test]
+    fn an_accumulator_a_loop_may_repoint_declines() {
+        // A body that may run zero times repoints the alias only on some paths.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   var result = {}, alias;
+                   alias = result;
+                   while (flag) { alias = cache; break; }
+                   if (n === "a") { result.foo = e.attrString("f1");
+                                    cache.wrongA = e.attrString("w1"); }
+                   if (n === "b") { result.bar = e.attrString("b1");
+                                    cache.wrongB = e.attrString("w2"); }
+                   return alias;
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        assert!(
+            !kids.iter().any(|f| f.field_type == ParsedFieldType::Union),
+            "declined, so the reads stay flat: {:?}",
+            kids.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_write_in_a_catch_does_not_overwrite_the_try() {
+        // The catch runs only when the try stopped partway, so `value` holds the first
+        // read on the successful path — one field cannot say both.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   if (n === "a") { try { t.value = e.attrString("first"); }
+                                    catch (err) { t.value = e.attrString("second"); } }
+                   if (n === "b") { t.other = e.attrString("third"); }
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        assert!(
+            !kids.iter().any(|f| f.field_type == ParsedFieldType::Union),
+            "declined, so the reads stay flat: {:?}",
+            kids.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
         );
     }
 }
