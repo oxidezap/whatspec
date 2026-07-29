@@ -2085,6 +2085,20 @@ fn arms_outside(body: &[Statement<'_>], chain: &[Statement<'_>], subject: &str) 
     scan(body, lo, hi, subject)
 }
 
+/// Whether `stmt` ends the body on every path it can take. A bare `return`/`throw`, or a
+/// block that reaches one — `{ return result; }` runs exactly as the bare statement does,
+/// and the arms after either of them are unreachable.
+fn exits_unconditionally(stmt: &Statement<'_>) -> bool {
+    match stmt {
+        Statement::ReturnStatement(_) | Statement::ThrowStatement(_) => true,
+        // Only an unconditional one: a `return` under an `if` inside the block is a path,
+        // not the block's outcome, so the statements after it still run.
+        Statement::BlockStatement(b) => b.body.iter().any(exits_unconditionally),
+        Statement::LabeledStatement(l) => exits_unconditionally(&l.body),
+        _ => false,
+    }
+}
+
 /// Whether any statement under `stmt` compares `subject` — an arm nested inside another
 /// arm is not a sibling alternative, and the shape cannot say so.
 fn compares_subject(stmt: &Statement<'_>, subject: &str) -> bool {
@@ -2192,14 +2206,21 @@ impl DispatchChain {
         let mut arms: Vec<(Vec<String>, Span)> = Vec::new();
         for stmt in stmts.iter() {
             // Nothing after an unconditional exit runs, so a comparison there is not an
-            // alternative the element can take.
-            if matches!(
-                stmt,
-                Statement::ReturnStatement(_) | Statement::ThrowStatement(_)
-            ) {
+            // alternative the element can take. A block is as final as a bare statement —
+            // `{ return result; }` ends the body just the same, and matching only the
+            // spelling let the arms after it be synthesized as reachable.
+            if exits_unconditionally(stmt) {
                 break;
             }
             let Statement::IfStatement(first) = stmt else {
+                // A comparison the chain does not hold as an arm of its own — one nested in
+                // a block between two siblings — would be left to `body_without_arms` and
+                // hoisted as a field of every variant, requiring each of them to carry a
+                // payload only that branch reads. `arms_outside` cannot see it: the block
+                // sits INSIDE the chain's own span.
+                if compares_subject(stmt, subject) {
+                    return None;
+                }
                 continue;
             };
             // Before the accessor runs the name holds `undefined`, so the comparison is
@@ -3046,7 +3067,25 @@ fn discriminated_children(
 
     let mut union = mk_field("dispatch", &wire, ParsedFieldType::Union, true);
     union.wire_name = None;
-    union.name = format!("{wire}_dispatch");
+    // The name is synthesized, so it can land on one the element already reads —
+    // discriminator `kind` beside an `e.attrString("kind_dispatch")` gave two fields that
+    // name, and the codegen emits them as one struct with a duplicate member. Nothing
+    // depends on the exact spelling, so the collision is stepped over rather than
+    // declining the whole reconstruction. Everything the field could sit beside is
+    // counted: what the arms lift out, and what the body reads outside them.
+    union.name = {
+        let taken: std::collections::HashSet<&str> = std::iter::once(disc_field.name.as_str())
+            .chain(common.iter().map(|f| f.name.as_str()))
+            .chain(outside.fields.iter().map(|f| f.name.as_str()))
+            .collect();
+        let mut name = format!("{wire}_dispatch");
+        let mut n = 2;
+        while taken.contains(name.as_str()) {
+            name = format!("{wire}_dispatch_{n}");
+            n += 1;
+        }
+        name
+    };
     union.union_variants = Some(variants);
     let mut out = vec![disc_field];
     out.extend(common);
@@ -6968,6 +7007,81 @@ mod tests {
             named,
             [("first", None), ("value", Some("second"))],
             "the property takes the read it ends up holding; the other keeps its wire name"
+        );
+    }
+    #[test]
+    fn a_synthesized_dispatch_name_steps_over_one_the_element_reads() {
+        // The union's name is made up, so it can land on a field the element already has.
+        // Two fields of one name are a struct the codegen cannot emit.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   e.attrString("kind_dispatch");
+                   if (n === "a") { var x = e.attrString("value"); t.alpha = x; }
+                   if (n === "b") { var y = e.attrString("value"); t.beta = y; }
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        let names: Vec<&str> = kids.iter().map(|f| f.name.as_str()).collect();
+        let mut unique = names.clone();
+        unique.sort_unstable();
+        unique.dedup();
+        assert_eq!(unique.len(), names.len(), "a name is used twice: {names:?}");
+        assert!(
+            kids.iter()
+                .any(|f| f.field_type == ParsedFieldType::Union && f.name == "kind_dispatch_2"),
+            "the union takes the next free name: {names:?}"
+        );
+    }
+
+    #[test]
+    fn an_exit_inside_a_block_ends_the_chain_too() {
+        // `{ return t; }` runs exactly as a bare `return` does; the arm after it cannot.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   if (n === "a") { var x = e.attrString("va"); t.alpha = x; }
+                   { return t; }
+                   if (n === "b") { var y = e.attrString("vb"); t.beta = y; }
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        let union = kids.iter().find(|f| f.field_type == ParsedFieldType::Union);
+        let names: Vec<String> = union
+            .and_then(|f| f.union_variants.as_ref())
+            .map(|vs| vs.iter().map(|v| v.name.clone()).collect())
+            .unwrap_or_default();
+        assert!(
+            !names.iter().any(|n| n == "b"),
+            "the unreachable arm is not an alternative: {names:?}"
+        );
+    }
+
+    #[test]
+    fn an_arm_the_chain_cannot_hold_declines_rather_than_hoisting_it() {
+        // A comparison in a block between two siblings is inside the chain's own span, so
+        // `arms_outside` cannot see it. Left alone it was reanalyzed as an unconditional
+        // field, making every variant require a payload only that branch reads.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   if (n === "a") { var x = e.attrString("va"); t.alpha = x; }
+                   { if (n === "c") { var z = e.attrString("vc"); t.gamma = z; } }
+                   if (n === "b") { var y = e.attrString("vb"); t.beta = y; }
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        assert!(
+            !kids.iter().any(|f| f.field_type == ParsedFieldType::Union),
+            "declined, so the reads stay flat: {:?}",
+            kids.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+        assert!(
+            kids.iter().any(|f| f.name == "vc"),
+            "and the read it could not place is still extracted"
         );
     }
 }

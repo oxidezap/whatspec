@@ -841,6 +841,26 @@ fn emit_attr_discriminated(
                     // there has to satisfy the accessor.
                     return Some(format!("({node_var}.{raw}.is_none() || {decodes})"));
                 }
+                // A leaf pinned to a value is a discriminator as much as the attribute this
+                // shape matches on: `literal(attrString, node, "mode", "x")` rejects
+                // `mode="y"` at the source, and a guard testing only that `mode` decodes
+                // took it. The pin is compared as raw text — that is the form the IR
+                // records for a string and for an integer alike.
+                if let Some(lit) = f.literal_value.as_deref() {
+                    let wire = f.wire_name.as_deref().unwrap_or(&f.name);
+                    let pinned = format!(
+                        "{node_var}.get_attr({}).map(|x| x.as_str()) == Some({})",
+                        rust_lit(wire),
+                        rust_lit(lit)
+                    );
+                    if f.required {
+                        return Some(pinned);
+                    }
+                    return Some(format!(
+                        "({node_var}.get_attr({}).is_none() || {pinned})",
+                        rust_lit(wire)
+                    ));
+                }
                 let mut probe = f.clone();
                 probe.required = false;
                 let read = field_expr(&probe, node_var);
@@ -1748,6 +1768,29 @@ mod tests {
         assert!(
             src.contains("is_some_and(|n| (1u64..=10u64).contains(&n))"),
             "the guard enforces the band: {src}"
+        );
+    }
+    #[test]
+    fn an_arm_payload_pinned_to_a_value_is_guarded_on_it() {
+        // `literal(attrString, node, "mode", "x")` rejects `mode="y"` at the source; a
+        // guard testing only that `mode` decodes materialized the variant anyway.
+        let f = union_field(serde_json::json!({
+            "method": "dispatch", "name": "kind_dispatch", "type": "union", "required": true,
+            "unionVariants": [
+                {"name": "a",
+                 "assertions": [{"kind": "attr", "name": "kind", "value": "a"}],
+                 "fields": [{"method": "attrString", "name": "mode", "wireName": "mode",
+                             "type": "string", "required": true, "literalValue": "x"}]},
+                {"name": "b",
+                 "assertions": [{"kind": "attr", "name": "kind", "value": "b"}],
+                 "fields": []}
+            ]
+        }));
+        let (lines, _) = emit_union_read(&f, "node", "Spec", "").expect("emitted");
+        let src = lines.join("\n");
+        assert!(
+            src.contains(r#"node.get_attr("mode").map(|x| x.as_str()) == Some("x")"#),
+            "the pin is the test: {src}"
         );
     }
 }
