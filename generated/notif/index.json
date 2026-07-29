@@ -1690,10 +1690,62 @@
                     "repeats": true
                   },
                   {
+                    "method": "child",
+                    "name": "description",
+                    "type": "string",
+                    "required": true,
+                    "tag": "description",
+                    "children": [
+                      {
+                        "method": "child",
+                        "name": "body",
+                        "type": "string",
+                        "required": true,
+                        "tag": "body",
+                        "children": [
+                          {
+                            "method": "contentString",
+                            "name": "content",
+                            "type": "string",
+                            "required": true
+                          }
+                        ],
+                        "contentType": "string"
+                      },
+                      {
+                        "method": "attrString",
+                        "name": "id",
+                        "type": "string",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
                     "method": "attrUserJid",
                     "name": "creator",
                     "type": "user_jid",
                     "required": true
+                  },
+                  {
+                    "method": "child",
+                    "name": "ephemeral",
+                    "type": "string",
+                    "required": true,
+                    "tag": "ephemeral",
+                    "children": [
+                      {
+                        "method": "attrInt",
+                        "name": "expiration",
+                        "type": "integer",
+                        "required": true
+                      },
+                      {
+                        "method": "maybeAttrString",
+                        "name": "trigger",
+                        "type": "string",
+                        "required": false
+                      }
+                    ]
                   },
                   {
                     "method": "attrString",
@@ -2137,56 +2189,81 @@
                     "name": "creation",
                     "type": "integer",
                     "required": true
+                  },
+                  {
+                    "method": "child",
+                    "name": "subject",
+                    "type": "string",
+                    "required": true,
+                    "tag": "subject",
+                    "children": [
+                      {
+                        "method": "contentString",
+                        "name": "content",
+                        "type": "string",
+                        "required": true
+                      }
+                    ],
+                    "contentType": "string"
+                  },
+                  {
+                    "method": "child",
+                    "name": "description",
+                    "type": "string",
+                    "required": true,
+                    "tag": "description",
+                    "children": [
+                      {
+                        "method": "child",
+                        "name": "body",
+                        "type": "string",
+                        "required": true,
+                        "tag": "body",
+                        "children": [
+                          {
+                            "method": "contentString",
+                            "name": "content",
+                            "type": "string",
+                            "required": true
+                          }
+                        ],
+                        "contentType": "string"
+                      }
+                    ]
+                  },
+                  {
+                    "method": "child",
+                    "name": "is_existing_group",
+                    "type": "string",
+                    "required": true,
+                    "tag": "is_existing_group",
+                    "children": [
+                      {
+                        "method": "contentString",
+                        "name": "content",
+                        "type": "string",
+                        "required": true
+                      }
+                    ],
+                    "contentType": "string"
+                  },
+                  {
+                    "method": "child",
+                    "name": "participant_count",
+                    "type": "string",
+                    "required": true,
+                    "tag": "participant_count",
+                    "children": [
+                      {
+                        "method": "contentInt",
+                        "name": "content",
+                        "type": "integer",
+                        "required": true
+                      }
+                    ],
+                    "contentType": "integer"
                   }
                 ]
-              },
-              {
-                "method": "child",
-                "name": "subject",
-                "type": "string",
-                "required": true,
-                "tag": "subject",
-                "children": [
-                  {
-                    "method": "contentString",
-                    "name": "content",
-                    "type": "string",
-                    "required": true
-                  }
-                ],
-                "contentType": "string"
-              },
-              {
-                "method": "child",
-                "name": "is_existing_group",
-                "type": "string",
-                "required": true,
-                "tag": "is_existing_group",
-                "children": [
-                  {
-                    "method": "contentString",
-                    "name": "content",
-                    "type": "string",
-                    "required": true
-                  }
-                ],
-                "contentType": "string"
-              },
-              {
-                "method": "child",
-                "name": "participant_count",
-                "type": "string",
-                "required": true,
-                "tag": "participant_count",
-                "children": [
-                  {
-                    "method": "contentInt",
-                    "name": "content",
-                    "type": "integer",
-                    "required": true
-                  }
-                ],
-                "contentType": "integer"
               },
               {
                 "method": "mapChildrenWithTag",
@@ -3423,26 +3500,27 @@
             "type": "string",
             "required": true,
             "tag": "invite",
-            "children": []
-          },
-          {
-            "method": "child",
-            "name": "receiver",
-            "type": "string",
-            "required": true,
-            "tag": "receiver",
             "children": [
               {
-                "method": "attrUserJid",
-                "name": "user",
-                "type": "user_jid",
-                "required": true
-              },
-              {
-                "method": "attrString",
-                "name": "reason",
+                "method": "child",
+                "name": "receiver",
                 "type": "string",
-                "required": true
+                "required": true,
+                "tag": "receiver",
+                "children": [
+                  {
+                    "method": "attrUserJid",
+                    "name": "user",
+                    "type": "user_jid",
+                    "required": true
+                  },
+                  {
+                    "method": "attrString",
+                    "name": "reason",
+                    "type": "string",
+                    "required": true
+                  }
+                ]
               }
             ]
           }

@@ -701,13 +701,31 @@ fn emit_attr_discriminated(
     indent: &str,
     lines: &mut Vec<String>,
 ) {
+    // `.map(|x| x.as_str()).as_deref()`, the same way the tag cascade reads a pinned attr:
+    // the accessor yields a value that only borrows as `str` through `as_str`.
     lines.push(format!(
-        "{indent}let {field} = match {node_var}.get_attr({}).as_deref() {{",
+        "{indent}let {field} = match {node_var}.get_attr({}).map(|x| x.as_str()).as_deref() {{",
         rust_lit(attr)
     ));
     for a in arms {
+        // The IR marks a leaf required; without it the arm is not that variant. Reading it
+        // anyway would default the field and fabricate a value the element never carried.
+        let required: Vec<String> = a
+            .fields
+            .iter()
+            .filter(|f| f.required && f.method.starts_with("attr"))
+            .map(|f| {
+                let wire = f.wire_name.as_deref().unwrap_or(&f.name);
+                format!("{node_var}.get_attr({}).is_some()", rust_lit(wire))
+            })
+            .collect();
+        let guard = if required.is_empty() {
+            String::new()
+        } else {
+            format!(" if {}", required.join(" && "))
+        };
         lines.push(format!(
-            "{indent}    Some({}) => Some({}),",
+            "{indent}    Some({}){guard} => Some({}),",
             rust_lit(&a.value),
             value_payload(enum_name, &a.variant, &a.fields, node_var)
         ));
@@ -927,10 +945,15 @@ mod tests {
         let (lines, _) = emit_union_read(&f, "node", "Spec", "").expect("emitted");
         let src = lines.join("\n");
         assert!(
-            src.contains("match node.get_attr(\"name\").as_deref()"),
+            src.contains("match node.get_attr(\"name\").map(|x| x.as_str()).as_deref()"),
             "reads the discriminator once: {src}"
         );
-        assert!(src.contains("Some(\"calladd\") => Some(SpecNameDispatch::Calladd {"));
+        assert!(
+            src.contains(
+                "Some(\"calladd\") if node.get_attr(\"value\").is_some() => Some(SpecNameDispatch::Calladd {"
+            ),
+            "a required leaf gates its arm rather than being defaulted: {src}"
+        );
         assert!(
             src.contains("Some(\"stickers\") => Some(SpecNameDispatch::Stickers)"),
             "a valueless name is a unit variant: {src}"

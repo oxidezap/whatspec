@@ -636,7 +636,7 @@ struct ParserAnalyzer<'src, 'ms> {
     /// local var name → tag, for `var t = param.child("tag")`. Also pre-seeded when a
     /// helper is re-analyzed with a parameter bound to a caller's child node (see
     /// [`ParserAnalyzer::try_helper_descent`]).
-    child_vars: HashMap<String, String>,
+    child_vars: HashMap<String, Vec<String>>,
     /// wire attr name → its enum's allowed keys, from `attrEnumOrNullIfUnknown("attr", map)`
     /// (the map is module-scope, so it's resolved and stashed here, then attached to the
     /// matching field in a post-pass — order-independent of the plain read of the attr).
@@ -714,8 +714,15 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
                             .and_then(arg_expr)
                             .and_then(as_string_lit)
                     {
-                        self.child_vars
-                            .insert(name.as_str().to_string(), tag.to_string());
+                        // The whole way down, not just the last step: a var bound off
+                        // another var names a grandchild, and keeping only its own tag put
+                        // the node beside its parent instead of inside it.
+                        let mut path = as_identifier(obj)
+                            .and_then(|n| self.child_vars.get(n))
+                            .cloned()
+                            .unwrap_or_default();
+                        path.push(tag.to_string());
+                        self.child_vars.insert(name.as_str().to_string(), path);
                     }
                 }
             }
@@ -826,10 +833,9 @@ impl ParserAnalyzer<'_, '_> {
         if !self.names_an_outer_node(base, at) {
             return None;
         }
-        Some(vec![
-            self.child_vars.get(base)?.clone(),
-            chained.to_string(),
-        ])
+        let mut path = self.child_vars.get(base)?.clone();
+        path.push(chained.to_string());
+        Some(path)
     }
 
     fn note_unfollowable_bindings(&mut self, decl: &VariableDeclaration) {
@@ -1082,14 +1088,15 @@ impl ParserAnalyzer<'_, '_> {
 
         // ── child methods on a tracked child var: t.forEachChildWithTag(...) ──
         if is_child_method(method)
-            && let Some(parent_tag) = as_identifier(obj)
+            && let Some(path) = as_identifier(obj)
                 .and_then(|n| self.child_vars.get(n))
                 .cloned()
         {
-            process_child_method(
+            let borrowed: Vec<&str> = path.iter().map(String::as_str).collect();
+            process_child_method_at(
                 method,
                 call,
-                &parent_tag,
+                &borrowed,
                 &mut ChildSink {
                     fields: &mut self.fields,
                     unresolved: &mut self.unresolved,
@@ -1103,16 +1110,20 @@ impl ParserAnalyzer<'_, '_> {
 
         // ── Attr methods on a tracked child var: t.attrString("name") ──
         if is_value_method(method)
-            && let Some(parent_tag) = as_identifier(obj)
+            && let Some(path) = as_identifier(obj)
                 .and_then(|n| self.child_vars.get(n))
                 .cloned()
         {
-            let idx = find_or_create_field(&mut self.fields, &parent_tag, "child", true);
-            push_child_field(
-                &mut self.fields,
-                idx,
-                field_from_call(method, call, self.module, &mut self.unresolved),
-            );
+            let read = field_from_call(method, call, self.module, &mut self.unresolved);
+            if let Some(node) = node_at_mut(&mut self.fields, &path) {
+                let kids = node.children.get_or_insert_with(Vec::new);
+                if !kids
+                    .iter()
+                    .any(|c| c.name == read.name && c.method == read.method)
+                {
+                    kids.push(read);
+                }
+            }
         }
 
         // ── content methods on a tracked child var ──
@@ -1123,13 +1134,10 @@ impl ParserAnalyzer<'_, '_> {
         // instead captured as a child field by the attr-chained branch above; only
         // the child-var form below can set `contentType`.)
         if is_content_method(method)
-            && let Some(parent_tag) = as_identifier(obj)
+            && let Some(path) = as_identifier(obj)
                 .and_then(|n| self.child_vars.get(n))
                 .cloned()
-            && let Some(f) = self
-                .fields
-                .iter_mut()
-                .find(|f| f.tag.as_deref() == Some(parent_tag.as_str()))
+            && let Some(f) = node_at(&mut self.fields, &path)
         {
             f.content_type = Some(content_kind(method));
         }
@@ -1192,14 +1200,17 @@ impl ParserAnalyzer<'_, '_> {
         let Some(bound_param) = params.get(arg_idx) else {
             return;
         };
+        // The helper's parameter names the node at the end of the path; the caller's tree
+        // is where the whole path lives.
+        let Some(leaf) = tag.last() else { return };
         let recovered = analyze_child_node(
             body_src,
             bound_param,
-            &tag,
+            leaf,
             self.module,
             self.helper_depth + 1,
         );
-        merge_child_shape(&mut self.fields, &tag, recovered);
+        merge_child_shape_at(&mut self.fields, &tag, recovered);
     }
 
     /// Descend into a helper handed *this* node — `mapChildrenWithTag("row", function (row)
@@ -1536,7 +1547,7 @@ fn analyze_child_node(
         scopes: Vec::new(),
         assertions: Vec::new(),
         fields: Vec::new(),
-        child_vars: HashMap::from([(node_param.to_string(), tag.to_string())]),
+        child_vars: HashMap::from([(node_param.to_string(), vec![tag.to_string()])]),
         pending_enum_keys: HashMap::new(),
         unresolved_enum_attrs: Default::default(),
         unresolved: Vec::new(),
@@ -1552,20 +1563,21 @@ fn analyze_child_node(
         .unwrap_or_default()
 }
 
-/// Union `new_children` into the existing `<tag>` field's children (the local
-/// `var i = param.maybeChild("tag")` field), de-duplicating by `(tag, name)`.
-fn merge_child_shape(fields: &mut [ParsedField], tag: &str, new_children: Vec<ParsedField>) {
-    let Some(field) = fields.iter_mut().find(|f| f.tag.as_deref() == Some(tag)) else {
+/// Union `new_children` into the children of the node `path` names — the one a local
+/// `var i = param.maybeChild("tag")` built.
+fn merge_child_shape_at(
+    fields: &mut [ParsedField],
+    path: &[String],
+    new_children: Vec<ParsedField>,
+) {
+    let Some(field) = node_at(fields, path) else {
         return;
     };
     let existing = field.children.get_or_insert_with(Vec::new);
+    // Merged, not first-wins: an inline read and a helper can both reach the same node,
+    // and keeping whichever landed first dropped everything the other one saw.
     for nc in new_children {
-        if !existing
-            .iter()
-            .any(|c| c.tag == nc.tag && c.name == nc.name)
-        {
-            existing.push(nc);
-        }
+        merge_or_push(existing, nc);
     }
 }
 
@@ -1596,6 +1608,32 @@ fn arg_str<'b>(call: &'b CallExpression, n: usize) -> Option<&'b str> {
 /// the response root. Only the chained and child-var forms were handled, so for those
 /// parsers the child was never built at all and its reads survived only by being
 /// misattributed to the root — flat, unrepeated, and one level too high.
+/// The node `path` names, creating the chain if it is not there yet.
+fn node_at_mut<'f>(
+    fields: &'f mut Vec<ParsedField>,
+    path: &[String],
+) -> Option<&'f mut ParsedField> {
+    let (tag, rest) = path.split_first()?;
+    let idx = find_or_create_field(fields, tag, "child", true);
+    if rest.is_empty() {
+        return fields.get_mut(idx);
+    }
+    node_at_mut(fields[idx].children.get_or_insert_with(Vec::new), rest)
+}
+
+/// The node `path` names, without creating anything — for annotating what a read already
+/// built rather than conjuring a node a later read would have to reconcile with.
+fn node_at<'f>(fields: &'f mut [ParsedField], path: &[String]) -> Option<&'f mut ParsedField> {
+    let (tag, rest) = path.split_first()?;
+    let node = fields
+        .iter_mut()
+        .find(|f| f.tag.as_deref() == Some(tag.as_str()))?;
+    if rest.is_empty() {
+        return Some(node);
+    }
+    node_at(node.children.as_mut()?, rest)
+}
+
 /// Put `f` under the chain of tags `path`, creating the nodes on the way.
 ///
 /// `t.child("list").mapChildren(…)` names two levels — the tag `t` was bound to and the one
@@ -1616,10 +1654,11 @@ fn place_at(fields: &mut Vec<ParsedField>, path: &[&str], f: ParsedField) {
 /// carries both shapes. Appending them as siblings left a later de-dup by name to keep the
 /// first and drop the other branch's fields without a word.
 fn merge_or_push(into: &mut Vec<ParsedField>, f: ParsedField) {
-    let Some(i) = into
-        .iter()
-        .position(|g| g.method == f.method && g.tag == f.tag && g.name == f.name)
-    else {
+    // Identity includes what the field reads, not only what it is called: a dispatch can
+    // give two arms' reads the same runtime name while they take different attributes.
+    let Some(i) = into.iter().position(|g| {
+        g.method == f.method && g.tag == f.tag && g.name == f.name && g.wire_name == f.wire_name
+    }) else {
         into.push(f);
         return;
     };
@@ -1655,8 +1694,10 @@ impl<'a> Visit<'a> for ArmCollector<'_> {
 /// Finds the attribute a dispatch reads once and then branches on.
 struct DiscriminatorFinder<'s> {
     param: &'s str,
-    /// The name it was bound to, and the wire attribute it read.
-    found: Option<(String, String)>,
+    /// The name it was bound to, the wire attribute it read, and the accessor it used —
+    /// a dispatch on `maybeAttrString` admits elements that carry no discriminator, and
+    /// rewriting it as required would have consumers reject those.
+    found: Option<(String, String, String)>,
 }
 
 impl<'a> Visit<'a> for DiscriminatorFinder<'_> {
@@ -1670,7 +1711,11 @@ impl<'a> Visit<'a> for DiscriminatorFinder<'_> {
                 && callee_object(call).and_then(as_identifier) == Some(self.param)
                 && let Some(wire) = arg_str(call, 0)
             {
-                self.found = Some((bound.as_str().to_string(), wire.to_string()));
+                self.found = Some((
+                    bound.as_str().to_string(),
+                    wire.to_string(),
+                    method.to_string(),
+                ));
             }
         }
         walk::walk_variable_declaration(self, decl);
@@ -1704,31 +1749,85 @@ fn equality_literals<'b>(test: &'b Expression<'_>, name: &str, out: &mut Vec<&'b
 }
 
 /// The property a variant's value is assigned to — `readReceipts` in
-/// `t.readReceipts = r`. That is the name the runtime gives the field, and it is not
-/// recoverable from the wire, where every arm reads the same `value`.
-fn assigned_property(src: &str) -> Option<String> {
+/// `var r = e.attrEnum("value", …); t.readReceipts = r`. That is the name the runtime
+/// gives the field, and it is not recoverable from the wire, where every arm reads the
+/// same `value`.
+///
+/// Only an assignment whose right-hand side is the value the arm just read counts: an arm
+/// that sets a flag first would otherwise stamp that flag's name onto the field, and a
+/// wrong output name is harder to notice than a missing one.
+fn assigned_property(src: &str, param: &str) -> Option<String> {
     let alloc = Allocator::default();
     let ret = wa_oxc::parse_cjs(&alloc, src);
     if ret.panicked {
         return None;
     }
-    #[derive(Default)]
-    struct Finder {
+    struct Finder<'s> {
+        param: &'s str,
+        /// Names bound from a wire read on the parser's node in this arm.
+        from_wire: std::collections::HashSet<String>,
         name: Option<String>,
     }
-    impl<'a> Visit<'a> for Finder {
+    impl<'a> Visit<'a> for Finder<'_> {
+        fn visit_variable_declaration(&mut self, decl: &VariableDeclaration<'a>) {
+            for d in &decl.declarations {
+                if let (Some(bound), Some(init)) = (d.id.get_identifier_name(), d.init.as_ref())
+                    && let Some(call) = as_call(init)
+                    && callee_method(call).is_some_and(is_value_method)
+                    && callee_object(call).and_then(as_identifier) == Some(self.param)
+                {
+                    self.from_wire.insert(bound.as_str().to_string());
+                }
+            }
+            walk::walk_variable_declaration(self, decl);
+        }
+
         fn visit_assignment_expression(&mut self, e: &oxc_ast::ast::AssignmentExpression<'a>) {
             if self.name.is_none()
                 && let oxc_ast::ast::AssignmentTarget::StaticMemberExpression(m) = &e.left
+                && as_identifier(&e.right).is_some_and(|r| self.from_wire.contains(r))
             {
                 self.name = Some(m.property.name.as_str().to_string());
             }
             walk::walk_assignment_expression(self, e);
         }
     }
-    let mut f = Finder::default();
+    let mut f = Finder {
+        param,
+        from_wire: Default::default(),
+        name: None,
+    };
     f.visit_program(&ret.program);
     f.name
+}
+
+/// Add back every flat read the dispatch does not already account for.
+///
+/// The reconstruction covers the discriminator, what the arms read, and what they lift out
+/// of themselves. A leaf read outside the branches — an id taken before the chain, or in a
+/// branch that tests something else — belongs to the element just as much, and is in
+/// neither the union nor `unresolved`.
+fn fold_unaccounted(mut dispatched: Vec<ParsedField>, flat: Vec<ParsedField>) -> Vec<ParsedField> {
+    let mut accounted: std::collections::HashSet<String> = dispatched
+        .iter()
+        .map(|f| f.wire_name.clone().unwrap_or_else(|| f.name.clone()))
+        .collect();
+    for v in dispatched
+        .iter()
+        .filter_map(|f| f.union_variants.as_ref())
+        .flatten()
+    {
+        for vf in &v.fields {
+            accounted.insert(vf.wire_name.clone().unwrap_or_else(|| vf.name.clone()));
+        }
+    }
+    for f in flat {
+        let wire = f.wire_name.clone().unwrap_or_else(|| f.name.clone());
+        if !accounted.contains(&wire) {
+            merge_or_push(&mut dispatched, f);
+        }
+    }
+    dispatched
 }
 
 /// Read a `<category name="…" value="…">` dispatch: one attribute picks both the enum the
@@ -1753,11 +1852,13 @@ fn discriminated_children(
     // statement of the slice.
     let mut finder = DiscriminatorFinder { param, found: None };
     finder.visit_program(&ret.program);
-    let (bound, wire) = finder.found?;
-    let disc_field = {
-        let method = "attrString";
-        mk_field(method, &wire, method_to_field_type(method), true)
-    };
+    let (bound, wire, disc_method) = finder.found?;
+    let disc_field = mk_field(
+        &disc_method,
+        &wire,
+        method_to_field_type(&disc_method),
+        is_method_required(&disc_method),
+    );
 
     let mut collector = ArmCollector {
         subject: &bound,
@@ -1765,27 +1866,34 @@ fn discriminated_children(
     };
     collector.visit_program(&ret.program);
 
+    // A single arm is a plain conditional, not a dispatch — counted in arms, because one
+    // arm accepting two names (`n === "a" || n === "b"`) is still one branch.
+    if collector.arms.len() < 2 {
+        return None;
+    }
+
     let mut variants: Vec<UnionVariant> = Vec::new();
     let mut common: Vec<ParsedField> = Vec::new();
+    let mut arms_seen = 0usize;
+    let mut structural_seen: HashMap<String, usize> = HashMap::new();
     for (lits, span) in &collector.arms {
         let arm_src = &body_src[span.start as usize..span.end as usize];
         let arm = analyze_with_scope(arm_src, param, module);
-        let runtime_name = assigned_property(arm_src);
+        let runtime_name = assigned_property(arm_src, param);
         // Only the leaf the arm selects belongs to the variant. Anything structural it
-        // also reads — the `<error>` the reporting helper picks up — is the element's,
-        // common to every arm that can fail, and stays beside the union.
+        // also reads — the `<error>` its reporting helper picks up — is the element's.
         let (leaves, structural): (Vec<_>, Vec<_>) = arm
             .fields
             .iter()
             .cloned()
             .partition(|f| f.children.is_none());
+        arms_seen += 1;
         for f in structural {
-            if !common.iter().any(|c: &ParsedField| c.name == f.name) {
-                common.push(f);
-            }
+            *structural_seen.entry(f.name.clone()).or_default() += 1;
+            merge_or_push(&mut common, f);
         }
         for lit in lits {
-            let fields = leaves
+            let fields: Vec<ParsedField> = leaves
                 .iter()
                 .cloned()
                 .map(|mut f| {
@@ -1797,6 +1905,14 @@ fn discriminated_children(
                     f
                 })
                 .collect();
+            // The same literal tested twice is one alternative, not two: emitted twice it
+            // would be an unreachable arm, and the codegen refuses the whole union for it.
+            if let Some(existing) = variants.iter_mut().find(|v| v.name == *lit) {
+                for f in fields {
+                    merge_or_push(&mut existing.fields, f);
+                }
+                continue;
+            }
             variants.push(UnionVariant {
                 name: lit.to_string(),
                 fields,
@@ -1809,9 +1925,16 @@ fn discriminated_children(
             });
         }
     }
-    // One arm is a plain dispatch, not a discriminated shape.
     if variants.len() < 2 {
         return None;
+    }
+    // A child only some arms read is not the element's to require: lifted beside the union
+    // it would apply to every variant, and a consumer would reject the ones that never
+    // carry it.
+    for f in &mut common {
+        if structural_seen.get(&f.name).copied().unwrap_or(0) < arms_seen {
+            f.required = false;
+        }
     }
 
     let mut union = mk_field("dispatch", &wire, ParsedFieldType::Union, true);
@@ -1893,10 +2016,14 @@ fn process_child_method_at(
             let mut f = mk_field(method, child_tag, ParsedFieldType::String, true);
             f.tag = Some(child_tag.to_string());
             // A body that dispatches on one of its own attributes describes alternatives,
-            // not a flat record: keep them apart rather than as same-named siblings.
-            f.children = Some(
-                discriminated_children(cb_body, &cb_param, module).unwrap_or(child_result.fields),
-            );
+            // not a flat record: keep them apart rather than as same-named siblings. What
+            // it reads outside the dispatch is still the element's own, and replacing the
+            // flat result wholesale dropped it — silently, which is the one outcome this
+            // module is built to avoid.
+            f.children = Some(match discriminated_children(cb_body, &cb_param, module) {
+                Some(dispatched) => fold_unaccounted(dispatched, child_result.fields),
+                None => child_result.fields,
+            });
             f.repeats = Some(true);
             // What the child's own scope could not resolve is still a loss for the parser.
             sink.unresolved.extend(child_result.unresolved);
@@ -2614,6 +2741,128 @@ mod tests {
     }
 
     #[test]
+    fn a_dispatch_keeps_what_the_element_reads_outside_it() {
+        // The reconstruction covers the discriminator and the arms. A read before the
+        // chain belongs to the element too, and replacing the flat result lost it.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   var id = e.attrString("id");
+                   if (n === "a") { var x = e.attrString("value"); t.alpha = x; }
+                   if (n === "b") { var y = e.attrString("value"); t.beta = y; }
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        let names: Vec<&str> = kids.iter().map(|f| f.name.as_str()).collect();
+        assert!(
+            names.contains(&"id"),
+            "the unconditional read survives: {names:?}"
+        );
+        assert!(names.contains(&"kind_dispatch"), "{names:?}");
+    }
+
+    #[test]
+    fn a_dispatch_merges_two_tests_of_the_same_value() {
+        // A literal tested twice is one alternative. Emitted twice it is an unreachable
+        // arm, and the codegen refuses the whole union rather than degrading to one.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   if (n === "a") { var x = e.attrString("value"); t.alpha = x; }
+                   if (n === "b") { var y = e.attrString("other"); t.beta = y; }
+                   if (n === "a") { var z = e.attrString("extra"); t.alpha = z; }
+                 }); }"#,
+            "e",
+        );
+        let union = r.fields[0]
+            .children
+            .as_ref()
+            .unwrap()
+            .iter()
+            .find(|f| f.field_type == ParsedFieldType::Union)
+            .unwrap();
+        let vs = union.union_variants.as_ref().unwrap();
+        assert_eq!(
+            vs.iter().map(|v| v.name.as_str()).collect::<Vec<_>>(),
+            ["a", "b"],
+            "one variant per value"
+        );
+        assert_eq!(
+            vs[0].fields.len(),
+            2,
+            "both tests' reads: {:?}",
+            vs[0].fields
+        );
+    }
+
+    #[test]
+    fn a_dispatch_takes_the_name_the_parsed_value_is_assigned_to() {
+        // An arm that sets a flag first would otherwise stamp that flag's name onto the
+        // field — a wrong output name is harder to notice than a missing one.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   if (n === "a") { seen.touched = 1; var x = e.attrString("value"); t.alpha = x; }
+                   if (n === "b") { var y = e.attrString("value"); t.beta = y; }
+                 }); }"#,
+            "e",
+        );
+        let union = r.fields[0]
+            .children
+            .as_ref()
+            .unwrap()
+            .iter()
+            .find(|f| f.field_type == ParsedFieldType::Union)
+            .unwrap();
+        let vs = union.union_variants.as_ref().unwrap();
+        assert_eq!(
+            vs[0].fields[0].name, "alpha",
+            "not the bookkeeping property"
+        );
+        assert_eq!(vs[0].fields[0].wire_name.as_deref(), Some("value"));
+    }
+
+    #[test]
+    fn a_dispatch_on_an_optional_attribute_stays_optional() {
+        // `maybeAttrString` admits an element with no discriminator at all; rewriting it
+        // as required would have consumers reject those.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.maybeAttrString("kind");
+                   if (n === "a") { var x = e.attrString("value"); t.alpha = x; }
+                   if (n === "b") { var y = e.attrString("value"); t.beta = y; }
+                 }); }"#,
+            "e",
+        );
+        let disc = &r.fields[0].children.as_ref().unwrap()[0];
+        assert_eq!(disc.name, "kind");
+        assert!(!disc.required, "the accessor's optionality is kept");
+    }
+
+    #[test]
+    fn a_child_only_some_arms_read_is_not_required_of_all_of_them() {
+        // Lifted beside the union it applies to every variant; required, a consumer would
+        // reject the arms that never carry it.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   if (n === "a") { e.child("detail").attrString("d"); }
+                   if (n === "b") { var y = e.attrString("value"); t.beta = y; }
+                 }); }"#,
+            "e",
+        );
+        let detail = r.fields[0]
+            .children
+            .as_ref()
+            .unwrap()
+            .iter()
+            .find(|f| f.name == "detail")
+            .expect("lifted beside the union");
+        assert!(!detail.required, "only one arm reads it");
+    }
+
+    #[test]
     fn a_recursed_callback_is_not_also_reported_as_a_loss() {
         // The callback re-binds `e`, so the shadow check would discount its reads — but
         // `process_child_method` already read them in their own scope. Only what no
@@ -2817,16 +3066,26 @@ mod tests {
 
     #[test]
     fn nested_child_var_chain() {
-        // `u` is tracked as a child var derived from another child var `t`.
+        // `u` is tracked as a child var derived from another child var `t` — so it names
+        // `<a>`'s `<b>`, not a second root-level `<b>`. Tracking only the last tag put the
+        // node beside its parent.
         let r = analyze_parser_ast(
             r#"{ var t = e.child("a"); var u = t.child("b"); u.attrString("x"); }"#,
             "e",
         );
-        let b = r
-            .fields
-            .iter()
-            .find(|f| f.tag.as_deref() == Some("b"))
-            .unwrap();
+        assert_eq!(
+            r.fields
+                .iter()
+                .map(|f| f.tag.as_deref().unwrap_or(&f.name))
+                .collect::<Vec<_>>(),
+            ["a"],
+            "nothing at the root but the outer node"
+        );
+        let b = r.fields[0]
+            .children
+            .as_ref()
+            .and_then(|c| c.iter().find(|f| f.tag.as_deref() == Some("b")))
+            .expect("`b` sits inside `a`");
         assert!(b.children.as_ref().unwrap().iter().any(|c| c.name == "x"));
     }
 

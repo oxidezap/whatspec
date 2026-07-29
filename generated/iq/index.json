@@ -11967,61 +11967,62 @@
             "type": "string",
             "required": true,
             "tag": "response",
-            "children": []
-          },
-          {
-            "method": "child",
-            "name": "not_a_biz",
-            "type": "string",
-            "required": true,
-            "tag": "not_a_biz",
             "children": [
               {
-                "method": "forEachChildWithTag",
-                "name": "category",
+                "method": "child",
+                "name": "not_a_biz",
                 "type": "string",
                 "required": true,
-                "tag": "category",
+                "tag": "not_a_biz",
                 "children": [
                   {
-                    "method": "attrString",
-                    "name": "id",
+                    "method": "forEachChildWithTag",
+                    "name": "category",
                     "type": "string",
-                    "required": true
+                    "required": true,
+                    "tag": "category",
+                    "children": [
+                      {
+                        "method": "attrString",
+                        "name": "id",
+                        "type": "string",
+                        "required": true
+                      }
+                    ],
+                    "repeats": true
                   }
-                ],
-                "repeats": true
-              }
-            ]
-          },
-          {
-            "method": "child",
-            "name": "categories",
-            "type": "string",
-            "required": true,
-            "tag": "categories",
-            "children": [
+                ]
+              },
               {
-                "method": "forEachChildWithTag",
-                "name": "category",
+                "method": "child",
+                "name": "categories",
                 "type": "string",
                 "required": true,
-                "tag": "category",
+                "tag": "categories",
                 "children": [
                   {
-                    "method": "attrString",
-                    "name": "id",
+                    "method": "forEachChildWithTag",
+                    "name": "category",
                     "type": "string",
-                    "required": true
-                  },
-                  {
-                    "method": "contentString",
-                    "name": "content",
-                    "type": "string",
-                    "required": true
+                    "required": true,
+                    "tag": "category",
+                    "children": [
+                      {
+                        "method": "attrString",
+                        "name": "id",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "method": "contentString",
+                        "name": "content",
+                        "type": "string",
+                        "required": true
+                      }
+                    ],
+                    "repeats": true
                   }
-                ],
-                "repeats": true
+                ]
               }
             ]
           }
@@ -12093,7 +12094,56 @@
             "type": "string",
             "required": true,
             "tag": "context",
-            "children": []
+            "children": [
+              {
+                "method": "child",
+                "name": "sourceApp",
+                "type": "string",
+                "required": true,
+                "tag": "sourceApp",
+                "children": [
+                  {
+                    "method": "contentString",
+                    "name": "content",
+                    "type": "string",
+                    "required": true
+                  }
+                ],
+                "contentType": "string"
+              },
+              {
+                "method": "child",
+                "name": "ctaPayload",
+                "type": "string",
+                "required": true,
+                "tag": "ctaPayload",
+                "children": [
+                  {
+                    "method": "contentString",
+                    "name": "content",
+                    "type": "string",
+                    "required": true
+                  }
+                ],
+                "contentType": "string"
+              },
+              {
+                "method": "child",
+                "name": "originalImageUrl",
+                "type": "string",
+                "required": true,
+                "tag": "originalImageUrl",
+                "children": [
+                  {
+                    "method": "contentString",
+                    "name": "content",
+                    "type": "string",
+                    "required": true
+                  }
+                ],
+                "contentType": "string"
+              }
+            ]
           },
           {
             "method": "child",
@@ -12135,22 +12185,6 @@
           },
           {
             "method": "child",
-            "name": "sourceApp",
-            "type": "string",
-            "required": true,
-            "tag": "sourceApp",
-            "children": [
-              {
-                "method": "contentString",
-                "name": "content",
-                "type": "string",
-                "required": true
-              }
-            ],
-            "contentType": "string"
-          },
-          {
-            "method": "child",
             "name": "greetingMessageBody",
             "type": "string",
             "required": true,
@@ -12178,38 +12212,6 @@
                 "required": true
               }
             ]
-          },
-          {
-            "method": "child",
-            "name": "ctaPayload",
-            "type": "string",
-            "required": true,
-            "tag": "ctaPayload",
-            "children": [
-              {
-                "method": "contentString",
-                "name": "content",
-                "type": "string",
-                "required": true
-              }
-            ],
-            "contentType": "string"
-          },
-          {
-            "method": "child",
-            "name": "originalImageUrl",
-            "type": "string",
-            "required": true,
-            "tag": "originalImageUrl",
-            "children": [
-              {
-                "method": "contentString",
-                "name": "content",
-                "type": "string",
-                "required": true
-              }
-            ],
-            "contentType": "string"
           }
         ]
       }
@@ -34739,35 +34741,36 @@
             "type": "string",
             "required": true,
             "tag": "privacy",
-            "children": []
-          },
-          {
-            "method": "child",
-            "name": "list",
-            "type": "string",
-            "required": true,
-            "tag": "list",
             "children": [
               {
-                "method": "mapChildren",
-                "name": "children",
+                "method": "child",
+                "name": "list",
                 "type": "string",
                 "required": true,
+                "tag": "list",
                 "children": [
                   {
-                    "method": "attrDeviceJid",
-                    "name": "jid",
-                    "type": "device_jid",
+                    "method": "mapChildren",
+                    "name": "children",
+                    "type": "string",
+                    "required": true,
+                    "children": [
+                      {
+                        "method": "attrDeviceJid",
+                        "name": "jid",
+                        "type": "device_jid",
+                        "required": true
+                      }
+                    ],
+                    "repeats": true
+                  },
+                  {
+                    "method": "attrString",
+                    "name": "dhash",
+                    "type": "string",
                     "required": true
                   }
-                ],
-                "repeats": true
-              },
-              {
-                "method": "attrString",
-                "name": "dhash",
-                "type": "string",
-                "required": true
+                ]
               }
             ]
           }
@@ -35618,26 +35621,27 @@
             "type": "string",
             "required": true,
             "tag": "privacy",
-            "children": []
-          },
-          {
-            "method": "child",
-            "name": "category",
-            "type": "string",
-            "required": true,
-            "tag": "category",
             "children": [
               {
-                "method": "attrString",
-                "name": "name",
+                "method": "child",
+                "name": "category",
                 "type": "string",
-                "required": true
-              },
-              {
-                "method": "attrString",
-                "name": "value",
-                "type": "string",
-                "required": true
+                "required": true,
+                "tag": "category",
+                "children": [
+                  {
+                    "method": "attrString",
+                    "name": "name",
+                    "type": "string",
+                    "required": true
+                  },
+                  {
+                    "method": "attrString",
+                    "name": "value",
+                    "type": "string",
+                    "required": true
+                  }
+                ]
               }
             ]
           }
@@ -36175,39 +36179,40 @@
             "type": "string",
             "required": true,
             "tag": "sign_credential",
-            "children": []
-          },
-          {
-            "method": "child",
-            "name": "signed_credential",
-            "type": "string",
-            "required": true,
-            "tag": "signed_credential",
             "children": [
               {
-                "method": "contentBytes",
-                "name": "content",
-                "type": "bytes",
-                "required": true
-              }
-            ],
-            "contentType": "bytes"
-          },
-          {
-            "method": "child",
-            "name": "acs_public_key",
-            "type": "string",
-            "required": true,
-            "tag": "acs_public_key",
-            "children": [
+                "method": "child",
+                "name": "signed_credential",
+                "type": "string",
+                "required": true,
+                "tag": "signed_credential",
+                "children": [
+                  {
+                    "method": "contentBytes",
+                    "name": "content",
+                    "type": "bytes",
+                    "required": true
+                  }
+                ],
+                "contentType": "bytes"
+              },
               {
-                "method": "contentBytes",
-                "name": "content",
-                "type": "bytes",
-                "required": true
+                "method": "child",
+                "name": "acs_public_key",
+                "type": "string",
+                "required": true,
+                "tag": "acs_public_key",
+                "children": [
+                  {
+                    "method": "contentBytes",
+                    "name": "content",
+                    "type": "bytes",
+                    "required": true
+                  }
+                ],
+                "contentType": "bytes"
               }
-            ],
-            "contentType": "bytes"
+            ]
           }
         ]
       }

@@ -55,13 +55,14 @@ BASELINE = {
 # Fixing the shape is an extractor change and belongs in its own PR.
 FLATTENED_KEYS = {
     "incoming/incoming/0/shape/fields|verified_name": 1,
+    "incoming/incoming/3/shape/fields/5/children|user": 1,
     "incoming/incoming/3/shape/fields/5/children/0/children|type": 1,
     "incoming/incoming/4/shape/fields|id": 1,
     "iq/stanzas/50/response/fields/0/children/0/children|value": 1,
     "notif/notifications/12/content/fields|id": 1,
     "notif/notifications/17/content/fields|from,t": 3,
     "notif/notifications/23/content/fields|from": 2,
-    "notif/notifications/24/content/fields/8/children|expiration,group,id,parent_group_jid,reason,request_method,sub_group_suggestion,subject,triggered,type": 14,
+    "notif/notifications/24/content/fields/8/children|expiration,group,id,parent_group_jid,reason,request_method,sub_group_suggestion,triggered,type": 13,
     "notif/notifications/24/content/fields|participant,t": 2,
     "notif/notifications/3/content/fields/7/children|new_lid,old_lid": 2,
     "notif/notifications/3/content/fields|t": 1,
