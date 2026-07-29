@@ -25,6 +25,7 @@
       },
       "degradedResponses": 4,
       "dropsByReason": {
+        "incompatibleRepeatedRead": 1,
         "iq builder substring present but no AST iq call": 5,
         "mixin fragment (folded into requests, not a standalone stanza)": 66,
         "response enum argument not structurally resolvable": 33,

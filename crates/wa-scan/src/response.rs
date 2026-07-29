@@ -1108,7 +1108,7 @@ impl ParserAnalyzer<'_, '_> {
             let read = self.read_field(method, call);
             // Merged, not appended: the same attribute read twice is one field, and two
             // entries let a guarded copy sit in front of the read that always happens.
-            merge_or_push(&mut self.fields, read);
+            merge_or_push_reporting(&mut self.fields, read, &mut self.unresolved);
             return;
         }
 
@@ -1392,7 +1392,7 @@ impl ParserAnalyzer<'_, '_> {
         // Merged, not skipped: the caller and the helper can both reach the same child,
         // and keeping whichever landed first dropped everything the other one saw.
         for f in recovered {
-            merge_or_push(&mut self.fields, f);
+            merge_or_push_reporting(&mut self.fields, f, &mut self.unresolved);
         }
     }
 
@@ -1832,8 +1832,8 @@ fn place_at(fields: &mut Vec<ParsedField>, path: &[PathSeg], f: ParsedField) {
 /// carries both shapes. Appending them as siblings left a later de-dup by name to keep the
 /// first and drop the other branch's fields without a word.
 /// Record how many arms read each node of a structural field, by its path within it.
-fn count_paths(f: &ParsedField, path: &str, out: &mut HashMap<String, usize>) {
-    *out.entry(path.to_string()).or_default() += 1;
+fn count_paths(f: &ParsedField, path: &str, out: &mut std::collections::HashSet<String>) {
+    out.insert(path.to_string());
     for k in f.children.iter().flatten() {
         count_paths(k, &format!("{path}/{}", k.name), out);
     }
@@ -1858,7 +1858,15 @@ fn relax_absent_from_some_arm(
     }
 }
 
+/// The `dropsByReason` key for two reads of one field whose constraints disagree.
+const MERGE_CONFLICT: &str = "incompatibleRepeatedRead";
+
 fn merge_or_push(into: &mut Vec<ParsedField>, f: ParsedField) {
+    let mut discard = Vec::new();
+    merge_or_push_reporting(into, f, &mut discard);
+}
+
+fn merge_or_push_reporting(into: &mut Vec<ParsedField>, f: ParsedField, lost: &mut Vec<String>) {
     // Identity includes what the field reads, not only what it is called: a dispatch can
     // give two arms' reads the same runtime name while they take different attributes.
     let Some(i) = into.iter().position(|g| {
@@ -1871,13 +1879,49 @@ fn merge_or_push(into: &mut Vec<ParsedField>, f: ParsedField) {
     // and keeping whichever landed first let a helper's guarded copy mask a later plain
     // read of the same attribute.
     into[i].required |= f.required;
+    take_constraints(&mut into[i], &f, lost);
     let Some(incoming) = f.children else { return };
     let existing = into[i].children.get_or_insert_with(Vec::new);
     // Recursively: two branches that both map `<row>` may differ only in what their nested
     // `<sub>` reads, and taking the first `<sub>` whole would drop what the other accepts.
     for c in incoming {
-        merge_or_push(existing, c);
+        merge_or_push_reporting(existing, c, lost);
     }
+}
+
+/// Carry what the incoming read pins onto the one already recorded.
+///
+/// Coalescing repeated reads kept only the first field's metadata, so a second
+/// `contentBytesRange` — which the parser enforces just as much — simply vanished. Where
+/// only one side pins something the pin is taken; where both pin something different the
+/// merge cannot represent both, and says so rather than publishing whichever came first.
+fn take_constraints(into: &mut ParsedField, from: &ParsedField, lost: &mut Vec<String>) {
+    macro_rules! carry {
+        ($($field:ident),+ $(,)?) => {$(
+            match (&into.$field, &from.$field) {
+                (None, Some(v)) => into.$field = Some(v.clone()),
+                (Some(a), Some(b)) if a != b => {
+                    lost.push(format!("{MERGE_CONFLICT}@{}:{}", stringify!($field), into.name));
+                }
+                _ => {}
+            }
+        )+};
+    }
+    carry!(
+        byte_length,
+        byte_min,
+        byte_max,
+        int_min,
+        int_max,
+        enum_keys,
+        enum_ref,
+        pending_enum_ref,
+        literal_value,
+        content_type,
+        reference_path,
+        source_path,
+        repeats,
+    );
 }
 
 /// Reads a dispatch chain where it actually sits, rather than looking for comparisons
@@ -1900,14 +1944,21 @@ fn chain_statements<'b, 'a>(body: &'b [Statement<'a>]) -> &'b [Statement<'a>] {
     while let [Statement::BlockStatement(b)] = stmts {
         stmts = &b.body;
     }
-    for stmt in stmts {
-        if let Statement::LabeledStatement(l) = stmt
-            && let Statement::BlockStatement(b) = &l.body
-        {
-            return &b.body;
-        }
+    let mut labelled = stmts.iter().filter_map(|stmt| match stmt {
+        Statement::LabeledStatement(l) => match &l.body {
+            Statement::BlockStatement(b) => Some(&b.body[..]),
+            _ => None,
+        },
+        _ => None,
+    });
+    match (labelled.next(), labelled.next()) {
+        // Exactly one labelled region holds the chain. With two, arms live in both and
+        // reading one would leave the other's payload to be hoisted as unconditional —
+        // requiring each variant to carry the other's fields.
+        (Some(only), None) => only,
+        (Some(_), Some(_)) => &[],
+        _ => stmts,
     }
-    stmts
 }
 
 /// Whether any statement under `stmt` compares `subject` — an arm nested inside another
@@ -1981,7 +2032,7 @@ fn rebinds_subject(stmt: &Statement<'_>, subject: &str) -> (usize, bool) {
 impl DispatchChain {
     /// Read the chain, or decline. Declining leaves the body extracted flat, which is what
     /// it was before this shape was recognized at all — never a loss.
-    fn read(body: &[Statement<'_>], subject: &str) -> Option<Self> {
+    fn read(body: &[Statement<'_>], subject: &str, bound_at: u32) -> Option<Self> {
         let stmts = chain_statements(body);
         // Counted over the whole body, not just the chain: the declaration usually sits
         // outside the label, and an assignment between the two would be missed there.
@@ -2001,6 +2052,11 @@ impl DispatchChain {
             let Statement::IfStatement(first) = stmt else {
                 continue;
             };
+            // Before the accessor runs the name holds `undefined`, so the comparison is
+            // not against the wire attribute this dispatch is keyed on.
+            if first.span.start < bound_at {
+                return None;
+            }
             let mut current = &**first;
             loop {
                 let lits = equality_literals(&current.test, subject)?;
@@ -2159,7 +2215,7 @@ struct DiscriminatorFinder<'s> {
     /// consumers reject those. Which of these drives the dispatch is not knowable here;
     /// taking the first meant an unrelated `var id = e.attrString("id")` read before it
     /// sank the whole transformation.
-    found: Vec<(String, String, String)>,
+    found: Vec<(String, String, String, u32)>,
 }
 
 impl<'a> Visit<'a> for DiscriminatorFinder<'_> {
@@ -2181,6 +2237,7 @@ impl<'a> Visit<'a> for DiscriminatorFinder<'_> {
                     bound.as_str().to_string(),
                     wire.to_string(),
                     method.to_string(),
+                    call.span.end,
                 ));
             }
         }
@@ -2301,22 +2358,26 @@ fn assigned_names(src: &str, param: &str) -> HashMap<String, String> {
 /// branch that tests something else — belongs to the element just as much, and is in
 /// neither the union nor `unresolved`.
 fn fold_unaccounted(mut dispatched: Vec<ParsedField>, flat: Vec<ParsedField>) -> Vec<ParsedField> {
-    let mut accounted: std::collections::HashSet<String> = dispatched
-        .iter()
-        .map(|f| f.wire_name.clone().unwrap_or_else(|| f.name.clone()))
-        .collect();
+    /// What a read IS, not only what it is called: a `<id>` child and an `id` attribute
+    /// share a name and nothing else, and matching on the name alone dropped one of them.
+    fn identity(f: &ParsedField) -> (String, String, Option<String>) {
+        (
+            f.method.clone(),
+            f.wire_name.clone().unwrap_or_else(|| f.name.clone()),
+            f.tag.clone(),
+        )
+    }
+    let mut accounted: std::collections::HashSet<(String, String, Option<String>)> =
+        dispatched.iter().map(identity).collect();
     for v in dispatched
         .iter()
         .filter_map(|f| f.union_variants.as_ref())
         .flatten()
     {
-        for vf in &v.fields {
-            accounted.insert(vf.wire_name.clone().unwrap_or_else(|| vf.name.clone()));
-        }
+        accounted.extend(v.fields.iter().map(identity));
     }
     for f in flat {
-        let wire = f.wire_name.clone().unwrap_or_else(|| f.name.clone());
-        if !accounted.contains(&wire) {
+        if !accounted.contains(&identity(&f)) {
             merge_or_push(&mut dispatched, f);
         }
     }
@@ -2351,8 +2412,8 @@ fn discriminated_children(
     finder.visit_program(&ret.program);
     // The one a chain is actually built on.
     let (_bound, wire, disc_method, collector) =
-        finder.found.into_iter().find_map(|(b, w, m)| {
-            let chain = DispatchChain::read(&ret.program.body, &b)?;
+        finder.found.into_iter().find_map(|(b, w, m, at)| {
+            let chain = DispatchChain::read(&ret.program.body, &b, at)?;
             Some((b, w, m, chain))
         })?;
     let disc_field = mk_field(
@@ -2378,9 +2439,15 @@ fn discriminated_children(
             .cloned()
             .partition(|f| f.children.is_none());
         arms_seen += 1;
+        // Once per arm: an arm reading `<detail>` both as a child and as a mapped element
+        // still only proves that ONE arm reaches it.
+        let mut in_this_arm: std::collections::HashSet<String> = Default::default();
         for f in structural {
-            count_paths(&f, &f.name, &mut structural_seen);
+            count_paths(&f, &f.name, &mut in_this_arm);
             merge_or_push(&mut common, f);
+        }
+        for path in in_this_arm {
+            *structural_seen.entry(path).or_default() += 1;
         }
         for lit in lits {
             let fields: Vec<ParsedField> = leaves
@@ -2405,15 +2472,21 @@ fn discriminated_children(
                 }
                 continue;
             }
+            // Whatever else the arm enforces goes with it. Replacing its assertions with
+            // the synthesized discriminator alone published a variant that accepts what
+            // the parser turns away — and stripped the very thing the codegen's exact
+            // check would have refused the shape for.
+            let mut assertions = vec![ResponseAssertion {
+                kind: AssertionKind::Attr,
+                name: Some(wire.clone()),
+                value: Some(lit.to_string()),
+                reference_path: None,
+            }];
+            assertions.extend(arm.assertions.iter().cloned());
             variants.push(UnionVariant {
                 name: lit.to_string(),
                 fields,
-                assertions: vec![ResponseAssertion {
-                    kind: AssertionKind::Attr,
-                    name: Some(wire.clone()),
-                    value: Some(lit.to_string()),
-                    reference_path: None,
-                }],
+                assertions,
             });
         }
     }
@@ -4083,6 +4156,143 @@ mod tests {
         };
         assert!(by("id").required, "both arms read it");
         assert!(!by("only_a").required, "only one arm does");
+    }
+
+    #[test]
+    fn a_repeated_read_keeps_both_pins_or_says_it_cannot() {
+        // Coalescing repeated reads kept only the first field's metadata, so a second
+        // range the parser enforces just as much simply vanished.
+        let carried = analyze_parser_ast(r#"{ e.contentBytes(32); e.contentBytes(32); }"#, "e");
+        assert!(
+            carried.unresolved.is_empty(),
+            "identical pins agree: {:?}",
+            carried.unresolved
+        );
+
+        let clashing = analyze_parser_ast(r#"{ e.contentBytes(32); e.contentBytes(64); }"#, "e");
+        assert!(
+            clashing
+                .unresolved
+                .iter()
+                .any(|u| u.starts_with("incompatibleRepeatedRead")),
+            "one field cannot hold both, and the merge says so: {:?}",
+            clashing.unresolved
+        );
+    }
+
+    #[test]
+    fn a_dispatch_keeps_a_read_that_only_shares_a_name() {
+        // A `<id>` child and an `id` attribute share a name and nothing else; matching on
+        // the name alone let the union's attribute swallow the child.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   e.child("id").attrString("v");
+                   if (n === "a") { var x = e.attrString("id"); t.alpha = x; }
+                   if (n === "b") { var y = e.attrString("id"); t.beta = y; }
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        assert!(
+            kids.iter().any(|f| f.name == "id" && f.method == "child"),
+            "the child survives beside the union: {:?}",
+            kids.iter()
+                .map(|f| (f.name.as_str(), f.method.as_str()))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_comparison_before_the_discriminator_exists_is_not_an_arm() {
+        // Hoisted, the name holds `undefined` until the accessor runs, so the first test
+        // never selects anything the wire says.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   if (kind === "a") { e.attrString("va"); }
+                   var kind = e.attrString("kind");
+                   if (kind === "b") { e.attrString("vb"); }
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        assert!(
+            kids.iter().all(|f| f.field_type != ParsedFieldType::Union),
+            "left flat: {:?}",
+            kids.iter().map(|f| f.name.as_str()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn arms_split_across_two_regions_decline_rather_than_lose_one() {
+        // Reading one region would leave the other's payload hoisted as unconditional,
+        // making each variant carry the other's fields.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   x: { if (n === "a") { e.attrString("va"); } if (n === "b") { e.attrString("vb"); } }
+                   y: { if (n === "c") { e.attrString("vc"); } }
+                 }); }"#,
+            "e",
+        );
+        let kids = r.fields[0].children.as_ref().unwrap();
+        assert!(
+            kids.iter().all(|f| f.field_type != ParsedFieldType::Union),
+            "left flat: {:?}",
+            kids.iter().map(|f| f.name.as_str()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn an_arm_keeps_what_it_enforces_beside_the_discriminator() {
+        // Replacing the arm's assertions with the synthesized one published a variant that
+        // accepts what the parser turns away — and stripped the very thing the codegen's
+        // exact-assertion check would have refused the shape for.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   if (n === "a") { e.assertAttr("mode", "on"); var x = e.attrString("value"); t.alpha = x; }
+                   if (n === "b") { var y = e.attrString("value"); t.beta = y; }
+                 }); }"#,
+            "e",
+        );
+        let union = r.fields[0]
+            .children
+            .as_ref()
+            .unwrap()
+            .iter()
+            .find(|f| f.field_type == ParsedFieldType::Union)
+            .expect("a union");
+        let a = &union.union_variants.as_ref().unwrap()[0];
+        assert!(
+            a.assertions
+                .iter()
+                .any(|x| x.name.as_deref() == Some("mode") && x.value.as_deref() == Some("on")),
+            "the arm's own guard travels with it: {:?}",
+            a.assertions
+        );
+    }
+
+    #[test]
+    fn one_arm_reaching_a_child_twice_still_counts_once() {
+        // Two spellings of the same child in one arm say nothing about the other arm, and
+        // counting each made the child look common to both.
+        let r = analyze_parser_ast(
+            r#"{ e.forEachChildWithTag("row", function(e){
+                   var n = e.attrString("kind");
+                   if (n === "a") { e.child("detail").attrString("x"); e.mapChildrenWithTag("detail", function(d){ d.attrString("y"); }); }
+                   if (n === "b") { var y = e.attrString("value"); t.beta = y; }
+                 }); }"#,
+            "e",
+        );
+        let detail = r.fields[0]
+            .children
+            .as_ref()
+            .unwrap()
+            .iter()
+            .find(|f| f.name == "detail")
+            .expect("hoisted");
+        assert!(!detail.required, "only the `a` arm reads it");
     }
 
     #[test]
