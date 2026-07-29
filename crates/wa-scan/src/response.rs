@@ -503,6 +503,9 @@ const HELPER_DEPTH: &str = "helperChainTooDeep";
 /// A helper was handed a node whose name has since been assigned to, so where its reads
 /// belong is no longer known.
 const NODE_REASSIGNED: &str = "reassignedNodeHandedOn";
+/// The formal the node was handed to binds by pattern rather than by name, so the helper
+/// body cannot be analysed against it.
+const UNNAMED_FORMAL: &str = "nodeBoundByPattern";
 
 struct ParserAnalyzer<'src, 'ms> {
     code: &'src str,
@@ -1358,7 +1361,10 @@ impl ParserAnalyzer<'_, '_> {
         let Some((params, body_src)) = self.module.functions.get(name) else {
             return;
         };
-        let Some(bound_param) = params.get(arg_idx) else {
+        let Some(Some(bound_param)) = params.get(arg_idx) else {
+            // No formal at that position, or one that binds by pattern rather than by name.
+            // Either way the helper's node has no name to analyse it against.
+            self.unresolved.push(format!("{UNNAMED_FORMAL}@{name}"));
             return;
         };
         // The helper's parameter names the node at the end of the path; the caller's tree
@@ -1444,7 +1450,8 @@ impl ParserAnalyzer<'_, '_> {
         let mut lost = Vec::new();
         let mut guards = Vec::new();
         for idx in positions {
-            let Some(bound_param) = params.get(idx) else {
+            let Some(Some(bound_param)) = params.get(idx) else {
+                self.unresolved.push(format!("{UNNAMED_FORMAL}@{name}"));
                 continue;
             };
             let (f, l, g) = analyze_node_helper(
@@ -1571,7 +1578,7 @@ struct ModuleScope {
     /// helper name → (parameter names, body source). Covers both `function name(p){body}`
     /// declarations and `var name = function(p){body}` expressions, so a sibling helper the
     /// parser hands a child node to is reachable in either the un-minified or minified form.
-    functions: HashMap<String, (Vec<String>, String)>,
+    functions: HashMap<String, (Vec<Option<String>>, String)>,
     /// object-map name → its keys in source order — the allowed value set an enum accessor
     /// (`attrEnumOrNullIfUnknown("attr", map)`) validates a wire attr against.
     maps: HashMap<String, Vec<String>>,
@@ -1608,7 +1615,7 @@ impl ModuleScope {
 
 struct ModuleScopeBuilder<'a> {
     module_source: &'a str,
-    functions: HashMap<String, (Vec<String>, String)>,
+    functions: HashMap<String, (Vec<Option<String>>, String)>,
     maps: HashMap<String, Vec<String>>,
     members: HashMap<String, Vec<String>>,
     /// Number of function bodies we are currently inside. The bundle wraps every module
@@ -1631,10 +1638,14 @@ impl ModuleScopeBuilder<'_> {
         if self.functions.contains_key(name) {
             return;
         }
-        let param_names = params
+        // By POSITION, not just the ones that have a name: a destructured formal
+        // (`function parse({opts}, node)`) contributes no identifier, and dropping it slid
+        // every later parameter one place left. The node then bound to the wrong formal, or
+        // to none at all, and the helper's reads left the shape with nothing recorded.
+        let param_names: Vec<Option<String>> = params
             .items
             .iter()
-            .filter_map(|p| p.pattern.get_identifier_name().map(|n| n.to_string()))
+            .map(|p| p.pattern.get_identifier_name().map(|n| n.to_string()))
             .collect();
         let body_src = self.module_source[body.start as usize..body.end as usize].to_string();
         self.functions
@@ -1734,7 +1745,7 @@ impl<'a> Visit<'a> for ModuleScopeBuilder<'_> {
 fn analyze_node_helper(
     body_src: &str,
     bound_param: &str,
-    formals: &[String],
+    formals: &[Option<String>],
     module: &ModuleScope,
     depth: u32,
 ) -> (Vec<ParsedField>, Vec<String>, Vec<ResponseAssertion>) {
@@ -1765,7 +1776,11 @@ fn analyze_node_helper(
     a.local_bindings = all_bindings(&ret.program);
     // Its own parameters are names it binds: `delegate(node, parse)` calls the `parse` it
     // was handed, not the module's, and the body alone does not say so.
-    a.local_bindings.names.extend(formals.iter().cloned());
+    // The named ones. A formal that binds by pattern shadows whatever its properties are
+    // called, which this list cannot say — the positions are what it is kept for.
+    a.local_bindings
+        .names
+        .extend(formals.iter().flatten().cloned());
     a.visit_program(&ret.program);
     a.attach_pending_enum_keys();
     // What the helper could not resolve is the caller's loss too: reporting the field
@@ -6627,6 +6642,58 @@ mod tests {
             .find(|r| r.parser_name == "p")
             .expect("parser")
             .fields
+    }
+
+    #[test]
+    fn a_destructured_formal_does_not_shift_the_node_position() {
+        // `function parse({opts}, node)` has the node SECOND. Collecting only the formals
+        // that have a name slid it to index 0, so the call's second argument found no
+        // formal and the helper's reads left the shape — silently, which is the half that
+        // makes the drop accounting a lie.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse({opts}, node){ node.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                e.mapChildrenWithTag("row", function(row){
+                    parse(cfg, row);
+                });
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let row = p.fields.iter().find(|f| f.name == "row").expect("row");
+        assert!(
+            row.children
+                .as_ref()
+                .is_some_and(|kids| kids.iter().any(|f| f.name == "id")),
+            "the node is the second formal: {:?}",
+            row.children
+        );
+    }
+
+    #[test]
+    fn a_node_handed_to_a_destructured_formal_is_counted_not_dropped() {
+        // The other side: when the node lands ON the pattern there is no name to analyse
+        // the body against, and stopping there has to be recorded like every other bounded
+        // exit on this path.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse({node}){ node.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                e.mapChildrenWithTag("row", function(row){
+                    parse(row);
+                });
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        assert!(
+            p.pending_drops
+                .iter()
+                .any(|u| u == "nodeBoundByPattern@parse"),
+            "the stop is counted: {:?}",
+            p.pending_drops
+        );
     }
 
     #[test]
