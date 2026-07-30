@@ -996,6 +996,15 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
 
     fn visit_for_of_statement(&mut self, stmt: &oxc_ast::ast::ForOfStatement<'a>) {
         self.visit_expression(&stmt.right);
+        // A list that syntactically cannot be empty runs the body at least once, so what the pass
+        // reads before it can leave is read every time — the same guaranteed-pass asymmetry
+        // `for (;;)` and `while (!0)` have, over the one iterable whose length is decidable here.
+        // An arbitrary expression keeps its zero-iteration path.
+        if iterates_at_least_once(&stmt.right) {
+            self.visit_for_statement_left(&stmt.left);
+            self.walk_guaranteed_pass(&stmt.body);
+            return;
+        }
         self.in_skipped_path(|s| {
             s.visit_for_statement_left(&stmt.left);
             s.visit_statement(&stmt.body);
@@ -3446,6 +3455,14 @@ struct AllBindings {
     /// How many enclosing statements cannot be left with a result. A write in one of those
     /// never takes effect for anything a later call can observe.
     dead: u32,
+    /// How many enclosing statements control cannot reach at all — everything after an
+    /// unconditional `return`, `throw` or labelled `break` in the same list.
+    ///
+    /// Distinct from [`Self::dead`], and it outranks `caught`: a handler makes a THROWING path
+    /// resume, so a write before the throw really did happen, but nothing makes a statement after
+    /// the transfer run. `try { throw Error(); current = other; } catch (_) {}` recorded that
+    /// assignment as effective and refused the descent for a node nothing had moved.
+    unreachable: u32,
     /// Function bodies that are immediately invoked, so a write inside one has certainly run by
     /// the time anything after the call reads it.
     iife: Vec<Span>,
@@ -3568,8 +3585,15 @@ impl AllBindings {
             // silently. Deciding that in general is call-graph work this scanner does not do; an
             // IIFE is the case syntax decides, so it is the only one that escapes. Narrowed from
             // "always escapes", which is what I shipped one commit earlier.
+            // EVERY function on the chain, not just the innermost: an IIFE inside a function
+            // nobody calls has not run either. `function unused(){ (function(){ current = other;
+            // })(); } parse(current)` had the inner write escape to all of the source, so the
+            // still-valid alias was refused and the helper's fields were lost silently — the same
+            // rule the narrowing was written for, applied to one level of nesting instead of all
+            // of them.
+            let certainly_runs = self.fns.iter().all(|g| self.iife.contains(g));
             return match self.fns.last() {
-                Some(f) if !self.iife.contains(f) => Some(*f),
+                Some(f) if !certainly_runs => Some(*f),
                 _ => None,
             };
         }
@@ -3580,10 +3604,30 @@ impl AllBindings {
     /// right-hand side is ordered before it — and `u32::MAX` on a path that cannot produce a
     /// result, which no call site can be after.
     fn effect_position(&self, default_end: u32) -> u32 {
+        // Unreachable first, because a handler cannot rescue it.
+        if self.unreachable > 0 {
+            return u32::MAX;
+        }
         if self.dead > 0 && self.caught == 0 {
             return u32::MAX;
         }
         self.assign_end.unwrap_or(default_end)
+    }
+
+    /// Walk the statements of one list, marking everything after an unconditional exit as
+    /// unreachable. Nothing else models "the rest of this block does not run".
+    fn walk_in_order<'a>(&mut self, body: &[Statement<'a>]) {
+        let mut past_the_exit = false;
+        for st in body {
+            if past_the_exit {
+                self.unreachable += 1;
+                self.visit_statement(st);
+                self.unreachable -= 1;
+                continue;
+            }
+            self.visit_statement(st);
+            past_the_exit = exits_unconditionally(st);
+        }
     }
 
     /// Walk a part of a statement that control can reach past — the requiredness side's
@@ -3763,7 +3807,7 @@ impl<'a> Visit<'a> for AllBindings {
         if !body_itself {
             self.blocks.push(block.span);
         }
-        walk::walk_block_statement(self, block);
+        self.walk_in_order(&block.body);
         if !body_itself {
             self.blocks.pop();
         }
@@ -3971,12 +4015,30 @@ impl<'a> Visit<'a> for AllBindings {
         // after the class does, so a write there is as effective as any other — and this walked
         // only the body, so `parse(current)` afterwards followed the stale alias and filed the
         // helper's fields under the response root. The wrong-node direction, from a hand-written
-        // visitor that enumerated the parts of a class it happened to think of. The body's own
-        // computed keys arrive through `visit_class_body`; the heritage is the part outside it.
+        // visitor that enumerated the parts of a class it happened to think of.
         if let Some(heritage) = class.super_class.as_ref() {
             self.visit_expression(heritage);
         }
-        self.visit_class_body(&class.body);
+        // And only what the class evaluates when it is DEFINED. An instance field initializer
+        // runs per `new`, of which there may be none: `class C { value = (current = other) }`
+        // writes nothing by existing, and recording it refused a descent for a node nothing had
+        // moved. A computed key and a static initializer do run here, and a method body is a
+        // function like any other — deferred, and confined by the extent rule above.
+        for el in &class.body.body {
+            match el {
+                oxc_ast::ast::ClassElement::PropertyDefinition(p) => {
+                    if p.computed {
+                        self.visit_property_key(&p.key);
+                    }
+                    if p.r#static
+                        && let Some(v) = p.value.as_ref()
+                    {
+                        self.visit_expression(v);
+                    }
+                }
+                other => self.visit_class_element(other),
+            }
+        }
     }
 }
 
@@ -5278,6 +5340,23 @@ fn statically_selected<'s, T>(
         return alternate.map(|alt| (alt, Some(consequent)));
     }
     None
+}
+
+/// Whether iterating `e` necessarily produces at least one element.
+///
+/// Only an array literal holding something other than a spread: `[0]` and `[a, b]` iterate, `[]`
+/// does not, and `[...xs]` may or may not — deliberately narrow, because reading an iterable as
+/// nonempty when it can be empty would require reads the parser can skip. A hole counts: `[,]`
+/// yields one `undefined`.
+fn iterates_at_least_once(e: &Expression<'_>) -> bool {
+    match e {
+        Expression::ParenthesizedExpression(p) => iterates_at_least_once(&p.expression),
+        Expression::ArrayExpression(a) => a
+            .elements
+            .iter()
+            .any(|el| !matches!(el, oxc_ast::ast::ArrayExpressionElement::SpreadElement(_))),
+        _ => false,
+    }
 }
 
 /// Whether `t` is a test no value of it can make false, so the loop it controls necessarily
@@ -8485,6 +8564,104 @@ mod tests {
     }
 
     #[test]
+    fn a_write_inside_a_function_nobody_calls_stays_there() {
+        // An IIFE inside a function nothing invokes has not run either, so the write is confined
+        // and the alias still stands. The narrowing that let only an IIFE escape asked about the
+        // INNERMOST function alone, so one level of nesting was enough to make the write look
+        // top-level — and the descent was refused for a node nothing had moved, silently.
+        let fields = helper_reached_via(
+            "var current = e; function unused(){ (function(){ current = other; })(); } parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the alias is untouched: {:?}",
+            fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_write_in_an_iife_nothing_encloses_still_moves_the_node() {
+        // The bound: with every function on the chain immediately invoked, the write certainly
+        // ran. Confining every captured write would put the helper's fields back at the wrong
+        // node, which is the direction the escape rule exists to stop.
+        let fields = helper_reached_via(
+            "var current = e; (function(){ current = other; })(); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the IIFE moved it: {:?}",
+            fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_write_control_cannot_reach_moves_nothing() {
+        // Everything after an unconditional `return` or `throw` in the same list is unreachable,
+        // and nothing modelled that: `dead` is computed per statement and asks only whether THAT
+        // statement throws. A handler makes a throwing path resume, so a write before the throw
+        // really did happen — but nothing makes a statement after the transfer run, which is why
+        // unreachability outranks the catch suppression rather than sharing it.
+        for body in [
+            "var current = e; try { throw Error(); current = other; } catch (_) {} parse(current);",
+            "var current = e; if (flag) { return t; current = other; } parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "`{body}` never runs the write: {:?}",
+                fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn a_write_before_a_caught_throw_still_moves_the_node() {
+        // The bound, and the reason the two counters are separate: this write DOES run, the
+        // handler resumes after it, and the node is moved by the time the helper is called.
+        let fields = helper_reached_via(
+            "var current = e; try { current = other; throw Error(); } catch (_) {} parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the write ran before the throw: {:?}",
+            fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn an_instance_field_initializer_writes_nothing_by_existing() {
+        // `class C { value = (current = other) }` evaluates that initializer per `new`, of which
+        // there may be none — so defining the class moves nothing. Walking every property value
+        // recorded the write as effective and refused a valid descent.
+        let fields = helper_reached_via(
+            "var current = e; class C { value = (current = other) } parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "definition assigns nothing: {:?}",
+            fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn what_a_class_evaluates_when_defined_still_moves_the_node() {
+        // The bounds, and they are the whole reason this is per element rather than per class: a
+        // STATIC initializer and a COMPUTED KEY are evaluated once, when the class is defined, so
+        // both really do move the node. Skipping the body wholesale would lose them.
+        for body in [
+            "var current = e; class C { static value = (current = other) } parse(current);",
+            "var current = e; class C { [(current = other)]() {} } parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "`{body}` runs at definition: {:?}",
+                fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
     fn a_declaration_inside_a_nested_function_binds_its_own_name() {
         // The complement of the case below, one keyword apart: `(function(){ var current = … })()`
         // binds a NEW `current` for that function, so the outer one still stands for the element
@@ -9749,6 +9926,30 @@ mod tests {
                 .find(|f| f.name == "id")
                 .unwrap_or_else(|| panic!("`{body}` recovers the field"));
             assert!(id.required, "`{body}` assigns on every execution");
+        }
+    }
+
+    #[test]
+    fn a_for_of_over_a_nonempty_literal_runs_its_body_once() {
+        // `for (const _ of [0]) { parse(e); break; }` iterates at least once, so what the pass
+        // reads before it can leave is read every time — the same guaranteed-pass asymmetry
+        // `for (;;)` and `while (!0)` have. Every `for`/`of` went through the skipped path, so a
+        // read the parser always performs came out optional and its guard unpublished.
+        let guards = guards_and_field("for (const _ of [0]) { parse(e); break; }");
+        assert_eq!(guards, (true, true), "a nonempty list iterates");
+    }
+
+    #[test]
+    fn a_for_of_that_may_be_empty_keeps_its_zero_iteration_path() {
+        // The bounds. An arbitrary expression may yield nothing, `[]` yields nothing, and `[...xs]`
+        // may — reading any of those as nonempty would require reads the parser can skip.
+        for body in [
+            "for (const _ of ks) { parse(e); break; }",
+            "for (const _ of []) { parse(e); break; }",
+            "for (const _ of [...ks]) { parse(e); break; }",
+        ] {
+            let guards = guards_and_field(body);
+            assert_eq!(guards, (false, false), "`{body}` may run no passes");
         }
     }
 

@@ -55,19 +55,54 @@ pub(crate) fn emit_field_parse(f: &ParsedField, node_var: &str, indent: &str) ->
     // sources of optionality, and the two must agree or the initializer will not match the
     // declared field type.
     let optional = wap::is_optional_method(method) || !f.required;
+    // A declared band is part of what the accessor accepts, and this path decoded the number and
+    // enforced nothing — so `attrIntRange("weight", -10000, 10000)` took a `-20000` the source
+    // turns away. Harmless while every integer was `u64`, because the parse itself refused every
+    // negative value; the moment the width could be signed it became an over-acceptance, and it
+    // is the union guard's own `int_band`, read from one place now.
+    let band = super::fields::int_band(f, &name);
     match wap::method_field_type(method) {
-        ParsedFieldType::Integer if optional => vec![format!(
-            "{indent}let {name} = {node_var}.get_attr({flit}).and_then(|v| v.as_str().parse().ok());"
-        )],
-        ParsedFieldType::Integer => vec![
-            format!(
-                "{indent}let {name}: {} = {node_var}.get_attr({flit})",
+        ParsedFieldType::Integer if optional => {
+            let read = format!(
+                "{node_var}.get_attr({flit}).and_then(|v| v.as_str().parse::<{}>().ok())",
                 super::fields::integer_width(f)
-            ),
-            format!("{indent}    .ok_or_else(|| anyhow::anyhow!(\"missing {fmsg}\"))?"),
-            format!("{indent}    .as_str()"),
-            format!("{indent}    .parse()?;"),
-        ],
+            );
+            match &band {
+                // Out of band is not the same as absent: the source accessor THROWS on a value
+                // outside its range, so mapping it to `None` would accept a response the parser
+                // rejects — quietly, and with the field simply missing. Whether an unparseable
+                // value is absent or an error is a separate question this leaves as it was.
+                Some(test) => vec![
+                    format!("{indent}let {name} = match {read} {{"),
+                    format!("{indent}    Some({name}) => {{"),
+                    format!(
+                        "{indent}        anyhow::ensure!({test}, \"{fmsg} out of range: {{}}\", {name});"
+                    ),
+                    format!("{indent}        Some({name})"),
+                    format!("{indent}    }}"),
+                    format!("{indent}    None => None,"),
+                    format!("{indent}}};"),
+                ],
+                None => vec![format!("{indent}let {name} = {read};")],
+            }
+        }
+        ParsedFieldType::Integer => {
+            let mut out = vec![
+                format!(
+                    "{indent}let {name}: {} = {node_var}.get_attr({flit})",
+                    super::fields::integer_width(f)
+                ),
+                format!("{indent}    .ok_or_else(|| anyhow::anyhow!(\"missing {fmsg}\"))?"),
+                format!("{indent}    .as_str()"),
+                format!("{indent}    .parse()?;"),
+            ];
+            if let Some(test) = &band {
+                out.push(format!(
+                    "{indent}anyhow::ensure!({test}, \"{fmsg} out of range: {{}}\", {name});"
+                ));
+            }
+            out
+        }
         // An OPTIONAL JID must come first: `rust_field_type` declares `Option<Jid>` for a
         // `maybeAttr…Jid`, and falling into the branch below both mis-typed the
         // initializer and rejected the absence the accessor exists to permit.
@@ -994,6 +1029,74 @@ mod tests {
     use super::*;
     use crate::fields::collect_response_fields;
     use wa_ir::{WapAttrDef, WapChildNode};
+
+    /// A bounded integer attribute, as `attrIntRange` records one.
+    fn ranged(name: &str, lo: Option<i64>, hi: Option<i64>, required: bool) -> ParsedField {
+        ParsedField {
+            method: "attrIntRange".into(),
+            name: name.into(),
+            wire_name: Some(name.into()),
+            field_type: ParsedFieldType::Integer,
+            required,
+            int_min: lo,
+            int_max: hi,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_bounded_integer_read_enforces_its_band() {
+        // The accessor rejects a value outside its range, and this path decoded the number and
+        // checked nothing — so `attrIntRange("weight", -10000, 10000)` took a `-20000` the source
+        // turns away. Harmless while every integer was `u64`, because the parse itself refused
+        // every negative value; signed, it is an over-acceptance. The union arm's selection guard
+        // has applied the same band all along, and both read it from one place now.
+        let src = emit_field_parse(&ranged("weight", Some(-10000), Some(10000), true), "n", "")
+            .join("\n");
+        assert!(
+            src.contains("let weight: i64"),
+            "signed by its range: {src}"
+        );
+        assert!(
+            src.contains(r#"anyhow::ensure!((-10000i64..=10000i64).contains(&weight)"#),
+            "and the band is enforced after decoding: {src}"
+        );
+    }
+
+    #[test]
+    fn an_optional_bounded_integer_read_enforces_it_too() {
+        // Out of band is not the same as absent: the source THROWS on a value outside the range,
+        // so filtering it to `None` would accept a response the parser rejects, quietly and with
+        // the field missing. Absent stays absent.
+        let src = emit_field_parse(&ranged("weight", Some(0), Some(10), false), "n", "").join("\n");
+        assert!(
+            src.contains("None => None,"),
+            "absence is still absence: {src}"
+        );
+        assert!(
+            src.contains(r#"anyhow::ensure!(weight <= 10u64"#),
+            "and a present value is checked: {src}"
+        );
+        assert!(
+            !src.contains(">= 0u64"),
+            "a floor no u64 can fail is not a check: {src}"
+        );
+    }
+
+    #[test]
+    fn an_unbounded_integer_read_checks_nothing_extra() {
+        // The bounds. No declared band is nothing to enforce, and a bound no value of the emitted
+        // width can fail says nothing either — a floor of zero on a `u64` is not a check, it is
+        // noise the consumer's linter would flag. (A NEGATIVE floor is a different matter: it is
+        // what makes the field signed, and then it constrains something.)
+        for f in [
+            ranged("count", None, None, true),
+            ranged("count", Some(0), None, true),
+        ] {
+            let src = emit_field_parse(&f, "n", "").join("\n");
+            assert!(!src.contains("ensure!"), "nothing to enforce: {src}");
+        }
+    }
 
     fn attr(name: &str, kind: WapAttrKind, value: Option<&str>) -> WapAttrDef {
         WapAttrDef {

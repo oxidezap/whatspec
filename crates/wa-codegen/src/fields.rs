@@ -115,6 +115,34 @@ pub(crate) fn admits_negative(f: &ParsedField) -> bool {
     }
 }
 
+/// The band a bounded integer accessor enforces, as a test on a decoded value named `var` —
+/// `attrIntRange(node, "count", 1, 10)` → `(1u64..=10u64).contains(&count)`.
+///
+/// The width is spelled on the literals so the `parse()` feeding it has a type to infer. A bound
+/// no value of that width can fail says nothing, and emitting it only invited a clippy lint;
+/// signed, every bound is meaningful — dropping the negative lower one is what left
+/// `samplingWeight` guarded by its maximum alone over an unsigned parse.
+///
+/// One spelling for two readers: the union arm's selection guard, which has applied it all along,
+/// and the plain struct read, which parsed the number and enforced nothing. That asymmetry stopped
+/// being harmless the moment the width could be signed — an unsigned parse used to turn away every
+/// negative value by itself, and `i64` accepts them.
+pub(crate) fn int_band(f: &ParsedField, var: &str) -> Option<String> {
+    if wap::method_field_type(&f.method) != ParsedFieldType::Integer {
+        return None;
+    }
+    let w = integer_width(f);
+    let signed = admits_negative(f);
+    let lo = f.int_min.filter(|n| signed || *n > 0);
+    let hi = f.int_max.filter(|n| signed || *n >= 0);
+    match (lo, hi) {
+        (Some(lo), Some(hi)) => Some(format!("({lo}{w}..={hi}{w}).contains(&{var})")),
+        (Some(lo), None) => Some(format!("{var} >= {lo}{w}")),
+        (None, Some(hi)) => Some(format!("{var} <= {hi}{w}")),
+        (None, None) => None,
+    }
+}
+
 /// The Rust integer width `f` materializes as.
 pub(crate) fn integer_width(f: &ParsedField) -> &'static str {
     if admits_negative(f) { "i64" } else { "u64" }

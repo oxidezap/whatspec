@@ -35,7 +35,7 @@ use wa_ir::{AssertionKind, ParsedField, ParsedFieldType, ResponseAssertion, Unio
 use crate::emit::emit_struct_parser;
 use crate::fields::{
     RustChildStruct, RustEnum, RustEnumVariant, RustField, admits_negative,
-    collect_response_fields, integer_width, is_attr_field, rust_field_type,
+    collect_response_fields, int_band, integer_width, is_attr_field, rust_field_type,
 };
 use crate::naming::{pascal_case, rust_ident, rust_lit, rust_lit_inner};
 use crate::spec::parser_is_valid;
@@ -993,7 +993,7 @@ fn leaf_guard(f: &ParsedField, node_var: &str) -> Option<String> {
             // `intMin`/`intMax` on a content method today (only `attrIntRange` does), so this
             // is one rule spelled once rather than a live fix — which is exactly how the two
             // spellings drifted apart in the first place.
-            match int_band(f) {
+            match int_band(f, "n") {
                 Some(band) => format!("{parsed}.is_some_and(|n| {band})"),
                 None => format!("{parsed}.is_some()"),
             }
@@ -1070,7 +1070,7 @@ fn leaf_guard(f: &ParsedField, node_var: &str) -> Option<String> {
     // A plain string cannot fail to decode, so "it is there" IS the whole check. Spelling
     // it as `…map(|v| v.as_str().to_string()).is_some()` says the same thing at more
     // length and buries the cases that really do validate something.
-    if !is_typed(f) && int_band(f).is_none() {
+    if !is_typed(f) && int_band(f, "n").is_none() {
         let present = format!("{node_var}.get_attr({}).is_some()", rust_lit(wire_name));
         return f.required.then_some(present);
     }
@@ -1080,7 +1080,7 @@ fn leaf_guard(f: &ParsedField, node_var: &str) -> Option<String> {
     // A bounded accessor rejects a value outside its band, and reading it as a
     // bare `attrInt` let `attrIntRange("count", 1, 10)` select the arm on a
     // `count="99"` the source parser turns away.
-    let decodes = match int_band(f) {
+    let decodes = match int_band(f, "n") {
         Some(band) => format!("{read}.is_some_and(|n| {band})"),
         None => format!("{read}.is_some()"),
     };
@@ -1102,31 +1102,6 @@ fn representable(n: i128, width: &str) -> bool {
     match width {
         "i64" => i64::try_from(n).is_ok(),
         _ => u64::try_from(n).is_ok(),
-    }
-}
-
-/// The band a bounded integer accessor enforces, as a test on the decoded `n` —
-/// `attrIntRange(node, "count", 1, 10)` → `(1u64..=10u64).contains(&n)`.
-///
-/// `u64` because that is what the field materializes as, spelled on the literals so the
-/// `parse()` feeding it has a type to infer. A bound below zero is one no `u64` can fail,
-/// so the band is taken from what is left of it (and dropped when nothing is).
-fn int_band(f: &ParsedField) -> Option<String> {
-    if wap::method_field_type(&f.method) != ParsedFieldType::Integer {
-        return None;
-    }
-    let w = integer_width(f);
-    // A bound no value of the width can fail says nothing, and emitting it only invited
-    // a clippy lint. Signed, every bound is meaningful — dropping the negative lower one
-    // is what left `samplingWeight` guarded by its maximum alone over an unsigned parse.
-    let signed = admits_negative(f);
-    let lo = f.int_min.filter(|n| signed || *n > 0);
-    let hi = f.int_max.filter(|n| signed || *n >= 0);
-    match (lo, hi) {
-        (Some(lo), Some(hi)) => Some(format!("({lo}{w}..={hi}{w}).contains(&n)")),
-        (Some(lo), None) => Some(format!("n >= {lo}{w}")),
-        (None, Some(hi)) => Some(format!("n <= {hi}{w}")),
-        (None, None) => None,
     }
 }
 
