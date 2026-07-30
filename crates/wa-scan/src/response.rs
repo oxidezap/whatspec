@@ -3072,6 +3072,14 @@ fn named_member<'b, 'a>(
             Expression::StringLiteral(s) => {
                 Some((std::borrow::Cow::Borrowed(s.value.as_str()), &m.object))
             }
+            // A template with nothing substituted into it is a string spelled another way, and
+            // ``f[`call`]`` reaches the same function as `f.call`. One with a substitution names
+            // whatever that evaluates to, which is not a question for a syntactic pass.
+            Expression::TemplateLiteral(t) if t.expressions.is_empty() && t.quasis.len() == 1 => t
+                .quasis
+                .first()
+                .and_then(|q| q.value.cooked.as_ref())
+                .map(|c| (std::borrow::Cow::Borrowed(c.as_str()), &m.object)),
             _ => None,
         },
         _ => None,
@@ -5172,6 +5180,18 @@ impl AllBindings {
         // Unwrapping `.apply` unconditionally marked the body immediate for a call that runs it
         // on no path at all.
         if apply_list_throws(callee_expr, arguments) {
+            return false;
+        }
+        // `new (f).call(null)` constructs `Function.prototype.call`, which has no [[Construct]]
+        // — a `TypeError` before `f` is ever reached. The callee unwrapper looks through
+        // `.call`/`.apply` because an ordinary call there really does run the receiver's body;
+        // under `new` the member itself is the target, so unwrapping it approved a body that
+        // runs on no path. `.bind` is the other answer and keeps its unwrap: `new (f.bind(x))()`
+        // constructs the bound function, which is constructible exactly when `f` is.
+        if constructs
+            && named_member(peel(callee_expr))
+                .is_some_and(|(name, _)| matches!(name.as_ref(), "call" | "apply"))
+        {
             return false;
         }
         // `new` needs a CONSTRUCTOR. An arrow, an async function and a generator are none of
@@ -17811,5 +17831,80 @@ mod tests {
                 "that body does run: {body}"
             );
         }
+    }
+    #[test]
+    fn a_template_key_with_nothing_in_it_is_a_string() {
+        // A template with no substitution is a string spelled another way, so ``f[`call`]``
+        // reaches the same function as `f.call` and the body runs now.
+        for body in [
+            "var current = e; (function () { current = other; })[`call`](null); parse(current);",
+            "var current = e; (function () { current = other; })[`bind`](null)(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "the body ran now: {body}"
+            );
+        }
+        // The bound: a substitution names whatever it evaluates to, which is not a question for
+        // a syntactic pass — and the name still has to be one of the three.
+        for body in [
+            "var current = e; (function () { current = other; })[`ca${x}ll`](null); parse(current);",
+            // And one whose FIRST quasi spells the name exactly, which is what separates
+            // reading the template from reading its first piece.
+            "var current = e; (function () { current = other; })[`call${x}`](null); parse(current);",
+            "var current = e; (function () { current = other; })[`map`](null); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "nothing inline was invoked: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn new_on_a_call_member_constructs_the_member() {
+        // `new (f).call(null)` constructs `Function.prototype.call`, which has no [[Construct]]
+        // — a `TypeError` before `f` is ever reached. The callee unwrapper looks through
+        // `.call`/`.apply` because an ordinary call there really does run the receiver's body,
+        // and under `new` the member itself is the target.
+        for body in [
+            "var current = e; try { new (function () { current = other; }).call(null); } catch (_) {} parse(current);",
+            "var current = e; try { new (function () { current = other; }).apply(null); } catch (_) {} parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that construction throws: {body}"
+            );
+        }
+        // The bound, three ways. An ordinary `.call` still runs the receiver's body; `new` on
+        // the function itself still constructs it; and `.bind` keeps its unwrap under `new`,
+        // because `new (f.bind(x))()` constructs the bound function, which is constructible
+        // exactly when `f` is.
+        for body in [
+            "var current = e; (function () { current = other; }).call(null); parse(current);",
+            "var current = e; new (function () { current = other; })(); parse(current);",
+            "var current = e; new ((function () { current = other; }).bind(null))(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that body does run: {body}"
+            );
+        }
+        // `bind` is not in that list, and adding it would be an inert third name: a bare
+        // `f.bind` member is not a shape the callee unwrapper looks through at all — only a CALL
+        // whose callee is one — so `new (f.bind)(x)` never reaches a function body to approve
+        // and is declined without this check. Asserted rather than argued, because a condition
+        // whose narrowness no test can hold is one this branch has twice had to remove.
+        let fields = helper_reached_via(
+            "var current = e; try { new (function () { current = other; }).bind(null); } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "constructing `bind` itself reaches no body either: {fields:?}"
+        );
     }
 }
