@@ -1186,17 +1186,6 @@ impl ParserAnalyzer<'_, '_> {
         }
     }
 
-    /// Walk something control can reach past without having run it, with the branch counter
-    /// raised for the duration.
-    ///
-    /// A helper called only down such a path does not make its payload required of every
-    /// element, and its guards are that path's rather than the caller's. `switch`, the loops
-    /// and a caught `try` each arrived separately as the same bug, so the first fix asked one
-    /// whole-statement question — which was wrong in the other direction: a `switch`
-    /// discriminant, a loop test and a `try` without a handler all run whatever happens, and
-    /// weakening them called reads optional that the parser always performs. WHICH PART of a
-    /// statement is skippable differs per construct, so each says so itself and this only
-    /// carries the counter.
     /// The child entries a lexical declaration is about to shadow, with what they were —
     /// one snapshot for every scope that can host one, so a block and a loop header cannot
     /// disagree about which names die with them.
@@ -1225,6 +1214,17 @@ impl ParserAnalyzer<'_, '_> {
         }
     }
 
+    /// Walk something control can reach past without having run it, with the branch counter
+    /// raised for the duration.
+    ///
+    /// A helper called only down such a path does not make its payload required of every
+    /// element, and its guards are that path's rather than the caller's. `switch`, the loops
+    /// and a caught `try` each arrived separately as the same bug, so the first fix asked one
+    /// whole-statement question — which was wrong in the other direction: a `switch`
+    /// discriminant, a loop test and a `try` without a handler all run whatever happens, and
+    /// weakening them called reads optional that the parser always performs. WHICH PART of a
+    /// statement is skippable differs per construct, so each says so itself and this only
+    /// carries the counter.
     fn in_skipped_path(&mut self, f: impl FnOnce(&mut Self)) {
         self.conditional_depth += 1;
         f(self);
@@ -1719,6 +1719,14 @@ impl ParserAnalyzer<'_, '_> {
             if !self.names_an_outer_node(id, call.span) {
                 return None;
             }
+            // A node this scope tracks is the only thing that can be HANDED ON, so it is the
+            // only thing whose loss there is to report. Asking about the write first meant any
+            // ordinary local that happens to be assigned — `for (i = 0; i < n; i++) helper(i)`
+            // — recorded `reassignedNodeHandedOn` for a child node that was never involved.
+            // That is the same false-positive accounting the `picked`-is-none check below was
+            // added to remove, one condition earlier, and it is the harmful kind: it makes
+            // `dropsByReason` claim losses that did not happen.
+            let tracked = self.child_vars.get(id)?;
             // `child_vars` is only updated by a declarator, so `i = i.child("other")` leaves
             // the recorded path pointing at the node `i` USED to name and the helper's fields
             // land under it. The sibling path was hardened against exactly this and this one
@@ -1728,7 +1736,7 @@ impl ParserAnalyzer<'_, '_> {
                 moved = true;
                 return None;
             }
-            self.child_vars.get(id).map(|t| (i, t.clone()))
+            Some((i, tracked.clone()))
         });
         // Only once nothing survived. Pushing from inside the search recorded a loss for
         // `helper(reassigned, stillGood)` and then descended through the second argument
@@ -8244,6 +8252,54 @@ mod tests {
             .filter(|a| a.name.as_deref() == Some("kind"))
             .count();
         assert_eq!(n, 1, "published once: {:?}", p.assertions);
+    }
+
+    #[test]
+    fn an_ordinary_local_handed_to_a_helper_is_not_a_lost_node() {
+        // Only a node this scope TRACKS can be handed on, so only one can be reported lost.
+        // Asking about the write before checking that had `for (i = 0; …) parse(i)` record
+        // `reassignedNodeHandedOn` for a child node never involved — which is worse than a
+        // missing field, because it makes `dropsByReason` claim losses that did not happen.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(x){ x.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                for (idx = 0; idx < n; idx++) { parse(idx); }
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        assert!(
+            !p.pending_drops
+                .iter()
+                .any(|u| u.starts_with("reassignedNodeHandedOn")),
+            "no node was handed on at all: {:?}",
+            p.pending_drops
+        );
+    }
+
+    #[test]
+    fn a_tracked_node_reassigned_before_the_call_is_still_reported() {
+        // The bound: when the argument IS a tracked child and a write moved it, the descent
+        // really did lose the helper's reads and the accounting has to say so.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(x){ x.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                var moved = e.child("moved");
+                moved = moved.child("deeper");
+                parse(moved);
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        assert!(
+            p.pending_drops
+                .iter()
+                .any(|u| u == "reassignedNodeHandedOn@parse"),
+            "a tracked node really was handed on: {:?}",
+            p.pending_drops
+        );
     }
 
     #[test]
