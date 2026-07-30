@@ -521,6 +521,20 @@ const UNNAMED_FORMAL: &str = "nodeBoundByPattern";
 /// accounting instead of being a shape that quietly claims one placement is the only one.
 const SWITCH_ARM_SHADOW: &str = "arm-shadowed node";
 
+/// The `dropsByReason` key for a case test that reads the wire on a path no entry accounts for.
+///
+/// A test that is not reached by every value-producing execution is evaluated by exactly the
+/// entries that did not match an earlier one — `switch (mode) { case "a": parse(e); break; case
+/// parse(e): break; default: parse(e); }` calls `parse` on every path, but through the test on
+/// some of them. Attributing that would mean a per-test relaxation slice plus a model of which
+/// entries evaluate which test, in the visitor this branch has already revised six times.
+///
+/// Declined on that, and detected rather than guessed at: the marker fires exactly when such a
+/// test contributed a read, which in the locked corpus is never. Of 4836 non-literal case tests
+/// there, 4831 are `o("SomeModule").MEMBER` enum lookups and not one contains a wire accessor —
+/// the shape is ubiquitous in form and absent in substance.
+const SWITCH_TEST_READ: &str = "case-test read";
+
 struct ParserAnalyzer<'src, 'ms> {
     code: &'src str,
     param: &'src str,
@@ -790,7 +804,14 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
             if !always_evaluated[i]
                 && let Some(test) = case.test.as_ref()
             {
+                // A test reached only by the entries that did not match earlier: its reads
+                // belong to those paths, and nothing here can say which. Counted — see
+                // `SWITCH_TEST_READ`.
+                let before_test = self.relaxed_by_branch.len();
                 self.visit_expression(test);
+                if self.relaxed_by_branch.len() > before_test {
+                    self.unresolved.push(SWITCH_TEST_READ.to_string());
+                }
             }
             let at = self.relaxed_by_branch.len();
             let at_guards = self.conditional_assertions.len();
@@ -2802,6 +2823,25 @@ fn throws_out(body: &[Statement<'_>]) -> bool {
                     && throws_out(std::slice::from_ref(alt))
             }),
             Statement::LabeledStatement(l) => throws_out(std::slice::from_ref(&l.body)),
+            // A `try` can be non-completing too, and asking only about bare throws called this
+            // handler a path that yields something. `try { throw } finally { … }` throws: the
+            // finalizer runs and the error carries on. With a handler it throws only if BOTH
+            // sides do — a `catch` that returns swallows it — unless the finalizer itself
+            // throws, which overrides whatever the block and handler did.
+            Statement::TryStatement(t) => {
+                let block = throws_out(&t.block.body);
+                let body = match &t.handler {
+                    Some(h) => block && throws_out(&h.body.body),
+                    None => block,
+                };
+                body || t.finalizer.as_ref().is_some_and(|f| throws_out(&f.body))
+            }
+            // And a `switch` every arm of which throws, with a `default` so no value escapes
+            // by matching nothing. The same `entry_paths_throw` the visitor uses.
+            Statement::SwitchStatement(sw) => {
+                sw.cases.iter().any(|c| c.test.is_none())
+                    && entry_paths_throw(&sw.cases).iter().all(|t| *t)
+            }
             _ => false,
         };
         if throws {
@@ -3169,6 +3209,13 @@ struct Write {
     scope: Option<Span>,
     name: String,
     at: Span,
+    /// Where the write has taken effect by, which is not where the TARGET is written. `e =
+    /// parse(e)` calls `parse` with the original node and only then rebinds `e`, so ordering
+    /// the write from the target identifier reported it as already effective and the descent
+    /// was refused — losing every field the helper reads and recording a drop that did not
+    /// happen. `at` still identifies the write, so a `Given` recorded at the same target keeps
+    /// pairing with it.
+    effective: u32,
     repeats_in: Option<Span>,
 }
 
@@ -3192,6 +3239,10 @@ struct Given {
     /// The name it was copied from, when the right-hand side was a bare identifier.
     from: Option<String>,
     at: Span,
+    /// Where this value has taken effect by — see [`Write::effective`]. The same position for
+    /// the same reason: an assignment's right-hand side runs before the name is rebound, and
+    /// the two records of one assignment must not disagree about when it happened.
+    effective: u32,
     repeats_in: Option<Span>,
 }
 
@@ -3210,6 +3261,12 @@ struct AllBindings {
     /// How many blocks deep the walk is, so the outermost one can be told apart from a
     /// genuinely nested scope.
     block_depth: u32,
+    /// Where the assignment currently being walked ends, so a write inside it can say it takes
+    /// effect after the right-hand side rather than at the target.
+    assign_end: Option<u32>,
+    /// How many enclosing statements cannot be left with a result. A write in one of those
+    /// never takes effect for anything a later call can observe.
+    dead: u32,
     /// Whether the binding being collected reaches past its block: a parameter, a `var`,
     /// or a function declaration. `let`, `const`, a class and a `catch` parameter stop at
     /// the block — the same split `BoundNames` keeps, which this collector was missing.
@@ -3268,6 +3325,7 @@ impl AllBindings {
             name: name.to_string(),
             from: from.map(|s| s.to_string()),
             at,
+            effective: self.effect_position(at.end),
             repeats_in: self.loops.last().copied(),
         });
     }
@@ -3284,12 +3342,35 @@ impl AllBindings {
     /// A declaration's own `bind` runs before the walk reaches its initializer or any later
     /// assignment, so the entry is there to be found.
     fn binding_extent(&self, name: &str, at: Span) -> Option<Span> {
-        self.scoped
+        if let Some(e) = self
+            .scoped
             .iter()
             .filter(|(e, n)| n == name && covers(*e, at))
             .map(|(e, _)| *e)
             .min_by_key(|e| e.end - e.start)
-            .or_else(|| self.fns.last().copied())
+        {
+            return Some(e);
+        }
+        // A name bound at the TOP of the analysed source lives in `names`, not `scoped`, and it
+        // reaches all of it — including out of a nested function that assigns to it. Falling
+        // back to the innermost function gave `var current = e; (function(){ current =
+        // e.child("detail"); })(); parse(current)` the IIFE's extent, so the write and the value
+        // looked expired at the call and `names_for` followed the stale `current = e` alias to
+        // the response root.
+        if self.names.contains(name) {
+            return None;
+        }
+        self.fns.last().copied()
+    }
+
+    /// Where a record made here has taken effect by. An assignment's own end, so its
+    /// right-hand side is ordered before it — and `u32::MAX` on a path that cannot produce a
+    /// result, which no call site can be after.
+    fn effect_position(&self, default_end: u32) -> u32 {
+        if self.dead > 0 {
+            return u32::MAX;
+        }
+        self.assign_end.unwrap_or(default_end)
     }
 
     fn bind(&mut self, name: &str, hoists: bool) {
@@ -3326,7 +3407,12 @@ impl<'a> Visit<'a> for AllBindings {
                 scope: self.binding_extent(id.name.as_str(), id.span),
                 name: id.name.as_str().to_string(),
                 at: id.span,
-                repeats_in: self.loops.last().copied(),
+                effective: self.effect_position(id.span.end),
+                // A loop whose body throws does not come round again, so a dead write must not
+                // claim repetition either — that is the other half of `effective`.
+                repeats_in: (self.dead == 0)
+                    .then(|| self.loops.last().copied())
+                    .flatten(),
             };
             self.writes.push(w);
         }
@@ -3334,6 +3420,14 @@ impl<'a> Visit<'a> for AllBindings {
     }
 
     fn visit_assignment_expression(&mut self, e: &oxc_ast::ast::AssignmentExpression<'a>) {
+        // The target is written only once the right-hand side has been evaluated, so BOTH
+        // records of this assignment — the value and the write — take effect at its end.
+        // `e = parse(e)` hands `parse` the original node; ordering either record from the
+        // target had it look already effective, and the descent was refused with a drop
+        // recorded for a node nothing had moved yet. Set before the value is recorded, not
+        // just around the walk that records the write: having it cover one and not the other
+        // is how the two halves of one assignment came to disagree.
+        let outer = self.assign_end.replace(e.span.end);
         // `current = row` makes an alias as much as `var current = row` does; recording only
         // the declarator form left the plain one matching no argument position and losing the
         // helper with nothing said. The accumulator search in this file already reads both,
@@ -3349,6 +3443,7 @@ impl<'a> Visit<'a> for AllBindings {
             self.given_value(t.name.as_str(), from, t.span, false);
         }
         walk::walk_assignment_expression(self, e);
+        self.assign_end = outer;
     }
 
     fn visit_variable_declaration(&mut self, decl: &VariableDeclaration<'a>) {
@@ -3365,6 +3460,18 @@ impl<'a> Visit<'a> for AllBindings {
         self.hoists = !decl.kind.is_lexical();
         walk::walk_variable_declaration(self, decl);
         self.hoists = outer;
+    }
+
+    fn visit_statement(&mut self, st: &Statement<'a>) {
+        // A write on a path that cannot hand back a result is invisible to every execution that
+        // does: `if (bad) { e = other; throw Error(); } parse(e)` reaches `parse` with the
+        // untouched node on every path producing one, and blaming that write refused the
+        // descent and reported a node nothing had moved. The same "which paths can produce a
+        // value" rule the requiredness side asks, on the binding side.
+        let dead = throws_out(std::slice::from_ref(st));
+        self.dead += u32::from(dead);
+        walk::walk_statement(self, st);
+        self.dead -= u32::from(dead);
     }
 
     fn visit_block_statement(&mut self, block: &oxc_ast::ast::BlockStatement<'a>) {
@@ -3533,7 +3640,7 @@ impl Bindings {
                 // The part that is not textual is repetition — a write below the call runs
                 // before it on the next pass — so a write inside a loop that also contains
                 // the call still counts.
-                && (w.at.start < at.start || w.repeats_in.is_some_and(|l| covers(l, at)))
+                && (w.effective <= at.start || w.repeats_in.is_some_and(|l| covers(l, at)))
         })
     }
 
@@ -3572,7 +3679,7 @@ impl Bindings {
                         // its source was already in the set — filing the helper's fields under
                         // `row` at a call where `current` still holds `other`. Same rule the
                         // count uses: textual position, unless a loop repeats it.
-                        && (g.at.start < at.start
+                        && (g.effective <= at.start
                             || g.repeats_in.is_some_and(|l| covers(l, at)))
                         && self.given_once_in(&g.name, at)
                         && !self.written_without_a_value(&g.name, at)
@@ -3599,7 +3706,7 @@ impl Bindings {
         self.writes.iter().any(|w| {
             w.name == name
                 && w.covers(at)
-                && (w.at.start < at.start || w.repeats_in.is_some_and(|l| covers(l, at)))
+                && (w.effective <= at.start || w.repeats_in.is_some_and(|l| covers(l, at)))
                 && !self.given.iter().any(|g| g.name == name && g.at == w.at)
         })
     }
@@ -3616,7 +3723,7 @@ impl Bindings {
         self.given.iter().any(|g| {
             g.name == name
                 && covers(g.scope, at)
-                && (g.at.start < at.start || g.repeats_in.is_some_and(|l| covers(l, at)))
+                && (g.effective <= at.start || g.repeats_in.is_some_and(|l| covers(l, at)))
         })
     }
 
@@ -3633,7 +3740,7 @@ impl Bindings {
             .filter(|g| {
                 g.name == name
                     && covers(g.scope, at)
-                    && (g.at.start < at.start || g.repeats_in.is_some_and(|l| covers(l, at)))
+                    && (g.effective <= at.start || g.repeats_in.is_some_and(|l| covers(l, at)))
             })
             .count()
             == 1
@@ -7797,6 +7904,36 @@ mod tests {
     }
 
     #[test]
+    fn an_assignment_inside_a_nested_function_reaches_the_outer_binding() {
+        // `var current = e; (function(){ current = e.child("detail"); })(); parse(current)` —
+        // the IIFE definitely updates the OUTER `current`, so it no longer stands for the
+        // element. That binding lives in `names` rather than `scoped`, and the extent fell back
+        // to the innermost function: the write looked confined to the IIFE and expired at the
+        // call, so `names_for` followed the stale `current = e` alias and filed `id` at the
+        // response root. Wrong-node, which is the direction that matters.
+        //
+        // Recovering it UNDER `<detail>` is a separate thing: `child_vars` is updated by a
+        // declarator only, deliberately, so an assigned child is not tracked. This asserts the
+        // misplacement is gone, not that the field is back.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                var current = e;
+                (function(){ current = e.child("detail"); })();
+                parse(current);
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        assert!(
+            !p.fields.iter().any(|f| f.name == "id"),
+            "not at the root, where the parser never reads it: {:?}",
+            p.fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
     fn a_block_local_copy_does_not_name_the_node_outside_its_block() {
         // `{ let current = row; } parse(current)` calls the helper with the OUTER `current`,
         // whatever that is — the block-local copy died with its block. Recording every copy
@@ -8339,6 +8476,59 @@ mod tests {
     }
 
     #[test]
+    fn a_case_test_that_reads_the_wire_is_counted() {
+        // A test not reached by every value-producing execution is evaluated by exactly the
+        // entries that did not match earlier, and its reads belong to those paths. Attributing
+        // them needs a per-test relaxation slice plus a model of which entries evaluate which
+        // test, in the visitor this branch has revised six times — declined, and detected rather
+        // than guessed at. Of 4836 non-literal case tests in the locked corpus, 4831 are
+        // `o("SomeModule").MEMBER` enum lookups and not one contains a wire accessor, so this
+        // fires nowhere there.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                switch (mode) {
+                    case "a": parse(e); break;
+                    case parse(e): break;
+                    default: parse(e);
+                }
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        assert!(
+            p.pending_drops.iter().any(|u| u == "case-test read"),
+            "the unattributable read is accounted for: {:?}",
+            p.pending_drops
+        );
+    }
+
+    #[test]
+    fn a_case_test_that_reads_nothing_is_not_counted() {
+        // The bound: the corpus shape — a literal, or a module lookup — contributes no read, so
+        // counting it would put thousands of false losses in `dropsByReason`.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                switch (mode) {
+                    case "a": parse(e); break;
+                    case o("WAWebMsgType").TEXT: break;
+                    default: parse(e);
+                }
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        assert!(
+            !p.pending_drops.iter().any(|u| u == "case-test read"),
+            "nothing was read in the test: {:?}",
+            p.pending_drops
+        );
+    }
+
+    #[test]
     fn an_arm_that_shadows_a_tracked_node_and_falls_through_is_counted() {
         // `case "a": var x = e.child("inner"); case "b": parse(x);` reads `x` as `<inner>` when
         // entered at `"a"` and as the outer `x` when entered at `"b"`. Both placements are right
@@ -8687,6 +8877,35 @@ mod tests {
     }
 
     #[test]
+    fn a_catch_whose_throw_is_wrapped_in_a_try_still_yields_nothing() {
+        // `catch (_) { try { throw Error(); } finally { cleanup(); } }` produces no result: the
+        // finalizer runs and the error carries on. Asking only about bare throws, blocks,
+        // two-sided ifs and labels called this handler a value-producing side and diluted the
+        // intersection with it. Same for a `switch` whose every arm throws, given a `default`
+        // so no value escapes by matching nothing.
+        for body in [
+            r#"try { parse(e); } catch (x) { try { throw Error("z"); } finally { cleanup(); } }"#,
+            r#"try { parse(e); } catch (x) { switch (k) { case "a": throw A(); default: throw B(); } }"#,
+        ] {
+            let guards = guards_and_field(body);
+            assert_eq!(guards, (true, true), "`{body}` hands nothing back");
+        }
+    }
+
+    #[test]
+    fn a_catch_whose_throw_is_caught_again_is_a_value_path() {
+        // The bounds: an inner `catch` swallows the error, and a `switch` with no `default` lets
+        // an unmatched value fall straight out — both leave the handler able to return.
+        for body in [
+            r#"try { parse(e); } catch (x) { try { throw Error("z"); } catch (y) { other(); } }"#,
+            r#"try { parse(e); } catch (x) { switch (k) { case "a": throw A(); } }"#,
+        ] {
+            let guards = guards_and_field(body);
+            assert_eq!(guards, (false, false), "`{body}` can still return");
+        }
+    }
+
+    #[test]
     fn a_catch_that_throws_whichever_way_it_branches_yields_nothing() {
         // `catch (_) { if (flag) throw A(); else throw B(); }` produces no result on any path,
         // so every execution that returned one completed the block. `throws_out` matched only
@@ -8899,6 +9118,109 @@ mod tests {
                 .is_some_and(|kids| kids.iter().any(|f| f.name == "id")),
             "the alias points elsewhere at the call: {:?}",
             row.children
+        );
+    }
+
+    #[test]
+    fn an_assignment_takes_effect_after_its_right_hand_side() {
+        // `e = parse(e)` calls `parse` with the ORIGINAL node and only then rebinds `e`. Both
+        // records of the assignment were ordered from the target identifier, which is textually
+        // before the call, so the node looked already moved: the descent was refused, every
+        // field the helper reads was lost, and a `reassignedNodeHandedOn` was recorded for a
+        // move that had not happened yet.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                e = parse(e);
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        assert!(
+            p.fields.iter().any(|f| f.name == "id"),
+            "the call sees the original node: {:?}",
+            p.fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+        assert!(
+            !p.pending_drops
+                .iter()
+                .any(|u| u.starts_with("reassignedNodeHandedOn")),
+            "and nothing had moved yet: {:?}",
+            p.pending_drops
+        );
+    }
+
+    #[test]
+    fn a_write_before_the_call_still_moves_the_node() {
+        // The bound: `e = e.child("detail"); parse(e)` really does hand the helper the detail
+        // node, so the descent is still refused and the loss still recorded.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                e = e.child("detail");
+                parse(e);
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        assert!(
+            p.pending_drops
+                .iter()
+                .any(|u| u == "reassignedNodeHandedOn@parse"),
+            "the write precedes the call: {:?}",
+            p.pending_drops
+        );
+    }
+
+    #[test]
+    fn a_write_on_a_throwing_path_does_not_move_the_node() {
+        // `if (bad) { e = other; throw Error(); } parse(e)` reaches `parse` with the untouched
+        // node on every execution that produces a result — the writing path produces none.
+        // Ordering the write by position alone refused the descent and reported a move.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                if (bad) { e = other; throw Error("z"); }
+                parse(e);
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        assert!(
+            p.fields.iter().any(|f| f.name == "id"),
+            "the surviving path never wrote: {:?}",
+            p.fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+        assert!(
+            p.pending_drops.is_empty(),
+            "nothing lost: {:?}",
+            p.pending_drops
+        );
+    }
+
+    #[test]
+    fn a_write_on_a_returning_path_does_move_the_node() {
+        // The bound: a `return` hands back a result, so that path DID reach a caller with the
+        // node moved and the descent has to decline — and say so.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                if (bad) { e = other; return t; }
+                parse(e);
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        assert!(
+            p.pending_drops
+                .iter()
+                .any(|u| u == "reassignedNodeHandedOn@parse"),
+            "the returning path moved it: {:?}",
+            p.pending_drops
         );
     }
 
