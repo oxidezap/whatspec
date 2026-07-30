@@ -678,7 +678,18 @@ fn emit_tag_cascade(
                 )
             })
             .collect();
-        let pinned = !conds.is_empty();
+        // …and only when that pin set picks ONE arm. Two arms may share a pin and be told apart
+        // by their required fields alone, in which case the pin is not the discriminator and a
+        // failed payload is still the miss. The response-root cascade had exactly that pair in
+        // the committed corpus, and making a match terminal there turned a real response into an
+        // error; the rule is the same here whether or not this snapshot spells it.
+        let unique = !conds.is_empty()
+            && arms
+                .iter()
+                .filter(|o| o.attr_values == a.attr_values)
+                .count()
+                == 1;
+        let pinned = unique;
         let body_indent = if pinned {
             lines.push(format!("{indent}if {} {{", conds.join(" && ")));
             format!("{indent}    ")
@@ -1675,6 +1686,42 @@ mod tests {
         assert!(
             !code.contains("else { None }"),
             "the empty-required arm is the catch-all, not None:\n{code}"
+        );
+    }
+
+    #[test]
+    fn union_arms_sharing_a_pin_still_cascade() {
+        // The same uniqueness rule the response-root cascade needed, asked of this one. Two
+        // arms pinned alike are not told apart by the pin, so a failed payload is still the
+        // miss. The corpus spells this shape on the response root and not here, so the rule is
+        // protective in this emitter — which is the reason to pin it rather than to leave it to
+        // the next round to find.
+        let f = union_field(serde_json::json!({
+            "method": "", "name": "twinned", "type": "union", "required": true,
+            "unionVariants": [
+                {"name": "Alpha", "fields": [
+                    {"method": "attrString", "name": "alphaOnly", "wireName": "alpha_only",
+                     "type": "string", "required": true}
+                ], "assertions": [{"kind": "tag", "name": "item"},
+                                  {"kind": "attr", "name": "kind", "value": "a"}]},
+                {"name": "Beta", "fields": [
+                    {"method": "attrString", "name": "betaOnly", "wireName": "beta_only",
+                     "type": "string", "required": true}
+                ], "assertions": [{"kind": "tag", "name": "item"},
+                                  {"kind": "attr", "name": "kind", "value": "a"}]}
+            ]
+        }));
+        // The classifier admits the pair — their required-field sets separate them — so this
+        // reaches the emitter rather than passing vacuously.
+        let (lines, _) = emit_union_read(&f, "item", "Spec", "").expect("classified");
+        let code = lines.join("\n");
+        assert!(
+            code.contains("if let Ok(__v) = __r"),
+            "a shared pin is not a discriminator:\n{code}"
+        );
+        assert!(
+            !code.contains("(__r?)"),
+            "and nothing there is terminal:\n{code}"
         );
     }
 

@@ -125,6 +125,23 @@ fn fail_required_fields(fields: &[wa_ir::ParsedField]) -> std::collections::BTre
 /// variant's parser validates ([`parser_is_valid`]); otherwise `None` (and nothing
 /// emitted), so the caller falls back to the single-shape/`()` path rather than
 /// generating an invalid parser. Models the IR's outcome wire shape, not domain types.
+/// The attribute pins a response variant asserts, as generated conditions — the set that has to
+/// be unique before a match may be treated as final.
+fn pin_conditions(v: &ResponseVariant, node: &str) -> Vec<String> {
+    v.assertions
+        .iter()
+        .filter(|a| a.kind == AssertionKind::Attr)
+        .filter_map(|a| match (&a.name, &a.value) {
+            (Some(name), Some(value)) => Some(format!(
+                "{node}.get_attr({}).map(|x| x.as_str()).as_deref() == Some({})",
+                rust_lit(name),
+                rust_lit(value),
+            )),
+            _ => None,
+        })
+        .collect()
+}
+
 fn emit_outcome_types(
     op: &IqStanzaDef,
     spec_base: &str,
@@ -281,20 +298,23 @@ fn emit_outcome_parse(
         //
         // A variant with NO pin is discriminated by its own required fields, exactly as an
         // unpinned union arm is, so there a failed parse IS the miss and it still falls through.
-        let conds: Vec<String> = v
-            .assertions
-            .iter()
-            .filter(|a| a.kind == AssertionKind::Attr)
-            .filter_map(|a| match (&a.name, &a.value) {
-                (Some(name), Some(value)) => Some(format!(
-                    "response.get_attr({}).map(|x| x.as_str()).as_deref() == Some({})",
-                    rust_lit(name),
-                    rust_lit(value),
-                )),
-                _ => None,
-            })
-            .collect();
-        let pinned = !conds.is_empty();
+        let conds: Vec<String> = pin_conditions(v, "response");
+        // A pin set is a discriminator only when it picks ONE variant. The committed
+        // `WASmaxOutGroupsCreateRequest` pins both `CreateResponseSuccess` and
+        // `CreateResponseGroupAlreadyExists` to `type="result"` and tells them apart by
+        // disjoint required fields — `emit_outcome_types` admitted the pair for exactly that
+        // reason — so making the first match terminal turned a group-already-exists response
+        // into an error. Sharing a pin set puts a variant back on the first-success side, where
+        // its own payload is the only thing that can select it.
+        let unique = !conds.is_empty()
+            && op
+                .response
+                .variants
+                .iter()
+                .filter(|o| pin_conditions(o, "response") == conds)
+                .count()
+                == 1;
+        let pinned = unique;
         let body = if pinned {
             lines.push(format!("{indent}if {} {{", conds.join(" && ")));
             format!("{indent}    ")
@@ -973,6 +993,68 @@ mod tests {
         assert!(
             code.contains("MakeGetThingRequestResponse: no response variant matched"),
             "{code}"
+        );
+    }
+
+    #[test]
+    fn variants_sharing_a_pin_still_cascade() {
+        use wa_ir::{
+            ParsedField, ParsedFieldType, ResponseAssertion, ResponseVariant, ResponseVariantKind,
+        };
+        // A pin set is a discriminator only when it picks ONE variant. The committed
+        // `WASmaxOutGroupsCreateRequest` pins both its success and its group-already-exists
+        // outcomes to `type="result"` and tells them apart by disjoint required fields — which
+        // is exactly why `emit_outcome_types` admits the pair — so making the first match
+        // terminal turned a real response into an error. Sharing a pin puts a variant back on
+        // the first-success side, where its own payload is the only thing that can select it.
+        fn attr(name: &str) -> ParsedField {
+            ParsedField {
+                method: "attrString".into(),
+                name: name.into(),
+                field_type: ParsedFieldType::String,
+                required: true,
+                ..Default::default()
+            }
+        }
+        fn type_assert(value: &str) -> ResponseAssertion {
+            ResponseAssertion {
+                kind: AssertionKind::Attr,
+                name: Some("type".into()),
+                value: Some(value.into()),
+                reference_path: None,
+            }
+        }
+        let mut op = stanza("WASmaxOutFooCreateRequest", Some("makeCreateRequest"));
+        op.response = ParsedResponse {
+            parser_name: "FooCreateRPC".into(),
+            variants: vec![
+                ResponseVariant {
+                    tag: "CreateResponseSuccess".into(),
+                    module_name: "m".into(),
+                    kind: ResponseVariantKind::Success,
+                    assertions: vec![type_assert("result")],
+                    fields: vec![attr("groupId")],
+                    ..Default::default()
+                },
+                ResponseVariant {
+                    tag: "CreateResponseGroupAlreadyExists".into(),
+                    module_name: "m".into(),
+                    kind: ResponseVariantKind::Success,
+                    assertions: vec![type_assert("result")],
+                    fields: vec![attr("existingId")],
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let code = generate_spec(&op, "FOO_NAMESPACE", "MakeCreateRequestSpec");
+        assert!(
+            code.contains("if let Ok(__v) = __r"),
+            "a shared pin is not a discriminator:\n{code}"
+        );
+        assert!(
+            !code.contains("(__r?)"),
+            "and nothing there is terminal:\n{code}"
         );
     }
 

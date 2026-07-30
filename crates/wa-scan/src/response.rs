@@ -3487,8 +3487,20 @@ fn synchronous_until(
                 walk::walk_for_of_statement(self, st);
                 return;
             }
+            // …and the prefix this builds is SPAN-based, so noting the cutoff at the iterable's
+            // end swept the loop TARGET in with it — the target is written above the iterable and
+            // assigned only once the first result has been awaited. The suspension is noted at
+            // the head of the statement, which excludes the target and the body, and the
+            // iterable's own span is added back as a region that suspends nothing.
+            //
+            // Added back only when the iterable holds no await of its own: past one, the rest of
+            // the iterable is the continuation's like anything else.
+            let inner = FirstAwait::within_expr(&st.right);
             self.visit_expression(&st.right);
-            self.note(st.right.span().end);
+            if inner.is_none() && self.nested == 0 {
+                self.unsuspended.push(st.right.span());
+            }
+            self.note(st.span.start);
             self.visit_for_statement_left(&st.left);
             self.visit_statement(&st.body);
         }
@@ -4857,6 +4869,12 @@ struct AllBindings {
     /// happened.
     iife: Vec<(Span, Vec<Span>)>,
 
+    /// Getter bodies that the parameter binding of a call in progress will invoke, with the end
+    /// of that call. Registered while the arguments are walked and applied only around the
+    /// getter's OWN body, because binding happens after every argument has been evaluated: a
+    /// blanket push would have deferred the arguments' own writes past the call too.
+    binding_getters: Vec<(Span, u32)>,
+
     /// How many enclosing constructs could have skipped the part being walked. A value assigned
     /// down such a path is not certainly the one a later read sees, however textually early it
     /// is: `var current; if (flag) current = e; parse(current)` hands `parse` the element only
@@ -5154,19 +5172,26 @@ impl AllBindings {
         // `(function(){ parse(current); })(current = e)` reads what the argument assigned.
         // Only the callee's own span, so a read in another argument still orders normally
         // against this write — the arguments run in their own order.
-        // A getter the parameter binding invokes runs as certainly as the body does, and it runs
-        // while the arguments are still being read — so it is marked immediate for the length of
-        // that walk and nowhere else.
-        let getters = bound_getters(callee, &effective, constructs);
-        let restore_iife = self.iife.len();
-        self.iife.extend(getters.iter().map(|g| (*g, vec![*g])));
+        // A getter the parameter binding invokes runs as certainly as the body does — but AFTER
+        // every argument has been evaluated, not where it is written. `(function ({x}, y) {})({
+        // get x() { current = other; } }, parse(current))` hands `parse` the original node and
+        // calls the getter afterwards; marking it immediate for the whole argument walk recorded
+        // its write at the getter's own offset, above a later argument that precedes it. So the
+        // registration is carried and applied around the getter's own body alone, where it also
+        // declares that its effects land at the CALL.
+        let restore_getters = self.binding_getters.len();
+        self.binding_getters.extend(
+            bound_getters(callee, &effective, constructs)
+                .into_iter()
+                .map(|g| (g, span.end)),
+        );
         self.runs_before
             .push(construction_regions(callee, constructs));
         for arg in arguments {
             self.visit_argument(arg);
         }
         self.runs_before.pop();
-        self.iife.truncate(restore_iife);
+        self.binding_getters.truncate(restore_getters);
         true
     }
 
@@ -5626,12 +5651,27 @@ impl<'a> Visit<'a> for AllBindings {
                 self.scoped.push((func.span, id.name.as_str().to_string()));
             }
         }
+        // A getter this call's parameter binding invokes: its body runs, and it runs at the
+        // call rather than where it is written.
+        let bound = self
+            .binding_getters
+            .iter()
+            .find(|(g, _)| *g == func.span)
+            .copied();
+        if let Some((g, call_end)) = bound {
+            self.iife.push((g, vec![g]));
+            self.effects_land_at.push((g, call_end));
+        }
         self.fns.push(func.span);
         let outer = self.hoists;
         self.hoists = true;
         walk::walk_function(self, func, flags);
         self.hoists = outer;
         self.fns.pop();
+        if bound.is_some() {
+            self.effects_land_at.pop();
+            self.iife.pop();
+        }
     }
 
     fn visit_arrow_function_expression(
@@ -17488,5 +17528,71 @@ mod tests {
                 "nothing invoked that body: {body}"
             );
         }
+    }
+    #[test]
+    fn a_for_await_target_is_assigned_after_the_first_result() {
+        // The synchronous prefix is SPAN-based, and the loop target is written above the
+        // iterable — so noting the cutoff at the iterable's end swept the target in with it,
+        // although the target is assigned only once the first result has been awaited.
+        let fields = helper_reached_via(
+            "var current = e; (async function () { for await (current of [other]) {} })(); parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the target waits for the first result: {fields:?}"
+        );
+        // The bound, all three ways round thirty-eight left it: the ITERABLE's own writes are
+        // still synchronous, an await inside the iterable still cuts where it sits, and the body
+        // is still the continuation's.
+        let fields = helper_reached_via(
+            "var current = e; (async function () { for await (const x of (current = other, [])) {} })(); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the iterable ran synchronously: {fields:?}"
+        );
+        for body in [
+            "var current = e; (async function () { for await (const x of (await g(), (current = other, []))) {} })(); parse(current);",
+            "var current = e; (async function () { for await (const x of []) { current = other; } })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that write is the continuation's: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_bound_getter_runs_after_every_argument() {
+        // Parameter binding begins only once every argument has been evaluated, so
+        // `(function ({x}, y) {})({ get x() { … } }, parse(current))` hands `parse` the original
+        // node and calls the getter afterwards. Marking the getter immediate for the whole
+        // argument walk recorded its write at the getter's own offset — above a later argument
+        // that in fact precedes it.
+        let fields = helper_reached_via(
+            "var current = e; (function ({x}, y) {})({ get x() { current = other; return 1; } }, parse(current));",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the getter had not run yet: {fields:?}"
+        );
+        // The bound, both halves. The getter still runs — a read AFTER the call sees what it
+        // wrote — and an ordinary argument's write still reaches the body it precedes, which is
+        // what a blanket deferral would have taken away.
+        let fields = helper_reached_via(
+            "var current = e; (function ({x}) {})({ get x() { current = other; return 1; } }); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the getter ran by then: {fields:?}"
+        );
+        let fields = helper_reached_via(
+            "var current = e; (function ({x}, y) { parse(current); })({ get x() { return 1; } }, current = other);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "an argument still precedes the body: {fields:?}"
+        );
     }
 }
