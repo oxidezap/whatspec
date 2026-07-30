@@ -767,6 +767,22 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
         // shape that accepts values every source path rejects.
         let guard_mark = self.conditional_assertions.len();
         let mut per_case_guards: Vec<Vec<ResponseAssertion>> = Vec::new();
+        // Every case shares ONE lexical scope, and it ends with the switch — so a `let`/`const`
+        // naming a child must not outlive it. `switch (m) { case 1: let d = e.child("inner");
+        // break; } d.attrString("outside")` filed the trailing read under `<inner>`, which is
+        // the wrong-node direction the block and loop-header restores were added for. This
+        // visitor mutated `child_vars` and put nothing back; `SWITCH_ARM_SHADOW` does not cover
+        // it, since that fires only for a falling-through arm and only records a drop.
+        let shadowed: Vec<(String, Option<Vec<PathSeg>>)> = stmt
+            .cases
+            .iter()
+            .flat_map(|c| c.consequent.iter())
+            .filter_map(|st| match st {
+                Statement::VariableDeclaration(d) => Some(&**d),
+                _ => None,
+            })
+            .flat_map(|d| self.lexical_children_of(Some(d)))
+            .collect();
         for (i, case) in stmt.cases.iter().enumerate() {
             // Falling through into a case runs its CONSEQUENT, never its test, so the two are
             // collected apart — folding a later case's test into the entry path had
@@ -845,6 +861,7 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
         // enclosing conditional can skip the whole thing — the same order `if` uses.
         self.settle_branch_intersection(established);
         self.conditional_depth -= 1;
+        self.restore_children(shadowed);
     }
 
     fn visit_while_statement(&mut self, stmt: &oxc_ast::ast::WhileStatement<'a>) {
@@ -1248,17 +1265,6 @@ impl ParserAnalyzer<'_, '_> {
         }
     }
 
-    /// Walk something control can reach past without having run it, with the branch counter
-    /// raised for the duration.
-    ///
-    /// A helper called only down such a path does not make its payload required of every
-    /// element, and its guards are that path's rather than the caller's. `switch`, the loops
-    /// and a caught `try` each arrived separately as the same bug, so the first fix asked one
-    /// whole-statement question — which was wrong in the other direction: a `switch`
-    /// discriminant, a loop test and a `try` without a handler all run whatever happens, and
-    /// weakening them called reads optional that the parser always performs. WHICH PART of a
-    /// statement is skippable differs per construct, so each says so itself and this only
-    /// carries the counter.
     /// Walk a loop body whose first pass is guaranteed, in source order: everything up to the
     /// first statement that something before it could have jumped past runs whatever happens,
     /// and only what follows that is a skipped path.
@@ -1286,6 +1292,17 @@ impl ParserAnalyzer<'_, '_> {
         }
     }
 
+    /// Walk something control can reach past without having run it, with the branch counter
+    /// raised for the duration.
+    ///
+    /// A helper called only down such a path does not make its payload required of every
+    /// element, and its guards are that path's rather than the caller's. `switch`, the loops
+    /// and a caught `try` each arrived separately as the same bug, so the first fix asked one
+    /// whole-statement question — which was wrong in the other direction: a `switch`
+    /// discriminant, a loop test and a `try` without a handler all run whatever happens, and
+    /// weakening them called reads optional that the parser always performs. WHICH PART of a
+    /// statement is skippable differs per construct, so each says so itself and this only
+    /// carries the counter.
     fn in_skipped_path(&mut self, f: impl FnOnce(&mut Self)) {
         self.conditional_depth += 1;
         f(self);
@@ -1950,9 +1967,18 @@ impl ParserAnalyzer<'_, '_> {
             if self.conditional_depth > 0 {
                 self.assertions.push(g.clone());
                 self.conditional_assertions.push(g);
-            } else if !self.assertions.contains(&g) {
-                self.assertions.push(g);
+                continue;
             }
+            // At depth zero the guard holds always, so it is recorded with nothing parked
+            // beside it — and recorded unconditionally, because a presence test here dropped
+            // it outright. `if (flag) { parse(e); } parse(e);` recorded one occurrence and
+            // PARKED it; the presence test then skipped the unconditional call, the
+            // subtraction removed the parked copy, and the guard vanished even though the
+            // second call enforces it on every path. Order-dependent too: unconditional-first
+            // published it fine. The multiset is the whole mechanism, and
+            // `unconditional_assertions` collapses whatever survives it, so a repeated call
+            // costs an occurrence here and never a duplicate in the output.
+            self.assertions.push(g);
         }
         // Reached only down one branch, its payload is not required of every element —
         // requiring it would have consumers reject the elements the other branch accepts.
@@ -7252,6 +7278,53 @@ mod tests {
     }
 
     #[test]
+    fn a_let_bound_child_in_a_switch_case_does_not_outlive_the_switch() {
+        // The cases share ONE lexical scope and it ends with the switch, so `switch (m) { case
+        // 1: let d = e.child("inner"); break; } d.attrString("outside")` reads the trailing
+        // attribute off whatever `d` is outside — not off `<inner>`. This visitor mutated
+        // `child_vars` and put nothing back, which is the wrong-node direction the block and
+        // loop-header restores already existed for.
+        let r = analyze_parser_ast(
+            r#"{ switch (m) { case 1: let d = e.child("inner"); d.attrString("in"); break; }
+                 d.attrString("outside"); }"#,
+            "e",
+        );
+        let inner = r.fields.iter().find(|f| f.name == "inner").expect("inner");
+        let kids: Vec<String> = inner
+            .children
+            .iter()
+            .flatten()
+            .map(|c| c.name.clone())
+            .collect();
+        assert!(
+            kids.iter().any(|n| n == "in") && !kids.iter().any(|n| n == "outside"),
+            "the case-local binding dies with the switch: {kids:?}"
+        );
+    }
+
+    #[test]
+    fn a_var_bound_child_in_a_switch_case_does_outlive_it() {
+        // The bound: `var` is function-scoped, so it hoists clear of the switch block and the
+        // trailing read really is off `<inner>`. Restoring every declaration would lose it.
+        let r = analyze_parser_ast(
+            r#"{ switch (m) { case 1: var d = e.child("inner"); d.attrString("in"); break; }
+                 d.attrString("outside"); }"#,
+            "e",
+        );
+        let inner = r.fields.iter().find(|f| f.name == "inner").expect("inner");
+        let kids: Vec<String> = inner
+            .children
+            .iter()
+            .flatten()
+            .map(|c| c.name.clone())
+            .collect();
+        assert!(
+            kids.iter().any(|n| n == "outside"),
+            "a hoisting binding survives the switch: {kids:?}"
+        );
+    }
+
+    #[test]
     fn a_switch_case_binding_stays_in_the_switch() {
         let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
             function parse(p){ p.attrString("from_module"); }
@@ -8572,6 +8645,39 @@ mod tests {
         // intersection has been there all along.
         let guards = guards_and_field("if (c) { parse(e); } else { parse(e); }");
         assert_eq!(guards, (true, true), "both sides call it");
+    }
+
+    #[test]
+    fn an_unconditional_helper_call_publishes_its_guard_after_a_conditional_one() {
+        // `if (flag) { parse(e); } parse(e);` — the second call enforces the guard on every
+        // path. But the first recorded one occurrence and PARKED it, a presence test then
+        // skipped the second, and the subtraction removed the parked copy: the guard vanished
+        // entirely. Order-dependent, too — unconditional-first published it fine. Counting
+        // occurrences against the parked ones is what makes the two orders agree, and it keeps
+        // the ordinary duplicate suppressed since `parse(e); parse(e);` parks nothing.
+        let guards = guards_and_field("if (flag) { parse(e); } parse(e);");
+        assert_eq!(guards, (true, true), "the second call is unconditional");
+    }
+
+    #[test]
+    fn a_guard_from_two_unconditional_calls_is_published_once() {
+        // The bound on that count: nothing is parked here, so the second call adds no
+        // occurrence and the guard is stated once rather than twice.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.assertAttr("kind", "x"); p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                parse(e); parse(e);
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let n = p
+            .assertions
+            .iter()
+            .filter(|a| a.name.as_deref() == Some("kind"))
+            .count();
+        assert_eq!(n, 1, "stated once: {:?}", p.assertions);
     }
 
     #[test]
