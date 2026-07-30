@@ -3650,15 +3650,22 @@ fn suppress_in_pattern(
             suppress_in_pattern(&p.left, if supplied { value } else { None }, out);
         }
         BP::ObjectPattern(o) => {
-            // Only a literal object with no spread: a spread can supply or shadow any property
-            // and nothing here can say which.
-            let props = match value {
-                Some(Expression::ObjectExpression(obj))
-                    if !obj.properties.iter().any(|p| {
-                        matches!(p, oxc_ast::ast::ObjectPropertyKind::SpreadProperty(_))
-                    }) =>
-                {
-                    Some(obj)
+            // Only a literal object — and only the properties written after every spread in
+            // it. A spread can supply a name or shadow one, so nothing before or between them
+            // settles anything; a property written after the LAST of them is the value the
+            // object ends up with whatever the spreads held, so it settles the question exactly
+            // as it would in an object with no spread at all. Discarding the whole literal the
+            // moment one appeared threw those away too.
+            let props: Option<&[oxc_ast::ast::ObjectPropertyKind<'_>]> = match value {
+                Some(Expression::ObjectExpression(obj)) => {
+                    let after_spreads = obj
+                        .properties
+                        .iter()
+                        .rposition(|p| {
+                            matches!(p, oxc_ast::ast::ObjectPropertyKind::SpreadProperty(_))
+                        })
+                        .map_or(0, |i| i + 1);
+                    Some(&obj.properties[after_spreads..])
                 }
                 _ => None,
             };
@@ -3676,7 +3683,6 @@ fn suppress_in_pattern(
                     // through to an earlier plain property of the same name, which is the
                     // one the object does not end up with.
                     props?
-                        .properties
                         .iter()
                         .rev()
                         .find_map(|p| match p {
@@ -5153,17 +5159,40 @@ impl<'a> Visit<'a> for AllBindings {
         let ctor_last = constructed && class.super_class.is_none();
         // Reordering the WALK is not enough on its own: effectiveness is decided by position,
         // and a field written after the constructor is textually after the read inside it. So
-        // everything else in the class also declares that it precedes the constructor body.
-        let ctor_body = ctor_last
+        // everything else in the class also declares that it precedes the part of the
+        // constructor the fields really do precede.
+        let ctor_body = constructed
             .then(|| {
-                class.body.body.iter().find_map(|el| match el {
+                let ctor = class.body.body.iter().find_map(|el| match el {
                     oxc_ast::ast::ClassElement::MethodDefinition(m)
                         if m.kind == oxc_ast::ast::MethodDefinitionKind::Constructor =>
                     {
-                        Some(m.value.span)
+                        Some(m)
                     }
                     _ => None,
-                })
+                })?;
+                if class.super_class.is_none() {
+                    return Some(ctor.value.span);
+                }
+                // A DERIVED class initializes its fields the moment `super()` returns, so they
+                // precede everything after that call and nothing before it. Keeping source
+                // order for the whole constructor — which is what excluding derived classes
+                // outright did — read a `parse` after the `super()` against a field written
+                // below it. Only an unconditional call at the top of the body is decidable;
+                // one under an `if` runs somewhere this cannot name, so that declines.
+                let body = ctor.value.body.as_ref()?;
+                let super_call = body.statements.iter().find_map(|st| match st {
+                    Statement::ExpressionStatement(e) => match &e.expression {
+                        Expression::CallExpression(c)
+                            if matches!(c.callee, Expression::Super(_)) =>
+                        {
+                            Some(c.span)
+                        }
+                        _ => None,
+                    },
+                    _ => None,
+                })?;
+                Some(Span::new(super_call.end, ctor.value.span.end))
             })
             .flatten();
         if let Some(body) = ctor_body {
@@ -15579,5 +15608,68 @@ mod tests {
             !fields.iter().any(|f| f.name == "id"),
             "no argument, so the default runs: {fields:?}"
         );
+    }
+
+    #[test]
+    fn a_derived_class_orders_its_fields_at_the_super_call() {
+        // A derived class initializes its instance fields the moment `super()` returns, so a
+        // read after that call sees them however far below it the field is written. Keeping
+        // source order for the whole constructor — which is what excluding derived classes
+        // outright did — answered that with the field's position.
+        let fields = helper_reached_via(
+            "var current = e; new (class extends Base { constructor() { super(); parse(current); } x = (current = other); })();",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the field ran when super() returned: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn a_read_before_super_still_precedes_the_fields() {
+        // The paired bound, both ways it matters: nothing before the `super()` call has seen a
+        // field yet, and a call this cannot place — under an `if`, or absent — leaves source
+        // order as the answer rather than guessing at one.
+        for body in [
+            "var current = e; new (class extends Base { constructor() { parse(current); super(); } x = (current = other); })();",
+            "var current = e; new (class extends Base { constructor() { if (f) super(); parse(current); } x = (current = other); })();",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "the field has not run at that point: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_property_after_every_spread_still_supplies_its_name() {
+        // A spread can supply a name or shadow one, so nothing before or between them settles
+        // anything — but a property written after the LAST of them is what the object ends up
+        // with whatever the spreads held. Discarding the whole literal the moment a spread
+        // appeared threw those away with the rest.
+        let fields = helper_reached_via(
+            "var current = e; (function ({x = (current = other)}) {})({...{}, x: 1}); parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the trailing property supplies it: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn a_property_a_later_spread_can_shadow_settles_nothing() {
+        // The paired bound: only properties after EVERY spread count, because any spread after
+        // one can overwrite it — with `undefined` among other things, which runs the default.
+        for body in [
+            "var current = e; (function ({x = (current = other)}) {})({x: 1, ...rest}); parse(current);",
+            "var current = e; (function ({x = (current = other)}) {})({...a, x: 1, ...b}); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "a later spread can shadow it, so the default may run: {body}"
+            );
+        }
     }
 }
