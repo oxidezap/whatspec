@@ -623,31 +623,23 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
         // `let detail = e.child("detail")` followed by arms reading `detail` produced an empty
         // `<detail>` and lost both reads with nothing recorded.
         let nested = self.block_depth > 0;
-        let shadowed: Vec<(String, Option<Vec<PathSeg>>)> = block
-            .body
-            .iter()
-            .filter(|_| nested)
-            .filter_map(|s| match s {
-                Statement::VariableDeclaration(d) if d.kind.is_lexical() => Some(d),
-                _ => None,
-            })
-            .flat_map(|d| d.declarations.iter())
-            .flat_map(|d| d.id.get_binding_identifiers())
-            .map(|i| {
-                let name = i.name.to_string();
-                let before = self.child_vars.get(&name).cloned();
-                (name, before)
-            })
-            .collect();
+        let shadowed: Vec<(String, Option<Vec<PathSeg>>)> = if nested {
+            block
+                .body
+                .iter()
+                .filter_map(|s| match s {
+                    Statement::VariableDeclaration(d) => Some(&**d),
+                    _ => None,
+                })
+                .flat_map(|d| self.lexical_children_of(Some(d)))
+                .collect()
+        } else {
+            Vec::new()
+        };
         self.block_depth += 1;
         walk::walk_block_statement(self, block);
         self.block_depth -= 1;
-        for (name, before) in shadowed {
-            match before {
-                Some(path) => self.child_vars.insert(name, path),
-                None => self.child_vars.remove(&name),
-            };
-        }
+        self.restore_children(shadowed);
     }
 
     fn visit_variable_declaration(&mut self, decl: &VariableDeclaration<'a>) {
@@ -714,16 +706,19 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
         // stayed weak and a field the parser always reads came out optional.
         let mut per_case: Vec<Vec<RelaxedId>> = Vec::new();
         for (i, case) in stmt.cases.iter().enumerate() {
-            let at = (self.assertions.len(), self.relaxed_by_branch.len());
-            // The first test was already read above, at the outer depth.
-            if i == 0 {
-                for st in &case.consequent {
-                    self.visit_statement(st);
-                }
-            } else {
-                self.visit_switch_case(case);
+            // Falling through into a case runs its CONSEQUENT, never its test, so the two are
+            // collected apart — folding a later case's test into the entry path had
+            // `case "a": case parse(e): break;` promote reads the `"a"` path never performs.
+            if i > 0
+                && let Some(test) = case.test.as_ref()
+            {
+                self.visit_expression(test);
             }
-            per_case.push(self.relaxed_by_branch[at.1..].to_vec());
+            let at = self.relaxed_by_branch.len();
+            for st in &case.consequent {
+                self.visit_statement(st);
+            }
+            per_case.push(self.relaxed_by_branch[at..].to_vec());
         }
         // Entering at case `i` runs case `i` and then falls through to `i+1`, `i+2`… until one
         // of them leaves. `switch (mode) { case "a": default: parse(e); }` runs `parse` for
@@ -806,6 +801,14 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
     }
 
     fn visit_for_statement(&mut self, stmt: &oxc_ast::ast::ForStatement<'a>) {
+        // A `let`/`const` in the header is scoped to the loop, so a child it names has to be
+        // put back afterwards — `for (let x = e.child("inner"); …) {} x.attrString("id")` reads
+        // the trailing attribute off the OUTER `x`. Only block statements were being restored,
+        // and a loop header is not one.
+        let shadowed = self.lexical_children_of(stmt.init.as_ref().and_then(|i| match i {
+            oxc_ast::ast::ForStatementInit::VariableDeclaration(d) => Some(&**d),
+            _ => None,
+        }));
         // Initializer and test are evaluated before the first pass; the update only after
         // a pass that happened.
         if let Some(init) = &stmt.init {
@@ -849,6 +852,7 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
                 s.visit_statement(&stmt.body);
             }),
         }
+        self.restore_children(shadowed);
     }
 
     fn visit_for_in_statement(&mut self, stmt: &oxc_ast::ast::ForInStatement<'a>) {
@@ -1098,6 +1102,34 @@ impl ParserAnalyzer<'_, '_> {
     /// weakening them called reads optional that the parser always performs. WHICH PART of a
     /// statement is skippable differs per construct, so each says so itself and this only
     /// carries the counter.
+    /// The child entries a lexical declaration is about to shadow, with what they were —
+    /// one snapshot for every scope that can host one, so a block and a loop header cannot
+    /// disagree about which names die with them.
+    fn lexical_children_of(
+        &self,
+        decl: Option<&VariableDeclaration<'_>>,
+    ) -> Vec<(String, Option<Vec<PathSeg>>)> {
+        decl.filter(|d| d.kind.is_lexical())
+            .into_iter()
+            .flat_map(|d| d.declarations.iter())
+            .flat_map(|d| d.id.get_binding_identifiers())
+            .map(|i| {
+                let name = i.name.to_string();
+                let before = self.child_vars.get(&name).cloned();
+                (name, before)
+            })
+            .collect()
+    }
+
+    fn restore_children(&mut self, shadowed: Vec<(String, Option<Vec<PathSeg>>)>) {
+        for (name, before) in shadowed {
+            match before {
+                Some(path) => self.child_vars.insert(name, path),
+                None => self.child_vars.remove(&name),
+            };
+        }
+    }
+
     fn in_skipped_path(&mut self, f: impl FnOnce(&mut Self)) {
         self.conditional_depth += 1;
         f(self);
@@ -3222,9 +3254,19 @@ impl Bindings {
 
     /// Whether `name` is given a value exactly once in the scopes covering `at`.
     fn given_once_in(&self, name: &str, at: Span) -> bool {
+        // Only values that can already have taken effect at `at`. I made the parameter check
+        // order-aware and left this one counting every assignment in the scope, so
+        // `var current = row; parse(current); current = row.child("detail")` saw two values and
+        // refused to follow `current` — dropping the helper's fields for a write that cannot
+        // reach the call. Same rule as `written_in_scope`: textual position, unless a loop
+        // repeats it.
         self.given
             .iter()
-            .filter(|g| g.name == name && covers(g.scope, at))
+            .filter(|g| {
+                g.name == name
+                    && covers(g.scope, at)
+                    && (g.at.start < at.start || g.repeats_in.is_some_and(|l| covers(l, at)))
+            })
             .count()
             == 1
     }
@@ -7591,6 +7633,63 @@ mod tests {
                 .any(|u| u.starts_with("reassignedNodeHandedOn")),
             "the second argument descended: {:?}",
             p.pending_drops
+        );
+    }
+
+    #[test]
+    fn an_alias_written_only_after_the_call_is_still_followed() {
+        // `var current = row; parse(current); current = row.child("detail")` — the later write
+        // cannot reach the call. I made the PARAMETER check order-aware and left the alias
+        // count blind to order, so this saw two values and refused to follow `current`.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(q){ q.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                e.mapChildrenWithTag("row", function(row){
+                    var current = row;
+                    parse(current);
+                    current = row.child("detail");
+                });
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let row = p.fields.iter().find(|f| f.name == "row").expect("row");
+        assert!(
+            row.children
+                .as_ref()
+                .is_some_and(|kids| kids.iter().any(|f| f.name == "id")),
+            "the write is after the call: {:?}",
+            row.children
+        );
+    }
+
+    #[test]
+    fn a_fallthrough_does_not_borrow_the_next_cases_test() {
+        // Falling through into a case runs its consequent, never its test. Folding the test
+        // into the entry path had `case "a": case parse(e): break;` promote a read the `"a"`
+        // path never performs.
+        let fields = helper_reached_via(
+            r#"switch (mode) { case "a": case parse(e): break; default: parse(e); }"#,
+        );
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(!id.required, "the \"a\" path never calls it: {id:?}");
+    }
+
+    #[test]
+    fn a_child_bound_in_a_loop_header_is_restored_after_it() {
+        // A `let` in a `for` header is scoped to the loop. Only block statements were being
+        // restored, and a loop header is not one, so the trailing read landed under `<inner>`.
+        let r = analyze_parser_ast(
+            r#"{ var x = e.child("outer");
+                 for (let x = e.child("inner"); cond; ) { }
+                 x.attrString("id"); }"#,
+            "e",
+        );
+        let paths = placed_paths(&r);
+        assert!(
+            paths.contains(&"outer/id".to_string()) && !paths.contains(&"inner/id".to_string()),
+            "the trailing read is the outer child's: {paths:?}"
         );
     }
 

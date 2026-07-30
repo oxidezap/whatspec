@@ -87,8 +87,18 @@ fn tag_or_name(f: &ParsedField) -> &str {
 /// the decoder and a union arm's band alike. Spelling it separately at each is what let a
 /// guard and the payload it admits disagree.
 pub(crate) fn admits_negative(f: &ParsedField) -> bool {
-    wap::method_field_type(&f.method) == ParsedFieldType::Integer
-        && f.int_min.is_some_and(|n| n < 0)
+    if wap::method_field_type(&f.method) != ParsedFieldType::Integer {
+        return false;
+    }
+    // A declared lower bound below zero, or — with no lower bound at all — an upper bound
+    // below zero. `attrIntRange("score", void 0, -1)` means "at most -1", which admits only
+    // negative values; reading the minimum alone left it `u64`, so every value the source
+    // accepts failed to decode and the union additionally called the arm unreachable.
+    match (f.int_min, f.int_max) {
+        (Some(lo), _) => lo < 0,
+        (None, Some(hi)) => hi < 0,
+        (None, None) => false,
+    }
 }
 
 /// The Rust integer width `f` materializes as.
@@ -318,7 +328,12 @@ pub(crate) fn collect_response_fields(
                     ContentType::Integer => "u64",
                     _ => "String",
                 };
-                let wrapped = if f.method == "maybeChild" {
+                // Optionality has the same TWO sources here as in `rust_field_type`: the
+                // accessor spelling, and the IR's own `required`. This path read only the
+                // accessor, so a `child` the scanner had relaxed still emitted a mandatory
+                // field — and the requiredness work in this branch relaxed 27 of them, none of
+                // which reached the generated decoder for a content-only child.
+                let wrapped = if f.method == "maybeChild" || !f.required {
                     format!("Option<{base}>")
                 } else {
                     base.to_string()

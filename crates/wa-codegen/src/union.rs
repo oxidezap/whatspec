@@ -903,7 +903,9 @@ fn arm_payload_representable(fields: &[ParsedField]) -> bool {
     !fields.iter().any(|f| {
         let content_literal = wap::is_content_method(&f.method) && f.literal_value.is_some();
         let width = integer_width(f);
-        let unreachable_band = !admits_negative(f) && f.int_max.is_some_and(|n| n < 0);
+        // Contradictory, not merely negative: a minimum above the maximum admits nothing at
+        // any width. `int_max < 0` alone is an ordinary signed band.
+        let unreachable_band = f.int_min.zip(f.int_max).is_some_and(|(lo, hi)| lo > hi);
         let unrepresentable_pin = wap::method_field_type(&f.method) == ParsedFieldType::Integer
             && f.literal_value
                 .as_deref()
@@ -1946,15 +1948,39 @@ mod tests {
     }
 
     #[test]
-    fn an_unsigned_band_no_value_can_enter_is_declined() {
-        // A maximum below zero with no negative minimum is not a signed band, it is a
-        // contradiction: nothing satisfies it, so the arm can never be taken.
+    fn a_band_with_only_a_negative_maximum_is_signed() {
+        // `attrIntRange("score", void 0, -1)` admits only negative values. Reading the minimum
+        // alone left it `u64`, so the guard rejected everything the source accepts and the arm
+        // was additionally classified unreachable.
+        let f = union_field(serde_json::json!({
+            "method": "dispatch", "name": "kind_dispatch", "type": "union", "required": true,
+            "unionVariants": [
+                {"name": "a", "assertions": [{"kind": "attr", "name": "kind", "value": "a"}],
+                 "fields": [{"method": "attrInt", "name": "score", "wireName": "score",
+                             "type": "integer", "required": true, "intMax": -1}]},
+                {"name": "b", "assertions": [{"kind": "attr", "name": "kind", "value": "b"}],
+                 "fields": []}
+            ]
+        }));
+        let (lines, _) = emit_union_read(&f, "node", "Spec", "").expect("emitted");
+        let src = lines.join("\n");
+        assert!(src.contains("n <= -1i64"), "signed upper bound: {src}");
+        assert!(!src.contains("u64"), "and nothing unsigned: {src}");
+    }
+
+    #[test]
+    fn a_contradictory_band_no_value_can_enter_is_declined() {
+        // Contradictory means minimum ABOVE maximum. I had written this as "a maximum below
+        // zero with no negative minimum", which is not a contradiction at all — it is an
+        // ordinary signed band meaning "at most -1", and declining it lost every value the
+        // source accepts.
         let f = union_field(serde_json::json!({
             "method": "dispatch", "name": "kind_dispatch", "type": "union", "required": true,
             "unionVariants": [
                 {"name": "a", "assertions": [{"kind": "attr", "name": "kind", "value": "a"}],
                  "fields": [{"method": "attrInt", "name": "count", "wireName": "count",
-                             "type": "integer", "required": true, "intMax": -1}]},
+                             "type": "integer", "required": true,
+                             "intMin": 5, "intMax": -1}]},
                 {"name": "b", "assertions": [{"kind": "attr", "name": "kind", "value": "b"}],
                  "fields": []}
             ]

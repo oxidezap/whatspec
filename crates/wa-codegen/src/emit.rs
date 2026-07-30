@@ -344,7 +344,8 @@ fn emit_struct_reads(
                     ),
                 },
             };
-            if f.method == "maybeChild" {
+            // Same two sources as the declared type, or the initializer will not match it.
+            if f.method == "maybeChild" || !f.required {
                 lines.push(format!(
                     "{indent}let {id} = {base}.get_optional_child({lit})"
                 ));
