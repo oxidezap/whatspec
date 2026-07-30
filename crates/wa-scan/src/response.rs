@@ -3111,22 +3111,65 @@ fn invoked_callee<'b, 'a>(mut e: &'b Expression<'a>) -> &'b Expression<'a> {
 /// literal one is as readable as an argument list, and answering "unknowable" for every `.apply`
 /// walked a default the call really does prevent.
 ///
-/// `None` in a slot is "nothing readable here", and every slot after a spread is `None` too,
-/// because a spread moves the positions after it by an amount nothing here knows.
+/// `None` in a slot is "nothing readable here", and a spread ends the mapping outright, because
+/// it moves every position after it by an amount nothing here knows.
 fn effective_arguments<'b, 'a>(
     callee_expr: &'b Expression<'a>,
     arguments: &'b [Argument<'a>],
 ) -> Vec<Option<&'b Expression<'a>>> {
-    let direct = |args: &'b [Argument<'a>]| -> Vec<Option<&'b Expression<'a>>> {
-        let mut out = Vec::new();
-        for a in args {
-            match a {
-                Argument::SpreadElement(_) => break,
-                other => out.push(other.as_expression()),
+    arguments_then(callee_expr, arguments, Vec::new())
+}
+
+/// Through the wrappers that do not change which value an expression is — and no further.
+/// `invoked_callee` looks through `bind` as well, which is the wrong depth for anything asking
+/// what the receiver of a `bind` actually is.
+fn peel<'b, 'a>(mut e: &'b Expression<'a>) -> &'b Expression<'a> {
+    loop {
+        e = match e {
+            Expression::ParenthesizedExpression(p) => &p.expression,
+            Expression::SequenceExpression(s) if !s.expressions.is_empty() => {
+                s.expressions.last().expect("checked non-empty")
             }
+            other => return other,
+        };
+    }
+}
+
+/// The mapping so far, and whether it reached the end of the list rather than stopping at a
+/// spread. Nothing may be appended after a stop: where the next value lands is then unknown.
+fn mapped<'b, 'a>(args: &'b [Argument<'a>]) -> (Vec<Option<&'b Expression<'a>>>, bool) {
+    let mut out = Vec::new();
+    for a in args {
+        match a {
+            Argument::SpreadElement(_) => return (out, false),
+            other => out.push(other.as_expression()),
         }
-        out
-    };
+    }
+    (out, true)
+}
+
+fn append<'b, 'a>(
+    (mut out, complete): (Vec<Option<&'b Expression<'a>>>, bool),
+    trailing: Vec<Option<&'b Expression<'a>>>,
+) -> Vec<Option<&'b Expression<'a>>> {
+    if complete {
+        out.extend(trailing);
+    }
+    out
+}
+
+/// [`effective_arguments`], with a suffix that lands after whatever this callee contributes.
+///
+/// The suffix is what makes nesting come out in the right order. `f.bind(a).bind(b)()` binds
+/// `b` AFTER `a`, because the second `bind` extends the list the first one built — so the
+/// outer group is a suffix of the inner one, not a prefix. Building it the other way round
+/// produced `[b, a]`, which supplies the wrong parameter and, when the first bound value is
+/// `undefined`, suppresses a default that really runs.
+fn arguments_then<'b, 'a>(
+    callee_expr: &'b Expression<'a>,
+    arguments: &'b [Argument<'a>],
+    trailing: Vec<Option<&'b Expression<'a>>>,
+) -> Vec<Option<&'b Expression<'a>>> {
     let mut e = callee_expr;
     loop {
         e = match e {
@@ -3138,8 +3181,7 @@ fn effective_arguments<'b, 'a>(
             // outer call's after them, which is as countable as an argument list. I answered
             // "nothing readable" for the whole shape when the invocation was first recognized,
             // and asserted so in a test; review was right that `.bind(null)(1)` supplies the
-            // first parameter as plainly as `(1)` does. Nesting resolves by the same rule, one
-            // `bind` at a time.
+            // first parameter as plainly as `(1)` does.
             Expression::CallExpression(c) => {
                 let Some(m) = bind_member(&c.callee) else {
                     return Vec::new();
@@ -3149,15 +3191,29 @@ fn effective_arguments<'b, 'a>(
                 if matches!(c.arguments.first(), Some(Argument::SpreadElement(_))) {
                     return Vec::new();
                 }
-                let bound = direct(c.arguments.get(1..).unwrap_or_default());
-                // A spread inside the bound list ends the mapping: what is bound after it, and
-                // therefore where the outer arguments land, is a count nothing here has.
-                if bound.len() != c.arguments.len().saturating_sub(1) {
-                    return bound;
-                }
-                let mut out = bound;
-                out.extend(effective_arguments(&m.object, arguments));
-                return out;
+                // This bind's own group, then the outer call's, then whatever already followed:
+                // all of it lands after any group an INNER bind contributed, which is what the
+                // recursion below recovers.
+                let tail = append(
+                    mapped(c.arguments.get(1..).unwrap_or_default()),
+                    append(mapped(arguments), trailing),
+                );
+                // `(f.call).bind(…)` would need the receiver slot dropped from a list this has
+                // already flattened, so it is left unread rather than mapped wrongly. Anything
+                // else recurses: a receiver that is itself a bound function contributes its own
+                // group in front, and one that is not contributes nothing and hands `tail` back.
+                //
+                // Peeled rather than run through `invoked_callee`, which looks through `bind`
+                // itself — asking it here reported a nested bind as the function underneath and
+                // the inner group was dropped, which is the bug this recursion exists to fix.
+                return match peel(&m.object) {
+                    Expression::StaticMemberExpression(inner)
+                        if matches!(inner.property.name.as_str(), "call" | "apply") =>
+                    {
+                        Vec::new()
+                    }
+                    _ => arguments_then(&m.object, &[], tail),
+                };
             }
             Expression::StaticMemberExpression(m) => {
                 // A spread in the receiver slot contributes an unknown number of values, so
@@ -3170,7 +3226,7 @@ fn effective_arguments<'b, 'a>(
                     return Vec::new();
                 }
                 return match m.property.name.as_str() {
-                    "call" => direct(arguments.get(1..).unwrap_or_default()),
+                    "call" => append(mapped(arguments.get(1..).unwrap_or_default()), trailing),
                     "apply" => {
                         let Some(Expression::ArrayExpression(arr)) =
                             arguments.get(1).and_then(Argument::as_expression)
@@ -3178,18 +3234,22 @@ fn effective_arguments<'b, 'a>(
                             return Vec::new();
                         };
                         let mut out = Vec::new();
+                        let mut complete = true;
                         for el in &arr.elements {
                             match el {
-                                oxc_ast::ast::ArrayExpressionElement::SpreadElement(_) => break,
+                                oxc_ast::ast::ArrayExpressionElement::SpreadElement(_) => {
+                                    complete = false;
+                                    break;
+                                }
                                 other => out.push(other.as_expression()),
                             }
                         }
-                        out
+                        append((out, complete), trailing)
                     }
-                    _ => direct(arguments),
+                    _ => append(mapped(arguments), trailing),
                 };
             }
-            _ => return direct(arguments),
+            _ => return append(mapped(arguments), trailing),
         };
     }
 }
@@ -3432,6 +3492,23 @@ fn synchronous_until(
                     None => {}
                 }
                 self.visit_statement(side);
+            }
+        }
+        // A short-circuit operator is the same decided branch in expression form. `0 && await 0`
+        // never evaluates its right side, so the await in it suspends nothing and the statements
+        // after it are as synchronous as they look — the pruning was written for `if` and left
+        // out here, so the probe took an unreachable await as the cutoff and confined a write
+        // the caller does see. `??` prunes on the same answer: a value this calls certainly
+        // truthy is certainly not nullish.
+        fn visit_logical_expression(&mut self, e: &oxc_ast::ast::LogicalExpression<'a>) {
+            self.visit_expression(&e.left);
+            let dead = match e.operator {
+                oxc_syntax::operator::LogicalOperator::And => always_false(&e.left),
+                oxc_syntax::operator::LogicalOperator::Or
+                | oxc_syntax::operator::LogicalOperator::Coalesce => always_true(&e.left),
+            };
+            if !dead {
+                self.visit_expression(&e.right);
             }
         }
         // An `await` inside a nested function is that function's suspension, not this one's.
@@ -4889,12 +4966,22 @@ impl AllBindings {
         self.visit_expression(callee);
         self.suppressed_defaults.truncate(restore);
         self.effects_land_at.pop();
-        // Whatever a comma callee evaluates on the way to that function runs before the
-        // arguments and before the body, so it keeps its own position.
+        // Whatever a callee evaluates on the way to that function runs before the arguments and
+        // before the body — so it declares that it PRECEDES the body, exactly as the arguments
+        // below do. Position alone answered this only while the shape was a comma expression,
+        // whose leading elements are written above the function; a `bind` call's arguments are
+        // written BELOW it, so `(function(){ parse(current); }).bind(null, current = other)()`
+        // read the body against a write that had already run. Half a swap again: the round that
+        // taught this reader the shape did not give it the ordering the shape needs.
         let mut leading = Vec::new();
         leading_parts(callee_expr, &mut leading);
-        for part in leading {
-            self.visit_expression(part);
+        if !leading.is_empty() {
+            self.runs_before
+                .push(construction_regions(callee, constructs));
+            for part in leading {
+                self.visit_expression(part);
+            }
+            self.runs_before.pop();
         }
         // And the arguments run before that body, whatever their position relative to it:
         // `(function(){ parse(current); })(current = e)` reads what the argument assigned.
@@ -16680,5 +16767,137 @@ mod tests {
                 "the field still initializes: {body}"
             );
         }
+    }
+    #[test]
+    fn an_unreachable_short_circuit_await_suspends_nothing() {
+        // A short-circuit operator is a decided branch in expression form. `0 && await 0` never
+        // evaluates its right side, so the write after it is as synchronous as it looks and
+        // lands at the call — the pruning was written for `if` and left out here, so the probe
+        // took an unreachable await as the cutoff and confined a write the caller does see.
+        for body in [
+            "var current = e; (async function () { 0 && await 0; current = other; })(); parse(current);",
+            "var current = e; (async function () { 1 || await 0; current = other; })(); parse(current);",
+            // `??` prunes on the same answer: a value this calls certainly truthy is certainly
+            // not nullish.
+            "var current = e; (async function () { 1 ?? await 0; current = other; })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "the await is unreachable: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_reachable_short_circuit_await_still_suspends() {
+        // The bound, one per operator, and it is the complement rather than a variation: an
+        // undecided left side still reaches the await, and so does a decided one whose value
+        // selects the OTHER way. `null ?? x` is the case that separates "certainly falsy" from
+        // "certainly non-nullish" — the two are not the same question.
+        for body in [
+            "var current = e; (async function () { c && await 0; current = other; })(); parse(current);",
+            "var current = e; (async function () { 1 && await 0; current = other; })(); parse(current);",
+            "var current = e; (async function () { 0 || await 0; current = other; })(); parse(current);",
+            "var current = e; (async function () { null ?? await 0; current = other; })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that await still runs: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn nested_binds_keep_their_inner_to_outer_order() {
+        // The second `bind` EXTENDS the list the first one built, so the outer group is a suffix
+        // of the inner one. Built the other way round, `.bind(null, undefined).bind(null, 1)`
+        // gave the first parameter the `1` and suppressed a default that really runs — and an
+        // `undefined` in the first bound slot is exactly the value that makes the difference
+        // visible, because it supplies nothing.
+        let fields = helper_reached_via(
+            "var current = e; (function (x = (current = other)) {}).bind(null, undefined).bind(null, 1)(); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the first bound value is undefined, so the default ran: {fields:?}"
+        );
+        // And the receiver slot of a `.call` reached THROUGH a bind is not a position this can
+        // count either: `f.call.bind(null, 1)()` calls `f.call(1)`, so the `1` is the receiver
+        // and `f` gets nothing. Recovering the bind chain with the unwrapper that looks through
+        // `bind` reported `f` as the function underneath and mapped the `1` onto its first
+        // parameter; peeling only the wrappers that do not change which value an expression is
+        // finds the `.call` and declines.
+        let fields = helper_reached_via(
+            "var current = e; (function (x = (current = other)) {}).call.bind(null, 1)(); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the 1 is the receiver, so the default ran: {fields:?}"
+        );
+        // The bound, the same two values the other way about: now `x` is the `1` and the
+        // default is prevented, with `undefined` landing on a parameter that has none.
+        for body in [
+            "var current = e; (function (x = (current = other)) {}).bind(null, 1).bind(null, undefined)(); parse(current);",
+            "var current = e; (function (y, x = (current = other)) {}).bind(null, 1).bind(null, 2)(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "the argument supplied it: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_bind_argument_runs_before_the_body_it_binds() {
+        // The bind call is evaluated to produce the function, so its arguments run before that
+        // function's body — `parse` here is handed `other`. Recording those effects at their own
+        // offsets answered this with source order, and a `bind` call's arguments are written
+        // BELOW the function, so the body read against a write that had already run.
+        let fields = helper_reached_via(
+            "var current = e; (function () { parse(current); }).bind(null, current = other)();",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the bind argument had already run: {fields:?}"
+        );
+        // The bound: a bind call that writes nothing leaves the body reading the node, and the
+        // neighbour this now matches — an ordinary argument, which has precededed the body since
+        // the round that separated the two.
+        let fields = helper_reached_via(
+            "var current = e; (function () { parse(current); }).bind(null, o)();",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "nothing moved: {fields:?}"
+        );
+        let fields = helper_reached_via(
+            "var current = e; (function () { parse(current); })(current = other);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "an argument precedes the body too: {fields:?}"
+        );
+        // And it precedes only what construction actually runs last. A class is evaluated in
+        // full — computed keys and static initializers included — before `.bind` is even
+        // reached, so a static initializer does not see the bind argument, while the
+        // constructor body does. Naming the whole callee span here instead of the construction
+        // regions is what that first case rules out.
+        let fields = helper_reached_via(
+            "var current = e; new ((class { static x = parse(current); }).bind(null, current = other))();",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the static initializer ran before the bind: {fields:?}"
+        );
+        let fields = helper_reached_via(
+            "var current = e; new ((class { constructor(){ parse(current); } }).bind(null, current = other))();",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the constructor body runs after it: {fields:?}"
+        );
     }
 }
