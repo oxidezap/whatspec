@@ -303,6 +303,12 @@ pub(crate) fn collect_response_fields(
             if let Some(ct) = f.content_type.or_else(|| child_content_type(f)) {
                 let base = match ct {
                     ContentType::Bytes => "Vec<u8>",
+                    // The range lives on the content leaves, not on the `child` that carries
+                    // them, so the width is asked of them. `contentUint` folds bytes and is
+                    // unsigned by construction; only a decoded text integer can be negative.
+                    // A `content_type` set on the child itself has no leaf to ask and stays
+                    // unsigned — no such field carries a negative bound today.
+                    ContentType::Integer if kids.iter().any(admits_negative) => "i64",
                     ContentType::Integer => "u64",
                     _ => "String",
                 };

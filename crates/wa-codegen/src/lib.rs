@@ -319,6 +319,56 @@ mod tests {
     }
 
     #[test]
+    fn a_child_content_integer_reaching_below_zero_is_signed() {
+        // The range lives on the content LEAF, not on the `child` that carries it, so asking
+        // the child alone answered `u64` and a negative payload failed to parse. The width
+        // has to be asked of whatever actually decodes the number.
+        let ranged = |tag: &str, min: i64| {
+            let mut leaf = parsed("contentInt", "content", ParsedFieldType::Integer);
+            leaf.int_min = Some(min);
+            leaf.int_max = Some(10);
+            let mut c = parsed("child", tag, ParsedFieldType::String);
+            c.tag = Some(tag.into());
+            c.children = Some(vec![leaf]);
+            c
+        };
+        let ir = IqIr {
+            wa_version: "0.0.0".into(),
+            stanzas: vec![IqStanzaDef {
+                module_name: "WAWebWeights".into(),
+                namespace: "fb:thrift_iq".into(),
+                iq_type: IqType::Get,
+                target: IqTarget::Server,
+                parser_name: "p".into(),
+                exported_function: Some("weights".into()),
+                all_exports: vec!["weights".into()],
+                request: IqRequestDef {
+                    namespace: "fb:thrift_iq".into(),
+                    iq_type: IqType::Get,
+                    target: IqTarget::Server,
+                    children: vec![],
+                },
+                response: ParsedResponse {
+                    parser_name: "p".into(),
+                    assertions: vec![],
+                    fields: vec![ranged("weight", -10), ranged("count", 0)],
+                    ..Default::default()
+                },
+            }],
+            unparseable: vec![],
+        };
+        let c = &generate_iq(&ir);
+        assert!(
+            c.contains("pub weight: i64,"),
+            "negative bound is signed: {c}"
+        );
+        assert!(
+            c.contains("pub count: u64,"),
+            "and a non-negative one is untouched: {c}"
+        );
+    }
+
+    #[test]
     fn integer_content_children_get_their_own_named_fields() {
         // Two things were wrong at once, and the second hid the first: the codegen's
         // content predicate admitted only three spellings, so live `contentUint` fields

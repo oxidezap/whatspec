@@ -682,32 +682,76 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
         walk::walk_variable_declaration(self, decl);
     }
 
-    fn visit_statement(&mut self, stmt: &Statement<'a>) {
-        // One place asks the question, so a construct that introduces a non-taken path
-        // cannot be forgotten the way `switch`, the loops and `try` each were in turn.
-        if skips_on_some_path(stmt) {
-            self.conditional_depth += 1;
-            walk::walk_statement(self, stmt);
-            self.conditional_depth -= 1;
-        } else {
-            walk::walk_statement(self, stmt);
-        }
+    fn visit_switch_statement(&mut self, stmt: &oxc_ast::ast::SwitchStatement<'a>) {
+        // The discriminant is evaluated to choose a case, so it runs whichever case wins.
+        self.visit_expression(&stmt.discriminant);
+        self.in_skipped_path(|s| {
+            for case in &stmt.cases {
+                s.visit_switch_case(case);
+            }
+        });
     }
 
-    /// `try`/`catch`/`finally` cannot be answered by [`skips_on_some_path`] alone: the
-    /// three parts differ from each other, and the walk reaches them through one node.
-    fn visit_try_statement(&mut self, stmt: &oxc_ast::ast::TryStatement<'a>) {
-        // The block may abort partway — that is what having a handler means — so what it
-        // reads past the throwing call is not read on every path.
-        self.conditional_depth += 1;
-        self.visit_block_statement(&stmt.block);
-        // The handler runs only when the block failed.
-        if let Some(h) = &stmt.handler {
-            self.visit_catch_clause(h);
+    fn visit_while_statement(&mut self, stmt: &oxc_ast::ast::WhileStatement<'a>) {
+        // The test is evaluated before the first pass, so it runs even when the body does not.
+        self.visit_expression(&stmt.test);
+        self.in_skipped_path(|s| s.visit_statement(&stmt.body));
+    }
+
+    fn visit_do_while_statement(&mut self, stmt: &oxc_ast::ast::DoWhileStatement<'a>) {
+        // `do` runs its body before the test, so one pass is guaranteed — unless a `break`
+        // or `continue` can cut that pass short, which leaves the rest of the body no more
+        // certain than a branch.
+        if contains_exit(&stmt.body) {
+            self.in_skipped_path(|s| s.visit_statement(&stmt.body));
+        } else {
+            self.visit_statement(&stmt.body);
         }
-        self.conditional_depth -= 1;
-        // The finalizer runs whichever way the block went, so it is not conditional on
-        // anything. Weakening it would call a read the parser always performs optional.
+        self.visit_expression(&stmt.test);
+    }
+
+    fn visit_for_statement(&mut self, stmt: &oxc_ast::ast::ForStatement<'a>) {
+        // Initializer and test are evaluated before the first pass; the update only after
+        // a pass that happened.
+        if let Some(init) = &stmt.init {
+            self.visit_for_statement_init(init);
+        }
+        if let Some(test) = &stmt.test {
+            self.visit_expression(test);
+        }
+        self.in_skipped_path(|s| {
+            if let Some(update) = &stmt.update {
+                s.visit_expression(update);
+            }
+            s.visit_statement(&stmt.body);
+        });
+    }
+
+    fn visit_for_in_statement(&mut self, stmt: &oxc_ast::ast::ForInStatement<'a>) {
+        // The object is evaluated to be enumerated, however few keys it turns out to have.
+        self.visit_expression(&stmt.right);
+        self.in_skipped_path(|s| s.visit_statement(&stmt.body));
+    }
+
+    fn visit_for_of_statement(&mut self, stmt: &oxc_ast::ast::ForOfStatement<'a>) {
+        self.visit_expression(&stmt.right);
+        self.in_skipped_path(|s| s.visit_statement(&stmt.body));
+    }
+
+    fn visit_try_statement(&mut self, stmt: &oxc_ast::ast::TryStatement<'a>) {
+        match &stmt.handler {
+            // With a handler the block may abort partway and the parser carries on, so what
+            // it reads past a throwing call is not read on every path — and the handler
+            // itself runs only when the block failed.
+            Some(h) => self.in_skipped_path(|s| {
+                s.visit_block_statement(&stmt.block);
+                s.visit_catch_clause(h);
+            }),
+            // Without one, an error propagates out of the parser: there is no path where
+            // the block failed and a result was still produced, so its reads stay required.
+            None => self.visit_block_statement(&stmt.block),
+        }
+        // The finalizer runs whichever way the block went, so it is conditional on nothing.
         if let Some(f) = &stmt.finalizer {
             self.visit_block_statement(f);
         }
@@ -865,6 +909,42 @@ impl ParserAnalyzer<'_, '_> {
     /// from `span`.
     fn param_shadowed(&self, span: Span) -> bool {
         self.bound_by_inner_scope(self.param, span)
+    }
+
+    /// The name the formal at `idx` binds, or `None` with the stop recorded — there is no
+    /// formal at that position, or it binds by pattern and so has no name to analyse the
+    /// helper body against. One lookup for both descent paths: the two spellings of it were
+    /// identical, and identical is how they drift.
+    fn bound_formal<'p>(
+        &mut self,
+        params: &'p [Option<String>],
+        idx: usize,
+        helper: &str,
+    ) -> Option<&'p str> {
+        match params.get(idx) {
+            Some(Some(p)) => Some(p.as_str()),
+            _ => {
+                self.unresolved.push(format!("{UNNAMED_FORMAL}@{helper}"));
+                None
+            }
+        }
+    }
+
+    /// Walk something control can reach past without having run it, with the branch counter
+    /// raised for the duration.
+    ///
+    /// A helper called only down such a path does not make its payload required of every
+    /// element, and its guards are that path's rather than the caller's. `switch`, the loops
+    /// and a caught `try` each arrived separately as the same bug, so the first fix asked one
+    /// whole-statement question — which was wrong in the other direction: a `switch`
+    /// discriminant, a loop test and a `try` without a handler all run whatever happens, and
+    /// weakening them called reads optional that the parser always performs. WHICH PART of a
+    /// statement is skippable differs per construct, so each says so itself and this only
+    /// carries the counter.
+    fn in_skipped_path(&mut self, f: impl FnOnce(&mut Self)) {
+        self.conditional_depth += 1;
+        f(self);
+        self.conditional_depth -= 1;
     }
 
     /// Whether `name`, read at `span`, belongs to an enclosing callback rather than to the
@@ -1354,6 +1434,15 @@ impl ParserAnalyzer<'_, '_> {
             if !self.names_an_outer_node(id, call.span) {
                 return None;
             }
+            // `child_vars` is only updated by a declarator, so `i = i.child("other")` leaves
+            // the recorded path pointing at the node `i` USED to name and the helper's fields
+            // land under it. The sibling path was hardened against exactly this and this one
+            // was not — the same instance-not-class split that put `leaf_guard` inline in one
+            // union shape and left the other with a presence test.
+            if self.local_bindings.written_in_scope(id, call.span) {
+                self.unresolved.push(format!("{NODE_REASSIGNED}@{name}"));
+                return None;
+            }
             self.child_vars.get(id).map(|t| (i, t.clone()))
         }) else {
             return;
@@ -1361,10 +1450,7 @@ impl ParserAnalyzer<'_, '_> {
         let Some((params, body_src)) = self.module.functions.get(name) else {
             return;
         };
-        let Some(Some(bound_param)) = params.get(arg_idx) else {
-            // No formal at that position, or one that binds by pattern rather than by name.
-            // Either way the helper's node has no name to analyse it against.
-            self.unresolved.push(format!("{UNNAMED_FORMAL}@{name}"));
+        let Some(bound_param) = self.bound_formal(params, arg_idx, name) else {
             return;
         };
         // The helper's parameter names the node at the end of the path; the caller's tree
@@ -1409,31 +1495,46 @@ impl ParserAnalyzer<'_, '_> {
         if self.local_bindings.shadows(name, call.span) {
             return;
         }
-        // A name that has been assigned to no longer stands for the node it was bound to,
-        // so what the helper reads belongs under whatever it was pointed at instead. The
-        // shape is incomplete either way; saying so is what separates a bounded descent
-        // from a silent one.
-        if self.local_bindings.written_in_scope(self.param, call.span) {
-            self.unresolved.push(format!("{NODE_REASSIGNED}@{name}"));
-            return;
-        }
         // Every position it is handed to, not just the first: `parse(e, e)` binds the
         // node to both parameters, and reading only one dropped what the other saw. An
         // alias of the node is the node — comparing against the parameter's own identifier
         // alone lost the helper entirely when the callback copied it first.
+        //
+        // A name that has been assigned to no longer stands for the node it was bound to, and
+        // `names_for` already declines to follow one. The parameter itself is the case it
+        // cannot see, so it is checked here — per ARGUMENT, not per call: rejecting the whole
+        // call because the parameter was written somewhere threw away
+        // `var original = row; row = row.child("detail"); parse(original)`, where `original`
+        // still names the row and the helper's fields are recoverable there.
         let stands_for = self.local_bindings.names_for(self.param, call.span);
+        let param_moved = self.local_bindings.written_in_scope(self.param, call.span);
         let positions: Vec<usize> = call
             .arguments
             .iter()
             .enumerate()
             .filter(|(_, a)| {
                 arg_expr(a).and_then(as_identifier).is_some_and(|id| {
-                    stands_for.contains(id) && !self.bound_by_inner_scope(id, call.span)
+                    stands_for.contains(id)
+                        && !(id == self.param && param_moved)
+                        && !self.bound_by_inner_scope(id, call.span)
                 })
             })
             .map(|(i, _)| i)
             .collect();
         if positions.is_empty() {
+            // The node was handed on under a name that no longer stands for it — the
+            // parameter itself after a write, or a copy given a second value. The shape is
+            // incomplete either way, and saying so is what separates a bounded descent from
+            // a silent one.
+            if param_moved
+                && call.arguments.iter().any(|a| {
+                    arg_expr(a)
+                        .and_then(as_identifier)
+                        .is_some_and(|id| id == self.param)
+                })
+            {
+                self.unresolved.push(format!("{NODE_REASSIGNED}@{name}"));
+            }
             return;
         }
         let Some((params, body_src)) = self.module.functions.get(name) else {
@@ -1450,8 +1551,7 @@ impl ParserAnalyzer<'_, '_> {
         let mut lost = Vec::new();
         let mut guards = Vec::new();
         for idx in positions {
-            let Some(Some(bound_param)) = params.get(idx) else {
-                self.unresolved.push(format!("{UNNAMED_FORMAL}@{name}"));
+            let Some(bound_param) = self.bound_formal(params, idx, name) else {
                 continue;
             };
             let (f, l, g) = analyze_node_helper(
@@ -2258,39 +2358,6 @@ fn one_read_per_property(fields: &mut [ParsedField]) -> bool {
 /// Whether `stmt` ends the body on every path it can take. A bare `return`/`throw`, or a
 /// block that reaches one — `{ return result; }` runs exactly as the bare statement does,
 /// and the arms after either of them are unreachable.
-/// Whether control can reach past `stmt` without having run what is inside it — the
-/// question `conditional_depth` exists to answer, asked once instead of at each visitor.
-///
-/// A helper called only down such a path does not make its payload required of every
-/// element, and its guards are that path's rather than the caller's. Enumerating the
-/// forms at the point of use is how `switch`, then the loops, then a caught `try` each
-/// arrived separately as the same bug: the guards of a helper reached one way only were
-/// hoisted onto every element, and generated decoding then rejected the paths the parser
-/// accepts.
-///
-/// `if`, `?:` and `&&` are absent on purpose — they raise the counter in their own
-/// visitors, which also track *what* the test proved. `try` is absent because its three
-/// parts disagree and the walk reaches them through one node; see `visit_try_statement`.
-fn skips_on_some_path(stmt: &Statement<'_>) -> bool {
-    match stmt {
-        // A case runs for its own value; the others reach past it. True even with a
-        // `default`: an exhaustive switch whose every case reads the same field would be
-        // required after all, but under-requiring only accepts more than the parser does,
-        // where over-requiring rejects what it accepts.
-        Statement::SwitchStatement(_) => true,
-        // Zero iterations is a path through the loop that runs none of the body.
-        Statement::WhileStatement(_)
-        | Statement::ForStatement(_)
-        | Statement::ForInStatement(_)
-        | Statement::ForOfStatement(_) => true,
-        // `do` runs its body before the test, so one pass is guaranteed — unless a `break`
-        // or `continue` can cut that pass short, which leaves the rest of the body no more
-        // certain than a branch.
-        Statement::DoWhileStatement(d) => contains_exit(&d.body),
-        _ => false,
-    }
-}
-
 fn exits_unconditionally(stmt: &Statement<'_>) -> bool {
     match stmt {
         Statement::ReturnStatement(_) | Statement::ThrowStatement(_) => true,
@@ -2624,9 +2691,21 @@ struct AllBindings {
     /// Being bound and still meaning what you were bound to are different questions, and
     /// only the first one was collected.
     writes: Vec<(Span, String)>,
-    /// `var current = row` — a name declared as a bare copy of another. Which node the
-    /// right-hand side names is its own question, so the pair is kept unresolved here.
-    aliases: Vec<(String, String)>,
+    /// Every value a name is GIVEN — a declarator's initializer or an assignment — with the
+    /// function extent it happens in, and the name it was copied from when the value was a
+    /// bare identifier. `None` is any other right-hand side.
+    ///
+    /// Copies and overwrites have to be counted together, because `current = row` is both:
+    /// it makes `current` an alias, and it is a write to `current`. Tracking the two
+    /// separately had the aliasing assignment invalidate the alias it had just created.
+    ///
+    /// The extent matters and I claimed otherwise. A nested `function f() { var current =
+    /// row; }` records into the same collection as the enclosing body, so an outer
+    /// `parse(current)` followed it as though it had been handed `row` and filed the helper's
+    /// fields under the wrong node. My attempt to disprove that used two sibling MAPPED
+    /// callbacks, which are analysed over their own sources and never share a collection — a
+    /// nested plain function does.
+    given: Vec<(Span, String, Option<String>)>,
     /// Assigned at the top of the analysed source, so the write applies throughout it —
     /// the same split `names`/`scoped` keeps. A fragment IS a callback body often enough
     /// that folding these into `writes` under an empty span matched nothing at all.
@@ -2634,6 +2713,18 @@ struct AllBindings {
 }
 
 impl AllBindings {
+    /// Record that `name` was given a value, scoped to the function it sits in. A top-level
+    /// one covers the whole analysed source, the same split `names`/`scoped` keeps.
+    fn given_value(&mut self, name: &str, from: Option<&str>) {
+        let extent = self
+            .fns
+            .last()
+            .copied()
+            .unwrap_or_else(|| Span::new(0, u32::MAX));
+        self.given
+            .push((extent, name.to_string(), from.map(|s| s.to_string())));
+    }
+
     fn bind(&mut self, name: &str, hoists: bool) {
         let extent = if hoists {
             self.fns.last().copied()
@@ -2674,13 +2765,32 @@ impl<'a> Visit<'a> for AllBindings {
         walk::walk_simple_assignment_target(self, target);
     }
 
+    fn visit_assignment_expression(&mut self, e: &oxc_ast::ast::AssignmentExpression<'a>) {
+        // `current = row` makes an alias as much as `var current = row` does; recording only
+        // the declarator form left the plain one matching no argument position and losing the
+        // helper with nothing said. The accumulator search in this file already reads both,
+        // so taking only one here was a narrowing rather than a decision.
+        if let oxc_ast::ast::AssignmentTarget::AssignmentTargetIdentifier(t) = &e.left {
+            let from = match (&e.right, e.operator) {
+                (Expression::Identifier(src), oxc_syntax::operator::AssignmentOperator::Assign) => {
+                    Some(src.name.as_str())
+                }
+                // `+=` and friends compute from the old value, so the name is not a copy.
+                _ => None,
+            };
+            self.given_value(t.name.as_str(), from);
+        }
+        walk::walk_assignment_expression(self, e);
+    }
+
     fn visit_variable_declaration(&mut self, decl: &VariableDeclaration<'a>) {
         for d in &decl.declarations {
-            if let (Some(id), Some(Expression::Identifier(src))) =
-                (d.id.get_binding_identifier(), d.init.as_ref())
-            {
-                self.aliases
-                    .push((id.name.to_string(), src.name.to_string()));
+            if let (Some(id), Some(init)) = (d.id.get_binding_identifier(), d.init.as_ref()) {
+                let from = match init {
+                    Expression::Identifier(src) => Some(src.name.as_str()),
+                    _ => None,
+                };
+                self.given_value(id.name.as_str(), from);
             }
         }
         let outer = self.hoists;
@@ -2792,7 +2902,7 @@ struct Bindings {
     /// Names the source assigns to, by enclosing function extent.
     writes: Vec<(Span, String)>,
     written_throughout: std::collections::HashSet<String>,
-    aliases: Vec<(String, String)>,
+    given: Vec<(Span, String, Option<String>)>,
 }
 
 impl Bindings {
@@ -2829,24 +2939,42 @@ impl Bindings {
     fn names_for(&self, node: &str, at: Span) -> std::collections::HashSet<String> {
         let mut out: std::collections::HashSet<String> = std::collections::HashSet::new();
         out.insert(node.to_string());
-        // Bounded: one pass per link, and a `a = b; b = a` pair cannot grow the set twice.
-        for _ in 0..8 {
+        // To a fixed point, not a fixed count. Each pass adds at least one name or stops, and
+        // a name is never added twice, so `a = b; b = a` terminates on the set alone — the
+        // cap it was paired with only made a chain of nine copies lose the helper silently.
+        loop {
             let more: Vec<String> = self
-                .aliases
+                .given
                 .iter()
-                .filter(|(alias, src)| {
-                    out.contains(src.as_str())
-                        && !out.contains(alias.as_str())
-                        && !self.written_in_scope(alias, at)
+                .filter(|(_, name, from)| {
+                    // Copied from a name that already stands for the node, and given a value
+                    // exactly once in the scopes covering the call. Given twice it is not a
+                    // copy of anything in particular — `current = row; current =
+                    // row.child("detail")` names the detail node by the time the helper is
+                    // called, and following it to `row` would file the reads under the wrong
+                    // node. `given_once_in` counts only what is in scope, which is also what
+                    // keeps a nested function's copy from answering out here; checking the
+                    // extent again alongside it said the same thing twice.
+                    from.as_deref().is_some_and(|f| out.contains(f))
+                        && !out.contains(name.as_str())
+                        && self.given_once_in(name, at)
                 })
-                .map(|(alias, _)| alias.clone())
+                .map(|(_, name, _)| name.clone())
                 .collect();
             if more.is_empty() {
-                break;
+                return out;
             }
             out.extend(more);
         }
-        out
+    }
+
+    /// Whether `name` is given a value exactly once in the scopes covering `at`.
+    fn given_once_in(&self, name: &str, at: Span) -> bool {
+        self.given
+            .iter()
+            .filter(|(e, n, _)| n == name && at.start >= e.start && at.end <= e.end)
+            .count()
+            == 1
     }
 
     /// Whether `name` is bound by a scope strictly inside this source that contains `at` —
@@ -2891,7 +3019,7 @@ fn all_bindings(program: &oxc_ast::ast::Program<'_>) -> Bindings {
         scoped: c.scoped,
         writes: c.writes,
         written_throughout: c.written_throughout,
-        aliases: c.aliases,
+        given: c.given,
     }
 }
 
@@ -6724,6 +6852,149 @@ mod tests {
     }
 
     #[test]
+    fn a_nested_functions_alias_does_not_answer_for_this_node() {
+        // `current` is bound only inside `f`, so the outer `parse(current)` was never handed
+        // the row. A flat alias list made the pair visible anyway and filed `leaked` under
+        // `<row>`. I wrote the extent filter for this, could not reproduce it with two
+        // sibling MAPPED callbacks — which are analysed over their own sources — and removed
+        // it as untestable. A nested plain function shares the collection; it reproduces.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("leaked"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                e.mapChildrenWithTag("row", function(row){
+                    function f(){ var current = row; current.attrString("inner"); }
+                    f();
+                    parse(current);
+                });
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let row = p.fields.iter().find(|f| f.name == "row").expect("row");
+        let leaked = row
+            .children
+            .as_ref()
+            .is_some_and(|kids| kids.iter().any(|f| f.name == "leaked"));
+        assert!(
+            !leaked,
+            "the nested function's alias is not this scope's: {:?}",
+            row.children
+        );
+    }
+
+    #[test]
+    fn an_alias_made_by_plain_assignment_is_followed_too() {
+        // `var current; current = row` aliases as much as the declarator form does. Reading
+        // only initializers left this matching no argument position, losing the helper with
+        // nothing recorded — and the aliasing assignment must not count as the write that
+        // invalidates the alias it just made.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                e.mapChildrenWithTag("row", function(row){
+                    var current;
+                    current = row;
+                    parse(current);
+                });
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let row = p.fields.iter().find(|f| f.name == "row").expect("row");
+        assert!(
+            row.children
+                .as_ref()
+                .is_some_and(|kids| kids.iter().any(|f| f.name == "id")),
+            "the assigned alias is the node: {:?}",
+            row.children
+        );
+    }
+
+    #[test]
+    fn an_alias_captured_before_the_node_moves_is_still_followed() {
+        // `var original = row; row = row.child("detail"); parse(original)` — `original` still
+        // names the row. Rejecting the whole call because the PARAMETER was written somewhere
+        // in the function threw away fields that were recoverable, leaving only a drop marker.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                e.mapChildrenWithTag("row", function(row){
+                    var original = row;
+                    row = row.child("detail");
+                    parse(original);
+                });
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let row = p.fields.iter().find(|f| f.name == "row").expect("row");
+        assert!(
+            row.children
+                .as_ref()
+                .is_some_and(|kids| kids.iter().any(|f| f.name == "id")),
+            "the captured alias survives the parameter moving: {:?}",
+            row.children
+        );
+    }
+
+    #[test]
+    fn a_long_alias_chain_is_followed_to_its_end() {
+        // Nine copies. A fixed iteration count stopped short of the last one and lost the
+        // helper silently; the set only ever grows, so it terminates on its own.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                e.mapChildrenWithTag("row", function(row){
+                    var a1 = row, a2 = a1, a3 = a2, a4 = a3, a5 = a4,
+                        a6 = a5, a7 = a6, a8 = a7, a9 = a8;
+                    parse(a9);
+                });
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let row = p.fields.iter().find(|f| f.name == "row").expect("row");
+        assert!(
+            row.children
+                .as_ref()
+                .is_some_and(|kids| kids.iter().any(|f| f.name == "id")),
+            "the ninth copy still names the node: {:?}",
+            row.children
+        );
+    }
+
+    #[test]
+    fn a_tracked_child_that_is_reassigned_is_not_handed_on() {
+        // `i = i.child("other")` leaves `child_vars["i"]` naming `<participants>`, so the
+        // helper's fields landed under it. The own-node path was hardened against exactly
+        // this and this one was not.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                var i = e.child("participants");
+                i = i.child("other");
+                parse(i);
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let participants = p.fields.iter().find(|f| f.name == "participants");
+        let misplaced = participants
+            .and_then(|f| f.children.as_ref())
+            .is_some_and(|kids| kids.iter().any(|f| f.name == "id"));
+        assert!(
+            !misplaced,
+            "not the participants' attribute: {:?}",
+            participants.and_then(|f| f.children.as_ref())
+        );
+    }
+
+    #[test]
     fn an_alias_of_the_node_that_is_reassigned_is_not_followed() {
         // An alias only stands for the node while nothing has written to it. Following
         // `current` after `current = row.child("detail")` would file the helper's reads
@@ -6834,6 +7105,34 @@ mod tests {
         let fields = helper_reached_via("try { parse(e); } catch (x) {}");
         let id = fields.iter().find(|f| f.name == "id").expect("recovered");
         assert!(!id.required, "the handler swallows the failure: {id:?}");
+    }
+
+    #[test]
+    fn a_helper_in_a_controlling_expression_is_still_required() {
+        // `switch (parse(e))` evaluates the discriminant to choose a case, and a loop test
+        // runs before the first pass. Raising the counter around the WHOLE statement — the
+        // first shape of this fix — relaxed those too, which is the harmful direction:
+        // generated decoding then accepts nodes the parser turns away.
+        for body in [
+            "switch (parse(e)) { case 1: break; }",
+            "while (parse(e)) { break; }",
+            "for (var i = parse(e); i < 2; i++) { }",
+            "for (var k in parse(e)) { }",
+        ] {
+            let fields = helper_reached_via(body);
+            let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+            assert!(id.required, "always evaluated in `{body}`: {id:?}");
+        }
+    }
+
+    #[test]
+    fn a_try_without_a_catch_keeps_its_reads_required() {
+        // `try { parse(e); } finally { … }` has no handler, so an error propagates out of
+        // the parser: there is no path where the block failed and a result was still
+        // produced. Weakening every `try` alike accepted what the source rejects.
+        let fields = helper_reached_via("try { parse(e); } finally { cleanup(); }");
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(id.required, "nothing swallows the failure: {id:?}");
     }
 
     #[test]
