@@ -935,7 +935,13 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
         // Over the paths that can PRODUCE a result. An arm ending in `throw` returns nothing,
         // so every successful execution took one of the others — including it as an empty path
         // left a field optional that every path yielding a value reads.
-        let exhaustive = stmt.cases.iter().any(|c| c.test.is_none());
+        // A `default` is not the only way the cases can cover every value. A discriminant that
+        // can only be `true` or `false` is covered by listing both, and `switch (!!flag) { case
+        // true: … case false: … }` runs one of them on every execution — so the intersection
+        // belongs exactly as much as it does under a `default`. The default-only gate skipped
+        // it and left the fields optional.
+        let exhaustive = stmt.cases.iter().any(|c| c.test.is_none())
+            || (statically_boolean(&stmt.discriminant) && both_booleans_listed(&stmt.cases));
         // Entering at case `i` runs its consequent and then falls through, so whether that
         // ENTRY can produce a value is what decides whether it belongs in the intersection.
         // `entry_paths_throw` already modelled the fallthrough for the test ordering and this
@@ -1319,8 +1325,26 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
         self.visit_expression(&expr.alternate);
         let else_side = self.guard_claims[before_else.0..].to_vec();
         let else_weak = self.relaxed_by_branch[before_else.1..].to_vec();
-        self.settle_guard_intersection(before_then.0, parked, &[then_side, else_side]);
-        let established = branch_intersection(&then_weak, &else_weak);
+        // Over the arms that can PRODUCE a value, which the `if` has filtered since the round
+        // that taught it and this spelling of the same choice never did. `flag ? parse(e) :
+        // (function(){ throw Error(); })()` calls `parse` on every execution that yields
+        // anything, and intersecting against the empty throwing arm left the payload optional
+        // and its guard unpublished — the parser rejecting a response the generated one accepts.
+        let arms: Vec<(Vec<RelaxedId>, Vec<ResponseAssertion>)> = [
+            (&expr.consequent, then_weak, then_side),
+            (&expr.alternate, else_weak, else_side),
+        ]
+        .into_iter()
+        .filter(|(arm, _, _)| !expression_throws(arm))
+        .map(|(_, w, g)| (w, g))
+        .collect();
+        let guard_arms: Vec<Vec<ResponseAssertion>> = arms.iter().map(|(_, g)| g.clone()).collect();
+        self.settle_guard_intersection(before_then.0, parked, &guard_arms);
+        let established = arms
+            .into_iter()
+            .map(|(w, _)| w)
+            .reduce(|a, b| branch_intersection(&a, &b))
+            .unwrap_or_default();
 
         self.relaxed_by_branch.truncate(before_then.1);
         self.settle_branch_intersection(established);
@@ -7937,6 +7961,88 @@ fn iterates_at_least_once(e: &Expression<'_>) -> bool {
     }
 }
 
+/// Whether this discriminant can only be `true` or `false`, so listing both covers it.
+///
+/// Deliberately narrow: the spellings that PRODUCE a boolean whatever their operand holds — a
+/// literal, a `!` (so `!x` and the minifier's `!!x` alike), and the comparison and equality
+/// operators, plus `in` and `instanceof`. Anything else, including a call, is left alone:
+/// reading a discriminant as boolean when it is not would call a switch exhaustive that an
+/// unlisted value falls straight through, and require of every element what such an execution
+/// never reads.
+fn statically_boolean(d: &Expression<'_>) -> bool {
+    use oxc_syntax::operator::BinaryOperator as B;
+    match peel(d) {
+        Expression::BooleanLiteral(_) => true,
+        Expression::UnaryExpression(u) => {
+            u.operator == oxc_syntax::operator::UnaryOperator::LogicalNot
+        }
+        Expression::BinaryExpression(b) => matches!(
+            b.operator,
+            B::Equality
+                | B::Inequality
+                | B::StrictEquality
+                | B::StrictInequality
+                | B::LessThan
+                | B::LessEqualThan
+                | B::GreaterThan
+                | B::GreaterEqualThan
+                | B::In
+                | B::Instanceof
+        ),
+        _ => false,
+    }
+}
+
+/// Whether these cases list `true` and `false` both, which covers a boolean discriminant.
+///
+/// The switch matches with STRICT equality, so only the boolean literals themselves count —
+/// `case 1:` never matches `true` however truthy it looks.
+fn both_booleans_listed(cases: &[oxc_ast::ast::SwitchCase<'_>]) -> bool {
+    let listed = |want: bool| {
+        cases.iter().any(|c| {
+            c.test.as_ref().is_some_and(
+                |t| matches!(peel(t), Expression::BooleanLiteral(b) if b.value == want),
+            )
+        })
+    };
+    listed(true) && listed(false)
+}
+
+/// Whether evaluating this EXPRESSION certainly raises, so no execution takes its value.
+///
+/// [`throws_out`] answers this for statements; a ternary arm is an expression, and the only
+/// spelling that settles it here is a body invoked on the spot whose statements all leave by
+/// throwing — `(function(){ throw Error(); })()`, which is how a minifier writes an
+/// unconditional raise in expression position. Anything else, including a call to a function
+/// this cannot see, is left alone: claiming a raise where none happens would drop the reads of
+/// an arm executions really do take.
+fn expression_throws(e: &Expression<'_>) -> bool {
+    let peeled = peel(e);
+    let Expression::CallExpression(c) = peeled else {
+        return false;
+    };
+    match invoked_callee(&c.callee) {
+        Expression::FunctionExpression(f) if !f.generator && !f.r#async => {
+            f.body.as_ref().is_some_and(|b| throws_out(&b.statements))
+        }
+        Expression::ArrowFunctionExpression(f) if !f.r#async => throws_out(&f.body.statements),
+        _ => false,
+    }
+}
+
+/// The text of a template with nothing substituted into it, which is a string literal spelled
+/// another way. `None` for one carrying a substitution — that names whatever it evaluates to —
+/// and for one whose cooked value an invalid escape has removed.
+fn single_quasi<'b>(t: &'b oxc_ast::ast::TemplateLiteral<'_>) -> Option<&'b str> {
+    if !t.expressions.is_empty() || t.quasis.len() != 1 {
+        return None;
+    }
+    t.quasis
+        .first()
+        .and_then(|q| q.value.cooked.as_ref())
+        .map(|c| c.as_str())
+}
+
 /// Whether `t` is a test no value of it can make false, so the loop it controls necessarily
 /// runs its body. Deliberately narrow: only the spellings a minifier emits, because reading a
 /// test as always-true when it is not would require reads the parser can skip.
@@ -7944,6 +8050,14 @@ fn always_true(t: &Expression<'_>) -> bool {
     match t {
         Expression::BooleanLiteral(b) => b.value,
         Expression::NumericLiteral(n) => n.value != 0.0,
+        // A string is decided by whether it holds anything, exactly as a number is decided by
+        // whether it is zero. This pair read every numeric spelling and no textual one, so
+        // `if ("x")` was a branch and the read inside it came out optional against a side that
+        // does not exist. A template with nothing substituted into it is the same string
+        // spelled another way — one with a substitution is whatever that evaluates to, which is
+        // not a question for a syntactic pass.
+        Expression::StringLiteral(l) => !l.value.is_empty(),
+        Expression::TemplateLiteral(t) => single_quasi(t).is_some_and(|c| !c.is_empty()),
         Expression::ParenthesizedExpression(p) => always_true(&p.expression),
         // `while (!0)`, which is how this corpus spells it 74 times over.
         Expression::UnaryExpression(u)
@@ -7992,6 +8106,9 @@ fn always_false(t: &Expression<'_>) -> bool {
         Expression::BooleanLiteral(b) => !b.value,
         Expression::NumericLiteral(n) => n.value == 0.0,
         Expression::NullLiteral(_) => true,
+        // The mirror of the rule above: the empty string is the one falsy string.
+        Expression::StringLiteral(l) => l.value.is_empty(),
+        Expression::TemplateLiteral(t) => single_quasi(t).is_some_and(str::is_empty),
         Expression::ParenthesizedExpression(p) => always_false(&p.expression),
         // `while (!1)` and `if (!1)` are as decided as `!0` is, and this pair was written with
         // the negation on one side only — so `if (!1) { … } else { parse(e); }` intersected the
@@ -11358,6 +11475,116 @@ mod tests {
             !fields.iter().any(|f| f.name == "id"),
             "that slot is undefined and its default runs: {fields:?}"
         );
+    }
+
+    #[test]
+    fn a_string_test_is_as_decided_as_a_numeric_one() {
+        // A string is decided by whether it holds anything, exactly as a number is decided by
+        // whether it is zero. This pair read every numeric spelling and no textual one, so
+        // `if ("x")` was a branch and the read inside it came out optional against a side that
+        // does not exist. A template with nothing substituted into it is the same string.
+        for body in [
+            r#"if ("x") { parse(e); }"#,
+            r#"if ("") { other(); } else { parse(e); }"#,
+            r#""x" ? parse(e) : other();"#,
+            r#""" ? other() : parse(e);"#,
+            "if (`x`) { parse(e); }",
+            "if (``) { other(); } else { parse(e); }",
+        ] {
+            assert_eq!(
+                guards_and_field(body),
+                (true, true),
+                "`{body}` always runs it"
+            );
+        }
+        // The bound: a template carrying a SUBSTITUTION names whatever that evaluates to, which
+        // is not a question for a syntactic pass — so it is still a branch, and so is a string
+        // this pass never sees the value of.
+        for body in [
+            // The first quasi of this one is NONEMPTY, which is what separates the two
+            // readings: `${flag}` alone has an empty leading quasi, so a version that ignored
+            // the substitution would call it FALSE and skip the branch — the same answer by a
+            // different route, and no bound at all. That was round forty-four's lesson and my
+            // first draft of this test repeated it.
+            "if (`x${flag}`) { parse(e); }",
+            "if (`${flag}`) { parse(e); }",
+            "if (s) { parse(e); }",
+        ] {
+            assert_eq!(
+                guards_and_field(body),
+                (false, false),
+                "`{body}` may skip it"
+            );
+        }
+    }
+
+    #[test]
+    fn a_ternary_arm_that_cannot_yield_does_not_dilute() {
+        // Every execution that hands a value back took an arm that produces one. The `if` has
+        // filtered its throwing side since the round that taught it; the ternary — the same
+        // choice spelled shorter — intersected against the empty arm, so `parse`'s payload came
+        // out optional and its guard unpublished, and the generated parser accepted a response
+        // the source parser always throws on.
+        for body in [
+            "flag ? parse(e) : (function () { throw Error(); })();",
+            "flag ? (function () { throw Error(); })() : parse(e);",
+            "flag ? parse(e) : (() => { throw Error(); })();",
+        ] {
+            assert_eq!(
+                guards_and_field(body),
+                (true, true),
+                "`{body}` calls it on every path that yields"
+            );
+        }
+        // The bounds. An arm that completes still dilutes, and a call this pass cannot see
+        // inside is not a raise it may claim — saying otherwise would drop the reads of an arm
+        // executions really do take.
+        for body in [
+            "flag ? parse(e) : other();",
+            "flag ? parse(e) : raise();",
+            "flag ? parse(e) : (function () { maybe(); })();",
+        ] {
+            assert_eq!(
+                guards_and_field(body),
+                (false, false),
+                "`{body}` has a second arm that yields"
+            );
+        }
+    }
+
+    #[test]
+    fn listing_both_booleans_covers_a_boolean_discriminant() {
+        // A `default` is not the only way the cases can cover every value. `switch (!!flag)`
+        // can only be `true` or `false`, so listing both runs one of them on every execution
+        // and the intersection belongs exactly as it does under a `default`.
+        for body in [
+            "switch (!!flag) { case true: parse(e); break; case false: parse(e); break; }",
+            "switch (!flag) { case false: parse(e); break; case true: parse(e); break; }",
+            "switch (a === b) { case true: parse(e); break; case false: parse(e); break; }",
+            "switch (k in o) { case true: parse(e); break; case false: parse(e); break; }",
+        ] {
+            assert_eq!(
+                guards_and_field(body),
+                (true, true),
+                "`{body}` covers every value"
+            );
+        }
+        // The bounds, and they matter more here than usual because this WIDENS what is
+        // required. A discriminant this cannot prove boolean is not covered by two cases; one
+        // of the two booleans left out leaves a value that runs nothing; and the switch matches
+        // with STRICT equality, so `case 1:` never matches `true` however truthy it looks.
+        for body in [
+            "switch (k) { case true: parse(e); break; case false: parse(e); break; }",
+            "switch (f()) { case true: parse(e); break; case false: parse(e); break; }",
+            "switch (!!flag) { case true: parse(e); break; }",
+            "switch (!!flag) { case true: parse(e); break; case 0: parse(e); break; }",
+        ] {
+            assert_eq!(
+                guards_and_field(body),
+                (false, false),
+                "`{body}` leaves a value uncovered"
+            );
+        }
     }
 
     fn helper_reached_via(body: &str) -> Vec<ParsedField> {
