@@ -3159,6 +3159,19 @@ fn effective_arguments<'b, 'a>(
     arguments_then(callee_expr, arguments, Vec::new())
 }
 
+/// The KEY of a computed member, when there is one — the expression evaluated between the
+/// object and the call.
+///
+/// [`named_member`] reads through it to decide WHICH property is named and hands back only the
+/// object, so a key that writes on the way had that write recorded nowhere. Returned whatever
+/// the key spells: a bare literal evaluates nothing and walking it costs nothing.
+fn computed_key<'b, 'a>(e: &'b Expression<'a>) -> Option<&'b Expression<'a>> {
+    match e {
+        Expression::ComputedMemberExpression(m) => Some(&m.expression),
+        _ => None,
+    }
+}
+
 /// Through the wrappers that do not change which value an expression is — and no further.
 /// `invoked_callee` looks through `bind` as well, which is the wrong depth for anything asking
 /// what the receiver of a `bind` actually is.
@@ -3307,6 +3320,12 @@ fn leading_parts<'b, 'a>(e: &'b Expression<'a>, out: &mut Vec<&'b Expression<'a>
         _ if named_member(e).is_some_and(|(name, _)| matches!(name.as_ref(), "call" | "apply")) => {
             let (_, object) = named_member(e).expect("checked");
             leading_parts(object, out);
+            // …and the KEY, which is evaluated on the way to the member and can write on the
+            // way: `(function(){}) [(current = other, "call")](null)` names `call` and assigns
+            // first. `named_member` reads through the parentheses and the comma to the literal
+            // and hands back only the object, so everything the key evaluated was recorded
+            // nowhere at all. After the object, which is evaluated first.
+            out.extend(computed_key(e));
         }
         // `(function(){ … }).bind(null, current = other)()` evaluates the bind call — receiver
         // and arguments both — before the body it returns is ever entered. The callee unwrapper
@@ -3318,6 +3337,9 @@ fn leading_parts<'b, 'a>(e: &'b Expression<'a>, out: &mut Vec<&'b Expression<'a>
                 return;
             };
             leading_parts(receiver, out);
+            // The same key, for the same reason: `f[(current = other, "bind")](null)()` resolves
+            // the member before it binds anything.
+            out.extend(computed_key(&c.callee));
             out.extend(c.arguments.iter().map(|a| match a {
                 // A spread still evaluates what it spreads.
                 Argument::SpreadElement(s) => &s.argument,
@@ -5083,7 +5105,11 @@ struct AllBindings {
     /// entered, so `(function(){ current = other; })(parse(current))` hands `parse` the original
     /// node. Ordering that write by its own span had it look already effective, and the descent
     /// was refused for a node still standing.
-    effects_land_at: Vec<(Span, u32)>,
+    /// One entry per invocation in progress: the regions whose writes land at that call, the
+    /// whole invoked body those regions sit in, and where the call ends. Regions PLURAL because
+    /// a class under `new` has several and they are not contiguous — see
+    /// [`ParserAnalyzer::lands_at`].
+    effects_land_at: Vec<(Vec<Span>, Span, u32)>,
     /// Function bodies that are immediately invoked, each with the REGIONS of it that run
     /// synchronously with the call: a write inside one of those has certainly run by the time
     /// anything after the call reads it.
@@ -5201,9 +5227,35 @@ impl AllBindings {
             effective: self.effect_position(at.end),
             runs_before: self.runs_before.last().cloned().unwrap_or_default(),
             runs_after: self.runs_after.last().cloned().unwrap_or_default(),
-            lands_at: self.effects_land_at.first().copied(),
+            lands_at: self.lands_at(at),
             repeats_in: self.innermost_repeating(),
         });
+    }
+
+    /// Where a record written at `at` lands for observers outside the body it sits in.
+    ///
+    /// One region per invoked body rather than one span for the whole callee, because a class
+    /// under `new` has several and they are not contiguous: its constructor and its instance
+    /// initializers run at the construction, while its computed keys and STATIC initializers ran
+    /// when the class was defined — before the arguments, not after them. Handing the whole
+    /// class span to this ordered a static write after an argument it in fact precedes, so
+    /// `new (class { static x = (current = other); })(parse(current))` read the argument against
+    /// a node the class definition had already replaced.
+    ///
+    /// A record outside every region answers `None` and is ordered by position, which is the
+    /// right answer for the definition phase: the class is written above the arguments.
+    ///
+    /// The regions decide only whether this record lands at the call. What comes back is the
+    /// whole invoked BODY, because that is the question the ordering asks of a reader — a field
+    /// initializer and the constructor that follows it are two regions and one body, and
+    /// handing back the initializer alone made a read in the constructor an outside observer of
+    /// a write it certainly sees.
+    fn lands_at(&self, at: Span) -> Option<(Span, u32)> {
+        let (regions, body, call_end) = self.effects_land_at.first()?;
+        regions
+            .iter()
+            .any(|r| covers(*r, at))
+            .then_some((*body, *call_end))
     }
 
     /// The extent of the binding `name` refers to at `at`: the tightest recorded scope for
@@ -5394,7 +5446,11 @@ impl AllBindings {
         //
         // Around the callee only: an argument that writes runs where it is written, and pinning
         // that to the call would order it after a body it precedes.
-        self.effects_land_at.push((callee.span(), span.end));
+        self.effects_land_at.push((
+            construction_regions(callee, constructs),
+            callee.span(),
+            span.end,
+        ));
         // A tagged template hands its tag the strings object and then the substitutions, so the
         // mapping is the substitutions shifted one place — and position 0 is supplied by a value
         // that is certainly not `undefined`, whatever the template says. Handing this an empty
@@ -5655,7 +5711,7 @@ impl<'a> Visit<'a> for AllBindings {
                 effective: self.effect_position(id.span.end),
                 runs_before: self.runs_before.last().cloned().unwrap_or_default(),
                 runs_after: self.runs_after.last().cloned().unwrap_or_default(),
-                lands_at: self.effects_land_at.first().copied(),
+                lands_at: self.lands_at(id.span),
                 // A loop whose body throws does not come round again, so a dead write must not
                 // claim repetition either — that is the other half of `effective`.
                 repeats_in: (self.dead == 0 || self.caught > 0)
@@ -5675,7 +5731,27 @@ impl<'a> Visit<'a> for AllBindings {
         // recorded for a node nothing had moved yet. Set before the value is recorded, not
         // just around the walk that records the write: having it cover one and not the other
         // is how the two halves of one assignment came to disagree.
-        let outer = self.assign_end.replace(e.span.end);
+        // What that end was standing in for is "the write follows the right-hand side", and the
+        // end says it only because a simple target is written ABOVE its right-hand side. A
+        // DESTRUCTURING pattern is not: it assigns its targets one at a time, in pattern order,
+        // with each default evaluated after the target above it is written, so
+        // `[current, x = parse(current)] = [other]` hands `parse` the NEW `current` — and one
+        // shared end delayed every target past that default.
+        //
+        // So the rule is stated directly instead: each target is written where it stands, and
+        // the whole pattern declares that it FOLLOWS the right-hand side. That is what
+        // `runs_after` is for, and it is the same answer for a simple target — where position
+        // and the region agree, no input separates the two, and I first wrote it as a gated
+        // special case before finding that out. A condition no test can hold is one to remove.
+        let outer = self.assign_end.take();
+        // Added to whatever this already follows rather than replacing it: an assignment can sit
+        // inside a region that has already declared one — a derived class's field initializer,
+        // which follows everything up to its `super()` — and pushing a fresh list dropped that.
+        // Which is a defect my first draft had, and the mutation that reinstates it is what says
+        // so.
+        let mut after = self.runs_after.last().cloned().unwrap_or_default();
+        after.push(e.right.span());
+        self.runs_after.push(after);
         // `current = row` makes an alias as much as `var current = row` does; recording only
         // the declarator form left the plain one matching no argument position and losing the
         // helper with nothing said. The accumulator search in this file already reads both,
@@ -5691,6 +5767,7 @@ impl<'a> Visit<'a> for AllBindings {
             self.given_value(t.name.as_str(), from, t.span, false);
         }
         walk::walk_assignment_expression(self, e);
+        self.runs_after.pop();
         self.assign_end = outer;
     }
 
@@ -5727,7 +5804,7 @@ impl<'a> Visit<'a> for AllBindings {
                         effective: self.effect_position(d.span.end),
                         runs_before: self.runs_before.last().cloned().unwrap_or_default(),
                         runs_after: self.runs_after.last().cloned().unwrap_or_default(),
-                        lands_at: self.effects_land_at.first().copied(),
+                        lands_at: self.lands_at(id.span),
                         repeats_in: (self.dead == 0 || self.caught > 0)
                             .then(|| self.innermost_repeating())
                             .flatten(),
@@ -5974,7 +6051,7 @@ impl<'a> Visit<'a> for AllBindings {
             .copied();
         if let Some((g, call_end)) = bound {
             self.iife.push((g, vec![g]));
-            self.effects_land_at.push((g, call_end));
+            self.effects_land_at.push((vec![g], g, call_end));
         }
         self.fns.push(func.span);
         let outer = self.hoists;
@@ -10968,6 +11045,94 @@ mod tests {
             !fields.iter().any(|f| f.name == "id"),
             "the default's getter runs when nothing is supplied: {fields:?}"
         );
+    }
+
+    #[test]
+    fn a_computed_invocation_key_is_evaluated_on_the_way() {
+        // `named_member` reads through the parentheses and the comma to decide WHICH property is
+        // named, and hands back only the object — so everything the key evaluated on the way was
+        // recorded nowhere at all. It is evaluated between the object and the call, and it can
+        // write while it is there.
+        for body in [
+            "var current = e; (function () {})[(current = other, \"call\")](null); parse(current);",
+            "var current = e; (function () {})[(current = other, \"bind\")](null)(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "the key already replaced it: {body}"
+            );
+        }
+        // The bound: a key that evaluates nothing changes nothing, and the invocation it names
+        // is still recognized — this is the same unwrapping, not a new refusal.
+        let fields = helper_reached_via(
+            "var current = e; (function () { current = other; })[\"call\"](null); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the body still runs at the call: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn a_destructuring_assignment_writes_its_targets_in_order() {
+        // A pattern assigns one target at a time, and a default beside a target is evaluated
+        // after the target above it is written: `[current, x = parse(current)] = [other]` hands
+        // `parse` the NEW `current`. Pinning every target's write to the whole expression's end
+        // — which is what a simple `a = b` needs — delayed them all past that default.
+        let fields =
+            helper_reached_via("var current = e; [current, x = parse(current)] = [other];");
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the target above it was already written: {fields:?}"
+        );
+        // The bound, and the reason the ordering is a `runs_after` region rather than a
+        // position: the right-hand side is evaluated before ANY target is written, and it is
+        // written BELOW the pattern, so position alone would call the write already effective
+        // there. A read in the right-hand side still sees the old value.
+        let fields = helper_reached_via("var current = e; [current] = [parse(current)];");
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the right-hand side runs first: {fields:?}"
+        );
+        // And the simple form answers the same way, which is why it is the same rule rather
+        // than a rule and a condition: its target is written above its right-hand side, so the
+        // region and the old shared end agree about every read there is. This case does NOT
+        // separate the two versions — nothing does — and it is here to say that plainly rather
+        // than to imply a bound it does not hold.
+        let fields = helper_reached_via("var current = e; current = parse(current);");
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "`current = parse(current)` hands `parse` the original node: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn what_a_class_defines_precedes_the_arguments_it_is_constructed_with() {
+        // A class expression is evaluated — computed keys, static initializers and all — before
+        // the arguments of the `new` that constructs it. Handing the whole class span to the
+        // landing rule made a static write an effect of the CALL, which put it after an argument
+        // it in fact precedes. Only the constructor and the instance initializers land there.
+        let fields = helper_reached_via(
+            "var current = e; new (class { static x = (current = other); })(parse(current));",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the class was defined before that argument: {fields:?}"
+        );
+        // The bounds: what really does run at the construction still lands at the call, in both
+        // its spellings — and both are read from one run, because a constructor body and an
+        // instance initializer are two regions of one invoked body.
+        for body in [
+            "var current = e; new (class { constructor() { current = other; } })(parse(current));",
+            "var current = e; new (class { x = (current = other); })(parse(current));",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that write lands at the call, after the argument: {body}"
+            );
+        }
     }
 
     fn helper_reached_via(body: &str) -> Vec<ParsedField> {
