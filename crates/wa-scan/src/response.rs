@@ -929,7 +929,7 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
         // the test, so `do { continue; } while (parse(e))` evaluates `parse` on every execution
         // that can leave the loop at all. Counting it with `break` relaxed a read every
         // successful parse performs.
-        if leaves_before_the_test(&stmt.body) {
+        if leaves_the_loop_with_a_value(&stmt.body) {
             self.in_skipped_path(|s| s.visit_expression(&stmt.test));
         } else {
             self.visit_expression(&stmt.test);
@@ -1170,14 +1170,7 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
         self.guarded_names.extend(tested);
         // `!0 && parse(e)` and `0 || parse(e)` both run the right side always — the third
         // spelling of the same rule, and the counter went up for it too.
-        let certain = match expr.operator {
-            oxc_syntax::operator::LogicalOperator::And => always_true(&expr.left),
-            oxc_syntax::operator::LogicalOperator::Or => always_false(&expr.left),
-            // `??` runs its right side when the left is nullish, which no literal this
-            // narrow can establish.
-            _ => false,
-        };
-        if certain {
+        if logical_right_is_certain(expr) {
             self.visit_expression(&expr.right);
             self.guarded_names.truncate(self.guarded_names.len() - n);
             return;
@@ -1193,16 +1186,15 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
     fn visit_conditional_expression(&mut self, expr: &oxc_ast::ast::ConditionalExpression<'a>) {
         self.visit_expression(&expr.test);
         // `!0 ? a : b` selects its side as surely as `if (!0)` does. Spelling the rule for the
-        // statement and not for the expression is how half the findings on this branch happened.
-        let decided = always_true(&expr.test) || always_false(&expr.test);
-        if decided {
-            let (taken, dead) = if always_true(&expr.test) {
-                (&expr.consequent, &expr.alternate)
-            } else {
-                (&expr.alternate, &expr.consequent)
-            };
+        // statement and not for the expression is how half the findings on this branch happened,
+        // so both read the one selector.
+        if let Some((taken, dead)) =
+            statically_selected(&expr.test, &expr.consequent, Some(&expr.alternate))
+        {
             self.visit_expression(taken);
-            self.in_skipped_path(|s| s.visit_expression(dead));
+            if let Some(dead) = dead {
+                self.in_skipped_path(|s| s.visit_expression(dead));
+            }
             return;
         }
         let tested = self.canonical_guards(&expr.test);
@@ -2942,26 +2934,6 @@ fn one_read_per_property(fields: &mut [ParsedField]) -> bool {
         .all(|f| seen.insert(rust_member_form(&f.name)))
 }
 
-/// Whether a guaranteed pass over `body` can never hand a result back.
-///
-/// Two ways to hand nothing back, and only the first was recognised: every path throws, or
-/// nothing can leave the loop at all. `while (!0) { continue; }` and `for (;;) {}` diverge just
-/// as surely as `while (!0) { throw Error(); }` does, and reading them as paths that produce
-/// something diluted an enclosing intersection with an empty side — leaving optional what every
-/// execution that returns anything performs.
-fn never_completes(body: &Statement<'_>) -> bool {
-    throws_out(std::slice::from_ref(body)) || cannot_be_left(body)
-}
-
-/// Whether nothing in `body` can leave the loop it is the body of.
-///
-/// `continue` deliberately does not count: it starts the next pass rather than leaving, which is
-/// the whole reason `while (!0) { continue; }` diverges. A `break`, `return` or `throw` does,
-/// and so does a labelled jump naming something outside the body.
-fn cannot_be_left(body: &Statement<'_>) -> bool {
-    !contains_exit_where(body, true, false)
-}
-
 /// Whether `t`'s finalizer can complete abruptly with something other than an error, in which
 /// case it hands that back whatever the block and handler did.
 ///
@@ -3028,16 +3000,18 @@ fn throws_out(body: &[Statement<'_>]) -> bool {
             // before it live and both branches of an enclosing `if` in the intersection. The
             // body's own answer decides, so a `break` anywhere in it still makes the loop
             // completable — `throws_out` stops at the first statement control can leave by.
-            Statement::WhileStatement(w) if always_true(&w.test) => never_completes(&w.body),
+            Statement::WhileStatement(w) if always_true(&w.test) => {
+                !leaves_the_loop_with_a_value(&w.body)
+            }
             Statement::ForStatement(f) if f.test.as_ref().is_none_or(always_true) => {
-                never_completes(&f.body)
+                !leaves_the_loop_with_a_value(&f.body)
             }
             // A `do` runs its body before any test, so a throwing body throws whatever the test
             // says — but a body nothing can leave diverges only when the test cannot end the
             // loop either. `do { continue; } while (c)` comes round again and then stops.
             Statement::DoWhileStatement(d) => {
                 throws_out(std::slice::from_ref(&d.body))
-                    || (always_true(&d.test) && cannot_be_left(&d.body))
+                    || (always_true(&d.test) && !leaves_the_loop_with_a_value(&d.body))
             }
             // And a `switch` every arm of which throws, with a `default` so no value escapes
             // by matching nothing. The same `entry_paths_throw` the visitor uses.
@@ -3482,9 +3456,15 @@ struct AllBindings {
     ///
     /// Per PART of a construct, not per construct: an `if` test, a loop header and a `switch`
     /// discriminant all run whatever happens, and calling those skippable would relax reads the
-    /// parser always performs. Two places are deliberately conservative rather than exact — a
-    /// `do`/`while` body, whose first pass is guaranteed, and a `&&` whose left side is
-    /// statically true — because being wrong that way only leaves a field optional.
+    /// parser always performs. A test no value can change is not a branch at all, and the side it
+    /// selects runs always — the same `statically_selected` the requiredness walk reads, so the
+    /// two cannot disagree about one `if`.
+    ///
+    /// What remains deliberately conservative is a loop body whose first pass is guaranteed: a
+    /// `do`/`while`, a `for (;;)` or a `while (!0)` really does run the top of its body, but WHICH
+    /// part of the body that covers is the whole `walk_guaranteed_pass` question, and answering it
+    /// wrong here would call an uncertain value certain. Being wrong the other way only leaves a
+    /// field optional.
     skippable: u32,
     /// How many enclosing `try` BLOCKS have a handler. A throw inside one of those does not end
     /// anything, so nothing under it is a dead path however it leaves.
@@ -3812,6 +3792,22 @@ impl<'a> Visit<'a> for AllBindings {
     fn visit_if_statement(&mut self, stmt: &oxc_ast::ast::IfStatement<'a>) {
         // The test runs whichever way the branch goes; the sides are what control skips.
         self.visit_expression(&stmt.test);
+        // Unless the test decides which side runs, in which case that side runs always and what
+        // it assigns is assigned always. The requiredness walk learned this one round ago and
+        // this collector — added the round after — did not, so the two disagreed about the same
+        // `if`: `var current; if (!0) current = e; parse(current)` had the call read as
+        // unconditional and the VALUE read as conditional, and the helper's fields came out
+        // optional anyway. One rule, two places, one copy missing it, for the fifth time on this
+        // branch; both read the one selector now.
+        if let Some((taken, dead)) =
+            statically_selected(&stmt.test, &stmt.consequent, stmt.alternate.as_ref())
+        {
+            self.visit_statement(taken);
+            if let Some(dead) = dead {
+                self.maybe_skipped(|s| s.visit_statement(dead));
+            }
+            return;
+        }
         self.maybe_skipped(|s| {
             s.visit_statement(&stmt.consequent);
             if let Some(alt) = &stmt.alternate {
@@ -3821,13 +3817,27 @@ impl<'a> Visit<'a> for AllBindings {
     }
 
     fn visit_logical_expression(&mut self, expr: &oxc_ast::ast::LogicalExpression<'a>) {
-        // `flag && (current = e)` assigns only when the left side allowed it.
+        // `flag && (current = e)` assigns only when the left side allowed it — and `!0 && …`
+        // always allows it.
         self.visit_expression(&expr.left);
+        if logical_right_is_certain(expr) {
+            self.visit_expression(&expr.right);
+            return;
+        }
         self.maybe_skipped(|s| s.visit_expression(&expr.right));
     }
 
     fn visit_conditional_expression(&mut self, expr: &oxc_ast::ast::ConditionalExpression<'a>) {
         self.visit_expression(&expr.test);
+        if let Some((taken, dead)) =
+            statically_selected(&expr.test, &expr.consequent, Some(&expr.alternate))
+        {
+            self.visit_expression(taken);
+            if let Some(dead) = dead {
+                self.maybe_skipped(|s| s.visit_expression(dead));
+            }
+            return;
+        }
         self.maybe_skipped(|s| {
             s.visit_expression(&expr.consequent);
             s.visit_expression(&expr.alternate);
@@ -5216,15 +5226,40 @@ fn exits_with_a_value(stmt: &Statement<'_>) -> bool {
     contains_exit_where(stmt, false, true)
 }
 
-/// Whether `stmt` can leave the loop *without reaching its test*, carrying a result.
+/// Whether `stmt` can leave the loop it is the body of *carrying a result* — a `return`, a
+/// `break`, or a labelled jump out of it.
 ///
-/// The `do`/`while` test question, and the one place where `continue` differs from `break`: it
-/// transfers control to the test rather than past it, so `do { continue; } while (parse(e))`
-/// evaluates `parse` on every execution that leaves the loop. A LABELLED continue is counted
-/// as leaving even when it names this loop — recovering that would need the loop's own label
-/// threaded in from the `LabeledStatement` above it, and over-weakening is the safe direction.
-fn leaves_before_the_test(stmt: &Statement<'_>) -> bool {
+/// Not a `throw`, which leaves handing nothing back, and not a `continue`, which starts the next
+/// pass rather than leaving at all. Contrast [`exits_with_a_value`], where a `continue` counts
+/// because the question there is what the rest of a guaranteed pass can be skipped by.
+///
+/// Two callers, and they turn out to be one question. A `do`/`while` reaches its test only if
+/// the body did not leave first — `do { continue; } while (parse(e))` evaluates `parse` on every
+/// execution that leaves the loop at all. And a loop whose test cannot end it produces a value
+/// only by being left this way: `while (!0) { if (bad) throw Error(); }` either throws or runs
+/// forever, so it hands nothing back on any path. That case was missed by asking two questions
+/// instead — "does every path throw" was false, and "is there no way out" counted the throw as
+/// one — and their disjunction covered each pure case while missing the mixture. Asking once
+/// covers all three, and one fewer predicate is the point rather than a side effect.
+///
+/// A LABELLED continue is counted as leaving even when it names this loop — recovering that
+/// would need the loop's own label threaded in from the `LabeledStatement` above it, and
+/// over-weakening is the safe direction.
+fn leaves_the_loop_with_a_value(stmt: &Statement<'_>) -> bool {
     contains_exit_where(stmt, false, false)
+}
+
+/// Whether a logical operator's right side runs whatever its left side evaluated to: `!0 && x`
+/// and `0 || x` both reach `x` always.
+///
+/// `??` is not included — no literal this narrow establishes nullishness. Read by the requiredness
+/// walk and by the binding collector, which have to agree about the same expression.
+fn logical_right_is_certain(expr: &oxc_ast::ast::LogicalExpression<'_>) -> bool {
+    match expr.operator {
+        oxc_syntax::operator::LogicalOperator::And => always_true(&expr.left),
+        oxc_syntax::operator::LogicalOperator::Or => always_false(&expr.left),
+        _ => false,
+    }
 }
 
 /// Which side of a branch a statically decidable test selects, as `(taken, unreachable)`.
@@ -9671,6 +9706,49 @@ mod tests {
             let guards =
                 guards_and_field(&format!("try {{ parse(e); }} catch (x) {{ {handler} }}"));
             assert_eq!(guards, (true, true), "`{handler}` diverges");
+        }
+    }
+
+    #[test]
+    fn a_loop_that_throws_or_diverges_yields_nothing_either() {
+        // `while (!0) { if (bad) throw Error(); }` either throws or runs forever, so it hands
+        // nothing back on any path — and it was read as a value path because the question was
+        // asked twice instead of once: "does every path throw" is false here, and "is there no way
+        // out" counted the throw as one. Each answer covered a pure case and their disjunction
+        // missed the mixture. One predicate — can the body leave carrying a RESULT — covers all
+        // three, and it is the predicate the `do`/`while` test question was already using.
+        for handler in [
+            "while (!0) { if (bad) throw Error(); }",
+            "for (;;) { if (bad) throw Error(); else other(); }",
+        ] {
+            let guards =
+                guards_and_field(&format!("try {{ parse(e); }} catch (x) {{ {handler} }}"));
+            assert_eq!(guards, (true, true), "`{handler}` hands nothing back");
+        }
+    }
+
+    #[test]
+    fn an_alias_a_decided_branch_assigns_is_not_conditional() {
+        // `if (!0) current = e;` assigns on every execution, so the helper it is handed to reads
+        // what every response carries. The requiredness walk was taught to select a statically
+        // decided side one round before the binding collector existed, and the collector then
+        // asked its own version of the question without it — so the CALL was read as
+        // unconditional and the VALUE as conditional, and the fields came out optional anyway.
+        // All three spellings, from the one selector both now read.
+        for body in [
+            "var current; if (!0) current = e; parse(current);",
+            "var current; if (0) other(); else current = e; parse(current);",
+            "var current; !0 && (current = e); parse(current);",
+            "var current; 0 || (current = e); parse(current);",
+            "var current; !0 ? (current = e) : other(); parse(current);",
+            "var current; 0 ? other() : (current = e); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            let id = fields
+                .iter()
+                .find(|f| f.name == "id")
+                .unwrap_or_else(|| panic!("`{body}` recovers the field"));
+            assert!(id.required, "`{body}` assigns on every execution");
         }
     }
 
