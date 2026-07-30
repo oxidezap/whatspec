@@ -3054,6 +3054,17 @@ fn one_read_per_property(fields: &mut [ParsedField]) -> bool {
         .all(|f| seen.insert(rust_member_form(&f.name)))
 }
 
+/// The `.bind` member a call's callee resolves to, if that is what it is — so `f.bind(…)` is
+/// told from `f.map(…)`, whose result is not `f`.
+fn bind_member<'b, 'a>(
+    callee: &'b Expression<'a>,
+) -> Option<&'b oxc_ast::ast::StaticMemberExpression<'a>> {
+    match invoked_callee(callee) {
+        Expression::StaticMemberExpression(m) if m.property.name.as_str() == "bind" => Some(m),
+        _ => None,
+    }
+}
+
 /// The expression a call actually invokes, through the wrappers that do not change it:
 /// parentheses, and a comma expression, whose value is its last element.
 ///
@@ -3082,14 +3093,11 @@ fn invoked_callee<'b, 'a>(mut e: &'b Expression<'a>) -> &'b Expression<'a> {
             }
             // `(function(){ … }).bind(null)()` runs that body now too. The callee of the outer
             // call is itself a CALL, so nothing above matched it and the body was walked as one
-            // nobody reaches. Only `.bind`, and only for its own arguments to be ignored: what
-            // `bind` returns takes the OUTER call's arguments after whatever was bound, which
-            // this does not model, so `effective_arguments` answers nothing for it.
-            Expression::CallExpression(c) => match invoked_callee(&c.callee) {
-                Expression::StaticMemberExpression(m) if m.property.name.as_str() == "bind" => {
-                    &m.object
-                }
-                _ => return e,
+            // nobody reaches. Only `.bind`, whose result IS the receiver's body; what
+            // `(function(){ … }).map(g)` hands back is something else.
+            Expression::CallExpression(c) => match bind_member(&c.callee) {
+                Some(m) => &m.object,
+                None => return e,
             },
             other => return other,
         };
@@ -3126,10 +3134,41 @@ fn effective_arguments<'b, 'a>(
             Expression::SequenceExpression(s) if !s.expressions.is_empty() => {
                 s.expressions.last().expect("checked non-empty")
             }
-            // Through `bind` the outer call's arguments land after whatever was bound, at
-            // positions this does not read. Nothing is claimed rather than the wrong thing.
-            Expression::CallExpression(_) => return Vec::new(),
+            // `f.bind(thisArg, ...bound)(...outer)` hands `f` the BOUND arguments first and the
+            // outer call's after them, which is as countable as an argument list. I answered
+            // "nothing readable" for the whole shape when the invocation was first recognized,
+            // and asserted so in a test; review was right that `.bind(null)(1)` supplies the
+            // first parameter as plainly as `(1)` does. Nesting resolves by the same rule, one
+            // `bind` at a time.
+            Expression::CallExpression(c) => {
+                let Some(m) = bind_member(&c.callee) else {
+                    return Vec::new();
+                };
+                // A spread in the RECEIVER slot moves every position after it, so which
+                // argument is the `thisArg` is not decidable — same reading `.call` takes.
+                if matches!(c.arguments.first(), Some(Argument::SpreadElement(_))) {
+                    return Vec::new();
+                }
+                let bound = direct(c.arguments.get(1..).unwrap_or_default());
+                // A spread inside the bound list ends the mapping: what is bound after it, and
+                // therefore where the outer arguments land, is a count nothing here has.
+                if bound.len() != c.arguments.len().saturating_sub(1) {
+                    return bound;
+                }
+                let mut out = bound;
+                out.extend(effective_arguments(&m.object, arguments));
+                return out;
+            }
             Expression::StaticMemberExpression(m) => {
+                // A spread in the receiver slot contributes an unknown number of values, so
+                // neither slicing it off nor indexing past it identifies anything: `f.call(
+                // ...args, 1)` passes `1` as the receiver when `args` is empty and as the
+                // first argument when it holds one.
+                if matches!(m.property.name.as_str(), "call" | "apply")
+                    && matches!(arguments.first(), Some(Argument::SpreadElement(_)))
+                {
+                    return Vec::new();
+                }
                 return match m.property.name.as_str() {
                     "call" => direct(arguments.get(1..).unwrap_or_default()),
                     "apply" => {
@@ -3173,6 +3212,22 @@ fn leading_parts<'b, 'a>(e: &'b Expression<'a>, out: &mut Vec<&'b Expression<'a>
             if matches!(m.property.name.as_str(), "call" | "apply") =>
         {
             leading_parts(&m.object, out);
+        }
+        // `(function(){ … }).bind(null, current = other)()` evaluates the bind call — receiver
+        // and arguments both — before the body it returns is ever entered. The callee unwrapper
+        // looks through this shape, and this reader did not, so the assignment beside the bound
+        // receiver was recorded nowhere and the helper's fields were published on a node the
+        // call had replaced. Same two-readers-of-one-shape split as the `.call` arm above.
+        Expression::CallExpression(c) => {
+            let Some(m) = bind_member(&c.callee) else {
+                return;
+            };
+            leading_parts(&m.object, out);
+            out.extend(c.arguments.iter().map(|a| match a {
+                // A spread still evaluates what it spreads.
+                Argument::SpreadElement(s) => &s.argument,
+                other => other.to_expression(),
+            }));
         }
         _ => {}
     }
@@ -3688,6 +3743,60 @@ fn ends_the_list_but_for(
 struct ClassPhases<'s> {
     keys: &'s [Span],
     statics: &'s [Span],
+}
+
+/// Whether constructing this class runs its instance field initializers at all.
+///
+/// A DERIVED class installs them the moment `super()` returns, so a constructor that leaves
+/// before calling it never runs a single one — `constructor(){ return {}; }` is legal in a
+/// derived class and completes construction with the returned object. A base class installs
+/// them before its constructor body, so leaving early there changes nothing, and an implicit
+/// constructor is `constructor(...a){ super(...a) }`, which always calls it.
+///
+/// Only a `super()` this can find declines nothing: seeing one anywhere on the way keeps
+/// today's answer, and the fields are treated as skipped only when an unconditional exit is
+/// reached with none seen. Guessing the other way suppresses a write that really happens.
+fn instance_fields_initialize(class: &oxc_ast::ast::Class<'_>) -> bool {
+    if class.super_class.is_none() {
+        return true;
+    }
+    let ctor = class.body.body.iter().find_map(|el| match el {
+        oxc_ast::ast::ClassElement::MethodDefinition(m)
+            if m.kind == oxc_ast::ast::MethodDefinitionKind::Constructor =>
+        {
+            Some(m)
+        }
+        _ => None,
+    });
+    let Some(body) = ctor.and_then(|m| m.value.body.as_ref()) else {
+        return true;
+    };
+    for st in &body.statements {
+        if calls_super(st) {
+            return true;
+        }
+        if ends_the_statement_list(st) {
+            return false;
+        }
+    }
+    true
+}
+
+/// Whether a statement can evaluate `super(...)` anywhere inside it — including in an arrow,
+/// which inherits the constructor's own `super`.
+fn calls_super(st: &Statement<'_>) -> bool {
+    struct Seen(bool);
+    impl<'a> Visit<'a> for Seen {
+        fn visit_call_expression(&mut self, c: &CallExpression<'a>) {
+            if matches!(c.callee, Expression::Super(_)) {
+                self.0 = true;
+            }
+            walk::walk_call_expression(self, c);
+        }
+    }
+    let mut seen = Seen(false);
+    seen.visit_statement(st);
+    seen.0
 }
 
 /// The spans of `callee` whose evaluation happens at CONSTRUCTION, so the arguments precede them.
@@ -5475,6 +5584,13 @@ impl<'a> Visit<'a> for AllBindings {
                 _ => None,
             })
             .collect();
+        // Constructing it does not, on its own, run its instance field initializers. A DERIVED
+        // constructor installs them when `super()` returns, and one that leaves before calling
+        // it — `constructor(){ return {}; }`, which is legal and completes construction — runs
+        // none of them. Treating construction alone as enough recorded a write that never
+        // happens, and the descent was refused for a node still standing. The constructor body
+        // itself does run either way, so only the field gate moves.
+        let instance_fields = constructed && instance_fields_initialize(class);
         let ctor_last = constructed && class.super_class.is_none();
         // Reordering the WALK is not enough on its own: effectiveness is decided by position,
         // and a field written after the constructor is textually after the read inside it. So
@@ -5549,7 +5665,7 @@ impl<'a> Visit<'a> for AllBindings {
                         p.r#static,
                         &p.key,
                         p.value.as_ref(),
-                        constructed,
+                        instance_fields,
                         ClassPhases {
                             keys: &key_spans,
                             statics: &static_spans,
@@ -5569,7 +5685,7 @@ impl<'a> Visit<'a> for AllBindings {
                         p.r#static,
                         &p.key,
                         p.value.as_ref(),
-                        constructed,
+                        instance_fields,
                         ClassPhases {
                             keys: &key_spans,
                             statics: &static_spans,
@@ -16385,14 +16501,82 @@ mod tests {
                 "nothing inline was invoked: {body}"
             );
         }
-        // Through `bind` the outer call's arguments land after whatever was bound, at positions
-        // this does not read — so nothing is claimed about a default they might supply.
-        let fields = helper_reached_via(
+    }
+
+    #[test]
+    fn bound_arguments_land_on_the_parameters_they_reach() {
+        // `f.bind(thisArg, ...bound)(...outer)` hands `f` the bound arguments and then the outer
+        // call's, which is as countable as an argument list — so each of these supplies `x` and
+        // the default beside it never runs. I claimed the opposite when the invocation was first
+        // recognized, and put it in the negative of the test above; review corrected it, and the
+        // case sits on this side now.
+        for body in [
             "var current = e; (function (x = (current = other)) {}).bind(null)(1); parse(current);",
+            "var current = e; (function (x = (current = other)) {}).bind(null, 1)(); parse(current);",
+            // Nesting resolves one `bind` at a time: `null` and `1` are the two receivers, and
+            // the outer `2` is what reaches `x`.
+            "var current = e; (function (x = (current = other)) {}).bind(null).bind(1)(2); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "the argument supplied it: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_position_no_one_can_count_to_supplies_nothing() {
+        // The bound, and the reason the mapping is not simply "skip the receiver". A spread
+        // contributes an unknown number of values, so nothing after it is at a knowable
+        // position — `f.call(...args, 1)` passes `1` as the receiver when `args` is empty and as
+        // the first argument when it holds one. Claiming a position there is the harmful
+        // direction: it suppresses a default that really runs, and publishes a helper's reads
+        // under a node the call had replaced.
+        for body in [
+            // Nothing bound and nothing passed: the default is all there is.
+            "var current = e; (function (x = (current = other)) {}).bind(null)(); parse(current);",
+            "var current = e; (function (x = (current = other)) {}).bind(...args, 1)(); parse(current);",
+            "var current = e; (function (x = (current = other)) {}).bind(null, ...args)(1); parse(current);",
+            "var current = e; (function (x = (current = other)) {}).call(...args, 1); parse(current);",
+            "var current = e; (function (x = (current = other)) {}).apply(...args, [1]); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "the default still ran: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_bind_call_evaluates_its_own_arguments() {
+        // `(function(){ … }).bind(null, current = other)()` evaluates the bind call — receiver
+        // and arguments both — before the body it returns is ever entered. The callee unwrapper
+        // looks through this shape and this reader did not, so the assignment was recorded
+        // nowhere at all.
+        for body in [
+            "var current = e; (function () {}).bind(null, current = other)(); parse(current);",
+            "var current = e; (function () {}).bind(current = other)(); parse(current);",
+            "var current = e; (function () {}).bind(null, ...(current = other))(); parse(current);",
+            // And the RECEIVER of the bind, which is the half that is easy to leave out:
+            // `(current = other, function(){}).bind(null)()` finds the function through the
+            // comma and would lose the assignment sitting beside it.
+            "var current = e; (current = other, function () {}).bind(null)(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "the bind call moved it: {body}"
+            );
+        }
+        // The bound: a bind call that writes nothing leaves the node standing.
+        let fields = helper_reached_via(
+            "var current = e; (function () {}).bind(null, o)(); parse(current);",
         );
         assert!(
-            !fields.iter().any(|f| f.name == "id"),
-            "the bound positions are not read: {fields:?}"
+            fields.iter().any(|f| f.name == "id"),
+            "nothing moved: {fields:?}"
         );
     }
 
@@ -16458,6 +16642,42 @@ mod tests {
             assert!(
                 !fields.iter().any(|f| f.name == "id"),
                 "the target was assigned by then: {body}"
+            );
+        }
+    }
+    #[test]
+    fn a_derived_constructor_that_leaves_first_runs_no_field() {
+        // A derived class installs its instance fields the moment `super()` RETURNS. A
+        // constructor that leaves before calling it — legal, and it completes construction with
+        // the object it returns — runs none of them, so `parse` is handed the node itself.
+        // Construction alone was taken as enough, and the write was recorded for a field that
+        // never initializes.
+        let fields = helper_reached_via(
+            "var current = e; new (class extends Base { constructor(){ return {}; } x = (current = other) })(); parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the field never ran: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn every_other_construction_still_runs_its_fields() {
+        // The bound, four ways. A `super()` on the way still installs them; an implicit
+        // constructor is `constructor(...a){ super(...a) }` and always calls it; a BASE class
+        // installs its fields before the constructor body, so leaving early there changes
+        // nothing; and a `super()` under a condition is one this cannot rule out, which is the
+        // direction that keeps a write rather than guessing it away.
+        for body in [
+            "var current = e; new (class extends Base { constructor(){ super(); } x = (current = other) })(); parse(current);",
+            "var current = e; new (class extends Base { x = (current = other) })(); parse(current);",
+            "var current = e; new (class { constructor(){ return {}; } x = (current = other) })(); parse(current);",
+            "var current = e; new (class extends Base { constructor(){ if (c) super(); return {}; } x = (current = other) })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "the field still initializes: {body}"
             );
         }
     }
