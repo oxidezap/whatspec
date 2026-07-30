@@ -34,7 +34,7 @@ use wa_ir::{AssertionKind, ParsedField, ParsedFieldType, ResponseAssertion, Unio
 
 use crate::emit::emit_struct_parser;
 use crate::fields::{
-    RustChildStruct, RustEnum, RustEnumVariant, RustField, admits_negative,
+    RustChildStruct, RustEnum, RustEnumVariant, RustField, admits_negative, byte_band,
     collect_response_fields, int_band, integer_width, is_attr_field, rust_field_type,
 };
 use crate::naming::{pascal_case, rust_ident, rust_lit, rust_lit_inner};
@@ -998,21 +998,13 @@ fn leaf_guard(f: &ParsedField, node_var: &str) -> Option<String> {
                 None => format!("{parsed}.is_some()"),
             }
         } else {
-            match (f.byte_length, f.byte_min, f.byte_max) {
-                (Some(n), _, _) => {
-                    format!("{node_var}.{raw}.is_some_and(|b| b.len() == {n})")
-                }
-                (None, Some(lo), Some(hi)) => {
-                    format!("{node_var}.{raw}.is_some_and(|b| ({lo}..={hi}).contains(&b.len()))")
-                }
-                (None, Some(lo), None) => {
-                    format!("{node_var}.{raw}.is_some_and(|b| b.len() >= {lo})")
-                }
-                (None, None, Some(hi)) => {
-                    format!("{node_var}.{raw}.is_some_and(|b| b.len() <= {hi})")
+            // The same `byte_band` the ordinary content read now applies, read from one place.
+            match byte_band(f, "b") {
+                Some(test) => {
+                    format!("{node_var}.{raw}.is_some_and(|b| {test})")
                 }
                 // Nothing pinned: presence is the whole of it.
-                (None, None, None) => {
+                None => {
                     // An arm the parser enters without reading the content is
                     // not selected by carrying one — and gating on presence
                     // turned an absent payload the source accepts into no

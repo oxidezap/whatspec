@@ -56,6 +56,22 @@ pub(crate) fn emit_field_parse(f: &ParsedField, node_var: &str, indent: &str) ->
                 "{indent}anyhow::ensure!({test}, \"{fmsg} out of range: {{}}\", {name});"
             ));
         }
+        // And the length a bytes accessor pins, which this path decoded and ignored entirely:
+        // `contentBytes(32)` and `contentBytesRange(1, 128)` both record what they will accept,
+        // and the generated parser took a body of any length. The union's leaf guard has
+        // checked it all along — the same one-rule-two-places asymmetry as the integer band,
+        // on the other kind of constraint, so it reads the same shared predicate.
+        //
+        // Only where the decoded value IS bytes. `contentUint(N)` records a byte length too and
+        // folds those bytes into a `u64`, which has no `len()`; the classifier calls it an
+        // integer, so asking it here keeps the two apart.
+        if wap::method_field_type(method) == ParsedFieldType::Bytes
+            && let Some(test) = super::fields::byte_band(f, &name)
+        {
+            out.push(format!(
+                "{indent}anyhow::ensure!({test}, \"{fmsg} wrong length: {{}}\", {name}.len());"
+            ));
+        }
         return out;
     }
     if !wap::is_attr_method(method) {
@@ -1807,6 +1823,79 @@ mod tests {
             assert!(
                 src.contains(expected),
                 "and the read is untouched (required={required}): {src}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_length_pinned_content_read_enforces_it() {
+        // `contentBytes(32)` and `contentBytesRange(1, 128)` both record what the accessor will
+        // accept, and this path decoded the payload and checked nothing — so the generated
+        // parser took a body of any length. The union's leaf guard has checked it all along;
+        // one rule, two places, one copy missing it, on the byte side this time.
+        for (method, len, lo, hi, want) in [
+            (
+                "contentBytes",
+                Some(32),
+                None,
+                None,
+                "element_value.len() == 32",
+            ),
+            (
+                "contentBytesRange",
+                None,
+                Some(1),
+                Some(128),
+                "(1..=128).contains(&element_value.len())",
+            ),
+            (
+                "contentBytesRange",
+                None,
+                Some(4),
+                None,
+                "element_value.len() >= 4",
+            ),
+        ] {
+            let f = ParsedField {
+                method: method.into(),
+                name: "elementValue".into(),
+                wire_name: Some("elementValue".into()),
+                field_type: ParsedFieldType::Bytes,
+                required: true,
+                byte_length: len,
+                byte_min: lo,
+                byte_max: hi,
+                ..Default::default()
+            };
+            let src = emit_field_parse(&f, "n", "").join("\n");
+            assert!(
+                src.contains(&format!(
+                    "anyhow::ensure!({want}, \"elementValue wrong length"
+                )),
+                "the declared length is enforced: {src}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_content_read_with_no_pinned_length_checks_nothing_extra() {
+        // The paired bound, both ways it matters. Nothing declared means nothing enforced — and
+        // `contentUint(N)` declares a byte length but folds those bytes into a `u64`, which has
+        // no `len()`, so asking the classifier rather than the metadata is what keeps the two
+        // apart instead of emitting code that does not compile.
+        for (method, len) in [("contentBytes", None), ("contentUint", Some(8))] {
+            let f = ParsedField {
+                method: method.into(),
+                name: "elementValue".into(),
+                wire_name: Some("elementValue".into()),
+                required: true,
+                byte_length: len,
+                ..Default::default()
+            };
+            let src = emit_field_parse(&f, "n", "").join("\n");
+            assert!(
+                !src.contains("wrong length"),
+                "no length check here ({method}): {src}"
             );
         }
     }

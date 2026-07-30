@@ -3518,6 +3518,41 @@ fn ends_the_list_but_for(
     }
 }
 
+/// The spans of `callee` whose evaluation happens at CONSTRUCTION, so the arguments precede them.
+///
+/// For a function it is the whole callee: everything in the body runs after the arguments. For
+/// `new (class { … })()` it is not — the class is DEFINED first, so its heritage, computed keys,
+/// static initializers and static blocks all run before the arguments are evaluated, and only the
+/// constructor body and the instance field initializers come after. Naming the whole class span
+/// had `new (class { static x = parse(current); })(current = other)` read the static initializer
+/// as seeing a write it precedes, and the helper's fields were lost from a shape that has them.
+fn construction_regions(callee: &Expression<'_>, constructs: bool) -> Vec<Span> {
+    let Expression::ClassExpression(c) = callee else {
+        return vec![callee.span()];
+    };
+    if !constructs {
+        return vec![callee.span()];
+    }
+    let mut out = Vec::new();
+    for el in &c.body.body {
+        match el {
+            oxc_ast::ast::ClassElement::MethodDefinition(m)
+                if m.kind == oxc_ast::ast::MethodDefinitionKind::Constructor =>
+            {
+                out.push(m.value.span);
+            }
+            oxc_ast::ast::ClassElement::PropertyDefinition(p) if !p.r#static => {
+                out.extend(p.value.as_ref().map(GetSpan::span));
+            }
+            oxc_ast::ast::ClassElement::AccessorProperty(p) if !p.r#static => {
+                out.extend(p.value.as_ref().map(GetSpan::span));
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
 /// The parameter defaults this invocation's own arguments prevent from running.
 ///
 /// A default is evaluated only when its argument is missing or `undefined`, so a call that
@@ -3527,10 +3562,33 @@ fn ends_the_list_but_for(
 /// direction that files a helper's fields under a node the parser has already replaced.
 ///
 /// A spread argument makes every position after it unknowable, so it ends the mapping.
-fn suppressed_defaults(callee: &Expression<'_>, arguments: &[Argument<'_>]) -> Vec<Span> {
+fn suppressed_defaults(
+    callee: &Expression<'_>,
+    arguments: &[Argument<'_>],
+    constructs: bool,
+) -> Vec<Span> {
     let params = match callee {
         Expression::FunctionExpression(f) => &f.params,
         Expression::ArrowFunctionExpression(f) => &f.params,
+        // `new (class { constructor(x = (current = other)) {} })(1)` passes its arguments to
+        // that constructor exactly as a call passes them to a function, so the same defaults
+        // are prevented. Reading only the two function spellings left this one recording a
+        // write the construction prevents — the rule applied to the callee shapes that had it
+        // and not to the one the round before had just made an invocation.
+        Expression::ClassExpression(c) if constructs => {
+            let ctor = c.body.body.iter().find_map(|el| match el {
+                oxc_ast::ast::ClassElement::MethodDefinition(m)
+                    if m.kind == oxc_ast::ast::MethodDefinitionKind::Constructor =>
+                {
+                    Some(&m.value.params)
+                }
+                _ => None,
+            });
+            let Some(params) = ctor else {
+                return Vec::new();
+            };
+            params
+        }
         _ => return Vec::new(),
     };
     let mut out = Vec::new();
@@ -3613,14 +3671,30 @@ fn suppress_in_pattern(
                     // The LAST property of that name, which is the one the object ends up with.
                     // Taking the first had `{x: 1, ["x"]: undefined}` read as supplying `x`,
                     // suppressing a default the effective `undefined` really does run.
-                    props?.properties.iter().rev().find_map(|p| match p {
-                        oxc_ast::ast::ObjectPropertyKind::ObjectProperty(op)
-                            if op.key.static_name().as_deref() == Some(name.as_ref()) =>
-                        {
-                            Some(&op.value)
-                        }
-                        _ => None,
-                    })
+                    // The last property of that name FIRST, then whether its text is the
+                    // value. Deciding both in one `find_map` let a trailing getter fall
+                    // through to an earlier plain property of the same name, which is the
+                    // one the object does not end up with.
+                    props?
+                        .properties
+                        .iter()
+                        .rev()
+                        .find_map(|p| match p {
+                            oxc_ast::ast::ObjectPropertyKind::ObjectProperty(op)
+                                if op.key.static_name().as_deref() == Some(name.as_ref()) =>
+                            {
+                                Some(op)
+                            }
+                            _ => None,
+                        })
+                        // `{get x(){ … }}` supplies `x` by INVOKING that function, whose result
+                        // this cannot read — and `{set x(v){}}` supplies no getter at all, so
+                        // reading `x` yields `undefined` and the default runs. The property's own
+                        // text is the value only for a plain one; a shorthand METHOD is plain in
+                        // that sense, its value being the function itself.
+                        .and_then(|op| {
+                            (op.kind == oxc_ast::ast::PropertyKind::Init).then_some(&op.value)
+                        })
                 });
                 suppress_in_pattern(&prop.value, named, out);
             }
@@ -4043,7 +4117,7 @@ struct Write {
     /// pairing with it.
     effective: u32,
     repeats_in: Option<Span>,
-    runs_before: Option<Span>,
+    runs_before: Vec<Span>,
     lands_at: Option<(Span, u32)>,
 }
 
@@ -4063,7 +4137,7 @@ impl Write {
 fn in_effect_at(
     effective: u32,
     repeats_in: Option<Span>,
-    runs_before: Option<Span>,
+    runs_before: &[Span],
     lands_at: Option<(Span, u32)>,
     at: Span,
 ) -> bool {
@@ -4076,14 +4150,18 @@ fn in_effect_at(
     // arguments, that being the whole reason the invocation is recorded at all.
     if let Some((body, call_end)) = lands_at {
         return if covers(body, at) {
-            effective <= at.start
+            // Position, or a region this record declares it precedes — a class's instance field
+            // initializers all run before its constructor body however they are written, and
+            // both sit inside the one invoked body, so short-circuiting on position alone
+            // answered that ordering with source order.
+            effective <= at.start || runs_before.iter().any(|r| covers(*r, at))
         } else {
             call_end <= at.start
         };
     }
     effective <= at.start
         || repeats_in.is_some_and(|l| covers(l, at))
-        || runs_before.is_some_and(|r| covers(r, at))
+        || runs_before.iter().any(|r| covers(*r, at))
 }
 
 /// The names a statement list declares with `var`, at any depth inside it.
@@ -4160,7 +4238,13 @@ struct Given {
     /// hands `parse` what the ARGUMENT assigned — and the argument is textually after the body
     /// that reads it. Position alone had that read seeing the older value, and it filed the
     /// helper's fields under a node the parser had already replaced.
-    runs_before: Option<Span>,
+    ///
+    /// A LIST, because the parts a record precedes are not always one span: the arguments of
+    /// `new (class { … })()` run after the class is defined and before it is constructed, so
+    /// they precede the constructor body and every instance field initializer while preceding
+    /// no static one — three regions inside one class, of which a single span can name at most
+    /// the wrong union.
+    runs_before: Vec<Span>,
 }
 
 #[derive(Default)]
@@ -4193,9 +4277,11 @@ struct AllBindings {
     /// the transfer run. `try { throw Error(); current = other; } catch (_) {}` recorded that
     /// assignment as effective and refused the descent for a node nothing had moved.
     unreachable: u32,
-    /// The callee bodies whose call is having its ARGUMENTS walked. A write here precedes
-    /// everything in that body, however far after it the argument is written.
-    runs_before: Vec<Span>,
+    /// The regions whose evaluation a record made here precedes, innermost last. A write in a
+    /// call's arguments precedes everything in the callee's body, however far after it the
+    /// argument is written — and for a constructed class the region is several spans, because
+    /// the arguments precede the construction without preceding the definition.
+    runs_before: Vec<Vec<Span>>,
     /// Invocations being walked, as `(the callee's span, the end of the call)`, outermost
     /// first. What the body writes lands at the call for anything OUTSIDE it — the arguments
     /// ran first and the statements after it run later — while inside that same body the write
@@ -4313,7 +4399,7 @@ impl AllBindings {
             from: from.map(|s| s.to_string()),
             at,
             effective: self.effect_position(at.end),
-            runs_before: self.runs_before.last().copied(),
+            runs_before: self.runs_before.last().cloned().unwrap_or_default(),
             lands_at: self.effects_land_at.first().copied(),
             repeats_in: self.innermost_repeating(),
         });
@@ -4453,7 +4539,7 @@ impl AllBindings {
         // Around the callee only: an argument that writes runs where it is written, and pinning
         // that to the call would order it after a body it precedes.
         self.effects_land_at.push((callee.span(), span.end));
-        let suppressed = suppressed_defaults(callee, arguments);
+        let suppressed = suppressed_defaults(callee, arguments, constructs);
         let restore = self.suppressed_defaults.len();
         self.suppressed_defaults.extend(suppressed);
         self.visit_expression(callee);
@@ -4470,7 +4556,8 @@ impl AllBindings {
         // `(function(){ parse(current); })(current = e)` reads what the argument assigned.
         // Only the callee's own span, so a read in another argument still orders normally
         // against this write — the arguments run in their own order.
-        self.runs_before.push(callee.span());
+        self.runs_before
+            .push(construction_regions(callee, constructs));
         for arg in arguments {
             self.visit_argument(arg);
         }
@@ -4621,7 +4708,7 @@ impl<'a> Visit<'a> for AllBindings {
                 name: id.name.as_str().to_string(),
                 at: id.span,
                 effective: self.effect_position(id.span.end),
-                runs_before: self.runs_before.last().copied(),
+                runs_before: self.runs_before.last().cloned().unwrap_or_default(),
                 lands_at: self.effects_land_at.first().copied(),
                 // A loop whose body throws does not come round again, so a dead write must not
                 // claim repetition either — that is the other half of `effective`.
@@ -4692,7 +4779,7 @@ impl<'a> Visit<'a> for AllBindings {
                         name: id.name.as_str().to_string(),
                         at: id.span,
                         effective: self.effect_position(d.span.end),
-                        runs_before: self.runs_before.last().copied(),
+                        runs_before: self.runs_before.last().cloned().unwrap_or_default(),
                         lands_at: self.effects_land_at.first().copied(),
                         repeats_in: (self.dead == 0 || self.caught > 0)
                             .then(|| self.innermost_repeating())
@@ -5054,6 +5141,35 @@ impl<'a> Visit<'a> for AllBindings {
         } else {
             false
         };
+        // Every instance field initializes BEFORE the constructor body runs, wherever the field
+        // is written. Walking the elements in source order got `class { constructor(){ … } x =
+        // (current = other); }` backwards — the constructor read the node the field had already
+        // replaced. Held back and visited last, so source order decides among the fields and the
+        // constructor still comes after all of them.
+        //
+        // A DERIVED class is not this: its instance fields initialize when `super()` returns,
+        // which is somewhere inside the constructor body, and nothing here can say where. Source
+        // order stays the answer there, as it was.
+        let ctor_last = constructed && class.super_class.is_none();
+        // Reordering the WALK is not enough on its own: effectiveness is decided by position,
+        // and a field written after the constructor is textually after the read inside it. So
+        // everything else in the class also declares that it precedes the constructor body.
+        let ctor_body = ctor_last
+            .then(|| {
+                class.body.body.iter().find_map(|el| match el {
+                    oxc_ast::ast::ClassElement::MethodDefinition(m)
+                        if m.kind == oxc_ast::ast::MethodDefinitionKind::Constructor =>
+                    {
+                        Some(m.value.span)
+                    }
+                    _ => None,
+                })
+            })
+            .flatten();
+        if let Some(body) = ctor_body {
+            self.runs_before.push(vec![body]);
+        }
+        let mut held_ctor = None;
         for el in &class.body.body {
             match el {
                 // A constructor invoked by `new` right here runs as certainly as an IIFE body,
@@ -5063,7 +5179,11 @@ impl<'a> Visit<'a> for AllBindings {
                     if constructed && m.kind == oxc_ast::ast::MethodDefinitionKind::Constructor =>
                 {
                     self.iife.push((m.value.span, m.value.span.end));
-                    self.visit_class_element(el);
+                    if ctor_last {
+                        held_ctor = Some(el);
+                    } else {
+                        self.visit_class_element(el);
+                    }
                 }
                 oxc_ast::ast::ClassElement::PropertyDefinition(p) => {
                     self.visit_field_at_definition(
@@ -5103,6 +5223,12 @@ impl<'a> Visit<'a> for AllBindings {
                 }
                 other => self.visit_class_element(other),
             }
+        }
+        if ctor_body.is_some() {
+            self.runs_before.pop();
+        }
+        if let Some(el) = held_ctor {
+            self.visit_class_element(el);
         }
     }
 }
@@ -5145,7 +5271,7 @@ impl Bindings {
                 // The part that is not textual is repetition — a write below the call runs
                 // before it on the next pass — so a write inside a loop that also contains
                 // the call still counts.
-                && in_effect_at(w.effective, w.repeats_in, w.runs_before, w.lands_at, at)
+                && in_effect_at(w.effective, w.repeats_in, &w.runs_before, w.lands_at, at)
         })
     }
 
@@ -5198,7 +5324,7 @@ impl Bindings {
                         // its source was already in the set — filing the helper's fields under
                         // `row` at a call where `current` still holds `other`. Same rule the
                         // count uses: textual position, unless a loop repeats it.
-                        && in_effect_at(g.effective, g.repeats_in, g.runs_before, g.lands_at, at)
+                        && in_effect_at(g.effective, g.repeats_in, &g.runs_before, g.lands_at, at)
                         && self.given_once_in(&g.name, at)
                         && !self.written_without_a_value(&g.name, at)
                 })
@@ -5236,7 +5362,7 @@ impl Bindings {
         self.writes.iter().any(|w| {
             w.name == name
                 && w.covers(at)
-                && in_effect_at(w.effective, w.repeats_in, w.runs_before, w.lands_at, at)
+                && in_effect_at(w.effective, w.repeats_in, &w.runs_before, w.lands_at, at)
                 && !self.given.iter().any(|g| g.name == name && g.at == w.at)
         })
     }
@@ -5253,7 +5379,7 @@ impl Bindings {
         self.given.iter().any(|g| {
             g.name == name
                 && covers(g.scope, at)
-                && in_effect_at(g.effective, g.repeats_in, g.runs_before, g.lands_at, at)
+                && in_effect_at(g.effective, g.repeats_in, &g.runs_before, g.lands_at, at)
         })
     }
 
@@ -5272,7 +5398,7 @@ impl Bindings {
             .filter(|g| {
                 g.name == name
                     && covers(g.scope, at)
-                    && in_effect_at(g.effective, g.repeats_in, g.runs_before, g.lands_at, at)
+                    && in_effect_at(g.effective, g.repeats_in, &g.runs_before, g.lands_at, at)
             })
             .collect();
         match live.split_first() {
@@ -15331,5 +15457,127 @@ mod tests {
                 "nothing ran that body, so the node still stands: {body}"
             );
         }
+    }
+
+    #[test]
+    fn a_getter_does_not_supply_the_property_it_names() {
+        // Reading `x` off `{get x(){ … }}` INVOKES that function, and its result is not
+        // something this can read; `{set x(v){}}` supplies no getter at all, so reading `x`
+        // yields `undefined`. Either way the default runs. Taking the property's own text as
+        // the value saw a `FunctionExpression` and called it definitely defined.
+        for body in [
+            "var current = e; (function ({x = (current = other)}) {})({get x() { return undefined; }}); parse(current);",
+            "var current = e; (function ({x = (current = other)}) {})({set x(v) {}}); parse(current);",
+            // The LAST property of the name decides, and it is an accessor — deciding the name
+            // and the kind in one pass let this fall through to the plain `x` before it.
+            "var current = e; (function ({x = (current = other)}) {})({x: 1, get x() { return undefined; }}); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "an accessor settles nothing, so the default runs: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_shorthand_method_is_still_the_property_value() {
+        // The bound: a method's value IS that function, so `x` is defined and the default does
+        // not run. Declining for every function-valued property would have lost this.
+        let fields = helper_reached_via(
+            "var current = e; (function ({x = (current = other)}) {})({x() {}}); parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "a method supplies the property: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn instance_fields_run_before_the_constructor_body() {
+        // Every instance field initializes before the constructor runs, wherever it is written.
+        // Source order had `class { constructor(){ parse(current); } x = (current = other); }`
+        // read the node the field had already replaced.
+        for body in [
+            "var current = e; new (class { constructor() { parse(current); } x = (current = other); })();",
+            "var current = e; new (class { x = (current = other); constructor() { parse(current); } })();",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "the field moved the node before the constructor read it: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_derived_class_keeps_its_fields_in_source_order() {
+        // A DERIVED class initializes its instance fields when `super()` returns, which is
+        // somewhere inside the constructor body and not before it. So a read placed before the
+        // `super()` call still sees the node the field has not replaced yet, and declaring the
+        // field to precede the whole body — the base-class rule applied one class too far —
+        // would answer that with the field.
+        let fields = helper_reached_via(
+            "var current = e; new (class extends Base { constructor() { parse(current); super(); } x = (current = other); })();",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the field has not run at that point: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn a_class_definition_runs_before_the_constructor_arguments() {
+        // `new C(args)` evaluates the class expression first, then the arguments, then
+        // constructs. So a STATIC initializer runs before an argument's write and a constructor
+        // body runs after it. Naming the whole class span as the region the arguments precede
+        // answered both with the second.
+        let fields = helper_reached_via(
+            "var current = e; new (class { static x = parse(current); })(current = other);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the static initializer ran before the argument: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn a_constructor_argument_still_precedes_the_constructor_body() {
+        // The paired bound, and the reason the region is the construction rather than nothing:
+        // an argument really does run before the constructor body, however far after it the
+        // argument is written.
+        let fields = helper_reached_via(
+            "var current = e; new (class { constructor() { parse(current); } })(current = other);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the argument moved the node before the constructor read it: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn a_constructor_default_its_argument_supplies_does_not_run() {
+        // `new` hands its arguments to the constructor exactly as a call hands them to a
+        // function, so the same defaults are prevented — a rule that reached the two function
+        // callee shapes and not the one made an invocation the round before.
+        let fields = helper_reached_via(
+            "var current = e; new (class { constructor(x = (current = other)) {} })(1); parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the supplied argument prevents the constructor's default: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn a_constructor_default_the_construction_omits_still_runs() {
+        // The bound, as for a plain call.
+        let fields = helper_reached_via(
+            "var current = e; new (class { constructor(x = (current = other)) {} })(); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "no argument, so the default runs: {fields:?}"
+        );
     }
 }

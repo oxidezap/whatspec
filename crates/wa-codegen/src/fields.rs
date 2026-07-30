@@ -143,6 +143,26 @@ pub(crate) fn int_band(f: &ParsedField, var: &str) -> Option<String> {
     }
 }
 
+/// The byte-length constraint a bytes accessor enforces, as a test on a decoded `Vec<u8>` named
+/// `var` — `contentBytes(32)` → `var.len() == 32`, `contentBytesRange(1, 128)` →
+/// `(1..=128).contains(&var.len())`.
+///
+/// One spelling for the same two readers the integer band has: the union arm's selection guard,
+/// which has checked lengths all along, and the plain struct read, which decoded the payload and
+/// checked nothing — so a generated parser took a body the source accessor rejects for its
+/// length. The same asymmetry, on the other kind of constraint.
+pub(crate) fn byte_band(f: &ParsedField, var: &str) -> Option<String> {
+    match (f.byte_length, f.byte_min, f.byte_max) {
+        // An exact length wins: nothing sets both, and a range beside one would be the fixed
+        // length restated.
+        (Some(n), _, _) => Some(format!("{var}.len() == {n}")),
+        (None, Some(lo), Some(hi)) => Some(format!("({lo}..={hi}).contains(&{var}.len())")),
+        (None, Some(lo), None) => Some(format!("{var}.len() >= {lo}")),
+        (None, None, Some(hi)) => Some(format!("{var}.len() <= {hi}")),
+        (None, None, None) => None,
+    }
+}
+
 /// The Rust integer width `f` materializes as.
 pub(crate) fn integer_width(f: &ParsedField) -> &'static str {
     if admits_negative(f) { "i64" } else { "u64" }
