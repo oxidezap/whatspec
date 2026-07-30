@@ -691,10 +691,13 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
     fn visit_switch_statement(&mut self, stmt: &oxc_ast::ast::SwitchStatement<'a>) {
         // The discriminant is evaluated to choose a case, so it runs whichever case wins.
         self.visit_expression(&stmt.discriminant);
-        // The FIRST case's test is evaluated before any case can be selected, so it runs
-        // whatever happens; the later ones only if the earlier tests did not match.
-        if let Some(first) = stmt.cases.first()
-            && let Some(test) = first.test.as_ref()
+        // The first TESTED case is evaluated before any case can be selected, so it runs
+        // whatever happens; the later ones only if the earlier tests did not match. A
+        // `default` written first is not a test and does not shield the one after it —
+        // `switch (mode) { default: break; case parse(e): break; }` still evaluates `parse`.
+        let first_tested = stmt.cases.iter().position(|c| c.test.is_some());
+        if let Some(k) = first_tested
+            && let Some(test) = stmt.cases[k].test.as_ref()
         {
             self.visit_expression(test);
         }
@@ -709,7 +712,7 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
             // Falling through into a case runs its CONSEQUENT, never its test, so the two are
             // collected apart — folding a later case's test into the entry path had
             // `case "a": case parse(e): break;` promote reads the `"a"` path never performs.
-            if i > 0
+            if first_tested != Some(i)
                 && let Some(test) = case.test.as_ref()
             {
                 self.visit_expression(test);
@@ -742,9 +745,15 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
         // value runs none of them, and promoting would require of every element something
         // the parser reads on no path at all. A case that merely falls through establishes
         // nothing of its own, so the intersection stays empty and nothing is promoted.
+        // Over the paths that can PRODUCE a result. An arm ending in `throw` returns nothing,
+        // so every successful execution took one of the others — including it as an empty path
+        // left a field optional that every path yielding a value reads.
         let established = if stmt.cases.iter().any(|c| c.test.is_none()) {
             per_case
                 .into_iter()
+                .enumerate()
+                .filter(|(i, _)| !throws_out(&stmt.cases[*i].consequent))
+                .map(|(_, weak)| weak)
                 .reduce(|a, b| branch_intersection(&a, &b))
                 .unwrap_or_default()
         } else {
@@ -2561,6 +2570,18 @@ fn one_read_per_property(fields: &mut [ParsedField]) -> bool {
 /// Whether `stmt` ends the body on every path it can take. A bare `return`/`throw`, or a
 /// block that reaches one — `{ return result; }` runs exactly as the bare statement does,
 /// and the arms after either of them are unreachable.
+/// Whether every path through `body` leaves by throwing, so it can produce no result at all.
+///
+/// A `switch` arm like `default: throw Error()` is not a path a successful parse can have
+/// taken, so it has nothing to say about which fields such a parse read.
+fn throws_out(body: &[Statement<'_>]) -> bool {
+    body.iter().any(|st| match st {
+        Statement::ThrowStatement(_) => true,
+        Statement::BlockStatement(b) => throws_out(&b.body),
+        _ => false,
+    })
+}
+
 fn exits_unconditionally(stmt: &Statement<'_>) -> bool {
     match stmt {
         Statement::ReturnStatement(_) | Statement::ThrowStatement(_) => true,
@@ -3226,6 +3247,7 @@ impl Bindings {
                     g.from.as_deref().is_some_and(|f| out.contains(f))
                         && !out.contains(g.name.as_str())
                         && self.given_once_in(&g.name, at)
+                        && !self.written_without_a_value(&g.name, at)
                 })
                 .map(|g| g.name.clone())
                 .collect();
@@ -3234,6 +3256,24 @@ impl Bindings {
             }
             out.extend(more);
         }
+    }
+
+    /// Whether `name` is written at `at` by something that recorded no value for it.
+    ///
+    /// `current = row` is BOTH an alias and a write to `current`, which is why copies are
+    /// tracked as `Given` rather than as writes — asking `written_in_scope` here rejected the
+    /// very form it was meant to follow. But a destructuring write,
+    /// `[current] = [row.child("detail")]`, reaches the write collector and records no value,
+    /// so counting values alone still called `current` a copy of `row` and filed the helper's
+    /// reads at the row root. A write whose span matches no recorded value is one whose effect
+    /// the value list cannot see, and that is what invalidates the alias.
+    fn written_without_a_value(&self, name: &str, at: Span) -> bool {
+        self.writes.iter().any(|w| {
+            w.name == name
+                && w.covers(at)
+                && (w.at.start < at.start || w.repeats_in.is_some_and(|l| covers(l, at)))
+                && !self.given.iter().any(|g| g.name == name && g.at == w.at)
+        })
     }
 
     /// Whether `name` is given a value that can already have taken effect at `at`.
@@ -4334,6 +4374,13 @@ fn returned_candidates(e: &Expression<'_>, out: &mut Vec<String>) {
 fn contains_exit(stmt: &Statement<'_>) -> bool {
     struct Probe {
         found: bool,
+        /// Nested loops open around the statement being looked at. A `break` inside one of
+        /// them leaves THAT loop, not the one being asked about — `do { while (f) { break; } }
+        /// while (…)` completes its guaranteed pass, and counting the inner break weakened a
+        /// test the parser always evaluates. `return`/`throw` leave regardless.
+        loops: u32,
+        /// Same for `switch`, which consumes an unlabelled `break` but not a `continue`.
+        switches: u32,
     }
     impl<'a> Visit<'a> for Probe {
         fn visit_function(&mut self, _f: &Function<'a>, _flags: ScopeFlags) {}
@@ -4348,14 +4395,54 @@ fn contains_exit(stmt: &Statement<'_>) -> bool {
         fn visit_throw_statement(&mut self, _t: &oxc_ast::ast::ThrowStatement<'a>) {
             self.found = true;
         }
-        fn visit_break_statement(&mut self, _b: &oxc_ast::ast::BreakStatement<'a>) {
-            self.found = true;
+        fn visit_break_statement(&mut self, b: &oxc_ast::ast::BreakStatement<'a>) {
+            // A LABELLED break jumps out of whatever it names, so no nested construct
+            // swallows it.
+            if b.label.is_some() || (self.loops == 0 && self.switches == 0) {
+                self.found = true;
+            }
         }
-        fn visit_continue_statement(&mut self, _c: &oxc_ast::ast::ContinueStatement<'a>) {
-            self.found = true;
+        fn visit_continue_statement(&mut self, c: &oxc_ast::ast::ContinueStatement<'a>) {
+            if c.label.is_some() || self.loops == 0 {
+                self.found = true;
+            }
+        }
+        fn visit_while_statement(&mut self, st: &oxc_ast::ast::WhileStatement<'a>) {
+            self.loops += 1;
+            walk::walk_while_statement(self, st);
+            self.loops -= 1;
+        }
+        fn visit_do_while_statement(&mut self, st: &oxc_ast::ast::DoWhileStatement<'a>) {
+            self.loops += 1;
+            walk::walk_do_while_statement(self, st);
+            self.loops -= 1;
+        }
+        fn visit_for_statement(&mut self, st: &oxc_ast::ast::ForStatement<'a>) {
+            self.loops += 1;
+            walk::walk_for_statement(self, st);
+            self.loops -= 1;
+        }
+        fn visit_for_in_statement(&mut self, st: &oxc_ast::ast::ForInStatement<'a>) {
+            self.loops += 1;
+            walk::walk_for_in_statement(self, st);
+            self.loops -= 1;
+        }
+        fn visit_for_of_statement(&mut self, st: &oxc_ast::ast::ForOfStatement<'a>) {
+            self.loops += 1;
+            walk::walk_for_of_statement(self, st);
+            self.loops -= 1;
+        }
+        fn visit_switch_statement(&mut self, st: &oxc_ast::ast::SwitchStatement<'a>) {
+            self.switches += 1;
+            walk::walk_switch_statement(self, st);
+            self.switches -= 1;
         }
     }
-    let mut p = Probe { found: false };
+    let mut p = Probe {
+        found: false,
+        loops: 0,
+        switches: 0,
+    };
     p.visit_statement(stmt);
     p.found
 }
@@ -7314,6 +7401,38 @@ mod tests {
     }
 
     #[test]
+    fn an_alias_destructured_into_is_not_followed_either() {
+        // `[current] = [row.child("detail")]` moves `current` as surely as a plain
+        // assignment does, but records no VALUE for it — so counting values alone still
+        // called `current` a copy of `row` and filed `id` at the row root, where the parser
+        // never reads it. That is the harmful direction: consumers reject `<row>` elements
+        // the parser accepts.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                e.mapChildrenWithTag("row", function(row){
+                    var current = row;
+                    [current] = [row.child("detail")];
+                    parse(current);
+                });
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let row = p.fields.iter().find(|f| f.name == "row").expect("row");
+        let at_root = row
+            .children
+            .as_ref()
+            .is_some_and(|kids| kids.iter().any(|f| f.name == "id"));
+        assert!(
+            !at_root,
+            "the destructuring write breaks the alias: {:?}",
+            row.children
+        );
+    }
+
+    #[test]
     fn a_helper_handed_a_reassigned_node_declines_and_says_so() {
         // `row = row.child("detail"); parse(row)` hands the helper the DETAIL node, so its
         // reads belong under `<detail>`. The filter asked only whether an inner scope
@@ -7567,6 +7686,91 @@ mod tests {
             helper_reached_via(r#"switch (mode) { case parse(e): break; default: break; }"#);
         let id = fields.iter().find(|f| f.name == "id").expect("recovered");
         assert!(id.required, "the first test always runs: {id:?}");
+    }
+
+    #[test]
+    fn a_default_written_first_does_not_shield_the_next_cases_test() {
+        // `default` is not a test, so it does not stand between the discriminant and the
+        // first comparison: `switch (mode) { default: break; case parse(e): break; }` still
+        // evaluates `parse` whatever `mode` is. Reading the test of case ZERO instead of the
+        // first case that HAS one relaxed a read the parser always performs.
+        let fields =
+            helper_reached_via(r#"switch (mode) { default: break; case parse(e): break; }"#);
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(id.required, "the first test still runs: {id:?}");
+    }
+
+    #[test]
+    fn a_case_test_after_a_matching_one_is_not_always_reached() {
+        // The other side of the same rule: once a test can match, the ones after it are only
+        // reached when it did not, so `switch (mode) { case "a": break; case parse(e): break; }`
+        // may never evaluate `parse`.
+        let fields =
+            helper_reached_via(r#"switch (mode) { case "a": break; case parse(e): break; }"#);
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(!id.required, "an earlier test can match first: {id:?}");
+    }
+
+    #[test]
+    fn a_throwing_switch_arm_does_not_dilute_the_exhaustive_intersection() {
+        // `default: throw` produces no value at all, so every execution that yielded one took
+        // another arm. Intersecting over the throwing arm too — which reads nothing — left a
+        // field optional that every path capable of returning a result reads.
+        let fields = helper_reached_via(
+            r#"switch (mode) { case "a": parse(e); break; default: throw Error("bad"); }"#,
+        );
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(id.required, "the throwing arm yields nothing: {id:?}");
+    }
+
+    #[test]
+    fn an_arm_that_yields_a_value_without_the_read_keeps_it_optional() {
+        // And the bound on that: dropping the throwing arm must not drop the arms that DO
+        // return, so a value-producing case with no call still leaves the payload optional.
+        let fields = helper_reached_via(
+            r#"switch (mode) { case "a": parse(e); break; case "b": break;
+                              default: throw Error("bad"); }"#,
+        );
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(!id.required, "the \"b\" arm returns without it: {id:?}");
+    }
+
+    #[test]
+    fn a_break_inside_a_nested_loop_does_not_end_the_outer_pass() {
+        // `break` leaves the NEAREST loop or switch. `do { while (f) { break; } parse(e); }
+        // while (m)` still completes its guaranteed pass through `parse`, and counting the
+        // inner break as an exit relaxed a read that always happens.
+        let fields = helper_reached_via("do { while (f) { break; } parse(e); } while (m);");
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(id.required, "the inner break leaves the inner loop: {id:?}");
+    }
+
+    #[test]
+    fn a_break_a_nested_switch_consumes_does_not_end_the_outer_pass() {
+        // A `switch` swallows an unlabelled `break` the same way a loop does.
+        let fields =
+            helper_reached_via(r#"do { switch (k) { case "a": break; } parse(e); } while (m);"#);
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(id.required, "the switch consumes the break: {id:?}");
+    }
+
+    #[test]
+    fn a_labelled_break_out_of_a_nested_loop_does_end_the_outer_pass() {
+        // The bound on that: `break outer` names the construct it leaves, so no nested loop
+        // swallows it and what follows really is conditional.
+        let fields =
+            helper_reached_via("outer: do { while (f) { break outer; } parse(e); } while (m);");
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(!id.required, "the label jumps clear of both: {id:?}");
+    }
+
+    #[test]
+    fn a_continue_a_nested_loop_consumes_does_not_end_the_outer_pass() {
+        // `continue` is taken by the nearest LOOP only — a `switch` does not consume it —
+        // so the counters have to be kept apart.
+        let fields = helper_reached_via("do { while (f) { continue; } parse(e); } while (m);");
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(id.required, "the inner continue stays inside: {id:?}");
     }
 
     #[test]
