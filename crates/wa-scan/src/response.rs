@@ -1003,6 +1003,26 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
     }
 
     fn visit_try_statement(&mut self, stmt: &oxc_ast::ast::TryStatement<'a>) {
+        // A `finally` that can leave with a result hands one back whatever the block was doing,
+        // so `try { parse(e); } finally { return fallback; }` returns `fallback` without ever
+        // finishing `parse` — nothing the block or the handler reads is read on every path that
+        // yields something. `throws_out` learned this fact last round for the try as a WHOLE;
+        // the visitor deciding requiredness for the try's own reads never asked, so it kept
+        // them required and the shape rejected responses the parser accepts. The same rule in
+        // two places with one copy missing it, for the fourth time on this branch.
+        if fin_leaves_with_a_value(stmt) {
+            self.in_skipped_path(|s| {
+                s.visit_block_statement(&stmt.block);
+                if let Some(h) = &stmt.handler {
+                    s.visit_catch_clause(h);
+                }
+            });
+            // Still unconditional: it runs whichever way the block went.
+            if let Some(f) = &stmt.finalizer {
+                self.visit_block_statement(f);
+            }
+            return;
+        }
         match &stmt.handler {
             // With a handler the block may abort partway and the parser carries on, so what
             // it reads past a throwing call is not read on every path — and the handler
@@ -1061,6 +1081,21 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
 
     fn visit_if_statement(&mut self, stmt: &oxc_ast::ast::IfStatement<'a>) {
         self.visit_expression(&stmt.test);
+        // A test no value of it can change is not a branch at all: `if (!0) { parse(e); }` runs
+        // `parse` on every execution, and raising the counter regardless intersected its reads
+        // with an `else` that does not exist — leaving optional what the parser always performs.
+        // The same `always_true`/`always_false` the loops read, on the construct they came from.
+        // The side NOT taken is still walked, in a skipped path: its reads are unreachable, and
+        // recording them as optional says less than dropping them silently would.
+        if let Some(taken) =
+            statically_selected(&stmt.test, &stmt.consequent, stmt.alternate.as_ref())
+        {
+            self.visit_statement(taken.0);
+            if let Some(dead) = taken.1 {
+                self.in_skipped_path(|s| s.visit_statement(dead));
+            }
+            return;
+        }
         // `if (e.hasAttr("x")) …` says the element may lack `x` only on the path where it
         // was found; the `else` is where it is known ABSENT, and a read there is required
         // by whatever the parser does next. A negated test flips the two.
@@ -1133,6 +1168,20 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
         };
         let n = tested.len();
         self.guarded_names.extend(tested);
+        // `!0 && parse(e)` and `0 || parse(e)` both run the right side always — the third
+        // spelling of the same rule, and the counter went up for it too.
+        let certain = match expr.operator {
+            oxc_syntax::operator::LogicalOperator::And => always_true(&expr.left),
+            oxc_syntax::operator::LogicalOperator::Or => always_false(&expr.left),
+            // `??` runs its right side when the left is nullish, which no literal this
+            // narrow can establish.
+            _ => false,
+        };
+        if certain {
+            self.visit_expression(&expr.right);
+            self.guarded_names.truncate(self.guarded_names.len() - n);
+            return;
+        }
         let claims = (self.guard_claims.len(), self.relaxed_by_branch.len());
         self.conditional_depth += 1;
         self.visit_expression(&expr.right);
@@ -1143,6 +1192,19 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
 
     fn visit_conditional_expression(&mut self, expr: &oxc_ast::ast::ConditionalExpression<'a>) {
         self.visit_expression(&expr.test);
+        // `!0 ? a : b` selects its side as surely as `if (!0)` does. Spelling the rule for the
+        // statement and not for the expression is how half the findings on this branch happened.
+        let decided = always_true(&expr.test) || always_false(&expr.test);
+        if decided {
+            let (taken, dead) = if always_true(&expr.test) {
+                (&expr.consequent, &expr.alternate)
+            } else {
+                (&expr.alternate, &expr.consequent)
+            };
+            self.visit_expression(taken);
+            self.in_skipped_path(|s| s.visit_expression(dead));
+            return;
+        }
         let tested = self.canonical_guards(&expr.test);
         let n = tested.len();
         let parked = self.conditional_assertions.len();
@@ -2862,6 +2924,43 @@ fn one_read_per_property(fields: &mut [ParsedField]) -> bool {
         .all(|f| seen.insert(rust_member_form(&f.name)))
 }
 
+/// Whether a guaranteed pass over `body` can never hand a result back.
+///
+/// Two ways to hand nothing back, and only the first was recognised: every path throws, or
+/// nothing can leave the loop at all. `while (!0) { continue; }` and `for (;;) {}` diverge just
+/// as surely as `while (!0) { throw Error(); }` does, and reading them as paths that produce
+/// something diluted an enclosing intersection with an empty side — leaving optional what every
+/// execution that returns anything performs.
+fn never_completes(body: &Statement<'_>) -> bool {
+    throws_out(std::slice::from_ref(body)) || cannot_be_left(body)
+}
+
+/// Whether nothing in `body` can leave the loop it is the body of.
+///
+/// `continue` deliberately does not count: it starts the next pass rather than leaving, which is
+/// the whole reason `while (!0) { continue; }` diverges. A `break`, `return` or `throw` does,
+/// and so does a labelled jump naming something outside the body.
+fn cannot_be_left(body: &Statement<'_>) -> bool {
+    !contains_exit_where(body, true, false)
+}
+
+/// Whether `t`'s finalizer can complete abruptly with something other than an error, in which
+/// case it hands that back whatever the block and handler did.
+///
+/// Anywhere inside it, not only at its top: `finally { if (retry) return fallback; }` discards
+/// the pending error on the path that returns. `break` and `continue` out of the finalizer
+/// discard it the same way, an unlabelled one belonging to a loop the finalizer opens itself
+/// does not, and a `return` inside a function the finalizer merely constructs is that
+/// function's — all three of which `exits_with_a_value` already decides.
+///
+/// Asked by `throws_out` about the try as a whole and by the visitor about the try's own reads.
+/// It was spelled inline for the first and not asked at all by the second.
+fn fin_leaves_with_a_value(t: &oxc_ast::ast::TryStatement<'_>) -> bool {
+    t.finalizer
+        .as_ref()
+        .is_some_and(|f| f.body.iter().any(exits_with_a_value))
+}
+
 /// Whether every path through `body` leaves by throwing, so it can produce no result at all.
 ///
 /// A `switch` arm like `default: throw Error()` is not a path a successful parse can have
@@ -2902,17 +3001,8 @@ fn throws_out(body: &[Statement<'_>]) -> bool {
                 // left: `finally { return fallback; }` hands back a result whatever was thrown,
                 // so the whole `try` is a value path. Only its throwing case was considered.
                 //
-                // Anywhere in the finalizer, not only at its top: `finally { if (retry) return
-                // fallback; }` discards the pending error on the path that returns, and matching
-                // a bare `return` statement saw none of it. `break` and `continue` out of the
-                // finalizer discard it the same way, which is the question `exits_with_a_value`
-                // already asks — including attributing an unlabelled one to a loop the finalizer
-                // opens itself, and not looking inside a nested function.
-                let fin_leaves = t
-                    .finalizer
-                    .as_ref()
-                    .is_some_and(|f| f.body.iter().any(exits_with_a_value));
-                !fin_leaves && (body || t.finalizer.as_ref().is_some_and(|f| throws_out(&f.body)))
+                !fin_leaves_with_a_value(t)
+                    && (body || t.finalizer.as_ref().is_some_and(|f| throws_out(&f.body)))
             }
             // A loop whose first pass is guaranteed and whose body throws never comes round
             // again: `while (!0) { throw Error(); }` is the minifier's spelling of an
@@ -2920,14 +3010,17 @@ fn throws_out(body: &[Statement<'_>]) -> bool {
             // before it live and both branches of an enclosing `if` in the intersection. The
             // body's own answer decides, so a `break` anywhere in it still makes the loop
             // completable — `throws_out` stops at the first statement control can leave by.
-            Statement::WhileStatement(w) if always_true(&w.test) => {
-                throws_out(std::slice::from_ref(&w.body))
-            }
+            Statement::WhileStatement(w) if always_true(&w.test) => never_completes(&w.body),
             Statement::ForStatement(f) if f.test.as_ref().is_none_or(always_true) => {
-                throws_out(std::slice::from_ref(&f.body))
+                never_completes(&f.body)
             }
-            // `do` runs its body before any test at all, so no test needs reading.
-            Statement::DoWhileStatement(d) => throws_out(std::slice::from_ref(&d.body)),
+            // A `do` runs its body before any test, so a throwing body throws whatever the test
+            // says — but a body nothing can leave diverges only when the test cannot end the
+            // loop either. `do { continue; } while (c)` comes round again and then stops.
+            Statement::DoWhileStatement(d) => {
+                throws_out(std::slice::from_ref(&d.body))
+                    || (always_true(&d.test) && cannot_be_left(&d.body))
+            }
             // And a `switch` every arm of which throws, with a `default` so no value escapes
             // by matching nothing. The same `entry_paths_throw` the visitor uses.
             Statement::SwitchStatement(sw) => {
@@ -4995,6 +5088,24 @@ fn leaves_before_the_test(stmt: &Statement<'_>) -> bool {
     contains_exit_where(stmt, false, false)
 }
 
+/// Which side of a branch a statically decidable test selects, as `(taken, unreachable)`.
+///
+/// `None` when the test is anything a value could change, which is every test in this corpus —
+/// the point is that a minifier's `!0`/`0` spelling is not a branch and must not be read as one.
+fn statically_selected<'s, T>(
+    test: &Expression<'_>,
+    consequent: &'s T,
+    alternate: Option<&'s T>,
+) -> Option<(&'s T, Option<&'s T>)> {
+    if always_true(test) {
+        return Some((consequent, alternate));
+    }
+    if always_false(test) {
+        return alternate.map(|alt| (alt, Some(consequent)));
+    }
+    None
+}
+
 /// Whether `t` is a test no value of it can make false, so the loop it controls necessarily
 /// runs its body. Deliberately narrow: only the spellings a minifier emits, because reading a
 /// test as always-true when it is not would require reads the parser can skip.
@@ -5042,6 +5153,18 @@ fn contains_exit_where(stmt: &Statement<'_>, throw_counts: bool, continue_counts
         loops: u32,
         /// Same for `switch`, which consumes an unlabelled `break` but not a `continue`.
         switches: u32,
+        /// Labels declared INSIDE the statement being probed. A labelled jump naming one of
+        /// these lands back inside the probe, so it is no more a way out than an unlabelled
+        /// `break` inside a nested loop is: `do { local: { break local; } parse(e); … }` reaches
+        /// `parse` on every pass, and counting the jump called that read optional. Only a label
+        /// declared outside — the enclosing loop's own, say — genuinely leaves.
+        labels: Vec<String>,
+    }
+    impl Probe {
+        /// Whether the probed statement declares `label` itself.
+        fn names(&self, label: &str) -> bool {
+            self.labels.iter().any(|n| n == label)
+        }
     }
     impl<'a> Visit<'a> for Probe {
         fn visit_function(&mut self, _f: &Function<'a>, _flags: ScopeFlags) {}
@@ -5057,16 +5180,23 @@ fn contains_exit_where(stmt: &Statement<'_>, throw_counts: bool, continue_counts
             self.found |= self.throw_counts;
         }
         fn visit_break_statement(&mut self, b: &oxc_ast::ast::BreakStatement<'a>) {
-            // A LABELLED break jumps out of whatever it names, so no nested construct
-            // swallows it.
-            if b.label.is_some() || (self.loops == 0 && self.switches == 0) {
-                self.found = true;
+            // A LABELLED break jumps out of whatever it names, which no nested construct
+            // swallows — unless what it names is itself inside the probe.
+            match &b.label {
+                Some(l) => self.found |= !self.names(l.name.as_str()),
+                None => self.found |= self.loops == 0 && self.switches == 0,
             }
         }
         fn visit_continue_statement(&mut self, c: &oxc_ast::ast::ContinueStatement<'a>) {
-            if c.label.is_some() || (self.loops == 0 && self.continue_counts) {
-                self.found = true;
+            match &c.label {
+                Some(l) => self.found |= !self.names(l.name.as_str()),
+                None => self.found |= self.loops == 0 && self.continue_counts,
             }
+        }
+        fn visit_labeled_statement(&mut self, l: &oxc_ast::ast::LabeledStatement<'a>) {
+            self.labels.push(l.label.name.as_str().to_string());
+            walk::walk_labeled_statement(self, l);
+            self.labels.pop();
         }
         fn visit_while_statement(&mut self, st: &oxc_ast::ast::WhileStatement<'a>) {
             self.loops += 1;
@@ -5105,6 +5235,7 @@ fn contains_exit_where(stmt: &Statement<'_>, throw_counts: bool, continue_counts
         continue_counts,
         loops: 0,
         switches: 0,
+        labels: Vec::new(),
     };
     p.visit_statement(stmt);
     p.found
@@ -9245,6 +9376,112 @@ mod tests {
                 guards_and_field(&format!("try {{ parse(e); }} catch (x) {{ {handler} }}"));
             assert_eq!(guards, (false, false), "`{handler}` can complete");
         }
+    }
+
+    #[test]
+    fn a_returning_finalizer_bypasses_the_try_it_covers() {
+        // `try { parse(e); } finally { return fallback; }` hands `fallback` back even when
+        // `parse` threw on a missing field, so nothing `parse` reads is read on every path that
+        // yields something. `throws_out` was taught this about the try as a WHOLE last round and
+        // the visitor deciding the try's own requiredness was not, so it kept those reads
+        // required and the shape rejected responses the parser accepts — the harmful direction.
+        for body in [
+            r#"try { parse(e); } finally { return fallback; }"#,
+            r#"try { parse(e); } catch (x) { parse(e); } finally { return fallback; }"#,
+        ] {
+            let guards = guards_and_field(body);
+            assert_eq!(guards, (false, false), "`{body}` can return without it");
+        }
+    }
+
+    #[test]
+    fn a_finalizer_that_cannot_leave_keeps_the_try_required() {
+        // The bound: a finalizer that completes normally does not bypass anything, so an
+        // unhandled block's reads stay required — weakening every `try` with a `finally` would
+        // relax reads every successful parse performs.
+        let guards = guards_and_field("try { parse(e); } finally { cleanup(); }");
+        assert_eq!(guards, (true, true), "the error still propagates");
+    }
+
+    #[test]
+    fn a_statically_selected_side_is_not_a_branch() {
+        // `if (!0)` is not a choice: the consequent runs on every execution. Raising the branch
+        // counter regardless intersected its reads against an `else` that does not exist, so a
+        // read the parser always performs came out optional and its guard unpublished. All three
+        // spellings, because writing the rule for one of them is how this branch keeps failing.
+        for body in [
+            "if (!0) { parse(e); }",
+            "if (0) { other(); } else { parse(e); }",
+            "!0 ? parse(e) : other();",
+            "0 ? other() : parse(e);",
+            "!0 && parse(e);",
+            "0 || parse(e);",
+        ] {
+            let guards = guards_and_field(body);
+            assert_eq!(guards, (true, true), "`{body}` always runs it");
+        }
+    }
+
+    #[test]
+    fn a_test_a_value_can_change_still_makes_its_side_conditional() {
+        // The bound, in the same three spellings: an ordinary test really is a branch, and
+        // reading every test as decided would require of every element what only one path reads.
+        for body in [
+            "if (flag) { parse(e); }",
+            "flag ? parse(e) : other();",
+            "flag && parse(e);",
+            "flag || parse(e);",
+        ] {
+            let guards = guards_and_field(body);
+            assert_eq!(guards, (false, false), "`{body}` may skip it");
+        }
+    }
+
+    #[test]
+    fn a_loop_nothing_can_leave_yields_nothing_either() {
+        // Two ways to hand nothing back and only the throwing one was recognised: `while (!0) {
+        // continue; }` and `for (;;) {}` never leave at all, so every execution that returned
+        // anything took the other side of the branch they sit in.
+        for handler in ["while (!0) { continue; }", "for (;;) { }"] {
+            let guards =
+                guards_and_field(&format!("try {{ parse(e); }} catch (x) {{ {handler} }}"));
+            assert_eq!(guards, (true, true), "`{handler}` diverges");
+        }
+    }
+
+    #[test]
+    fn a_loop_with_a_way_out_still_yields_a_value() {
+        // The bounds. A `break` or a `return` leaves; and a `do`/`while` whose body only
+        // `continue`s is ended by its own test, which is why the divergence rule asks about the
+        // test there and the throwing rule does not.
+        for handler in [
+            "while (!0) { break; }",
+            "while (!0) { return t; }",
+            "do { continue; } while (c);",
+        ] {
+            let guards =
+                guards_and_field(&format!("try {{ parse(e); }} catch (x) {{ {handler} }}"));
+            assert_eq!(guards, (false, false), "`{handler}` can be left");
+        }
+    }
+
+    #[test]
+    fn a_break_to_a_label_inside_the_body_is_not_a_way_out() {
+        // `local: { break local; }` jumps to the end of that block and carries on, so the
+        // guaranteed pass reaches `parse` whatever happens. Counting every LABELLED break as an
+        // exit — which is right for a label declared outside — put the read on a path some
+        // successful parse skipped and called it optional.
+        let guards = guards_and_field("do { local: { break local; } parse(e); break; } while (0);");
+        assert_eq!(guards, (true, true), "the jump lands back inside");
+    }
+
+    #[test]
+    fn a_break_to_a_label_outside_the_body_still_leaves() {
+        // The bound, and the reason the question is about WHERE the label is: `break outer`
+        // leaves the loop, so the read after it really is on a path a successful parse skipped.
+        let guards =
+            guards_and_field("outer: do { if (c) break outer; parse(e); break; } while (0);");
+        assert_eq!(guards, (false, false), "the jump leaves the loop");
     }
 
     #[test]
