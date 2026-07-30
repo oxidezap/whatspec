@@ -87,6 +87,15 @@ fn tag_or_name(f: &ParsedField) -> &str {
 /// the decoder and a union arm's band alike. Spelling it separately at each is what let a
 /// guard and the payload it admits disagree.
 pub(crate) fn admits_negative(f: &ParsedField) -> bool {
+    // `contentUint(N)` is N big-endian BYTES, not decimal text, and the emitter folds it into
+    // a `u64` unconditionally. So a range on it could never make it signed, and letting one
+    // say otherwise would declare the field `i64` against a `u64` fold — code that does not
+    // compile, which is the failure this predicate was introduced to stop happening in the
+    // child-content path. Nothing sets a range on a content method today; the guard is here so
+    // that stays true by construction rather than by coincidence.
+    if f.method == "contentUint" {
+        return false;
+    }
     if wap::method_field_type(&f.method) != ParsedFieldType::Integer {
         return false;
     }
@@ -316,12 +325,14 @@ pub(crate) fn collect_response_fields(
                 // child admits negatives let a negative-bounded ATTRIBUTE sibling declare the
                 // flattened field `i64` while the emitter went on folding a `contentUint`
                 // into a `u64` — a struct initialization that does not compile. The width has
-                // to come from the leaf that decodes the value, and `contentUint` is a
-                // big-endian byte fold that is unsigned however its range is declared.
+                // to come from the leaf that decodes the value. That `contentUint` is a byte
+                // fold and so never signed is `admits_negative`'s own business now; spelling
+                // it here as well meant the shared predicate could be asked elsewhere and
+                // answer differently.
                 let signed_content = kids
                     .iter()
                     .find(|c| wap::is_content_method(&c.method))
-                    .is_some_and(|c| c.method != "contentUint" && admits_negative(c));
+                    .is_some_and(admits_negative);
                 let base = match ct {
                     ContentType::Bytes => "Vec<u8>",
                     ContentType::Integer if signed_content => "i64",

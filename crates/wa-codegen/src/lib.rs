@@ -369,6 +369,59 @@ mod tests {
     }
 
     #[test]
+    fn a_content_uint_stays_unsigned_whatever_range_it_carries() {
+        // `contentUint(N)` is N big-endian BYTES folded into a `u64`, not decimal text, so a
+        // range could never make it signed — declaring the field `i64` against that fold is
+        // code that does not compile, which is the failure the width predicate exists to stop.
+        // Nothing in the scanner puts a range on a content method (only `attrIntRange` does),
+        // so this reaches codegen only through hand-built IR; the point of pinning it is that
+        // the invariant holds by construction rather than by coincidence.
+        let ranged_uint = |tag: &str| {
+            let mut leaf = parsed("contentUint", "content", ParsedFieldType::Integer);
+            leaf.int_min = Some(-5);
+            leaf.int_max = Some(5);
+            let mut c = parsed("child", tag, ParsedFieldType::String);
+            c.tag = Some(tag.into());
+            c.children = Some(vec![leaf]);
+            c
+        };
+        let ir = IqIr {
+            wa_version: "0.0.0".into(),
+            stanzas: vec![IqStanzaDef {
+                module_name: "WAWebPreKeys".into(),
+                namespace: "encrypt".into(),
+                iq_type: IqType::Get,
+                target: IqTarget::Server,
+                parser_name: "p".into(),
+                exported_function: Some("keys".into()),
+                all_exports: vec!["keys".into()],
+                request: IqRequestDef {
+                    namespace: "encrypt".into(),
+                    iq_type: IqType::Get,
+                    target: IqTarget::Server,
+                    children: vec![],
+                },
+                response: ParsedResponse {
+                    parser_name: "p".into(),
+                    assertions: vec![],
+                    fields: vec![ranged_uint("registration")],
+                    ..Default::default()
+                },
+            }],
+            unparseable: vec![],
+        };
+        let c = &generate_iq(&ir);
+        assert!(
+            c.contains("pub registration: u64,"),
+            "a byte fold is unsigned whatever the range says: {c}"
+        );
+        assert!(
+            !c.contains("pub registration: i64,"),
+            "and never declared against the fold's type: {c}"
+        );
+    }
+
+    #[test]
     fn integer_content_children_get_their_own_named_fields() {
         // Two things were wrong at once, and the second hid the first: the codegen's
         // content predicate admitted only three spellings, so live `contentUint` fields

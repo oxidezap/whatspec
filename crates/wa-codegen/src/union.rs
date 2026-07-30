@@ -972,10 +972,21 @@ fn leaf_guard(f: &ParsedField, node_var: &str) -> Option<String> {
         let decodes = if raw == "content_str()"
             && wap::method_field_type(&f.method) == ParsedFieldType::Integer
         {
-            format!(
-                "{node_var}.content_str().and_then(|s| s.parse::<{}>().ok()).is_some()",
+            let parsed = format!(
+                "{node_var}.content_str().and_then(|s| s.parse::<{}>().ok())",
                 integer_width(f)
-            )
+            );
+            // And a declared band is as much a constraint on the decoded number as it is for
+            // an attribute — `leaf_guard` has applied `int_band` all along and this path
+            // checked only that the text parses, so a ranged content field would select the
+            // arm on a value the source accessor turns away. Nothing in the scanner sets
+            // `intMin`/`intMax` on a content method today (only `attrIntRange` does), so this
+            // is one rule spelled once rather than a live fix — which is exactly how the two
+            // spellings drifted apart in the first place.
+            match int_band(f) {
+                Some(band) => format!("{parsed}.is_some_and(|n| {band})"),
+                None => format!("{parsed}.is_some()"),
+            }
         } else {
             match (f.byte_length, f.byte_min, f.byte_max) {
                 (Some(n), _, _) => {
@@ -1826,6 +1837,58 @@ mod tests {
         assert!(
             src.contains(r#"Some("a") => Some(SpecKindDispatch::A {"#),
             "an absent payload the source accepts still selects the arm: {src}"
+        );
+    }
+
+    #[test]
+    fn a_bounded_content_arm_guards_on_the_band_too() {
+        // The content path checked only that the text parses while `leaf_guard` had been
+        // applying the band to attributes all along, so a ranged content field would select
+        // the arm on a value the source accessor rejects. Not reachable through the scanner —
+        // only `attrIntRange` sets a range — but codegen takes the IR directly, which is where
+        // the two spellings of one rule could drift apart unobserved.
+        let f = union_field(serde_json::json!({
+            "method": "dispatch", "name": "kind_dispatch", "type": "union", "required": true,
+            "unionVariants": [
+                {"name": "a",
+                 "assertions": [{"kind": "attr", "name": "kind", "value": "a"}],
+                 "fields": [{"method": "contentInt", "name": "content",
+                             "type": "integer", "required": true,
+                             "intMin": -10, "intMax": -1}]},
+                {"name": "b",
+                 "assertions": [{"kind": "attr", "name": "kind", "value": "b"}],
+                 "fields": []}
+            ]
+        }));
+        let (lines, _) = emit_union_read(&f, "node", "Spec", "").expect("emitted");
+        let src = lines.join("\n");
+        assert!(
+            src.contains("parse::<i64>().ok()).is_some_and(|n| (-10i64..=-1i64).contains(&n))"),
+            "the content guard enforces the band at the width it decodes as: {src}"
+        );
+    }
+
+    #[test]
+    fn a_content_arm_with_no_band_guards_on_decoding_alone() {
+        // The bound: an unranged content integer has nothing to compare, and inventing a
+        // comparison would reject payloads the parser accepts.
+        let f = union_field(serde_json::json!({
+            "method": "dispatch", "name": "kind_dispatch", "type": "union", "required": true,
+            "unionVariants": [
+                {"name": "a",
+                 "assertions": [{"kind": "attr", "name": "kind", "value": "a"}],
+                 "fields": [{"method": "contentInt", "name": "content",
+                             "type": "integer", "required": true}]},
+                {"name": "b",
+                 "assertions": [{"kind": "attr", "name": "kind", "value": "b"}],
+                 "fields": []}
+            ]
+        }));
+        let (lines, _) = emit_union_read(&f, "node", "Spec", "").expect("emitted");
+        let src = lines.join("\n");
+        assert!(
+            src.contains("parse::<u64>().ok()).is_some()") && !src.contains("contains(&n)"),
+            "presence and decoding are the whole check: {src}"
         );
     }
 
