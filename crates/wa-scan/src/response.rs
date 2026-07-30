@@ -811,7 +811,26 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
             })
             .flat_map(|d| self.lexical_children_of(Some(d)))
             .collect();
+        // What the switch was entered WITH, to put back at an arm boundary no fallthrough
+        // crosses.
+        let entered_with = self.child_vars.clone();
         for (i, case) in stmt.cases.iter().enumerate() {
+            // Entering at this case runs it and the ones after it; the ones before it run only
+            // if control fell through, and an arm that ends on every path lets nothing through.
+            // `case "a": var t = e.child("inner"); break; case "b": t.attrString("id");` filed
+            // the second arm's read under `<inner>` — a node that entry never reached. The
+            // wrong node, and silently: `SWITCH_ARM_SHADOW` fires only for an arm that falls
+            // through AND redeclares a name tracked before the switch, which a `break` here
+            // rules out. This is the half of the fallthrough model that costs nothing to be
+            // exact about; which bindings a falling-through entry carries stays counted.
+            if i > 0
+                && stmt.cases[i - 1]
+                    .consequent
+                    .iter()
+                    .any(ends_the_statement_list)
+            {
+                self.child_vars.clone_from(&entered_with);
+            }
             // Falling through into a case runs its CONSEQUENT, never its test, so the two are
             // collected apart — folding a later case's test into the entry path had
             // `case "a": case parse(e): break;` promote reads the `"a"` path never performs.
@@ -1012,6 +1031,22 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
     }
 
     fn visit_try_statement(&mut self, stmt: &oxc_ast::ast::TryStatement<'a>) {
+        // Nothing here runs at all: a block that hangs reaches neither the handler nor the
+        // finalizer, so their reads belong to no path. The whole-try classification learned
+        // this in `throws_out`; treating the handler as the block's successor here made a
+        // `catch` that parses required, which is the same mistake pointing the other way.
+        if hangs_forever(&stmt.block.body) {
+            self.in_skipped_path(|s| {
+                s.visit_block_statement(&stmt.block);
+                if let Some(h) = &stmt.handler {
+                    s.visit_catch_clause(h);
+                }
+                if let Some(f) = &stmt.finalizer {
+                    s.visit_block_statement(f);
+                }
+            });
+            return;
+        }
         // A `finally` that can leave with a result hands one back whatever the block was doing,
         // so `try { parse(e); } finally { return fallback; }` returns `fallback` without ever
         // finishing `parse` — nothing the block or the handler reads is read on every path that
@@ -2960,6 +2995,117 @@ fn fin_leaves_with_a_value(t: &oxc_ast::ast::TryStatement<'_>) -> bool {
         .is_some_and(|f| f.body.iter().any(exits_with_a_value))
 }
 
+/// Whether `body` can neither complete nor raise — it hangs, so nothing after it runs and no
+/// handler around it is ever reached.
+///
+/// [`throws_out`] answers the question every caller but one asks: can this path hand a result
+/// back. A loop nothing leaves and a `throw` are the same answer there. They are not the same
+/// to a `try` — an error reaches the handler and a hang does not — so `try { for (;;); } catch
+/// (_) {}` was read as falling into a handler that completes, and therefore as a path that
+/// yields something.
+///
+/// Deliberately narrow. Any statement whose evaluation could raise ends the walk, because
+/// claiming a hang where a throw is possible hides a handler that does run — the direction that
+/// makes required what the parser leaves optional. It recognises the minifier's `for (;;);` and
+/// `while (!0) {}` and nothing that does work.
+fn hangs_forever(body: &[Statement<'_>]) -> bool {
+    for st in body {
+        if is_a_hang(st) {
+            return true;
+        }
+        if !is_quiet(st) {
+            return false;
+        }
+    }
+    false
+}
+
+/// A loop that is entered, cannot be left, and evaluates nothing that could raise.
+fn is_a_hang(st: &Statement<'_>) -> bool {
+    match st {
+        Statement::WhileStatement(w) => always_true(&w.test) && is_quiet(&w.body),
+        Statement::DoWhileStatement(d) => always_true(&d.test) && is_quiet(&d.body),
+        // A header that holds anything is a header that runs it: an init or an update can
+        // raise, and a test that is not a literal is not decidable here anyway.
+        Statement::ForStatement(f) => {
+            f.init.is_none()
+                && f.update.is_none()
+                && f.test.as_ref().is_none_or(always_true)
+                && is_quiet(&f.body)
+        }
+        Statement::LabeledStatement(l) => is_a_hang(&l.body),
+        Statement::BlockStatement(b) => hangs_forever(&b.body),
+        _ => false,
+    }
+}
+
+/// A statement that evaluates nothing and ends nothing: it can neither raise nor leave the
+/// construct around it. Everything else is assumed to be able to do both.
+fn is_quiet(st: &Statement<'_>) -> bool {
+    match st {
+        Statement::EmptyStatement(_) | Statement::DebuggerStatement(_) => true,
+        Statement::BlockStatement(b) => b.body.iter().all(is_quiet),
+        _ => false,
+    }
+}
+
+/// Where the part of an immediately invoked function that runs synchronously with the call
+/// ends: the first `await` it can reach, or all of it when there is none.
+///
+/// The first one in source order, not the first one every path reaches — a write past an
+/// `await` some execution performs is one the caller does not wait for, and the caller's own
+/// statements are all that this scanner reads.
+fn synchronous_until(
+    is_async: bool,
+    span: Span,
+    body: Option<&oxc_ast::ast::FunctionBody<'_>>,
+) -> u32 {
+    if !is_async {
+        return span.end;
+    }
+    struct FirstAwait {
+        at: Option<u32>,
+        nested: u32,
+    }
+    impl<'a> Visit<'a> for FirstAwait {
+        fn visit_await_expression(&mut self, e: &oxc_ast::ast::AwaitExpression<'a>) {
+            if self.nested == 0 {
+                self.at = Some(self.at.map_or(e.span.start, |a| a.min(e.span.start)));
+            }
+            walk::walk_await_expression(self, e);
+        }
+        // `for await (const x of xs)` suspends on every pass, and it is not an await EXPRESSION.
+        fn visit_for_of_statement(&mut self, st: &oxc_ast::ast::ForOfStatement<'a>) {
+            if self.nested == 0 && st.r#await {
+                self.at = Some(self.at.map_or(st.span.start, |a| a.min(st.span.start)));
+            }
+            walk::walk_for_of_statement(self, st);
+        }
+        // An `await` inside a nested function is that function's suspension, not this one's.
+        fn visit_function(&mut self, f: &Function<'a>, flags: ScopeFlags) {
+            self.nested += 1;
+            walk::walk_function(self, f, flags);
+            self.nested -= 1;
+        }
+        fn visit_arrow_function_expression(
+            &mut self,
+            f: &oxc_ast::ast::ArrowFunctionExpression<'a>,
+        ) {
+            self.nested += 1;
+            walk::walk_arrow_function_expression(self, f);
+            self.nested -= 1;
+        }
+    }
+    let mut probe = FirstAwait {
+        at: None,
+        nested: 0,
+    };
+    if let Some(body) = body {
+        probe.visit_function_body(body);
+    }
+    probe.at.unwrap_or(span.end)
+}
+
 /// Whether every path through `body` leaves by throwing, so it can produce no result at all.
 ///
 /// A `switch` arm like `default: throw Error()` is not a path a successful parse can have
@@ -2991,6 +3137,13 @@ fn throws_out(body: &[Statement<'_>]) -> bool {
             // sides do — a `catch` that returns swallows it — unless the finalizer itself
             // throws, which overrides whatever the block and handler did.
             Statement::TryStatement(t) => {
+                // A block that neither completes nor raises reaches neither the handler nor
+                // the finalizer. Reading the hang as a throw handed the question to a handler
+                // that completes, and `try { for (;;); } catch (_) {}` became a path that
+                // yields something.
+                if hangs_forever(&t.block.body) {
+                    return true;
+                }
                 let block = throws_out(&t.block.body);
                 let body = match &t.handler {
                     Some(h) => block && throws_out(&h.body.body),
@@ -3502,9 +3655,16 @@ struct AllBindings {
     /// the transfer run. `try { throw Error(); current = other; } catch (_) {}` recorded that
     /// assignment as effective and refused the descent for a node nothing had moved.
     unreachable: u32,
-    /// Function bodies that are immediately invoked, so a write inside one has certainly run by
-    /// the time anything after the call reads it.
-    iife: Vec<Span>,
+    /// Function bodies that are immediately invoked, each with the position its synchronous
+    /// part ends at: a write inside one and before that position has certainly run by the time
+    /// anything after the call reads it.
+    ///
+    /// Not the whole body, because calling a function is not always running it. A generator
+    /// call builds an iterator and runs nothing, and an `async` body runs only as far as its
+    /// first `await` before handing control back — so `(async function(){ await x; current =
+    /// other; })()` had a write the callback returns before recorded as one that already
+    /// happened.
+    iife: Vec<(Span, u32)>,
     /// How many enclosing constructs could have skipped the part being walked. A value assigned
     /// down such a path is not certainly the one a later read sees, however textually early it
     /// is: `var current; if (flag) current = e; parse(current)` hands `parse` the element only
@@ -3630,13 +3790,22 @@ impl AllBindings {
             // still-valid alias was refused and the helper's fields were lost silently — the same
             // rule the narrowing was written for, applied to one level of nesting instead of all
             // of them.
-            let certainly_runs = self.fns.iter().all(|g| self.iife.contains(g));
+            let certainly_runs = self.fns.iter().all(|g| self.runs_before(*g, at));
             return match self.fns.last() {
                 Some(f) if !certainly_runs => Some(*f),
                 _ => None,
             };
         }
         self.fns.last().copied()
+    }
+
+    /// Whether `f` is immediately invoked AND the part of it that runs synchronously with the
+    /// call reaches `at`. Everything after an `await` is the continuation's, which no later
+    /// statement of the caller waits for.
+    fn runs_before(&self, f: Span, at: Span) -> bool {
+        self.iife
+            .iter()
+            .any(|(g, sync_until)| *g == f && at.end <= *sync_until)
     }
 
     /// Where a record made here has taken effect by. An assignment's own end, so its
@@ -3655,18 +3824,65 @@ impl AllBindings {
 
     /// Walk the statements of one list, marking everything after an unconditional exit as
     /// unreachable. Nothing else models "the rest of this block does not run".
-    fn walk_in_order<'a>(&mut self, body: &[Statement<'a>]) {
+    ///
+    /// `first_pass` adds the guaranteed-entry loop body's asymmetry: everything up to the first
+    /// statement that could jump past what follows runs whatever happens, and only what comes
+    /// after that could have been skipped. [`ParserAnalyzer::walk_guaranteed_pass`] is the
+    /// requiredness side of the same rule; this collector called the whole body skippable, so
+    /// `do { current = e; break; } while (0)` — the minifier's one-shot block — left `current`
+    /// uncertain and the helper it was handed came out optional.
+    fn walk_in_order<'a>(&mut self, body: &[Statement<'a>], first_pass: bool) {
         let mut past_the_exit = false;
+        let mut past_a_jump = false;
         for st in body {
             if past_the_exit {
                 self.unreachable += 1;
                 self.visit_statement(st);
                 self.unreachable -= 1;
-                continue;
+            } else if past_a_jump {
+                self.maybe_skipped(|s| s.visit_statement(st));
+            } else {
+                self.visit_statement(st);
             }
-            self.visit_statement(st);
-            past_the_exit = ends_the_statement_list(st);
+            past_the_exit = past_the_exit || ends_the_statement_list(st);
+            // Only an exit that hands back a RESULT, the same cut the requiredness side makes:
+            // no execution that produced one continued past a `throw`, so what follows one is
+            // not a write some successful path skipped.
+            past_a_jump = past_a_jump || (first_pass && exits_with_a_value(st));
         }
+    }
+
+    /// The parts of a class field the class evaluates when it is DEFINED: a computed key
+    /// always, an initializer only when it is `static`. An instance initializer runs per `new`,
+    /// of which there may be none.
+    fn visit_field_at_definition<'a>(
+        &mut self,
+        computed: bool,
+        is_static: bool,
+        key: &oxc_ast::ast::PropertyKey<'a>,
+        value: Option<&Expression<'a>>,
+    ) {
+        if computed {
+            self.visit_property_key(key);
+        }
+        if is_static && let Some(v) = value {
+            self.visit_expression(v);
+        }
+    }
+
+    /// A loop body whose first pass is guaranteed, walked with that asymmetry — and with the
+    /// scope its braces open, which is why it cannot simply hand the list to `walk_in_order`.
+    fn walk_first_pass<'a>(&mut self, body: &Statement<'a>) {
+        let Statement::BlockStatement(b) = body else {
+            // Nothing precedes a single statement, so the guaranteed pass reaches it.
+            self.visit_statement(body);
+            return;
+        };
+        self.block_depth += 1;
+        self.blocks.push(b.span);
+        self.walk_in_order(&b.body, true);
+        self.blocks.pop();
+        self.block_depth -= 1;
     }
 
     /// Walk a part of a statement that control can reach past — the requiredness side's
@@ -3819,14 +4035,26 @@ impl<'a> Visit<'a> for AllBindings {
         // An immediately invoked function has certainly run by the time anything after the call
         // reads what it wrote — the one case where "does this nested function execute" is
         // decidable from the syntax alone.
-        match &call.callee {
-            Expression::FunctionExpression(f) => self.iife.push(f.span),
-            Expression::ArrowFunctionExpression(f) => self.iife.push(f.span),
-            Expression::ParenthesizedExpression(p) => match &p.expression {
-                Expression::FunctionExpression(f) => self.iife.push(f.span),
-                Expression::ArrowFunctionExpression(f) => self.iife.push(f.span),
-                _ => {}
-            },
+        let callee = match &call.callee {
+            Expression::ParenthesizedExpression(p) => &p.expression,
+            other => other,
+        };
+        match callee {
+            // A generator call runs none of the body — it builds an iterator, and whether
+            // anything ever draws from it is the call-graph question this scanner does not
+            // answer. So it is not immediately invoked in the only sense that matters here,
+            // and a write inside it belongs with the ones in a function nobody calls.
+            Expression::FunctionExpression(f) if f.generator => {}
+            Expression::FunctionExpression(f) => {
+                self.iife.push((
+                    f.span,
+                    synchronous_until(f.r#async, f.span, f.body.as_deref()),
+                ));
+            }
+            Expression::ArrowFunctionExpression(f) => {
+                self.iife
+                    .push((f.span, synchronous_until(f.r#async, f.span, Some(&f.body))));
+            }
             _ => {}
         }
         walk::walk_call_expression(self, call);
@@ -3846,7 +4074,7 @@ impl<'a> Visit<'a> for AllBindings {
         if !body_itself {
             self.blocks.push(block.span);
         }
-        self.walk_in_order(&block.body);
+        self.walk_in_order(&block.body, false);
         if !body_itself {
             self.blocks.pop();
         }
@@ -3857,18 +4085,32 @@ impl<'a> Visit<'a> for AllBindings {
         self.loops.push(stmt.span);
         // The test runs before the first pass, so it runs even when the body does not.
         self.visit_expression(&stmt.test);
-        self.maybe_skipped(|s| s.visit_statement(&stmt.body));
+        // Unless it cannot be false, in which case the pass happens: `while (!0)` is how this
+        // corpus spells `for (;;)`, and both start their body whatever else they do.
+        if always_true(&stmt.test) {
+            self.walk_first_pass(&stmt.body);
+        } else {
+            self.maybe_skipped(|s| s.visit_statement(&stmt.body));
+        }
         self.loops.pop();
     }
 
     fn visit_do_while_statement(&mut self, stmt: &oxc_ast::ast::DoWhileStatement<'a>) {
         self.loops.push(stmt.span);
-        // The first pass is guaranteed, so a write at the top of the body really does run —
-        // but which part of the body that covers is the whole `walk_guaranteed_pass` question,
-        // and answering it wrong here would call an uncertain value certain. Conservative: the
-        // body is skippable, which can only leave a field optional.
-        self.maybe_skipped(|s| s.visit_statement(&stmt.body));
-        self.visit_expression(&stmt.test);
+        // The first pass is guaranteed, so a write at the top of the body really does run. That
+        // was declined here as "which part of the body" being the whole `walk_guaranteed_pass`
+        // question — but it is the same question with the same answer, and leaving it unasked
+        // is not neutral: the requiredness walk read `do { current = e; break; } while (0)` as
+        // one statement that always runs and this collector called the value it assigns
+        // uncertain, so the helper came out optional either way.
+        self.walk_first_pass(&stmt.body);
+        // And the test is reached only by a pass that did not leave first: `do { break; } while
+        // (current = f())` assigns nothing on the path it takes.
+        if leaves_the_loop_with_a_value(&stmt.body) {
+            self.maybe_skipped(|s| s.visit_expression(&stmt.test));
+        } else {
+            self.visit_expression(&stmt.test);
+        }
         self.loops.pop();
     }
 
@@ -4004,12 +4246,22 @@ impl<'a> Visit<'a> for AllBindings {
         if let Some(test) = &stmt.test {
             self.visit_expression(test);
         }
-        self.maybe_skipped(|s| {
-            s.visit_statement(&stmt.body);
+        // No test, or one that cannot be false: either way the body necessarily starts, so it
+        // gets the guaranteed pass the requiredness side gives it. The update runs only after
+        // a pass that completed, so it stays skippable whichever way the test went.
+        if stmt.test.as_ref().is_none_or(always_true) {
+            self.walk_first_pass(&stmt.body);
             if let Some(update) = &stmt.update {
-                s.visit_expression(update);
+                self.maybe_skipped(|s| s.visit_expression(update));
             }
-        });
+        } else {
+            self.maybe_skipped(|s| {
+                s.visit_statement(&stmt.body);
+                if let Some(update) = &stmt.update {
+                    s.visit_expression(update);
+                }
+            });
+        }
         self.blocks.pop();
         self.loops.pop();
     }
@@ -4032,6 +4284,16 @@ impl<'a> Visit<'a> for AllBindings {
         self.loops.push(stmt.span);
         self.blocks.push(stmt.span);
         self.visit_expression(&stmt.right);
+        // One iterable whose length is decidable here: `for (const x of [a, b])` runs its body,
+        // the same guaranteed pass the requiredness side gives it. An arbitrary expression
+        // keeps its zero-iteration path.
+        if iterates_at_least_once(&stmt.right) {
+            self.visit_for_statement_left(&stmt.left);
+            self.walk_first_pass(&stmt.body);
+            self.blocks.pop();
+            self.loops.pop();
+            return;
+        }
         self.maybe_skipped(|s| {
             s.visit_for_statement_left(&stmt.left);
             s.visit_statement(&stmt.body);
@@ -4066,14 +4328,27 @@ impl<'a> Visit<'a> for AllBindings {
         for el in &class.body.body {
             match el {
                 oxc_ast::ast::ClassElement::PropertyDefinition(p) => {
-                    if p.computed {
-                        self.visit_property_key(&p.key);
-                    }
-                    if p.r#static
-                        && let Some(v) = p.value.as_ref()
-                    {
-                        self.visit_expression(v);
-                    }
+                    self.visit_field_at_definition(
+                        p.computed,
+                        p.r#static,
+                        &p.key,
+                        p.value.as_ref(),
+                    );
+                }
+                // `accessor value = …` is a field with a getter and a setter generated for it,
+                // and its initializer runs per `new` exactly as a plain one does. Only the two
+                // spellings this visitor happened to think of were listed, so the third fell
+                // through to the generic walk and a write in an instance initializer was
+                // recorded as effective at class definition — a descent refused for a node
+                // nothing had moved, which is what enumerating the parts of a class by hand
+                // costs each time one is missed.
+                oxc_ast::ast::ClassElement::AccessorProperty(p) => {
+                    self.visit_field_at_definition(
+                        p.computed,
+                        p.r#static,
+                        &p.key,
+                        p.value.as_ref(),
+                    );
                 }
                 other => self.visit_class_element(other),
             }
@@ -8017,6 +8292,69 @@ mod tests {
     }
 
     #[test]
+    fn an_arm_no_fallthrough_reaches_starts_from_the_outer_bindings() {
+        // Entering at `case 2` runs `case 2` — `case 1` broke, so nothing it bound is in scope
+        // on that path, whatever `var` says about the rest of the function. The arms shared one
+        // `child_vars` regardless, so the second arm's read was filed under `<inner>`, a node
+        // that entry never reached: the wrong node, and with nothing recorded, since
+        // `SWITCH_ARM_SHADOW` fires only for an arm that FALLS THROUGH and redeclares a name
+        // the switch was entered with. Every way an arm can end on all its paths.
+        for tail in [
+            "break;",
+            "throw Error();",
+            "return t;",
+            "if (f) break; else break;",
+        ] {
+            let r = analyze_parser_ast(
+                &format!(
+                    r#"{{ switch (m) {{ case 1: var d = e.child("inner"); {tail}
+                         case 2: d.attrString("late"); break; }} }}"#
+                ),
+                "e",
+            );
+            let inner = r.fields.iter().find(|f| f.name == "inner").expect("inner");
+            let kids: Vec<String> = inner
+                .children
+                .iter()
+                .flatten()
+                .map(|c| c.name.clone())
+                .collect();
+            assert!(
+                !kids.iter().any(|n| n == "late"),
+                "`{tail}` seals the arm, so the next one never sees `d`: {kids:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_arm_that_falls_through_does_hand_its_bindings_on() {
+        // The bound. Fallthrough is the one way the next arm runs with what this one bound, so
+        // the read really is off `<inner>` — restoring at every arm boundary would lose it and
+        // file the read against the outer node instead, which is the same wrong-node mistake
+        // pointing the other way. A `break` only SOME path takes leaves the fallthrough open.
+        for tail in ["", "if (f) break;", "if (f) { g(); } else { break; }"] {
+            let r = analyze_parser_ast(
+                &format!(
+                    r#"{{ switch (m) {{ case 1: var d = e.child("inner"); {tail}
+                         case 2: d.attrString("late"); break; }} }}"#
+                ),
+                "e",
+            );
+            let inner = r.fields.iter().find(|f| f.name == "inner").expect("inner");
+            let kids: Vec<String> = inner
+                .children
+                .iter()
+                .flatten()
+                .map(|c| c.name.clone())
+                .collect();
+            assert!(
+                kids.iter().any(|n| n == "late"),
+                "`{tail}` falls through carrying `d`: {kids:?}"
+            );
+        }
+    }
+
+    #[test]
     fn a_switch_case_binding_stays_in_the_switch() {
         let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
             function parse(p){ p.attrString("from_module"); }
@@ -8634,6 +8972,101 @@ mod tests {
     }
 
     #[test]
+    fn calling_a_function_is_not_always_running_its_body() {
+        // Two spellings where the call returns before the body does the writing. A generator
+        // call builds an iterator and runs nothing at all; an `async` body stops at its first
+        // `await` and hands control back, so the caller's next statement runs before the rest
+        // of it. Both were read as "certainly ran by the time anything after the call reads
+        // it", so a still-valid alias was refused and the helper's fields were lost — the same
+        // mistake the `unused` narrowing was written for, on the two forms of a call that does
+        // not run to the end.
+        for body in [
+            "var current = e; (function*(){ current = other; })(); parse(current);",
+            "var current = e; (async function(){ await x; current = other; })(); parse(current);",
+            "var current = e; (async () => { await x; current = other; })(); parse(current);",
+            "var current = e; (async function(){ for await (var q of xs) {} current = other; })(); parse(current);",
+            // The FIRST suspension ends the synchronous part, whatever comes after it.
+            "var current = e; (async function(){ await x; current = other; await y; })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "`{body}` leaves the alias standing: {:?}",
+                fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn what_an_async_body_does_before_its_first_await_has_run() {
+        // The bound, and why the region is positional rather than the whole function: an
+        // `async` body runs synchronously up to its first suspension, so a write BEFORE the
+        // `await` has happened by the time the call returns and confining it would put the
+        // helper's fields at the node the write moved away from. An `await` inside a nested
+        // function is that function's suspension and does not shorten this one.
+        for body in [
+            "var current = e; (async function(){ current = other; await x; })(); parse(current);",
+            "var current = e; (async () => { current = other; await x; })(); parse(current);",
+            "var current = e; (async function(){ (async function(){ await x; })(); current = other; })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "`{body}` moved the node before returning: {:?}",
+                fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn a_loop_that_must_start_assigns_before_anything_can_jump_past_it() {
+        // `do { current = e; break; } while (0)` is the minifier's one-shot block, and the write
+        // at the top of it runs on every execution — the guaranteed first pass the requiredness
+        // walk has read in order since `walk_guaranteed_pass` was written. This collector called
+        // the whole body skippable and declined the question as too hard to answer, so the two
+        // halves disagreed about the same statement and the field came out optional anyway. Every
+        // loop whose entry is decidable, since one predicate now answers for all of them.
+        for body in [
+            "var current; do { current = e; break; } while (0); parse(current);",
+            "var current; do current = e; while (0); parse(current);",
+            "var current; while (!0) { current = e; break; } parse(current);",
+            "var current; for (;;) { current = e; break; } parse(current);",
+            "var current; for (; !0; ) { current = e; break; } parse(current);",
+            "var current; for (var q of [1, 2]) { current = e; break; } parse(current);",
+            "var current; do { if (bad) throw Error(); current = e; } while (0); parse(current);",
+            "var current; do { g(); } while (current = e); parse(current);",
+        ] {
+            let id = helper_reached_via(body)
+                .into_iter()
+                .find(|f| f.name == "id")
+                .unwrap_or_else(|| panic!("`{body}` moved the node instead"));
+            assert!(id.required, "`{body}` assigns on every execution");
+        }
+    }
+
+    #[test]
+    fn a_loop_that_may_not_start_assigns_nothing_for_certain() {
+        // The bounds, and why the guarantee is read off the same `always_true` the requiredness
+        // side uses rather than assumed for every loop: a tested loop has a zero-iteration path,
+        // an iterable of unknown length may be empty, and a write past something that can leave
+        // the body is a write some pass skipped. The `do` test is reached only by a pass that
+        // did not leave first, so a write THERE is uncertain too.
+        for body in [
+            "var current; while (f) { current = e; break; } parse(current);",
+            "var current; for (; f; ) { current = e; break; } parse(current);",
+            "var current; for (var q of xs) { current = e; break; } parse(current);",
+            "var current; do { if (f) break; current = e; } while (0); parse(current);",
+            "var current; do { break; } while (current = e); parse(current);",
+        ] {
+            let id = helper_reached_via(body)
+                .into_iter()
+                .find(|f| f.name == "id")
+                .unwrap_or_else(|| panic!("`{body}` moved the node instead"));
+            assert!(!id.required, "`{body}` has a path that assigns nothing");
+        }
+    }
+
+    #[test]
     fn a_write_control_cannot_reach_moves_nothing() {
         // Everything after an unconditional `return` or `throw` in the same list is unreachable,
         // and nothing modelled that: `dead` is computed per statement and asks only whether THAT
@@ -8727,14 +9160,21 @@ mod tests {
         // `class C { value = (current = other) }` evaluates that initializer per `new`, of which
         // there may be none — so defining the class moves nothing. Walking every property value
         // recorded the write as effective and refused a valid descent.
-        let fields = helper_reached_via(
+        // `accessor value = …` is the same field with a getter and a setter generated for it,
+        // and it was not one of the two spellings this visitor listed — so it fell through to
+        // the generic walk and its initializer WAS recorded as effective at definition. Which
+        // is what enumerating the parts of a class by hand costs every time one is missed.
+        for body in [
             "var current = e; class C { value = (current = other) } parse(current);",
-        );
-        assert!(
-            fields.iter().any(|f| f.name == "id"),
-            "definition assigns nothing: {:?}",
-            fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
-        );
+            "var current = e; class C { accessor value = (current = other); } parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "`{body}` assigns nothing by existing: {:?}",
+                fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+            );
+        }
     }
 
     #[test]
@@ -8745,6 +9185,8 @@ mod tests {
         for body in [
             "var current = e; class C { static value = (current = other) } parse(current);",
             "var current = e; class C { [(current = other)]() {} } parse(current);",
+            "var current = e; class C { static accessor value = (current = other); } parse(current);",
+            "var current = e; class C { accessor [(current = other)] = 1; } parse(current);",
         ] {
             let fields = helper_reached_via(body);
             assert!(
@@ -10050,6 +10492,82 @@ mod tests {
                 guards_and_field(&format!("try {{ parse(e); }} catch (x) {{ {handler} }}"));
             assert_eq!(guards, (true, true), "`{handler}` hands nothing back");
         }
+    }
+
+    #[test]
+    fn a_hanging_block_never_reaches_its_handler() {
+        // `try { for (;;); } catch (_) {}` hangs. Reading the loop as a throwing path — which
+        // is the right answer to the only question the other callers ask, can this hand a
+        // result back — handed the try to a handler that completes, so the whole `try` counted
+        // as a value path and diluted the intersection with a side nothing reaches. A throw
+        // reaches the handler and a hang does not, and one predicate was answering for both.
+        for block in [
+            "for (;;);",
+            "while (!0) {}",
+            "do {} while (!0)",
+            "outer: for (;;) {}",
+        ] {
+            let guards = guards_and_field(&format!(
+                "if (flag) {{ try {{ {block} }} catch (_) {{}} }} else {{ parse(e); }}"
+            ));
+            assert_eq!(guards, (true, true), "`{block}` reaches nothing after it");
+        }
+    }
+
+    #[test]
+    fn a_loop_that_can_raise_still_reaches_the_handler() {
+        // The bound, and the reason the hang is recognised this narrowly: anything the body
+        // evaluates can throw, and a throw is exactly what the handler is there for. Only a
+        // loop that does no work at all is a hang; `while (!0) { g(); }` may end up in a
+        // `catch` that completes, so the `try` is still a path that yields something and the
+        // `else` read stays optional. A header counts as work too — it runs on every pass.
+        for block in [
+            "while (!0) { g(); }",
+            "for (;;) { g(); }",
+            "for (i = risky(); ; ) {}",
+            "for (;; risky()) {}",
+            "while (flag) {}",
+        ] {
+            let guards = guards_and_field(&format!(
+                "if (flag) {{ try {{ {block} }} catch (_) {{}} }} else {{ parse(e); }}"
+            ));
+            assert_eq!(
+                guards,
+                (false, false),
+                "`{block}` can leave through the catch"
+            );
+        }
+    }
+
+    #[test]
+    fn nothing_a_hanging_try_is_wrapped_in_runs_either() {
+        // The same fact where the requiredness walk asks it: a handler or a finalizer after a
+        // block that hangs is not the block's successor, it is unreachable. Treating the
+        // handler as the one side that yields a value made everything it reads required —
+        // the same mistake as above pointing the other way, and the fourth time on this branch
+        // that a rule landed in the classifier and not in the visitor.
+        for tail in ["catch (_) { parse(e); }", "finally { parse(e); }"] {
+            let guards = guards_and_field(&format!("try {{ for (;;); }} {tail}"));
+            assert_eq!(guards, (false, false), "nothing runs `{tail}`");
+        }
+    }
+
+    #[test]
+    fn a_handler_after_a_block_that_can_fail_still_reads() {
+        // The bound for that one: a block that does work can throw, so the handler is a path
+        // the parser takes, and its reads are recorded as the conditional ones they are rather
+        // than dropped. A finalizer after such a block runs on every path, so what it reads is
+        // required — which is the behaviour the hang check must not disturb.
+        assert_eq!(
+            guards_and_field("try { g(); } catch (_) { parse(e); }"),
+            (false, false),
+            "the handler runs only on failure"
+        );
+        assert_eq!(
+            guards_and_field("try { g(); } finally { parse(e); }"),
+            (true, true),
+            "the finalizer runs either way"
+        );
     }
 
     #[test]
