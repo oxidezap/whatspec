@@ -272,34 +272,53 @@ fn emit_outcome_parse(
 ) -> Vec<String> {
     let mut lines = Vec::new();
     for (v, (vname, sname)) in op.response.variants.iter().zip(info) {
-        lines.push(format!(
-            "{indent}let __r: Result<{sname}, anyhow::Error> = (|| -> Result<{sname}, anyhow::Error> {{"
-        ));
-        // Discriminator guards first: an attr pinned to a literal (`type:"result"`)
-        // must match, else this variant doesn't apply — bail so the next arm is tried.
-        for a in &v.assertions {
-            if a.kind == AssertionKind::Attr
-                && let (Some(name), Some(value)) = (&a.name, &a.value)
-            {
-                lines.push(format!(
-                    "{indent}    if response.get_attr({}).map(|x| x.as_str()).as_deref() != Some({}) {{ anyhow::bail!(\"{vname}: {} != {}\"); }}",
+        // The discriminator SELECTS; it does not bail. Spelled as a bail inside the payload
+        // closure, a pin miss and a malformed payload were one `Err` and both moved on — so a
+        // `type="result"` response whose success payload failed came back as the Error variant,
+        // where the source dispatch takes the result path and rejects it. Review reported this
+        // on the union cascade; this is the same emitter's twin on the response root, and
+        // fixing one and not the other is the shape this branch keeps being caught for.
+        //
+        // A variant with NO pin is discriminated by its own required fields, exactly as an
+        // unpinned union arm is, so there a failed parse IS the miss and it still falls through.
+        let conds: Vec<String> = v
+            .assertions
+            .iter()
+            .filter(|a| a.kind == AssertionKind::Attr)
+            .filter_map(|a| match (&a.name, &a.value) {
+                (Some(name), Some(value)) => Some(format!(
+                    "response.get_attr({}).map(|x| x.as_str()).as_deref() == Some({})",
                     rust_lit(name),
                     rust_lit(value),
-                    rust_lit_inner(name),
-                    rust_lit_inner(value),
-                ));
-            }
-        }
+                )),
+                _ => None,
+            })
+            .collect();
+        let pinned = !conds.is_empty();
+        let body = if pinned {
+            lines.push(format!("{indent}if {} {{", conds.join(" && ")));
+            format!("{indent}    ")
+        } else {
+            indent.to_string()
+        };
+        lines.push(format!(
+            "{body}let __r: Result<{sname}, anyhow::Error> = (|| -> Result<{sname}, anyhow::Error> {{"
+        ));
         lines.extend(emit_response_parser(
             &v.fields,
             sname,
-            &format!("{indent}    "),
+            &format!("{body}    "),
             sname,
         ));
-        lines.push(format!("{indent}}})();"));
-        lines.push(format!(
-            "{indent}if let Ok(__v) = __r {{ return Ok({enum_name}::{vname}(__v)); }}"
-        ));
+        lines.push(format!("{body}}})();"));
+        if pinned {
+            lines.push(format!("{body}return Ok({enum_name}::{vname}(__r?));"));
+            lines.push(format!("{indent}}}"));
+        } else {
+            lines.push(format!(
+                "{body}if let Ok(__v) = __r {{ return Ok({enum_name}::{vname}(__v)); }}"
+            ));
+        }
     }
     lines.push(format!(
         "{indent}anyhow::bail!(\"{enum_name}: no response variant matched\")"
@@ -1010,17 +1029,26 @@ mod tests {
             code.contains("pub enum MakeGetThingRequestResponse"),
             "{code}"
         );
+        // Each arm guards on its pin — as a SELECTOR now rather than as a bail inside the
+        // payload closure, which is what separates a discriminator miss from a payload that
+        // failed. Spelled the other way, a `type="result"` response whose success payload failed
+        // came back as the Error variant.
         assert!(
             code.contains(
-                "if response.get_attr(\"type\").map(|x| x.as_str()).as_deref() != Some(\"result\")"
+                "if response.get_attr(\"type\").map(|x| x.as_str()).as_deref() == Some(\"result\") {"
             ),
-            "success arm must guard type==result: {code}"
+            "success arm must select on type==result: {code}"
         );
         assert!(
             code.contains(
-                "if response.get_attr(\"type\").map(|x| x.as_str()).as_deref() != Some(\"error\")"
+                "if response.get_attr(\"type\").map(|x| x.as_str()).as_deref() == Some(\"error\") {"
             ),
-            "error arm must guard type==error: {code}"
+            "error arm must select on type==error: {code}"
+        );
+        // And its payload error is the answer, rather than the next variant's parse.
+        assert!(
+            code.contains("return Ok(MakeGetThingRequestResponse::Success(__r?));"),
+            "the selected arm's payload error is propagated: {code}"
         );
     }
 

@@ -37,7 +37,7 @@ use crate::fields::{
     RustChildStruct, RustEnum, RustEnumVariant, RustField, admits_negative, byte_band,
     collect_response_fields, enum_values, int_band, integer_width, is_attr_field, rust_field_type,
 };
-use crate::naming::{pascal_case, rust_ident, rust_lit, rust_lit_inner};
+use crate::naming::{pascal_case, rust_ident, rust_lit};
 use crate::spec::parser_is_valid;
 
 /// The codegen-able shape of a `type=union` field.
@@ -604,9 +604,13 @@ fn emit_tag_discriminated(
     indent: &str,
     lines: &mut Vec<String>,
 ) {
+    // The cascade hands back a `Result`, not an `Option`. A node whose discriminator selected
+    // an arm and whose payload then failed is one the source parser REJECTS; answering `None`
+    // there would call it an absent field, and answering the next variant — which is what the
+    // first-success reading did — labels it as something it is not.
     if descend.is_empty() {
         lines.push(format!(
-            "{indent}let {field} = (|| -> Option<{enum_name}> {{"
+            "{indent}let {field} = (|| -> Result<Option<{enum_name}>, anyhow::Error> {{"
         ));
         emit_tag_cascade(
             enum_name,
@@ -616,19 +620,24 @@ fn emit_tag_discriminated(
             &format!("{indent}    "),
             lines,
         );
-        lines.push(format!("{indent}}})();"));
+        lines.push(format!("{indent}}})()?;"));
     } else {
         let node = descend_opt_expr(node_var, descend);
-        lines.push(format!("{indent}let {field} = {node}.and_then(|n| {{"));
+        lines.push(format!("{indent}let {field} = match {node} {{"));
+        lines.push(format!(
+            "{indent}    Some(n) => (|| -> Result<Option<{enum_name}>, anyhow::Error> {{"
+        ));
         emit_tag_cascade(
             enum_name,
             "n",
             arms,
             prefix,
-            &format!("{indent}    "),
+            &format!("{indent}        "),
             lines,
         );
-        lines.push(format!("{indent}}});"));
+        lines.push(format!("{indent}    }})()?,"));
+        lines.push(format!("{indent}    None => None,"));
+        lines.push(format!("{indent}}};"));
     }
 }
 
@@ -643,23 +652,43 @@ fn emit_tag_cascade(
     indent: &str,
     lines: &mut Vec<String>,
 ) {
-    let inner = format!("{indent}    ");
     for a in arms {
         let vname = pascal_case(&a.variant);
         let struct_name = format!("{enum_name}{vname}");
+        // Two kinds of arm live in this cascade, and only one of them may fall through.
+        //
+        // An arm with PINNED attributes has a discriminator, and the pin is hoisted out of the
+        // payload closure so a miss and a malformed payload stop being the same `Err`. A node
+        // `kind="a" count="bad" other="x"` came back as a later variant, where the source
+        // dispatch takes the `a` path and rejects the integer.
+        //
+        // An arm with NO pin is discriminated by its own required fields — the `participant`
+        // shape, where Admin's required `type` is what tells it from NonAdmin — so there a
+        // failed parse IS the miss and moving on is the whole mechanism. Making that fatal
+        // dropped every arm after the first, which is how a fix for the first kind broke the
+        // second: the same generalize-past-what-it-supports shape as round twenty-five.
+        let conds: Vec<String> = a
+            .attr_values
+            .iter()
+            .map(|(n, val)| {
+                format!(
+                    "{read_var}.get_attr({}).map(|x| x.as_str()).as_deref() == Some({})",
+                    rust_lit(n),
+                    rust_lit(val)
+                )
+            })
+            .collect();
+        let pinned = !conds.is_empty();
+        let body_indent = if pinned {
+            lines.push(format!("{indent}if {} {{", conds.join(" && ")));
+            format!("{indent}    ")
+        } else {
+            indent.to_string()
+        };
+        let inner = format!("{body_indent}    ");
         lines.push(format!(
-            "{indent}let __r: Result<{struct_name}, anyhow::Error> = (|| -> Result<{struct_name}, anyhow::Error> {{"
+            "{body_indent}let __r: Result<{struct_name}, anyhow::Error> = (|| -> Result<{struct_name}, anyhow::Error> {{"
         ));
-        for (n, val) in &a.attr_values {
-            lines.push(format!(
-                "{inner}if {read_var}.get_attr({}).map(|x| x.as_str()).as_deref() != Some({}) {{ anyhow::bail!(\"{}: {} != {}\"); }}",
-                rust_lit(n),
-                rust_lit(val),
-                vname,
-                rust_lit_inner(n),
-                rust_lit_inner(val),
-            ));
-        }
         // The per-variant struct is its OWN prefix, so child item structs match the
         // names `collect_response_fields(&a.fields, &struct_name)` generated.
         lines.extend(emit_struct_parser(
@@ -669,12 +698,19 @@ fn emit_tag_cascade(
             &inner,
             &struct_name,
         ));
-        lines.push(format!("{indent}}})();"));
-        lines.push(format!(
-            "{indent}if let Ok(__v) = __r {{ return Some({enum_name}::{vname}(__v)); }}"
-        ));
+        lines.push(format!("{body_indent}}})();"));
+        if pinned {
+            lines.push(format!(
+                "{body_indent}return Ok(Some({enum_name}::{vname}(__r?)));"
+            ));
+            lines.push(format!("{indent}}}"));
+        } else {
+            lines.push(format!(
+                "{body_indent}if let Ok(__v) = __r {{ return Ok(Some({enum_name}::{vname}(__v))); }}"
+            ));
+        }
     }
-    lines.push(format!("{indent}None"));
+    lines.push(format!("{indent}Ok(None)"));
 }
 
 /// Emit a content-discriminated union read: descend (optionally) to the content node,
@@ -870,7 +906,15 @@ fn same_node_guard(arm: &ValueArm, node_var: &str) -> Option<String> {
         let Some(name) = a.name.as_deref() else {
             continue;
         };
-        pinned.insert(name);
+        // Only a VALUE pin counts as covering the leaf. A presence-only assertion tests
+        // `is_some()`, which says nothing about what the accessor accepts — an arm asserting
+        // `count` is present and reading `attrInt("count")` took `count="abc"`, and `field_expr`
+        // then handed back the `0` its failed parse defaults to, for a node the source rejects.
+        // Presence is not decoding, and it is not a vocabulary, a band, a length or a pin
+        // either.
+        if a.value.is_some() {
+            pinned.insert(name);
+        }
         conds.push(match a.value.as_deref() {
             Some(v) => format!(
                 "{node_var}.get_attr({}).map(|x| x.as_str()) == Some({})",
@@ -1635,6 +1679,116 @@ mod tests {
     }
 
     #[test]
+    fn a_matched_discriminator_does_not_fall_through() {
+        // A pinned arm's payload error is the field's answer. Both were one `Err` inside the
+        // per-arm closure, so `kind="a" count="bad" other="x"` failed the `a` payload and came
+        // back as the fallback variant — where the source dispatch takes the `a` path and
+        // rejects the integer. The pin is hoisted out and the payload is propagated.
+        let f = union_field(serde_json::json!({
+            "method": "", "name": "dispatched", "type": "union", "required": true,
+            "unionVariants": [
+                {"name": "Alpha", "fields": [
+                    {"method": "attrInt", "name": "count", "wireName": "count",
+                     "type": "integer", "required": true}
+                ], "assertions": [{"kind": "tag", "name": "item"},
+                                  {"kind": "attr", "name": "kind", "value": "a"}]},
+                {"name": "Beta", "fields": [
+                    {"method": "attrString", "name": "other", "wireName": "other",
+                     "type": "string", "required": true}
+                ], "assertions": [{"kind": "tag", "name": "item"},
+                                  {"kind": "attr", "name": "kind", "value": "b"}]}
+            ]
+        }));
+        let (lines, _) = emit_union_read(&f, "item", "Spec", "").unwrap();
+        let code = lines.join("\n");
+        assert!(
+            code.contains(
+                "if item.get_attr(\"kind\").map(|x| x.as_str()).as_deref() == Some(\"a\") {"
+            ),
+            "the pin selects rather than bails:\n{code}"
+        );
+        assert!(
+            code.contains("return Ok(Some(SpecDispatched::Alpha(__r?)));"),
+            "the selected arm's payload error is the answer:\n{code}"
+        );
+        // And a MISS is still the only thing that reaches a later arm.
+        assert!(
+            code.contains(
+                "if item.get_attr(\"kind\").map(|x| x.as_str()).as_deref() == Some(\"b\") {"
+            ),
+            "the second arm is still tried on a miss:\n{code}"
+        );
+        assert!(
+            !code.contains("anyhow::bail!(\"Alpha:"),
+            "no pin check left inside the payload closure:\n{code}"
+        );
+    }
+
+    #[test]
+    fn a_presence_assertion_does_not_stand_in_for_a_typed_read() {
+        // An arm that asserts an attribute is PRESENT and reads it through a typed accessor
+        // needs both tests. Presence was recorded as pinning the name, which dropped the leaf
+        // guard — so `count="abc"` passed `.is_some()`, the arm was selected, and `field_expr`
+        // handed back the `0` its failed parse defaults to for a node the source rejects.
+        // Presence is not decoding, and it is not a vocabulary, a band, a length or a pin.
+        let f = union_field(serde_json::json!({
+            "method": "", "name": "counted", "type": "union", "required": true,
+            "unionVariants": [
+                {"name": "Counted", "fields": [
+                    {"method": "attrInt", "name": "count", "wireName": "count",
+                     "type": "integer", "required": true}
+                ], "assertions": [{"kind": "attr", "name": "count"}]},
+                {"name": "Plain", "fields": [
+                    {"method": "attrString", "name": "label", "wireName": "label",
+                     "type": "string", "required": true}
+                ]}
+            ]
+        }));
+        let (lines, _) = emit_union_read(&f, "n", "Spec", "").unwrap();
+        let code = lines.join("\n");
+        assert!(
+            code.contains("n.get_attr(\"count\").is_some()"),
+            "the presence assertion is still tested:\n{code}"
+        );
+        assert!(
+            code.contains(
+                "n.get_attr(\"count\").is_some() && n.get_attr(\"count\").and_then(|v| v.as_str().parse().ok()).is_some()"
+            ),
+            "and so is what the accessor accepts:\n{code}"
+        );
+    }
+
+    #[test]
+    fn a_value_assertion_still_covers_the_leaf_it_pins() {
+        // The bound. A pin fixes the raw text, so re-testing the same attribute through its own
+        // accessor says nothing the pin has not already settled — and this filter exists to keep
+        // that redundancy out.
+        let f = union_field(serde_json::json!({
+            "method": "", "name": "kinded", "type": "union", "required": true,
+            "unionVariants": [
+                {"name": "Kind", "fields": [
+                    {"method": "attrString", "name": "kind", "wireName": "kind",
+                     "type": "string", "required": true}
+                ], "assertions": [{"kind": "attr", "name": "kind", "value": "a"}]},
+                {"name": "Plain", "fields": [
+                    {"method": "attrString", "name": "label", "wireName": "label",
+                     "type": "string", "required": true}
+                ]}
+            ]
+        }));
+        let (lines, _) = emit_union_read(&f, "n", "Spec", "").unwrap();
+        let code = lines.join("\n");
+        assert!(
+            code.contains("if n.get_attr(\"kind\").map(|x| x.as_str()) == Some(\"a\") {"),
+            "the pin is the guard:\n{code}"
+        );
+        assert!(
+            !code.contains("n.get_attr(\"kind\").is_some()"),
+            "and nothing re-tests the attribute it fixed:\n{code}"
+        );
+    }
+
+    #[test]
     fn non_separable_same_node_union_is_rejected() {
         // First variant has NO required attr → it would always match and shadow the
         // second. Must classify as unsupported (None), not emit a misleading cascade.
@@ -1685,14 +1839,17 @@ mod tests {
                 .iter()
                 .any(|s| s.name.ends_with("GroupInfoParticipantAdmin"))
         );
-        // The parser tries each arm; Admin's required `type` makes it fail-fast for a
-        // NonAdmin response.
+        // The parser tries each arm; Admin's required `type` makes it fail-fast for a NonAdmin
+        // response. That first-success reading is right HERE and wrong for a PINNED arm, where
+        // a matched discriminator whose payload failed used to come back as a later variant —
+        // see the sibling test. The two are separated by whether the arm has a pin at all,
+        // because an arm without one is discriminated by nothing else than its own payload.
         let (lines, _) = emit_union_read(&f, "participant_item", "Spec", "").unwrap();
         let code = lines.join("\n");
         assert!(code.contains("::GroupInfoParticipantAdmin(__v)"), "{code}");
         assert!(
             code.contains("if let Ok(__v) = __r"),
-            "first-success cascade:\n{code}"
+            "an arm with no pin is discriminated by its own required fields:\n{code}"
         );
     }
 
@@ -1714,10 +1871,12 @@ mod tests {
         }));
         let (lines, _) = emit_union_read(&f, "message_item", "Spec", "").unwrap();
         let code = lines.join("\n");
-        // Each arm guards on its pinned type value (Cow-safe comparison).
+        // Each arm guards on its pinned type value (Cow-safe comparison) — as a SELECTOR now
+        // rather than as a bail inside the payload closure, which is what separates a
+        // discriminator miss from a payload that failed.
         assert!(
             code.contains(
-                "message_item.get_attr(\"type\").map(|x| x.as_str()).as_deref() != Some(\"text\")"
+                "if message_item.get_attr(\"type\").map(|x| x.as_str()).as_deref() == Some(\"text\") {"
             ),
             "{code}"
         );

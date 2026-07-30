@@ -3054,13 +3054,33 @@ fn one_read_per_property(fields: &mut [ParsedField]) -> bool {
         .all(|f| seen.insert(rust_member_form(&f.name)))
 }
 
+/// A member access by a name this can read, computed or not: `f.call` and `f["call"]` reach the
+/// same function, and matching only the dotted spelling left the bracket one walking an inline
+/// body as one nobody calls. `static_name` answers `None` for a key nothing here resolves, which
+/// is what keeps `f[k]` out.
+fn named_member<'b, 'a>(
+    e: &'b Expression<'a>,
+) -> Option<(std::borrow::Cow<'b, str>, &'b Expression<'a>)> {
+    match e {
+        Expression::StaticMemberExpression(m) => Some((
+            std::borrow::Cow::Borrowed(m.property.name.as_str()),
+            &m.object,
+        )),
+        Expression::ComputedMemberExpression(m) => match &m.expression {
+            Expression::StringLiteral(s) => {
+                Some((std::borrow::Cow::Borrowed(s.value.as_str()), &m.object))
+            }
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 /// The `.bind` member a call's callee resolves to, if that is what it is — so `f.bind(…)` is
 /// told from `f.map(…)`, whose result is not `f`.
-fn bind_member<'b, 'a>(
-    callee: &'b Expression<'a>,
-) -> Option<&'b oxc_ast::ast::StaticMemberExpression<'a>> {
-    match invoked_callee(callee) {
-        Expression::StaticMemberExpression(m) if m.property.name.as_str() == "bind" => Some(m),
+fn bind_member<'b, 'a>(callee: &'b Expression<'a>) -> Option<&'b Expression<'a>> {
+    match named_member(invoked_callee(callee)) {
+        Some((name, object)) if name == "bind" => Some(object),
         _ => None,
     }
 }
@@ -3086,20 +3106,18 @@ fn invoked_callee<'b, 'a>(mut e: &'b Expression<'a>) -> &'b Expression<'a> {
             // unwraps to `thing`, which the caller's own test then rejects as something it has
             // never seen the body of. Guarding it here as well was an inert second copy of that
             // test, and no mutation could tell the two versions apart.
-            Expression::StaticMemberExpression(m)
-                if matches!(m.property.name.as_str(), "call" | "apply") =>
-            {
-                &m.object
-            }
             // `(function(){ … }).bind(null)()` runs that body now too. The callee of the outer
             // call is itself a CALL, so nothing above matched it and the body was walked as one
             // nobody reaches. Only `.bind`, whose result IS the receiver's body; what
             // `(function(){ … }).map(g)` hands back is something else.
             Expression::CallExpression(c) => match bind_member(&c.callee) {
-                Some(m) => &m.object,
+                Some(object) => object,
                 None => return e,
             },
-            other => return other,
+            other => match named_member(other) {
+                Some((name, object)) if matches!(name.as_ref(), "call" | "apply") => object,
+                _ => return other,
+            },
         };
     }
 }
@@ -3185,7 +3203,7 @@ fn arguments_then<'b, 'a>(
             // and asserted so in a test; review was right that `.bind(null)(1)` supplies the
             // first parameter as plainly as `(1)` does.
             Expression::CallExpression(c) => {
-                let Some(m) = bind_member(&c.callee) else {
+                let Some(receiver) = bind_member(&c.callee) else {
                     return Vec::new();
                 };
                 // A spread in the RECEIVER slot moves every position after it, so which
@@ -3208,26 +3226,23 @@ fn arguments_then<'b, 'a>(
                 // Peeled rather than run through `invoked_callee`, which looks through `bind`
                 // itself — asking it here reported a nested bind as the function underneath and
                 // the inner group was dropped, which is the bug this recursion exists to fix.
-                return match peel(&m.object) {
-                    Expression::StaticMemberExpression(inner)
-                        if matches!(inner.property.name.as_str(), "call" | "apply") =>
-                    {
-                        Vec::new()
-                    }
-                    _ => arguments_then(&m.object, &[], tail),
+                return match named_member(peel(receiver)) {
+                    Some((name, _)) if matches!(name.as_ref(), "call" | "apply") => Vec::new(),
+                    _ => arguments_then(receiver, &[], tail),
                 };
             }
-            Expression::StaticMemberExpression(m) => {
+            _ if named_member(e).is_some() => {
+                let (name, _) = named_member(e).expect("checked");
                 // A spread in the receiver slot contributes an unknown number of values, so
                 // neither slicing it off nor indexing past it identifies anything: `f.call(
                 // ...args, 1)` passes `1` as the receiver when `args` is empty and as the
                 // first argument when it holds one.
-                if matches!(m.property.name.as_str(), "call" | "apply")
+                if matches!(name.as_ref(), "call" | "apply")
                     && matches!(arguments.first(), Some(Argument::SpreadElement(_)))
                 {
                     return Vec::new();
                 }
-                return match m.property.name.as_str() {
+                return match name.as_ref() {
                     "call" => append(mapped(arguments.get(1..).unwrap_or_default()), trailing),
                     "apply" => {
                         let Some(Expression::ArrayExpression(arr)) =
@@ -3270,10 +3285,9 @@ fn leading_parts<'b, 'a>(e: &'b Expression<'a>, out: &mut Vec<&'b Expression<'a>
         // `(current = other, function(){}).call(null)` loses that assignment entirely — the
         // function is found and the comma's leading element is not. Two readers of one shape,
         // and only one of them was taught it.
-        Expression::StaticMemberExpression(m)
-            if matches!(m.property.name.as_str(), "call" | "apply") =>
-        {
-            leading_parts(&m.object, out);
+        _ if named_member(e).is_some_and(|(name, _)| matches!(name.as_ref(), "call" | "apply")) => {
+            let (_, object) = named_member(e).expect("checked");
+            leading_parts(object, out);
         }
         // `(function(){ … }).bind(null, current = other)()` evaluates the bind call — receiver
         // and arguments both — before the body it returns is ever entered. The callee unwrapper
@@ -3281,10 +3295,10 @@ fn leading_parts<'b, 'a>(e: &'b Expression<'a>, out: &mut Vec<&'b Expression<'a>
         // receiver was recorded nowhere and the helper's fields were published on a node the
         // call had replaced. Same two-readers-of-one-shape split as the `.call` arm above.
         Expression::CallExpression(c) => {
-            let Some(m) = bind_member(&c.callee) else {
+            let Some(receiver) = bind_member(&c.callee) else {
                 return;
             };
-            leading_parts(&m.object, out);
+            leading_parts(receiver, out);
             out.extend(c.arguments.iter().map(|a| match a {
                 // A spread still evaluates what it spreads.
                 Argument::SpreadElement(s) => &s.argument,
@@ -3445,6 +3459,16 @@ fn synchronous_until(
             probe.visit_statement(st);
             probe.at
         }
+        /// The same, of one EXPRESSION — which a ternary's arms are.
+        fn within_expr(e: &Expression<'_>) -> Option<u32> {
+            let mut probe = FirstAwait {
+                at: None,
+                nested: 0,
+                unsuspended: Vec::new(),
+            };
+            probe.visit_expression(e);
+            probe.at
+        }
     }
     impl<'a> Visit<'a> for FirstAwait {
         fn visit_await_expression(&mut self, e: &oxc_ast::ast::AwaitExpression<'a>) {
@@ -3519,8 +3543,23 @@ fn synchronous_until(
                 }
                 return;
             }
-            self.visit_expression(&e.consequent);
-            self.visit_expression(&e.alternate);
+            // The two arms are ALTERNATIVES, not a sequence: one's await says nothing about the
+            // other, which runs to its end without waiting. Visiting them in order let the
+            // consequent's `await` become the cutoff for the alternate as well, and a write that
+            // really is synchronous whenever its own arm is selected was confined to the
+            // function. The `if` arm has recorded that since round nineteen; this one merged
+            // them, which is the same half-a-rule the ternary keeps being reported for.
+            let sides = [&e.consequent, &e.alternate].map(|s| (s, FirstAwait::within_expr(s)));
+            for (side, first) in &sides {
+                match first {
+                    Some(at) => self.note(*at),
+                    None if sides.iter().any(|(_, o)| o.is_some()) && self.nested == 0 => {
+                        self.unsuspended.push(side.span());
+                    }
+                    None => {}
+                }
+                self.visit_expression(side);
+            }
         }
         // A short-circuit operator is the same decided branch in expression form. `0 && await 0`
         // never evaluates its right side, so the await in it suspends nothing and the statements
@@ -3971,29 +4010,12 @@ fn suppressed_defaults(
     arguments: &[Option<&Expression<'_>>],
     constructs: bool,
 ) -> Vec<Span> {
-    let params = match callee {
-        Expression::FunctionExpression(f) => &f.params,
-        Expression::ArrowFunctionExpression(f) => &f.params,
-        // `new (class { constructor(x = (current = other)) {} })(1)` passes its arguments to
-        // that constructor exactly as a call passes them to a function, so the same defaults
-        // are prevented. Reading only the two function spellings left this one recording a
-        // write the construction prevents — the rule applied to the callee shapes that had it
-        // and not to the one the round before had just made an invocation.
-        Expression::ClassExpression(c) if constructs => {
-            let ctor = c.body.body.iter().find_map(|el| match el {
-                oxc_ast::ast::ClassElement::MethodDefinition(m)
-                    if m.kind == oxc_ast::ast::MethodDefinitionKind::Constructor =>
-                {
-                    Some(&m.value.params)
-                }
-                _ => None,
-            });
-            let Some(params) = ctor else {
-                return Vec::new();
-            };
-            params
-        }
-        _ => return Vec::new(),
+    // `new (class { constructor(x = (current = other)) {} })(1)` passes its arguments to that
+    // constructor exactly as a call passes them to a function, so the same defaults are
+    // prevented — which is why `callee_params` answers for the class shape too, and why the
+    // getter walk beside it reads the very same list rather than a second copy of this match.
+    let Some(params) = callee_params(callee, constructs) else {
+        return Vec::new();
     };
     let mut out = Vec::new();
     for (i, param) in params.items.iter().enumerate() {
@@ -4030,6 +4052,81 @@ fn suppressed_defaults(
         suppress_in_pattern(&param.pattern, reached, &mut out);
     }
     out
+}
+
+/// The getter bodies that BINDING these parameters will invoke.
+///
+/// `(function ({x}) {})({ get x() { current = other; return 1; } })` runs that getter while the
+/// parameters are bound — before the body is entered and before anything after the call reads
+/// what it wrote. `suppress_in_pattern` already knows the getter's RESULT is unreadable and
+/// leaves the default running, which is right; nothing knew its BODY runs at all, so a write
+/// inside it stayed confined to a function nobody was known to call.
+///
+/// Deliberately shallow: a property named at the top level of a parameter's own object pattern,
+/// over a literal object argument, taking the LAST property of that name — the same reading the
+/// suppression lookup takes, for the same reason. A nested pattern, a computed key or a spread
+/// leaves the getter unclaimed, which loses a write rather than inventing one.
+fn bound_getters<'b, 'a>(
+    callee: &'b Expression<'a>,
+    arguments: &[Option<&'b Expression<'a>>],
+    constructs: bool,
+) -> Vec<Span> {
+    let Some(params) = callee_params(callee, constructs) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for (i, param) in params.items.iter().enumerate() {
+        let Some(Some(Expression::ObjectExpression(supplied))) = arguments.get(i).copied() else {
+            continue;
+        };
+        // Past the parameter's own default: what the pattern takes apart is the argument, since
+        // an argument that is a literal object is one `definitely_defined` accepts.
+        let oxc_ast::ast::BindingPattern::ObjectPattern(pat) = &param.pattern else {
+            continue;
+        };
+        for prop in &pat.properties {
+            let Some(name) = prop.key.static_name() else {
+                continue;
+            };
+            let getter = supplied.properties.iter().rev().find_map(|p| match p {
+                oxc_ast::ast::ObjectPropertyKind::ObjectProperty(op)
+                    if op.key.static_name().as_deref() == Some(name.as_ref()) =>
+                {
+                    Some(op)
+                }
+                _ => None,
+            });
+            if let Some(op) = getter
+                && op.kind == oxc_ast::ast::PropertyKind::Get
+                && let Expression::FunctionExpression(f) = &op.value
+            {
+                out.push(f.span);
+            }
+        }
+    }
+    out
+}
+
+/// The formals a call binds, for the callee shapes that have any.
+fn callee_params<'b, 'a>(
+    callee: &'b Expression<'a>,
+    constructs: bool,
+) -> Option<&'b oxc_ast::ast::FormalParameters<'a>> {
+    match callee {
+        Expression::FunctionExpression(f) => Some(&f.params),
+        Expression::ArrowFunctionExpression(f) => Some(&f.params),
+        Expression::ClassExpression(c) if constructs => {
+            c.body.body.iter().find_map(|el| match el {
+                oxc_ast::ast::ClassElement::MethodDefinition(m)
+                    if m.kind == oxc_ast::ast::MethodDefinitionKind::Constructor =>
+                {
+                    Some(&*m.value.params)
+                }
+                _ => None,
+            })
+        }
+        _ => None,
+    }
 }
 
 /// The defaults inside `pat` that the value it destructures already supplies.
@@ -5057,12 +5154,19 @@ impl AllBindings {
         // `(function(){ parse(current); })(current = e)` reads what the argument assigned.
         // Only the callee's own span, so a read in another argument still orders normally
         // against this write — the arguments run in their own order.
+        // A getter the parameter binding invokes runs as certainly as the body does, and it runs
+        // while the arguments are still being read — so it is marked immediate for the length of
+        // that walk and nowhere else.
+        let getters = bound_getters(callee, &effective, constructs);
+        let restore_iife = self.iife.len();
+        self.iife.extend(getters.iter().map(|g| (*g, vec![*g])));
         self.runs_before
             .push(construction_regions(callee, constructs));
         for arg in arguments {
             self.visit_argument(arg);
         }
         self.runs_before.pop();
+        self.iife.truncate(restore_iife);
         true
     }
 
@@ -17299,5 +17403,90 @@ mod tests {
             .find(|f| f.name == "id")
             .expect("recovered")
             .required
+    }
+    #[test]
+    fn a_ternary_arm_that_does_not_suspend_keeps_its_own_region() {
+        // The two arms are ALTERNATIVES, not a sequence. `flag ? await 0 : current = other`
+        // assigns synchronously whenever the alternate is selected, and visiting the arms in
+        // order let the consequent's await become the cutoff for both — so a write the caller
+        // does see was confined to the function. The `if` arm has recorded this since round
+        // nineteen; the ternary merged them.
+        for body in [
+            "var current = e; (async function () { flag ? await 0 : current = other; })(); parse(current);",
+            "var current = e; (async function () { flag ? current = other : await 0; })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that arm runs synchronously: {body}"
+            );
+        }
+        // The bound: an arm that awaits BEFORE its write suspends on its own account, and the
+        // write after it is the continuation's.
+        let fields = helper_reached_via(
+            "var current = e; (async function () { flag ? await 0 : (await 1, current = other); })(); parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "that arm awaits first: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn a_member_named_by_a_string_is_the_same_member() {
+        // `f["call"]` reaches the same function as `f.call`; oxc spells it as a COMPUTED member,
+        // so every matcher written against the dotted form missed it and the inline body was
+        // walked as one nobody calls.
+        for body in [
+            "var current = e; (function () { current = other; })[\"call\"](null); parse(current);",
+            "var current = e; (function () { current = other; })[\"apply\"](null); parse(current);",
+            "var current = e; (function () { current = other; })[\"bind\"](null)(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "the body ran now: {body}"
+            );
+        }
+        // The bound: still only these three names, and still only a key this can read — `f[k]`
+        // names whatever `k` holds, which is not a question for a syntactic pass.
+        for body in [
+            "var current = e; (function () { current = other; })[\"map\"](null); parse(current);",
+            "var current = e; (function () { current = other; })[k](null); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "nothing inline was invoked: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_getter_the_parameters_read_runs_at_the_call() {
+        // Binding `{x}` against `{ get x() { … } }` INVOKES that getter, before the body is
+        // entered and before anything after the call reads what it wrote. The suppression rule
+        // already knew the getter's result is unreadable — which is why the default still runs —
+        // and nothing knew its body runs at all, so the write stayed confined.
+        let fields = helper_reached_via(
+            "var current = e; (function ({x}) {})({ get x() { current = other; return 1; } }); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the getter ran: {fields:?}"
+        );
+        // The bound: nothing reads the property unless a pattern names it, and a plain property
+        // holding a function is a value rather than a call.
+        for body in [
+            "var current = e; (function (o) {})({ get x() { current = other; return 1; } }); parse(current);",
+            "var current = e; (function ({y}) {})({ get x() { current = other; return 1; } }); parse(current);",
+            "var current = e; (function ({x}) {})({ x: function () { current = other; } }); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "nothing invoked that body: {body}"
+            );
+        }
     }
 }
