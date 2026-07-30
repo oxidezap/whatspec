@@ -904,8 +904,18 @@ fn arm_payload_representable(fields: &[ParsedField]) -> bool {
         let content_literal = wap::is_content_method(&f.method) && f.literal_value.is_some();
         let width = integer_width(f);
         // Contradictory, not merely negative: a minimum above the maximum admits nothing at
-        // any width. `int_max < 0` alone is an ordinary signed band.
-        let unreachable_band = f.int_min.zip(f.int_max).is_some_and(|(lo, hi)| lo > hi);
+        // any width, and `int_max < 0` alone is an ordinary signed band — WHEN the field is
+        // signed. A width forced unsigned admits nothing below zero, so a ceiling there admits
+        // nothing at all: `contentUint` is a byte fold that `admits_negative` keeps `u64`
+        // whatever range it carries, and generalizing the old below-zero-ceiling test into a
+        // signedness question dropped that case. The arm could then be selected and
+        // materialized on a band no value satisfies. Both halves are the same statement — that
+        // nothing the accessor accepts falls inside the band — asked of the width that is
+        // actually emitted.
+        let unreachable_band = f.int_min.zip(f.int_max).is_some_and(|(lo, hi)| lo > hi)
+            || (!admits_negative(f)
+                && wap::method_field_type(&f.method) == ParsedFieldType::Integer
+                && f.int_max.is_some_and(|hi| hi < 0));
         let unrepresentable_pin = wap::method_field_type(&f.method) == ParsedFieldType::Integer
             && f.literal_value
                 .as_deref()
@@ -2096,6 +2106,54 @@ mod tests {
             "the arm is selected on what the accessor accepts: {src}"
         );
     }
+    #[test]
+    fn a_below_zero_ceiling_on_a_forced_unsigned_leaf_is_declined() {
+        // `contentUint` is a byte fold the width predicate keeps `u64` whatever range it
+        // carries, so a ceiling below zero admits no value at all and the arm can never be
+        // taken. The old test asked whether the CEILING was negative; generalizing it into a
+        // signedness question — correct for an attribute, where an open floor makes such a band
+        // ordinary and signed — stopped covering the field whose width is forced. The guard
+        // then validated only the byte payload and the arm could be selected and materialized
+        // on a band nothing satisfies.
+        let f = union_field(serde_json::json!({
+            "method": "dispatch", "name": "kind_dispatch", "type": "union", "required": true,
+            "unionVariants": [
+                {"name": "a", "assertions": [{"kind": "attr", "name": "kind", "value": "a"}],
+                 "fields": [{"method": "contentUint", "name": "code", "wireName": "code",
+                             "type": "integer", "required": true, "intMax": -1}]},
+                {"name": "b", "assertions": [{"kind": "attr", "name": "kind", "value": "b"}],
+                 "fields": []}
+            ]
+        }));
+        assert!(
+            emit_union_read(&f, "node", "Spec", "").is_none(),
+            "a band no u64 satisfies declines the shape"
+        );
+    }
+
+    #[test]
+    fn a_below_zero_ceiling_on_a_signed_leaf_is_an_ordinary_band() {
+        // The bound, and the reason this asks about the emitted width rather than the sign: an
+        // `attrIntRange` with no floor is signed, so "at most -1" is a band values really do
+        // satisfy. Declining on a negative ceiling alone would throw the arm away.
+        let f = union_field(serde_json::json!({
+            "method": "dispatch", "name": "kind_dispatch", "type": "union", "required": true,
+            "unionVariants": [
+                {"name": "a", "assertions": [{"kind": "attr", "name": "kind", "value": "a"}],
+                 "fields": [{"method": "attrIntRange", "name": "code", "wireName": "code",
+                             "type": "integer", "required": true, "intMax": -1}]},
+                {"name": "b", "assertions": [{"kind": "attr", "name": "kind", "value": "b"}],
+                 "fields": []}
+            ]
+        }));
+        let (decls, body) = emit_union_read(&f, "node", "Spec", "").expect("the arm is emitted");
+        let src = format!("{}\n{body}", decls.join("\n"));
+        assert!(
+            src.contains("i64"),
+            "and it is emitted signed, so the band means something: {src}"
+        );
+    }
+
     #[test]
     fn an_integer_pin_no_u64_can_hold_is_declined() {
         // Compared as text the arm takes `"-1"`, and the payload then decodes that to `0`

@@ -2029,7 +2029,7 @@ impl ParserAnalyzer<'_, '_> {
         // call because the parameter was written somewhere threw away
         // `var original = row; row = row.child("detail"); parse(original)`, where `original`
         // still names the row and the helper's fields are recoverable there.
-        let stands_for = self.local_bindings.names_for(self.param, call.span);
+        let (stands_for, uncertain) = self.local_bindings.names_for(self.param, call.span);
         // The parameter is bound before the body runs, so anything that gives it a value —
         // an assignment or a redeclaration with an initializer — moves it off the node.
         let param_moved = self.local_bindings.written_in_scope(self.param, call.span)
@@ -2047,6 +2047,17 @@ impl ParserAnalyzer<'_, '_> {
             })
             .map(|(i, _)| i)
             .collect();
+        // Handed on under a name that names the node only down some path: the call is
+        // unconditional, so `conditional_depth` says nothing about it, and what the helper reads
+        // is still read only when that path ran. Per ARGUMENT, so `parse(e)` beside an unrelated
+        // conditional alias keeps its requiredness.
+        let via_a_conditional_alias = positions.iter().any(|i| {
+            call.arguments
+                .get(*i)
+                .and_then(arg_expr)
+                .and_then(as_identifier)
+                .is_some_and(|id| uncertain.contains(id))
+        });
         if positions.is_empty() {
             // The node was handed on under a name that no longer stands for it — the
             // parameter itself after a write, or a copy given a second value. The shape is
@@ -2130,6 +2141,13 @@ impl ParserAnalyzer<'_, '_> {
         if self.conditional_depth > 0 {
             for f in &mut recovered {
                 note_relaxed(f, "", &mut self.relaxed_by_branch);
+                relax_deeply(f);
+            }
+        } else if via_a_conditional_alias {
+            // Same conclusion, different reason — and NO claim parked: nothing an enclosing
+            // branch does makes the alias certain, so there is no intersection that should ever
+            // hand this back as established.
+            for f in &mut recovered {
                 relax_deeply(f);
             }
         }
@@ -3420,6 +3438,8 @@ fn covers(outer: Span, inner: Span) -> bool {
 #[derive(Debug, Clone)]
 struct Given {
     scope: Span,
+    /// Whether something could have skipped this assignment — see [`AllBindings::skippable`].
+    conditional: bool,
     name: String,
     /// The name it was copied from, when the right-hand side was a bare identifier.
     from: Option<String>,
@@ -3455,6 +3475,17 @@ struct AllBindings {
     /// Function bodies that are immediately invoked, so a write inside one has certainly run by
     /// the time anything after the call reads it.
     iife: Vec<Span>,
+    /// How many enclosing constructs could have skipped the part being walked. A value assigned
+    /// down such a path is not certainly the one a later read sees, however textually early it
+    /// is: `var current; if (flag) current = e; parse(current)` hands `parse` the element only
+    /// when `flag` held.
+    ///
+    /// Per PART of a construct, not per construct: an `if` test, a loop header and a `switch`
+    /// discriminant all run whatever happens, and calling those skippable would relax reads the
+    /// parser always performs. Two places are deliberately conservative rather than exact — a
+    /// `do`/`while` body, whose first pass is guaranteed, and a `&&` whose left side is
+    /// statically true — because being wrong that way only leaves a field optional.
+    skippable: u32,
     /// How many enclosing `try` BLOCKS have a handler. A throw inside one of those does not end
     /// anything, so nothing under it is a dead path however it leaves.
     caught: u32,
@@ -3513,6 +3544,7 @@ impl AllBindings {
         };
         self.given.push(Given {
             scope: extent,
+            conditional: self.skippable > 0,
             name: name.to_string(),
             from: from.map(|s| s.to_string()),
             at,
@@ -3572,6 +3604,14 @@ impl AllBindings {
             return u32::MAX;
         }
         self.assign_end.unwrap_or(default_end)
+    }
+
+    /// Walk a part of a statement that control can reach past — the requiredness side's
+    /// `in_skipped_path`, on the binding side and for the same reason.
+    fn maybe_skipped(&mut self, f: impl FnOnce(&mut Self)) {
+        self.skippable += 1;
+        f(self);
+        self.skippable -= 1;
     }
 
     fn bind(&mut self, name: &str, hoists: bool) {
@@ -3752,14 +3792,46 @@ impl<'a> Visit<'a> for AllBindings {
 
     fn visit_while_statement(&mut self, stmt: &oxc_ast::ast::WhileStatement<'a>) {
         self.loops.push(stmt.span);
-        walk::walk_while_statement(self, stmt);
+        // The test runs before the first pass, so it runs even when the body does not.
+        self.visit_expression(&stmt.test);
+        self.maybe_skipped(|s| s.visit_statement(&stmt.body));
         self.loops.pop();
     }
 
     fn visit_do_while_statement(&mut self, stmt: &oxc_ast::ast::DoWhileStatement<'a>) {
         self.loops.push(stmt.span);
-        walk::walk_do_while_statement(self, stmt);
+        // The first pass is guaranteed, so a write at the top of the body really does run —
+        // but which part of the body that covers is the whole `walk_guaranteed_pass` question,
+        // and answering it wrong here would call an uncertain value certain. Conservative: the
+        // body is skippable, which can only leave a field optional.
+        self.maybe_skipped(|s| s.visit_statement(&stmt.body));
+        self.visit_expression(&stmt.test);
         self.loops.pop();
+    }
+
+    fn visit_if_statement(&mut self, stmt: &oxc_ast::ast::IfStatement<'a>) {
+        // The test runs whichever way the branch goes; the sides are what control skips.
+        self.visit_expression(&stmt.test);
+        self.maybe_skipped(|s| {
+            s.visit_statement(&stmt.consequent);
+            if let Some(alt) = &stmt.alternate {
+                s.visit_statement(alt);
+            }
+        });
+    }
+
+    fn visit_logical_expression(&mut self, expr: &oxc_ast::ast::LogicalExpression<'a>) {
+        // `flag && (current = e)` assigns only when the left side allowed it.
+        self.visit_expression(&expr.left);
+        self.maybe_skipped(|s| s.visit_expression(&expr.right));
+    }
+
+    fn visit_conditional_expression(&mut self, expr: &oxc_ast::ast::ConditionalExpression<'a>) {
+        self.visit_expression(&expr.test);
+        self.maybe_skipped(|s| {
+            s.visit_expression(&expr.consequent);
+            s.visit_expression(&expr.alternate);
+        });
     }
 
     fn visit_function(&mut self, func: &Function<'a>, flags: ScopeFlags) {
@@ -3804,7 +3876,9 @@ impl<'a> Visit<'a> for AllBindings {
         self.blocks.push(clause.span);
         let outer = self.hoists;
         self.hoists = false;
-        walk::walk_catch_clause(self, clause);
+        // A handler runs only when the block failed, so what it assigns is assigned on that
+        // path alone.
+        self.maybe_skipped(|s| walk::walk_catch_clause(s, clause));
         self.hoists = outer;
         self.blocks.pop();
     }
@@ -3815,14 +3889,34 @@ impl<'a> Visit<'a> for AllBindings {
             Span::new(first.span.start, stmt.span.end)
         });
         self.blocks.push(body);
-        walk::walk_switch_statement(self, stmt);
+        // The discriminant is evaluated to choose a case, so it runs whichever case wins; a
+        // case's own test and consequent run only for the values that reach them.
+        self.visit_expression(&stmt.discriminant);
+        self.maybe_skipped(|s| {
+            for case in &stmt.cases {
+                s.visit_switch_case(case);
+            }
+        });
         self.blocks.pop();
     }
 
     fn visit_for_statement(&mut self, stmt: &oxc_ast::ast::ForStatement<'a>) {
         self.loops.push(stmt.span);
         self.blocks.push(stmt.span);
-        walk::walk_for_statement(self, stmt);
+        // Initializer and test run before the first pass; body and update only after one that
+        // happened.
+        if let Some(init) = &stmt.init {
+            self.visit_for_statement_init(init);
+        }
+        if let Some(test) = &stmt.test {
+            self.visit_expression(test);
+        }
+        self.maybe_skipped(|s| {
+            s.visit_statement(&stmt.body);
+            if let Some(update) = &stmt.update {
+                s.visit_expression(update);
+            }
+        });
         self.blocks.pop();
         self.loops.pop();
     }
@@ -3830,7 +3924,13 @@ impl<'a> Visit<'a> for AllBindings {
     fn visit_for_in_statement(&mut self, stmt: &oxc_ast::ast::ForInStatement<'a>) {
         self.loops.push(stmt.span);
         self.blocks.push(stmt.span);
-        walk::walk_for_in_statement(self, stmt);
+        // The object is evaluated to be enumerated, however few keys it turns out to have; the
+        // binding and body run once per key, of which there may be none.
+        self.visit_expression(&stmt.right);
+        self.maybe_skipped(|s| {
+            s.visit_for_statement_left(&stmt.left);
+            s.visit_statement(&stmt.body);
+        });
         self.blocks.pop();
         self.loops.pop();
     }
@@ -3838,7 +3938,11 @@ impl<'a> Visit<'a> for AllBindings {
     fn visit_for_of_statement(&mut self, stmt: &oxc_ast::ast::ForOfStatement<'a>) {
         self.loops.push(stmt.span);
         self.blocks.push(stmt.span);
-        walk::walk_for_of_statement(self, stmt);
+        self.visit_expression(&stmt.right);
+        self.maybe_skipped(|s| {
+            s.visit_for_statement_left(&stmt.left);
+            s.visit_statement(&stmt.body);
+        });
         self.blocks.pop();
         self.loops.pop();
     }
@@ -3852,6 +3956,15 @@ impl<'a> Visit<'a> for AllBindings {
             } else {
                 self.scoped.push((class.span, id.name.as_str().to_string()));
             }
+        }
+        // `class C extends (current = other, Base) {}` runs that assignment before anything
+        // after the class does, so a write there is as effective as any other — and this walked
+        // only the body, so `parse(current)` afterwards followed the stale alias and filed the
+        // helper's fields under the response root. The wrong-node direction, from a hand-written
+        // visitor that enumerated the parts of a class it happened to think of. The body's own
+        // computed keys arrive through `visit_class_body`; the heritage is the part outside it.
+        if let Some(heritage) = class.super_class.as_ref() {
+            self.visit_expression(heritage);
         }
         self.visit_class_body(&class.body);
     }
@@ -3906,14 +4019,28 @@ impl Bindings {
     /// parse(current)` — matched no argument position, so the helper was never entered and
     /// its fields left the shape with no drop recorded. Recognizing the alias is the same
     /// work as resolving it, so it is resolved rather than merely counted.
-    fn names_for(&self, node: &str, at: Span) -> std::collections::HashSet<String> {
+    /// Paired with the subset of them that stand for `node` only on SOME path: a value assigned
+    /// inside a branch, and anything copied from one. `var current; if (flag) current = e;
+    /// parse(current)` hands `parse` the element only when `flag` held, so what it reads there is
+    /// not read on every execution — and one in-scope value ordered before the call looked as
+    /// definite as any other. Carried alongside rather than filtered out, because the fields ARE
+    /// recoverable; they are just not required.
+    fn names_for(
+        &self,
+        node: &str,
+        at: Span,
+    ) -> (
+        std::collections::HashSet<String>,
+        std::collections::HashSet<String>,
+    ) {
         let mut out: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut uncertain: std::collections::HashSet<String> = std::collections::HashSet::new();
         out.insert(node.to_string());
         // To a fixed point, not a fixed count. Each pass adds at least one name or stops, and
         // a name is never added twice, so `a = b; b = a` terminates on the set alone — the
         // cap it was paired with only made a chain of nine copies lose the helper silently.
         loop {
-            let more: Vec<String> = self
+            let more: Vec<(String, bool)> = self
                 .given
                 .iter()
                 .filter(|g| {
@@ -3939,12 +4066,24 @@ impl Bindings {
                         && self.given_once_in(&g.name, at)
                         && !self.written_without_a_value(&g.name, at)
                 })
-                .map(|g| g.name.clone())
+                .map(|g| {
+                    // Uncertain if this assignment itself could have been skipped, or if what it
+                    // copied from was already only conditionally the node — `if (flag) a = e; b =
+                    // a; parse(b)` passes `b`, whose own assignment is unconditional, and asking
+                    // only about the last link would have called it certain.
+                    let via = g.from.as_deref().unwrap_or_default();
+                    (g.name.clone(), g.conditional || uncertain.contains(via))
+                })
                 .collect();
             if more.is_empty() {
-                return out;
+                return (out, uncertain);
             }
-            out.extend(more);
+            for (name, cond) in more {
+                if cond {
+                    uncertain.insert(name.clone());
+                }
+                out.insert(name);
+            }
         }
     }
 
@@ -8222,6 +8361,92 @@ mod tests {
             "the alias still stands: {:?}",
             p.fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn a_write_in_a_class_heritage_expression_moves_the_node() {
+        // `class C extends (current = other, Base) {}` performs that assignment before anything
+        // after the class runs, so `current` no longer names the element. The binding collector
+        // walked only the class BODY, so the write was invisible and `names_for` followed the
+        // stale `current = e` — filing the helper's `id` at the response root, which is the
+        // wrong-node direction. A hand-written visitor that enumerated the parts of a class it
+        // happened to think of; the heritage is the one carrying a runtime expression outside
+        // the body.
+        let fields = helper_reached_via(
+            r#"var current = e; class C extends (current = other, Base) {} parse(current);"#,
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "not at the root, which the parser never reads it from: {:?}",
+            fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_class_with_no_heritage_still_leaves_its_alias_alone() {
+        // The bound: a class that assigns nothing moves nothing, so the alias still stands and
+        // the helper's fields are recovered. Walking a class as though it always wrote to
+        // everything would lose them.
+        let fields = helper_reached_via(r#"var current = e; class C {} parse(current);"#);
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the alias is untouched: {:?}",
+            fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn an_alias_assigned_down_one_path_does_not_require_what_it_reads() {
+        // `var current; if (flag) current = e; parse(current)` reaches `parse` with the element
+        // only when `flag` held, so what the helper reads there is not read on every execution.
+        // The CALL is unconditional, so `conditional_depth` says nothing about it, and one
+        // in-scope value ordered before the call looked as definite as any other — requiring
+        // `id` of every response, which rejects the ones the other path returns.
+        //
+        // Recovered and relaxed, not dropped: the field is real, it is just optional.
+        for body in [
+            "var current; if (flag) current = e; parse(current);",
+            "var current; for (var k of ks) { current = e; } parse(current);",
+            "var current; flag && (current = e); parse(current);",
+            "var current; switch (m) { case 1: current = e; } parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            let id = fields
+                .iter()
+                .find(|f| f.name == "id")
+                .unwrap_or_else(|| panic!("`{body}` still recovers the field"));
+            assert!(!id.required, "`{body}` assigns it only on one path");
+        }
+    }
+
+    #[test]
+    fn an_alias_assigned_on_every_path_still_requires_it() {
+        // The bound, and the reason this asks per PART of a construct: an assignment in a loop
+        // header or an `if` TEST runs whatever happens, and a plain one obviously does. Calling
+        // every assignment uncertain would relax reads the parser always performs.
+        for body in [
+            "var current; current = e; parse(current);",
+            "var current; if (current = e) { other(); } parse(current);",
+            "var current; while ((current = e) && 0) { } parse(current);",
+            "var current; for (current = e; 0; ) { } parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            let id = fields
+                .iter()
+                .find(|f| f.name == "id")
+                .unwrap_or_else(|| panic!("`{body}` recovers the field"));
+            assert!(id.required, "`{body}` assigns it on every path");
+        }
+    }
+
+    #[test]
+    fn a_conditional_alias_elsewhere_does_not_relax_the_node_itself() {
+        // Per argument, not per call: `parse(e)` is handed the parameter, which is bound before
+        // the body runs. An unrelated conditional alias in the same function says nothing about
+        // it, and asking the question of the whole alias set would have relaxed this.
+        let fields = helper_reached_via("var current; if (flag) current = e; parse(e);");
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(id.required, "the parameter is not conditional");
     }
 
     #[test]
