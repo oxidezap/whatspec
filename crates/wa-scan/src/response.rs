@@ -3159,6 +3159,19 @@ fn invoked_callee<'b, 'a>(mut e: &'b Expression<'a>) -> &'b Expression<'a> {
                 {
                     object
                 }
+                // `({ m(){ … } }).m()` selects that method and runs it here, as plainly as an
+                // IIFE does. Only the `call`/`apply` wrappers were unwrapped, so an ordinary
+                // named method was walked as a function nobody reaches and its write stayed
+                // confined. `owned_property` decides which property the literal ends up with,
+                // spreads and all; a GETTER is not this shape — reading `m` would invoke the
+                // getter and call whatever it returned.
+                Some((name, object)) => match peel(object) {
+                    Expression::ObjectExpression(o) => match owned_property(o, name.as_ref()) {
+                        Some(op) if op.kind == oxc_ast::ast::PropertyKind::Init => &op.value,
+                        _ => return other,
+                    },
+                    _ => return other,
+                },
                 _ => return other,
             },
         };
@@ -4189,7 +4202,12 @@ fn instance_fields_initialize(class: &oxc_ast::ast::Class<'_>) -> bool {
     };
     for st in &body.statements {
         if calls_super(st) {
-            return true;
+            // …and it has to RETURN. `super((function(){ throw 0; })())` never reaches the
+            // parent constructor, so the fields it would install are installed on no path.
+            // Presence of the call was read as success, which recorded a write that never
+            // happens. Only the argument spelling that settles it, the same
+            // `expression_throws` the ternary and the static phase read.
+            return !super_argument_throws(st);
         }
         if ends_the_statement_list(st) {
             return false;
@@ -4200,6 +4218,33 @@ fn instance_fields_initialize(class: &oxc_ast::ast::Class<'_>) -> bool {
     // initializes. Answering `true` here read `constructor(){}` as ordinary construction and
     // recorded a write that happens on no path.
     false
+}
+
+/// Whether a `super(...)` in this statement is handed an argument that certainly raises, so the
+/// call never returns and the fields it would install are installed on no path.
+///
+/// Asked only of a statement [`calls_super`] has already accepted, and only of the arguments —
+/// whether the PARENT constructor throws is a call-graph question this scanner does not answer,
+/// and reading one as throwing would drop the fields of a construction that succeeds.
+fn super_argument_throws(st: &Statement<'_>) -> bool {
+    struct Seen(bool);
+    impl<'a> Visit<'a> for Seen {
+        fn visit_call_expression(&mut self, c: &CallExpression<'a>) {
+            if matches!(c.callee, Expression::Super(_))
+                && c.arguments
+                    .iter()
+                    .filter_map(oxc_ast::ast::Argument::as_expression)
+                    .any(expression_throws)
+            {
+                self.0 = true;
+            }
+            walk::walk_call_expression(self, c);
+        }
+        fn visit_function(&mut self, _f: &Function<'a>, _flags: ScopeFlags) {}
+    }
+    let mut seen = Seen(false);
+    seen.visit_statement(st);
+    seen.0
 }
 
 /// Whether evaluating this statement can call `super(...)`.
@@ -6174,12 +6219,55 @@ impl<'a> Visit<'a> for AllBindings {
             }
             return;
         }
+        let before = self.given.len();
+        let mut split = before;
         self.maybe_skipped(|s| {
             s.visit_statement(&stmt.consequent);
+            split = s.given.len();
             if let Some(alt) = &stmt.alternate {
                 s.visit_statement(alt);
             }
         });
+        // Both arms exist and both give a name the same value, so every execution performs that
+        // assignment however the test went: `if (flag) current = e; else current = e;` names
+        // the node on every path. Walking the two inside one skippable region left both records
+        // conditional, and the helper's fields came back optional against a parser that reads
+        // them always — the "same value on complementary paths" half of the ambiguity item on
+        // the PR, which I had said needed a branch intersection the collector does not have. It
+        // needs one over the records the arms just produced, which is here.
+        //
+        // Only at the outermost branch: nested inside another skippable region the pair is
+        // still skippable as a whole, and clearing the flag there would claim a write an
+        // enclosing test can bypass.
+        //
+        // No test for "there is an `else`" beside it: with no alternate the second range is
+        // empty, so nothing pairs and nothing is cleared. I wrote that condition first and the
+        // mutation dropping it changed no answer, which is the kind of redundancy visible at
+        // the site — so it is gone rather than documented.
+        //
+        // The `from` comparison below is the other kind. Two records naming the same name and
+        // DIFFERENT values are not one assignment on two paths, and pairing them would say they
+        // were; no input separates the two today because `settled_value` refuses disagreeing
+        // values before their conditionality is ever read. That redundancy rests on a rule in
+        // another function, so the comparison stays.
+        if self.skippable == 0 {
+            let paired: Vec<usize> = (before..split)
+                .filter(|&i| {
+                    self.given[split..]
+                        .iter()
+                        .any(|g| g.name == self.given[i].name && g.from == self.given[i].from)
+                })
+                .collect();
+            let names: Vec<(String, Option<String>)> = paired
+                .iter()
+                .map(|&i| (self.given[i].name.clone(), self.given[i].from.clone()))
+                .collect();
+            for g in &mut self.given[before..] {
+                if names.iter().any(|(n, f)| *n == g.name && *f == g.from) {
+                    g.conditional = false;
+                }
+            }
+        }
     }
 
     fn visit_logical_expression(&mut self, expr: &oxc_ast::ast::LogicalExpression<'a>) {
@@ -6292,9 +6380,33 @@ impl<'a> Visit<'a> for AllBindings {
         // The discriminant is evaluated to choose a case, so it runs whichever case wins; a
         // case's own test and consequent run only for the values that reach them.
         self.visit_expression(&stmt.discriminant);
+        // The FIRST case test is evaluated on every execution, before any consequent is
+        // chosen — and so is each test after it until one that could match, because the switch
+        // works down the list. Only the leading run of them is decidable here: past a test this
+        // pass cannot compare, whether the next is reached depends on the value. Wrapping every
+        // case including its test in one skippable region marked those assignments conditional,
+        // so `switch (k) { case (current = e): … }` left the helper's fields optional though
+        // every execution performs the write.
+        let guaranteed = stmt
+            .cases
+            .iter()
+            .position(|c| c.test.is_some())
+            .map_or(0, |first| first + 1);
+        for case in stmt.cases.iter().take(guaranteed) {
+            if let Some(test) = &case.test {
+                self.visit_expression(test);
+            }
+        }
         self.maybe_skipped(|s| {
-            for case in &stmt.cases {
-                s.visit_switch_case(case);
+            for (i, case) in stmt.cases.iter().enumerate() {
+                if i < guaranteed {
+                    // Its test has run above; only the consequent is a path a value may skip.
+                    for st in &case.consequent {
+                        s.visit_statement(st);
+                    }
+                } else {
+                    s.visit_switch_case(case);
+                }
             }
         });
         self.blocks.pop();
@@ -8080,6 +8192,12 @@ fn statically_selected<'s, T>(
 /// does not, and `[...xs]` may or may not — deliberately narrow, because reading an iterable as
 /// nonempty when it can be empty would require reads the parser can skip. A hole counts: `[,]`
 /// yields one `undefined`.
+///
+/// A STRING is iterable too, one code point at a time, so a nonempty literal yields at least
+/// one pass and the empty one yields none. Only the array spelling was read, so `for (const x
+/// of "a")` had its body called skippable and every read in it came back optional. A template
+/// with nothing substituted into it is the same string; one with a substitution is whatever
+/// that evaluates to.
 fn iterates_at_least_once(e: &Expression<'_>) -> bool {
     match e {
         Expression::ParenthesizedExpression(p) => iterates_at_least_once(&p.expression),
@@ -8087,6 +8205,8 @@ fn iterates_at_least_once(e: &Expression<'_>) -> bool {
             .elements
             .iter()
             .any(|el| !matches!(el, oxc_ast::ast::ArrayExpressionElement::SpreadElement(_))),
+        Expression::StringLiteral(l) => !l.value.is_empty(),
+        Expression::TemplateLiteral(t) => single_quasi(t).is_some_and(|c| !c.is_empty()),
         _ => false,
     }
 }
@@ -11954,6 +12074,103 @@ mod tests {
         }
     }
 
+    #[test]
+    fn a_super_call_that_cannot_return_installs_no_fields() {
+        // A derived class installs its fields when `super()` RETURNS, and
+        // `super((function(){ throw 0; })())` never reaches the parent constructor. Presence of
+        // the call was read as success, so a write that happens on no path was recorded.
+        let fields = helper_reached_via(
+            "var current = e; try { new (class extends (class {}) { constructor(){ super((function(){ throw 0; })()); } x = (current = other) })(); } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "that `super()` never returned: {fields:?}"
+        );
+        // The bounds: an ordinary argument still returns, and whether the PARENT constructor
+        // throws is a call-graph question this does not answer — reading one as throwing would
+        // drop the fields of a construction that succeeds.
+        for body in [
+            "var current = e; new (class extends (class {}) { constructor(){ super(1); } x = (current = other) })(); parse(current);",
+            "var current = e; new (class extends (class {}) { constructor(){ super(raise()); } x = (current = other) })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that construction installs its fields: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_statically_selected_object_method_runs_where_it_is_called() {
+        // `({ m(){ … } }).m()` selects that method and runs it here, as plainly as an IIFE
+        // does. Only the `call`/`apply` wrappers were unwrapped, so an ordinary named method
+        // was walked as a function nobody reaches and its write stayed confined.
+        let fields =
+            helper_reached_via("var current = e; ({m(){ current = other }}).m(); parse(current);");
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "that method already ran: {fields:?}"
+        );
+        // The bounds. A GETTER of that name is not this shape — reading `m` invokes the getter
+        // and calls whatever it returned, which this cannot follow. A method the literal does
+        // not end up with is not selected either, and neither is one on an object this cannot
+        // read.
+        for body in [
+            "var current = e; ({get m(){ current = other }}).m(); parse(current);",
+            "var current = e; ({m(){ current = other }, ...{m: f}}).m(); parse(current);",
+            "var current = e; obj.m(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "nothing here runs that body: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_leading_switch_case_tests_run_on_every_execution() {
+        // A switch works down its list, so the FIRST case test is evaluated whatever the
+        // discriminant holds. Wrapping every case including its test in one skippable region
+        // marked that assignment conditional, and the helper's fields came back optional
+        // against a parser that performs the write always.
+        let (required, _) = guards_and_field(
+            "var current; switch (k) { case (current = e): break; default: break; } parse(current);",
+        );
+        assert!(required, "the first case test always runs");
+        // The bound: only the LEADING run of them. Past a test this pass cannot compare,
+        // whether the next is reached depends on the value.
+        let (required, _) = guards_and_field(
+            "var current; switch (k) { case f(): break; case (current = e): break; default: break; } parse(current);",
+        );
+        assert!(!required, "a later case test may never be reached");
+    }
+
+    #[test]
+    fn a_nonempty_string_iterates_at_least_once() {
+        // A string is iterable one code point at a time, so a nonempty literal yields at least
+        // one pass. Only the array spelling was read, so `for (const x of "a")` had its body
+        // called skippable and every read in it came back optional.
+        for body in [
+            "for (const x of \"a\") { parse(e); }",
+            "for (const x of `a`) { parse(e); }",
+        ] {
+            let (required, _) = guards_and_field(body);
+            assert!(required, "`{body}` runs its body at least once");
+        }
+        // The bounds: the empty string yields nothing, a template carrying a substitution is
+        // whatever that evaluates to, and an iterable this cannot read may be empty.
+        for body in [
+            "for (const x of \"\") { parse(e); }",
+            "for (const x of `${s}`) { parse(e); }",
+            "for (const x of xs) { parse(e); }",
+        ] {
+            let (required, _) = guards_and_field(body);
+            assert!(!required, "`{body}` may iterate no times");
+        }
+    }
+
     fn helper_reached_via(body: &str) -> Vec<ParsedField> {
         let module = format!(
             r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){{
@@ -15081,19 +15298,38 @@ mod tests {
         // COPY A NAME are comparable that way, which is what makes this cheap: no path analysis,
         // just the observation that two copies of `e` are one value.
         //
-        // They come back OPTIONAL, not required. Every path here assigns, but saying so needs
-        // the branch intersection the requiredness side has and this collector does not — each
-        // record carries its own `conditional` and the weaker of the two answers wins, which is
-        // the direction that lets a shape accept what the parser demands.
-        for body in [
+        // The `if` spelling comes back REQUIRED, which reverses what this test asserted for
+        // thirty rounds. I wrote here that saying so "needs the branch intersection the
+        // requiredness side has and this collector does not". It needs one over the records the
+        // two arms just produced, which is a slice of `self.given` and nothing more — so the
+        // claim was mine and wrong, and the sixth of mine review has had to reverse.
+        let id = helper_reached_via(
             "var current; if (flag) current = e; else current = e; parse(current);",
+        )
+        .into_iter()
+        .find(|f| f.name == "id")
+        .expect("names one node");
+        assert!(id.required, "every path assigns it: {id:?}");
+        // The SWITCH spelling still comes back optional, and that is a stated gap rather than
+        // an answer: promoting it needs the arms to be exhaustive as well as agreeing, which is
+        // the `default`-and-fallthrough question the requiredness walk answers and this
+        // collector does not ask. It loses a field rather than inventing one.
+        let id = helper_reached_via(
             "var current; switch (m) { case 1: current = e; break; default: current = e; } parse(current);",
+        )
+        .into_iter()
+        .find(|f| f.name == "id")
+        .expect("names one node");
+        assert!(!id.required, "the switch half is not promoted yet: {id:?}");
+        // And the promotion is only for the OUTERMOST branch. Nested inside another region a
+        // test can skip, the agreeing pair is still skippable as a whole — clearing the flag
+        // there would claim a write an enclosing test bypasses.
+        for body in [
+            "var current; if (outer) { if (flag) { current = e; } else { current = e; } } parse(current);",
+            "var current; while (outer) { if (flag) { current = e; } else { current = e; } parse(current); }",
         ] {
-            let id = helper_reached_via(body)
-                .into_iter()
-                .find(|f| f.name == "id")
-                .unwrap_or_else(|| panic!("`{body}` names one node"));
-            assert!(!id.required, "`{body}` assigns down a branch: {id:?}");
+            let (required, _) = guards_and_field(body);
+            assert!(!required, "an enclosing test can skip the pair: {body}");
         }
     }
 
