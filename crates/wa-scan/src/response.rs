@@ -3378,6 +3378,23 @@ fn leading_parts<'b, 'a>(e: &'b Expression<'a>, out: &mut Vec<&'b Expression<'a>
             // nowhere at all. After the object, which is evaluated first.
             out.extend(computed_key(e));
         }
+        // `({ x: current = other, m(){} }).m()` builds the object before the call, so every
+        // computed key and property initializer in it has already run. The callee unwrapper
+        // looks through an ordinary member to the method it names and this reader did not, so
+        // the literal's own effects were recorded nowhere at all — the same two-readers-of-one-
+        // shape split as the `.call` arm above, for the third time.
+        //
+        // The whole literal, method bodies and all: a method is a function VALUE here and the
+        // walk that follows treats it as one, so nothing is entered twice.
+        _ if named_member(e).is_some_and(|(name, object)| {
+            matches!(peel(object), Expression::ObjectExpression(o)
+                if owned_property(o, name.as_ref()).is_some())
+        }) =>
+        {
+            let (_, object) = named_member(e).expect("checked");
+            out.push(object);
+            out.extend(computed_key(e));
+        }
         // `(function(){ … }).bind(null, current = other)()` evaluates the bind call — receiver
         // and arguments both — before the body it returns is ever entered. The callee unwrapper
         // looks through this shape, and this reader did not, so the assignment beside the bound
@@ -4513,6 +4530,7 @@ fn binding_certainly_throws(
     effective: &[Option<&Expression<'_>>],
     implicit_leading: usize,
     complete: bool,
+    undefined_is_the_global: bool,
     constructs: bool,
 ) -> bool {
     let Some(params) = callee_params(callee, constructs) else {
@@ -4533,7 +4551,7 @@ fn binding_certainly_throws(
         // A list stopped by a spread says nothing about what lands here, and that is the one
         // case with no answer at all.
         let absent = match effective.get(slot) {
-            Some(Some(a)) => is_undefined_spelling(a),
+            Some(Some(a)) => is_undefined_spelling(a, undefined_is_the_global),
             Some(None) => true,
             None if complete => true,
             None => return false,
@@ -4547,7 +4565,7 @@ fn binding_certainly_throws(
             (true, None) => None,
             (false, _) => effective.get(slot).copied().flatten(),
         };
-        pattern_binding_throws(&param.pattern, bound_value)
+        pattern_binding_throws(&param.pattern, bound_value, undefined_is_the_global)
     })
 }
 
@@ -4564,6 +4582,7 @@ fn binding_certainly_throws(
 fn pattern_binding_throws(
     pat: &oxc_ast::ast::BindingPattern<'_>,
     value: Option<&Expression<'_>>,
+    undefined_is_the_global: bool,
 ) -> bool {
     use oxc_ast::ast::BindingPattern as BP;
     match pat {
@@ -4571,10 +4590,10 @@ fn pattern_binding_throws(
         BP::AssignmentPattern(p) => match value {
             None => false,
             Some(v) => {
-                if is_undefined_spelling(v) {
+                if is_undefined_spelling(v, undefined_is_the_global) {
                     false
                 } else {
-                    pattern_binding_throws(&p.left, value)
+                    pattern_binding_throws(&p.left, value, undefined_is_the_global)
                 }
             }
         },
@@ -4601,23 +4620,53 @@ fn pattern_binding_throws(
                     // property yields `undefined`, so a nested pattern over one really does
                     // throw, and this loses that decline. Claiming it needs the accessor kinds
                     // read as a pair, which is a wider change than the shape reported here.
-                    owned.is_some_and(|op| pattern_binding_throws(&prop.value, Some(&op.value)))
+                    owned.is_some_and(|op| {
+                        pattern_binding_throws(
+                            &prop.value,
+                            Some(&op.value),
+                            undefined_is_the_global,
+                        )
+                    })
                 })
             })
         }
-        BP::ArrayPattern(_) => match value {
-            None => true,
-            Some(v) => certainly_nullish(v),
-        },
+        BP::ArrayPattern(a) => {
+            match value {
+                None => return true,
+                Some(v) if certainly_nullish(v) => return true,
+                Some(_) => {}
+            }
+            // …and one level in, which the object arm has done since it was written and this
+            // one did not: `([{x}])([null])` throws while binding the ELEMENT. Only a literal
+            // with no spread, where every position is where it is written — past a spread the
+            // positions shift by an amount nothing here can read.
+            let Some(Expression::ArrayExpression(arr)) = value else {
+                return false;
+            };
+            if arr
+                .elements
+                .iter()
+                .any(|el| matches!(el, oxc_ast::ast::ArrayExpressionElement::SpreadElement(_)))
+            {
+                return false;
+            }
+            a.elements.iter().enumerate().any(|(i, el)| {
+                let Some(el) = el.as_ref() else { return false };
+                // An elision, and a position past the end of the literal, both hold
+                // `undefined` — `([{x}])([])` throws exactly as `([{x}])([undefined])` does.
+                let at = arr.elements.get(i).and_then(|e| e.as_expression());
+                pattern_binding_throws(el, at, undefined_is_the_global)
+            })
+        }
     }
 }
 
 /// Whether `e` is a spelling of `undefined` — the one value a default answers.
-fn is_undefined_spelling(e: &Expression<'_>) -> bool {
+fn is_undefined_spelling(e: &Expression<'_>, global: bool) -> bool {
     match e {
         Expression::UnaryExpression(u) => u.operator == oxc_syntax::operator::UnaryOperator::Void,
-        Expression::Identifier(i) => i.name == "undefined",
-        Expression::ParenthesizedExpression(p) => is_undefined_spelling(&p.expression),
+        Expression::Identifier(i) => i.name == "undefined" && global,
+        Expression::ParenthesizedExpression(p) => is_undefined_spelling(&p.expression, global),
         _ => false,
     }
 }
@@ -5873,7 +5922,20 @@ impl AllBindings {
         // value it supplies at position 0 — my first draft asked it of the written arguments
         // alone and read every tagged template as a binding failure.
         let complete = template.is_some() || mapped(arguments).1;
-        if binding_certainly_throws(callee, &effective, implicit_leading, complete, constructs) {
+        // `undefined` is an ordinary identifier and a source may bind it, so its spelling alone
+        // does not settle that a position is missing. Where it is bound, the shortcut that
+        // substitutes a parameter's default for it is unsound in BOTH directions — with
+        // `(function (undefined) { (function ({x} = null) { … })(undefined) })({})` it declined
+        // an invocation whose body really runs. `void 0` is an operator and cannot be rebound.
+        let undefined_is_the_global = !self.binds_here("undefined", span);
+        if binding_certainly_throws(
+            callee,
+            &effective,
+            implicit_leading,
+            complete,
+            undefined_is_the_global,
+            constructs,
+        ) {
             // The arguments are evaluated BEFORE the binding, so their own writes happen and
             // are walked here. The body is entered on no path, so it is walked as unreachable
             // — declining the invocation and leaving it to the ordinary walk was not enough:
@@ -6078,6 +6140,18 @@ impl AllBindings {
         self.skippable += 1;
         f(self);
         self.skippable -= 1;
+    }
+
+    /// Whether `name` is bound by this source anywhere covering `at` — asked of `undefined`,
+    /// which is an ordinary identifier a source may rebind. Mirrors [`Bindings::shadows`]; the
+    /// collector answers it mid-walk because an enclosing binding is recorded when its scope is
+    /// entered, which is before anything inside it is walked.
+    fn binds_here(&self, name: &str, at: Span) -> bool {
+        self.names.contains(name)
+            || self
+                .scoped
+                .iter()
+                .any(|(e, n)| n == name && at.start >= e.start && at.end <= e.end)
     }
 
     fn bind(&mut self, name: &str, hoists: bool) {
@@ -6507,9 +6581,35 @@ impl<'a> Visit<'a> for AllBindings {
                     (then_from.is_some() && then_from == else_from).then_some((name, then_from))
                 })
                 .collect();
-            for g in &mut self.given[before..] {
-                if names.iter().any(|(n, f)| *n == g.name && *f == g.from) {
-                    g.conditional = false;
+            // Recorded as an effect of the WHOLE `if`, not by clearing the flag on the arms'
+            // own records. The agreement holds only once both arms have finished: in
+            // `if (flag) { current = e; } else { parse(current); current = e; }` the call in
+            // the else arm runs BEFORE that arm's assignment and is handed the older value, and
+            // making the then-arm's record unconditional put it in effect there — publishing
+            // the helper's reads as required against a path that passes something else.
+            //
+            // A record of its own says exactly what is true: after this statement the name
+            // holds that value on every path. Inside either arm the two records are still the
+            // conditional ones they were, so a read there answers as it did before.
+            let after = Span::new(stmt.span.end, stmt.span.end);
+            let template = self.given[before..]
+                .iter()
+                .map(|g| (g.scope, g.repeats_in, g.lands_at))
+                .next_back();
+            if let Some((scope, repeats_in, lands_at)) = template {
+                for (name, from) in names {
+                    self.given.push(Given {
+                        scope,
+                        conditional: false,
+                        name,
+                        from,
+                        at: after,
+                        effective: stmt.span.end,
+                        repeats_in,
+                        lands_at,
+                        runs_before: Vec::new(),
+                        runs_after: Vec::new(),
+                    });
                 }
             }
         }
@@ -12638,6 +12738,112 @@ mod tests {
         }
     }
 
+    #[test]
+    fn an_array_pattern_can_fail_on_an_element() {
+        // The object arm has recursed since it was written and this one never did: `([{x}])`
+        // against `[null]` throws while binding the ELEMENT, not the argument. Only a literal
+        // with no spread, where every position is where it is written.
+        let fields = helper_reached_via(
+            "var current = e; try { (function ([{x}]) { current = other; })([null]); } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "binding that element throws: {fields:?}"
+        );
+        // A position past the end of the literal holds `undefined` and throws the same way —
+        // the case I only found by writing the bound before the fix.
+        let fields = helper_reached_via(
+            "var current = e; try { (function ([{x}]) { current = other; })([]); } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "there is no element 0: {fields:?}"
+        );
+        // The bounds: an element that binds fine, an element default that catches the missing
+        // position, and a spread, past which no position is where it is written.
+        for body in [
+            "var current = e; (function ([{x}]) { current = other; })([{}]); parse(current);",
+            "var current = e; (function ([{x} = {}]) { current = other; })([]); parse(current);",
+            "var current = e; (function ([{x}]) { current = other; })([...xs]); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that binding does not certainly throw: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_shadowed_undefined_does_not_stand_in_for_a_missing_argument() {
+        // `undefined` is an ordinary identifier and a source may bind it, so its spelling alone
+        // does not settle that a position is missing. Substituting the parameter's default for
+        // it is unsound where it is bound — here the shadow is `{}`, the default never runs,
+        // `{x} = {}` binds fine and the body DOES execute, while the shortcut read the default
+        // `null` and declined the whole invocation.
+        let fields = helper_reached_via(
+            "var current = e; (function (undefined) { (function ({x} = null) { current = other; })(undefined); })({}); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "that body runs: {fields:?}"
+        );
+        // The bounds: unshadowed, the identifier IS the global, and reading it as the missing
+        // value is what lets the parameter's own default take its place. A default of `null`
+        // then destructures `null` and throws, which only the global reading can see — that is
+        // the case that separates "always the global" from "never the global".
+        let fields = helper_reached_via(
+            "var current = e; try { (function ({x} = null) { current = other; })(undefined); } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the default ran and threw: {fields:?}"
+        );
+        let fields = helper_reached_via(
+            "var current = e; (function ({x} = {}) { current = other; })(undefined); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the default ran and the body with it: {fields:?}"
+        );
+        // A stated LOSS rather than an answer. When the shadow holds something that really does
+        // make the binding throw — `(function (undefined) { (function ({x} = {}) { … })
+        // (undefined) })(null)` passes `null`, so the default does not run and the pattern
+        // throws — this declines to decide and walks the body. Saying otherwise needs the
+        // identifier's VALUE, which is the alias machinery rather than a scope lookup, so it
+        // loses the decline rather than inventing one.
+        let fields = helper_reached_via(
+            "var current = e; try { (function (undefined) { (function ({x} = {}) { current = other; })(undefined); })(null); } catch (_) {} parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the shadow's value is not resolved, so the decline is lost: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn an_object_literal_is_built_before_its_method_runs() {
+        // `({ x: current = other, m(){} }).m()` builds the object before the call, so every
+        // property initializer in it has already run. The callee unwrapper looks through an
+        // ordinary member to the method it names, and the reader of what a callee evaluates on
+        // the way did not — the third time those two have been taught a shape separately.
+        let fields = helper_reached_via(
+            "var current = e; ({x: current = other, m(){}}).m(); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the literal was built first: {fields:?}"
+        );
+        // The bound: a literal with nothing to evaluate still runs its method body at the call,
+        // and nothing is walked twice.
+        let fields =
+            helper_reached_via("var current = e; ({m(){ current = other }}).m(); parse(current);");
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the method body still runs: {fields:?}"
+        );
+    }
+
     fn helper_reached_via(body: &str) -> Vec<ParsedField> {
         let module = format!(
             r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){{
@@ -15822,6 +16028,17 @@ mod tests {
         .find(|f| f.name == "id")
         .expect("names one node");
         assert!(!id.required, "the switch half is not promoted yet: {id:?}");
+        // …and the agreement is an effect of the WHOLE `if`, not of the arms. A read INSIDE an
+        // arm runs before that arm has finished, so it is handed whatever held before —
+        // clearing the flag on the arms' own records made the then-arm's write effective at a
+        // call in the else arm and published the reads as required against it.
+        let fields = helper_reached_via(
+            "var current = other; if (flag) { current = e; } else { parse(current); current = e; }",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "that call precedes its own arm's assignment: {fields:?}"
+        );
         // …and only each arm's FINAL assignment counts. An arm that gives `current` the node
         // and then overwrites it leaves the node behind, so the two arms do not agree at all —
         // clearing the flag on every matching record made the else-arm's copy unconditional and
