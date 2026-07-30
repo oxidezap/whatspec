@@ -713,7 +713,6 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
         // back through an intersection this had no equivalent of, so N weakened copies just
         // stayed weak and a field the parser always reads came out optional.
         let mut per_case: Vec<Vec<RelaxedId>> = Vec::new();
-        let mut per_case_assertions: Vec<Vec<ResponseAssertion>> = Vec::new();
         for (i, case) in stmt.cases.iter().enumerate() {
             let at = (self.assertions.len(), self.relaxed_by_branch.len());
             // The first test was already read above, at the outer depth.
@@ -724,7 +723,6 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
             } else {
                 self.visit_switch_case(case);
             }
-            per_case_assertions.push(self.assertions[at.0..].to_vec());
             per_case.push(self.relaxed_by_branch[at.1..].to_vec());
         }
         // Entering at case `i` runs case `i` and then falls through to `i+1`, `i+2`… until one
@@ -732,7 +730,6 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
         // every value, and intersecting each case's OWN reads called the empty first case
         // decisive and left the payload optional.
         let mut entry: Vec<Vec<RelaxedId>> = vec![Vec::new(); stmt.cases.len()];
-        let mut entry_assertions: Vec<Vec<ResponseAssertion>> = vec![Vec::new(); stmt.cases.len()];
         for i in (0..stmt.cases.len()).rev() {
             let body = &stmt.cases[i].consequent;
             let leaves = body.iter().any(exits_unconditionally)
@@ -740,16 +737,12 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
                     .iter()
                     .any(|st| matches!(st, Statement::BreakStatement(_)));
             let mut weak = per_case[i].clone();
-            let mut asserts = per_case_assertions[i].clone();
             if !leaves && i + 1 < stmt.cases.len() {
                 weak.extend(entry[i + 1].iter().cloned());
-                asserts.extend(entry_assertions[i + 1].iter().cloned());
             }
             entry[i] = weak;
-            entry_assertions[i] = asserts;
         }
         let per_case = entry;
-        let per_case_assertions = entry_assertions;
         // Only when a `default` makes the cases cover every value — otherwise an unlisted
         // value runs none of them, and promoting would require of every element something
         // the parser reads on no path at all. A case that merely falls through establishes
@@ -762,18 +755,12 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
         } else {
             Vec::new()
         };
-        // A guard every entry path enforces is enforced on every path, the same as the fields
-        // — leaving assertions out promoted the payload while dropping the check that goes
-        // with it, so decoding accepted what the parser rejects on a constraint it always
-        // applies.
-        if stmt.cases.iter().any(|c| c.test.is_none())
-            && let Some(common) = per_case_assertions
-                .iter()
-                .cloned()
-                .reduce(|a, b| a.into_iter().filter(|x| b.contains(x)).collect())
-        {
-            self.unmark_branch_intersection(&common, &common);
-        }
+        // Assertions are NOT promoted here. A helper reached at nonzero depth has its guards
+        // discarded outright rather than parked anywhere, so there is nothing for an
+        // intersection to hand back — my earlier attempt folded `conditional_assertions`,
+        // which this path never writes to, and did nothing at all. Restoring them needs a
+        // channel parallel to `relaxed_by_branch`, and the gap is in every construct
+        // including `if`, not just here.
         self.relaxed_by_branch.truncate(before.1);
         // Still inside this switch's own increment, so `settle` can tell whether an
         // enclosing conditional can skip the whole thing — the same order `if` uses.
@@ -842,6 +829,15 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
                         skipped = contains_exit(st);
                     }
                 }
+                if let Some(update) = &stmt.update {
+                    self.in_skipped_path(|s| s.visit_expression(update));
+                }
+            }
+            // Nothing precedes a single statement, so the guaranteed pass reaches it. The
+            // braced case was handled and the unbraced one fell through to the skipped path,
+            // which is the same over-relaxation, one syntactic form over.
+            (other, true) => {
+                self.visit_statement(other);
                 if let Some(update) = &stmt.update {
                     self.in_skipped_path(|s| s.visit_expression(update));
                 }
@@ -1590,7 +1586,8 @@ impl ParserAnalyzer<'_, '_> {
         // Only an argument still naming the node it was bound to: an enclosing callback may
         // have re-bound the name, and descending on the stale entry would hang the helper's
         // fields off whatever node that name used to mean.
-        let Some((arg_idx, tag)) = call.arguments.iter().enumerate().find_map(|(i, a)| {
+        let mut moved = false;
+        let picked = call.arguments.iter().enumerate().find_map(|(i, a)| {
             let id = arg_expr(a).and_then(as_identifier)?;
             if !self.names_an_outer_node(id, call.span) {
                 return None;
@@ -1601,11 +1598,19 @@ impl ParserAnalyzer<'_, '_> {
             // was not — the same instance-not-class split that put `leaf_guard` inline in one
             // union shape and left the other with a presence test.
             if self.local_bindings.written_in_scope(id, call.span) {
-                self.unresolved.push(format!("{NODE_REASSIGNED}@{name}"));
+                moved = true;
                 return None;
             }
             self.child_vars.get(id).map(|t| (i, t.clone()))
-        }) else {
+        });
+        // Only once nothing survived. Pushing from inside the search recorded a loss for
+        // `helper(reassigned, stillGood)` and then descended through the second argument
+        // anyway — a drop entry for a read that was recovered. The own-node path already
+        // waits for the whole search to fail; this one did not.
+        let Some((arg_idx, tag)) = picked else {
+            if moved {
+                self.unresolved.push(format!("{NODE_REASSIGNED}@{name}"));
+            }
             return;
         };
         let Some((params, body_src)) = self.module.functions.get(name) else {
@@ -7523,6 +7528,73 @@ mod tests {
     }
 
     #[test]
+    fn a_testless_for_with_a_bare_body_still_runs_it() {
+        // `for (;;) parse(e);` has no zero-iteration path either. The braced form was handled
+        // and the unbraced one fell through to the skipped path — the same over-relaxation,
+        // one syntactic form over.
+        let fields = helper_reached_via("for (;;) parse(e);");
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(id.required, "the body is reached: {id:?}");
+    }
+
+    #[test]
+    fn a_helper_guard_is_dropped_when_the_call_is_conditional() {
+        // Recording a known gap rather than a fix. A helper reached at nonzero depth has its
+        // guards discarded outright — not parked for an intersection to hand back — so an
+        // exhaustive switch promotes the helper's FIELDS to required and loses its
+        // `assertAttr`. The same is true of a helper called on both sides of an `if`, so this
+        // predates the switch promotion; the promotion only made it contradictory.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.assertAttr("kind", "x"); p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                switch (mode) {
+                    case "a": parse(e); break;
+                    default: parse(e);
+                }
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let id = p.fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(id.required, "the field is promoted: {id:?}");
+        assert!(
+            !p.assertions
+                .iter()
+                .any(|a| a.name.as_deref() == Some("kind")),
+            "and its guard is not — change this test when that is fixed: {:?}",
+            p.assertions
+        );
+    }
+
+    #[test]
+    fn a_recovered_argument_is_not_reported_as_a_drop() {
+        // `helper(reassigned, stillGood)` descends through the second argument, so nothing was
+        // lost. Recording the marker from inside the search claimed a loss anyway, and a drop
+        // entry for a read that WAS recovered is exactly the noise that makes the accounting
+        // useless.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(x, y){ y.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                var moved = e.child("moved");
+                var kept = e.child("kept");
+                moved = moved.child("deeper");
+                parse(moved, kept);
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        assert!(
+            !p.pending_drops
+                .iter()
+                .any(|u| u.starts_with("reassignedNodeHandedOn")),
+            "the second argument descended: {:?}",
+            p.pending_drops
+        );
+    }
+
+    #[test]
     fn a_read_before_a_do_while_break_is_still_required() {
         // The guaranteed first pass reaches everything up to the `break`. Treating the whole
         // body as conditional because it contains one relaxed a call that always runs.
@@ -7545,7 +7617,7 @@ mod tests {
         // `for (const [v = parse(e)] of values)` calls the helper when there is an element.
         // Hand-written visitors that walk only the iterable and the body dropped it, and
         // nothing said so.
-        let fields = helper_reached_via("for (var x = parse(e) of values) {}");
+        let fields = helper_reached_via("for (const [v = parse(e)] of values) {}");
         assert!(
             fields.iter().any(|f| f.name == "id"),
             "the binding is walked: {:?}",
