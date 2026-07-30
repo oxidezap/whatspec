@@ -361,6 +361,13 @@ fn field_from_call(
         // `count="99"` the source turns away. An open bound stays open: WA writes
         // `attrIntRange(e, "t", 0, void 0)` for "no upper limit".
         "attrIntRange" => {
+            // Three answers, not two. `void 0` — which is how WA writes "no upper limit" — is an
+            // OPEN bound and the band stays half-open. An expression this scan cannot fold is an
+            // UNKNOWN one, and reading it as open was the same mistake as reading a negative
+            // literal as absent, from the other side: `attrIntRange("score", minimum, 10)`
+            // became "signed, at most 10", so the decoder took a `-1` that a `minimum` of 5
+            // turns away. Neither bound is recorded when either is unreadable, and the drop
+            // says so rather than a band nobody can check.
             // Through `as_int`, because JavaScript has no negative literal: `-10` is a unary
             // minus over `10`, and matching `NumericLiteral` alone recorded no floor at all.
             // An absent floor is not neutral — it is the open-bottom band, which the width rule
@@ -368,9 +375,25 @@ fn field_from_call(
             // a `-20` the accessor turns away. The exact opposite of what the bound is for, and
             // reachable only for a negative one. `as_int` also turns away a fractional or
             // out-of-range literal, which the cast quietly truncated.
-            let bound = |i: usize| call.arguments.get(i).and_then(arg_expr).and_then(as_int);
-            f.int_min = bound(1);
-            f.int_max = bound(2);
+            let bound = |i: usize| match call.arguments.get(i).and_then(arg_expr) {
+                // A missing argument, `void 0`, `undefined` or `null`: the accessor is told
+                // there is no bound on that side.
+                None => IntBound::Open,
+                Some(e) if is_no_bound(e) => IntBound::Open,
+                // Through `as_int`, because JavaScript has no negative literal: `-10` is a
+                // unary minus over `10`. It also turns away a fractional or out-of-range
+                // literal, which the old cast quietly truncated.
+                Some(e) => as_int(e).map_or(IntBound::Unreadable, IntBound::At),
+            };
+            match (bound(1), bound(2)) {
+                (IntBound::Unreadable, _) | (_, IntBound::Unreadable) => {
+                    unresolved.push(format!("{RANGE_BOUND}@{field_name}"));
+                }
+                (lo, hi) => {
+                    f.int_min = lo.value();
+                    f.int_max = hi.value();
+                }
+            }
         }
         _ => {}
     }
@@ -541,6 +564,41 @@ const SWITCH_ARM_SHADOW: &str = "arm-shadowed node";
 /// there, 4831 are `o("SomeModule").MEMBER` enum lookups and not one contains a wire accessor —
 /// the shape is ubiquitous in form and absent in substance.
 const SWITCH_TEST_READ: &str = "case-test read";
+
+/// A bound on `attrIntRange` that is neither a literal nor the "no bound" spelling — a
+/// `minimum` whose value only the running module knows. Recorded rather than guessed, because
+/// both guesses are wrong in a direction: calling it open makes the field signed and unbounded
+/// below, and calling it zero invents a floor the source may not enforce.
+const RANGE_BOUND: &str = "unreadableRangeBound";
+
+/// One side of a declared integer range, which is three answers and not two.
+enum IntBound {
+    /// Explicitly no bound on this side — a missing argument, `void 0`, `undefined`, `null`.
+    Open,
+    At(i64),
+    /// An expression this scan cannot fold.
+    Unreadable,
+}
+
+impl IntBound {
+    fn value(self) -> Option<i64> {
+        match self {
+            IntBound::At(n) => Some(n),
+            _ => None,
+        }
+    }
+}
+
+/// Whether `e` is how a source says "no bound on this side".
+fn is_no_bound(e: &Expression<'_>) -> bool {
+    match e {
+        Expression::NullLiteral(_) => true,
+        Expression::Identifier(i) => i.name == "undefined",
+        Expression::UnaryExpression(u) => u.operator == oxc_syntax::operator::UnaryOperator::Void,
+        Expression::ParenthesizedExpression(p) => is_no_bound(&p.expression),
+        _ => false,
+    }
+}
 
 struct ParserAnalyzer<'src, 'ms> {
     code: &'src str,
@@ -3980,6 +4038,71 @@ impl AllBindings {
         self.assign_end.unwrap_or(default_end)
     }
 
+    /// Walk an invocation whose callee is a function written in place, returning whether it
+    /// did. Everything that body writes lands at the invocation, everything an argument writes
+    /// precedes the body, and what a comma callee evaluates on the way precedes both.
+    fn walk_invocation<'a>(
+        &mut self,
+        callee_expr: &Expression<'a>,
+        arguments: &oxc_allocator::Vec<'a, oxc_ast::ast::Argument<'a>>,
+        span: Span,
+    ) -> bool {
+        // An immediately invoked function has certainly run by the time anything after it reads
+        // what it wrote — the one case where "does this nested function execute" is decidable
+        // from the syntax alone.
+        let callee = invoked_callee(callee_expr);
+        let runs_now = match callee {
+            // A generator call runs none of the body — it builds an iterator, and whether
+            // anything ever draws from it is the call-graph question this scanner does not
+            // answer. So it is not immediately invoked in the only sense that matters here,
+            // and a write inside it belongs with the ones in a function nobody calls.
+            Expression::FunctionExpression(f) if f.generator => false,
+            Expression::FunctionExpression(f) => {
+                self.iife.push((
+                    f.span,
+                    synchronous_until(f.r#async, f.span, f.body.as_deref()),
+                ));
+                true
+            }
+            Expression::ArrowFunctionExpression(f) => {
+                self.iife
+                    .push((f.span, synchronous_until(f.r#async, f.span, Some(&f.body))));
+                true
+            }
+            _ => false,
+        };
+        if !runs_now {
+            return false;
+        }
+        // Every argument is evaluated before the body is entered, so what the body writes takes
+        // effect at the CALL. Ordering it by its position inside the callee had
+        // `(function(){ current = other; })(parse(current))` record the write before the
+        // argument that reads the node, and the descent was refused for a node still standing.
+        //
+        // Around the callee only: an argument that writes runs where it is written, and pinning
+        // that to the call would order it after a body it precedes.
+        self.effects_land_at.push(span.end);
+        self.visit_expression(callee);
+        self.effects_land_at.pop();
+        // Whatever a comma callee evaluates on the way to that function runs before the
+        // arguments and before the body, so it keeps its own position.
+        let mut leading = Vec::new();
+        leading_parts(callee_expr, &mut leading);
+        for part in leading {
+            self.visit_expression(part);
+        }
+        // And the arguments run before that body, whatever their position relative to it:
+        // `(function(){ parse(current); })(current = e)` reads what the argument assigned.
+        // Only the callee's own span, so a read in another argument still orders normally
+        // against this write — the arguments run in their own order.
+        self.runs_before.push(callee.span());
+        for arg in arguments {
+            self.visit_argument(arg);
+        }
+        self.runs_before.pop();
+        true
+    }
+
     /// Walk the statements of one list, marking everything after an unconditional exit as
     /// unreachable. Nothing else models "the rest of this block does not run".
     ///
@@ -4137,6 +4260,33 @@ impl<'a> Visit<'a> for AllBindings {
             // `binding_extent` claimed this order already held; it held for a later assignment
             // and never for the declarator itself.
             self.visit_variable_declarator(d);
+            // A destructuring declarator ASSIGNS what it takes apart: `var [e] = [other]`
+            // rebinds the parser's own parameter, and `for (var [e] of xs)` does it per pass.
+            // Only the single-identifier form recorded anything, so the name still looked like
+            // the response node and the helper's reads were filed at the root while the parser
+            // reads something else — the wrong node, silently. The ASSIGNMENT spelling of this
+            // was fixed six rounds ago; the declaration spelling records the same write now.
+            //
+            // Both kinds, because the extent does the scoping: a `let` pattern binds its own
+            // names, and a write recorded against one of those reaches exactly as far as that
+            // binding does — which is what `binding_extent` answers for every other write. I
+            // first gated this on `var` and could not construct a case where the gate changed
+            // an answer, so it is one rule rather than one rule and a condition.
+            if d.id.get_binding_identifier().is_none() {
+                for id in d.id.get_binding_identifiers() {
+                    let w = Write {
+                        scope: self.binding_extent(id.name.as_str(), id.span),
+                        name: id.name.as_str().to_string(),
+                        at: id.span,
+                        effective: self.effect_position(d.span.end),
+                        runs_before: self.runs_before.last().copied(),
+                        repeats_in: (self.dead == 0 || self.caught > 0)
+                            .then(|| self.loops.last().copied())
+                            .flatten(),
+                    };
+                    self.writes.push(w);
+                }
+            }
             if let (Some(id), Some(init)) = (d.id.get_binding_identifier(), d.init.as_ref()) {
                 let from = match init {
                     Expression::Identifier(src) => Some(src.name.as_str()),
@@ -4191,60 +4341,19 @@ impl<'a> Visit<'a> for AllBindings {
     }
 
     fn visit_call_expression(&mut self, call: &CallExpression<'a>) {
-        // An immediately invoked function has certainly run by the time anything after the call
-        // reads what it wrote — the one case where "does this nested function execute" is
-        // decidable from the syntax alone.
-        let callee = invoked_callee(&call.callee);
-        let runs_now = match callee {
-            // A generator call runs none of the body — it builds an iterator, and whether
-            // anything ever draws from it is the call-graph question this scanner does not
-            // answer. So it is not immediately invoked in the only sense that matters here,
-            // and a write inside it belongs with the ones in a function nobody calls.
-            Expression::FunctionExpression(f) if f.generator => false,
-            Expression::FunctionExpression(f) => {
-                self.iife.push((
-                    f.span,
-                    synchronous_until(f.r#async, f.span, f.body.as_deref()),
-                ));
-                true
-            }
-            Expression::ArrowFunctionExpression(f) => {
-                self.iife
-                    .push((f.span, synchronous_until(f.r#async, f.span, Some(&f.body))));
-                true
-            }
-            _ => false,
-        };
-        if !runs_now {
+        if !self.walk_invocation(&call.callee, &call.arguments, call.span) {
             walk::walk_call_expression(self, call);
-            return;
         }
-        // Every argument is evaluated before the body is entered, so what the body writes takes
-        // effect at the CALL. Ordering it by its position inside the callee had
-        // `(function(){ current = other; })(parse(current))` record the write before the
-        // argument that reads the node, and the descent was refused for a node still standing.
-        //
-        // Around the callee only: an argument that writes runs where it is written, and pinning
-        // that to the call would order it after a body it precedes.
-        self.effects_land_at.push(call.span.end);
-        self.visit_expression(callee);
-        self.effects_land_at.pop();
-        // Whatever a comma callee evaluates on the way to that function runs before the
-        // arguments and before the body, so it keeps its own position.
-        let mut leading = Vec::new();
-        leading_parts(&call.callee, &mut leading);
-        for part in leading {
-            self.visit_expression(part);
+    }
+
+    /// `new (function(){ … })()` runs that body before the next statement exactly as a call
+    /// does, and only calls were read that way — so the write inside it stayed confined and the
+    /// helper's fields were published on the node it had moved away from. One method answers
+    /// for both spellings rather than the second learning it a round later.
+    fn visit_new_expression(&mut self, new: &oxc_ast::ast::NewExpression<'a>) {
+        if !self.walk_invocation(&new.callee, &new.arguments, new.span) {
+            walk::walk_new_expression(self, new);
         }
-        // And the arguments run before that body, whatever their position relative to it:
-        // `(function(){ parse(current); })(current = e)` reads what the argument assigned.
-        // Only the callee's own span, so a read in another argument still orders normally
-        // against this write — the arguments run in their own order.
-        self.runs_before.push(callee.span());
-        for arg in &call.arguments {
-            self.visit_argument(arg);
-        }
-        self.runs_before.pop();
     }
 
     fn visit_block_statement(&mut self, block: &oxc_ast::ast::BlockStatement<'a>) {
@@ -8868,7 +8977,7 @@ mod tests {
     }
 
     /// A module whose parser reaches `parse` only through `body`.
-    pub(super) fn helper_reached_via(body: &str) -> Vec<ParsedField> {
+    fn helper_reached_via(body: &str) -> Vec<ParsedField> {
         let module = format!(
             r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){{
             function parse(p){{ p.attrString("id"); }}
@@ -9389,15 +9498,132 @@ mod tests {
             (Some(-10), Some(10)),
             "the floor is negative"
         );
-        // The bounds: an ordinary pair is unchanged, and a fractional literal is no bound at
-        // all — the cast this replaced truncated it to `1` and published a band the source
-        // never enforces.
-        assert_eq!(band("count"), (Some(1), Some(10)), "unchanged");
         assert_eq!(
-            band("ratio"),
-            (None, Some(10)),
-            "1.5 is not an integer bound"
+            band("count"),
+            (Some(1), Some(10)),
+            "an ordinary pair is unchanged"
         );
+        // A fractional floor is one this scan cannot represent, and the round after this one
+        // established what that has to mean: not "no floor" — which is the open-bottom band and
+        // would be the very over-acceptance being fixed here — but no range at all, with a drop
+        // saying so. The cast this replaced truncated it to `1` and published a band the source
+        // never enforces.
+        assert_eq!(band("ratio"), (None, None), "1.5 is not an integer bound");
+    }
+
+    #[test]
+    fn a_bound_this_scan_cannot_read_is_not_an_absent_one() {
+        // `attrIntRange("score", minimum, 10)` declares a floor whose value only the running
+        // module knows. Recording it as `None` made it indistinguishable from the open-bottom
+        // band — so the field came out signed and guarded by its maximum alone, and the decoder
+        // took a `-1` that a `minimum` of 5 turns away. The same collision as a negative
+        // literal read as absent, from the other side.
+        //
+        // Neither bound is kept when either is unreadable: half of a range the source enforces
+        // is a claim this scan cannot stand behind.
+        let r = analyze_parser_ast(
+            r#"{ e.attrIntRange("score", minimum, 10); e.attrIntRange("span", 1, hi); }"#,
+            "e",
+        );
+        for name in ["score", "span"] {
+            let f = r.fields.iter().find(|f| f.name == name).expect("field");
+            assert_eq!(
+                (f.int_min, f.int_max),
+                (None, None),
+                "`{name}` has a bound this scan cannot read"
+            );
+            assert!(
+                r.unresolved
+                    .iter()
+                    .any(|u| u == &format!("unreadableRangeBound@{name}")),
+                "and the drop says so: {:?}",
+                r.unresolved
+            );
+        }
+    }
+
+    #[test]
+    fn a_bound_the_source_declares_open_stays_open() {
+        // The bound, and the reason unreadable and open cannot simply be merged: WA writes
+        // `attrIntRange(e, "t", 0, void 0)` for "no upper limit", and declining that range
+        // would throw away a floor the accessor really does enforce. `undefined` and `null`
+        // spell the same thing.
+        for spelling in ["void 0", "undefined", "null"] {
+            let r = analyze_parser_ast(
+                &format!(r#"{{ e.attrIntRange("t", 0, {spelling}); }}"#),
+                "e",
+            );
+            let f = r.fields.iter().find(|f| f.name == "t").expect("field");
+            assert_eq!(
+                (f.int_min, f.int_max),
+                (Some(0), None),
+                "`{spelling}` is an open bound, not an unreadable one"
+            );
+            assert!(
+                r.unresolved.is_empty(),
+                "nothing dropped: {:?}",
+                r.unresolved
+            );
+        }
+    }
+
+    #[test]
+    fn a_function_invoked_with_new_has_run_too() {
+        // `new (function(){ current = other; })()` runs that body before the next statement
+        // exactly as a call does. Only calls were read that way, so the write stayed confined
+        // to the function extent and the helper's fields were published on the node the parser
+        // had moved away from — the wrong node, and the second spelling of an invocation this
+        // collector had to learn separately.
+        for body in [
+            "var current = e; new (function(){ current = other; })(); parse(current);",
+            "var current = e; new (0, function(){ current = other; })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "`{body}` moved the node: {:?}",
+                fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+            );
+        }
+        // The bound: `new Thing()` names a constructor this scan knows nothing about, and
+        // guessing that it writes would refuse every descent past one.
+        let fields = helper_reached_via("var current = e; new Thing(); parse(current);");
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "an unknown constructor moves nothing: {:?}",
+            fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_destructuring_declaration_writes_what_it_takes_apart() {
+        // `var [e] = [other]` rebinds the parser's own parameter, and `for (var [e] of xs)`
+        // does it once per pass. Only the single-identifier declarator recorded anything, so
+        // the name still looked like the response node and the helper's reads were filed at the
+        // root while the parser reads something else. The ASSIGNMENT spelling of this was fixed
+        // six rounds ago; this is the declaration spelling of the same write.
+        for body in [
+            "var [e] = [other]; parse(e);",
+            "var {e} = o; parse(e);",
+            "for (var [e] of xs) {} parse(e);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "`{body}` reads a node this scan cannot place: {:?}",
+                fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+            );
+        }
+        // The bounds: an undisturbed parameter still is the node, and a `let` pattern binds its
+        // own names rather than writing to anything outside itself.
+        for body in ["parse(e);", "{ let [e] = [other]; } parse(e);"] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "`{body}` leaves the parameter standing: {:?}",
+                fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+            );
+        }
     }
 
     #[test]
