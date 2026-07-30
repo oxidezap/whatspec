@@ -4524,26 +4524,102 @@ fn binding_certainly_throws(
         let Some(slot) = i.checked_sub(implicit_leading) else {
             return false;
         };
-        if !matches!(
-            param.pattern,
-            oxc_ast::ast::BindingPattern::ObjectPattern(_)
-                | oxc_ast::ast::BindingPattern::ArrayPattern(_)
-        ) {
-            return false;
-        }
-        // A default runs for exactly the values that would otherwise throw, so a parameter
-        // carrying one never fails to bind.
-        if param.initializer.is_some() {
-            return false;
-        }
-        match effective.get(slot) {
-            Some(Some(a)) => certainly_nullish(a),
-            // An elision holds `undefined`; past the end of a COMPLETE list, so does the
-            // position. A list stopped by a spread says nothing about what lands here.
+        // A parameter's own default runs for `undefined` and for NOTHING else — an explicit
+        // `null` reaches the pattern and throws there. I exempted every parameter carrying a
+        // default, which read `(function ({x} = {}) { … })(null)` as a call that enters its
+        // body.
+        //
+        // An elision holds `undefined`; past the end of a COMPLETE list, so does the position.
+        // A list stopped by a spread says nothing about what lands here, and that is the one
+        // case with no answer at all.
+        let absent = match effective.get(slot) {
+            Some(Some(a)) => is_undefined_spelling(a),
             Some(None) => true,
-            None => complete,
-        }
+            None if complete => true,
+            None => return false,
+        };
+        // What the pattern actually takes apart: the default when the position is undefined and
+        // one is written, the argument otherwise. Reading the ARGUMENT in both cases is what
+        // made `(function ({x} = { get x(){ … } }) {})(void 0)` a binding failure — the value
+        // that reaches the pattern there is the default object, and it destructures perfectly.
+        let bound_value = match (absent, param.initializer.as_deref()) {
+            (true, Some(init)) => Some(init),
+            (true, None) => None,
+            (false, _) => effective.get(slot).copied().flatten(),
+        };
+        pattern_binding_throws(&param.pattern, bound_value)
     })
+}
+
+/// Whether destructuring `value` with `pat` must fail, at this level or below it.
+///
+/// `null` and `undefined` have no properties, so a pattern that takes either apart throws. A
+/// NESTED pattern takes apart the value of the property above it, and that value can be nullish
+/// while the argument as a whole is not — `({a: {x}})` against `{a: null}` throws while binding
+/// `a`, which asking only about the whole argument missed.
+///
+/// `None` for the value means `undefined` — a missing argument or a missing property, which is
+/// the same thing to a pattern. Every step down needs both sides written out; anything this
+/// cannot read answers `false` and loses the decline rather than inventing one.
+fn pattern_binding_throws(
+    pat: &oxc_ast::ast::BindingPattern<'_>,
+    value: Option<&Expression<'_>>,
+) -> bool {
+    use oxc_ast::ast::BindingPattern as BP;
+    match pat {
+        // A default here catches `undefined` only, exactly as a parameter's does.
+        BP::AssignmentPattern(p) => match value {
+            None => false,
+            Some(v) => {
+                if is_undefined_spelling(v) {
+                    false
+                } else {
+                    pattern_binding_throws(&p.left, value)
+                }
+            }
+        },
+        BP::BindingIdentifier(_) => false,
+        BP::ObjectPattern(o) => {
+            match value {
+                None => return true,
+                Some(v) if certainly_nullish(v) => return true,
+                Some(_) => {}
+            }
+            let Some(Expression::ObjectExpression(obj)) = value else {
+                return false;
+            };
+            o.properties.iter().any(|prop| {
+                prop.key.static_name().is_some_and(|name| {
+                    let owned = owned_property(obj, name.as_ref());
+                    // A property this cannot resolve says nothing; one it can carries its own
+                    // value down. No `PropertyKind::Init` test beside it: an accessor's value
+                    // is a FUNCTION, which is neither nullish nor a literal object, so
+                    // descending through one answers exactly what refusing to would — the
+                    // mutation dropping the guard changed nothing and it is gone.
+                    //
+                    // What that costs is stated rather than hidden: reading a SETTER-only
+                    // property yields `undefined`, so a nested pattern over one really does
+                    // throw, and this loses that decline. Claiming it needs the accessor kinds
+                    // read as a pair, which is a wider change than the shape reported here.
+                    owned.is_some_and(|op| pattern_binding_throws(&prop.value, Some(&op.value)))
+                })
+            })
+        }
+        BP::ArrayPattern(_) => match value {
+            None => true,
+            Some(v) => certainly_nullish(v),
+        },
+    }
+}
+
+/// Whether `e` is a spelling of `undefined` — the one value a default answers.
+fn is_undefined_spelling(e: &Expression<'_>) -> bool {
+    match e {
+        Expression::UnaryExpression(u) => u.operator == oxc_syntax::operator::UnaryOperator::Void,
+        Expression::Identifier(i) => i.name == "undefined",
+        Expression::ParenthesizedExpression(p) => is_undefined_spelling(&p.expression),
+        _ => false,
+    }
 }
 
 /// The getters binding `pat` against `object` will invoke, at every depth of the pattern.
@@ -4734,13 +4810,36 @@ fn owned_property<'b, 'a>(
                 }
             }
             oxc_ast::ast::ObjectPropertyKind::ObjectProperty(op) => {
-                if op.key.static_name().as_deref() == Some(name) {
+                if op.key.static_name().as_deref() == Some(name) && !sets_the_prototype(op) {
                     return Some(op);
                 }
             }
         }
     }
     None
+}
+
+/// Whether this callee names a concise method of an object literal — `({ m(){ … } }).m` — which
+/// is a function with no `[[Construct]]`.
+fn callee_is_a_concise_method(callee_expr: &Expression<'_>) -> bool {
+    named_member(peel(callee_expr)).is_some_and(|(name, object)| {
+        matches!(peel(object), Expression::ObjectExpression(o)
+            if owned_property(o, name.as_ref()).is_some_and(|op| op.method))
+    })
+}
+
+/// Whether this property sets the object's PROTOTYPE rather than creating an own property.
+///
+/// `{ __proto__: null }` has no `__proto__` of its own — the name is special only in that
+/// spelling, so `{ ["__proto__"]: null }` and `{ __proto__(){} }` both do create one. Reading
+/// the prototype setter as an own property had `(function ({__proto__: x = …}) {})({__proto__:
+/// null})` suppress a default that really runs.
+fn sets_the_prototype(op: &oxc_ast::ast::ObjectProperty<'_>) -> bool {
+    !op.computed
+        && !op.method
+        && !op.shorthand
+        && op.kind == oxc_ast::ast::PropertyKind::Init
+        && op.key.static_name().as_deref() == Some("__proto__")
 }
 
 /// Whether spreading `e` could supply `name`.
@@ -5695,6 +5794,14 @@ impl AllBindings {
         {
             return false;
         }
+        // A concise METHOD has no `[[Construct]]`, so `new ({ m(){ … } }).m()` throws before the
+        // body is entered. The unwrapper hands back the method's function expression, which
+        // reads as constructible and approved a body that runs on no path — the provenance is
+        // lost by the time `is_constructible` sees it, so the question is asked here instead.
+        // `{ m: function(){ … } }` is an ordinary function value and really is constructible.
+        if constructs && callee_is_a_concise_method(callee_expr) {
+            return false;
+        }
         // `new` needs a CONSTRUCTOR. An arrow, an async function and a generator are none of
         // them, so `new (() => { … })()` throws a TypeError with the body never entered — and
         // recording its writes published a helper's reads under a node nothing had moved. The
@@ -6373,16 +6480,32 @@ impl<'a> Visit<'a> for AllBindings {
         // values before their conditionality is ever read. That redundancy rests on a rule in
         // another function, so the comparison stays.
         if self.skippable == 0 {
-            let paired: Vec<usize> = (before..split)
-                .filter(|&i| {
-                    self.given[split..]
-                        .iter()
-                        .any(|g| g.name == self.given[i].name && g.from == self.given[i].from)
+            // Each arm's FINAL assignment to a name, not every assignment in it. An arm that
+            // gives `current` the node and then overwrites it leaves the node behind, so the
+            // two arms do not agree at all — clearing the flag on every matching record made
+            // the else-arm's copy unconditional and let it dominate the then-arm's overwrite,
+            // publishing the helper's reads as required against a path that passes something
+            // else. What an arm establishes is what it ends with.
+            let end = self.given.len();
+            let last_from = |range: std::ops::Range<usize>, name: &str| -> Option<Option<String>> {
+                self.given[range]
+                    .iter()
+                    .rev()
+                    .find(|g| g.name == name)
+                    .map(|g| g.from.clone())
+            };
+            let names: Vec<(String, Option<String>)> = (before..split)
+                .map(|i| self.given[i].name.clone())
+                .collect::<std::collections::BTreeSet<_>>()
+                .into_iter()
+                .filter_map(|name| {
+                    let then_from = last_from(before..split, &name)?;
+                    let else_from = last_from(split..end, &name)?;
+                    // Both arms end on the same COPY of the same name. Two records that
+                    // computed their values are two values however alike they look, which is
+                    // the rule `settled_value` keeps for the same reason.
+                    (then_from.is_some() && then_from == else_from).then_some((name, then_from))
                 })
-                .collect();
-            let names: Vec<(String, Option<String>)> = paired
-                .iter()
-                .map(|&i| (self.given[i].name.clone(), self.given[i].from.clone()))
                 .collect();
             for g in &mut self.given[before..] {
                 if names.iter().any(|(n, f)| *n == g.name && *f == g.from) {
@@ -12415,17 +12538,102 @@ mod tests {
             !fields.iter().any(|f| f.name == "id"),
             "the argument ran before the binding failed: {fields:?}"
         );
-        // The bounds: an object binds fine, a plain identifier parameter takes `null` without
-        // complaint, and a pattern with its own default never fails to bind.
+        // The bounds: an object binds fine, and a plain identifier parameter takes `null`
+        // without complaint.
         for body in [
             "var current = e; (function ({x}) { current = other; })({}); parse(current);",
             "var current = e; (function (x) { current = other; })(null); parse(current);",
-            "var current = e; (function ({x} = {}) { current = other; })(null); parse(current);",
+            // A default DOES save an undefined position, and what the pattern then takes apart
+            // is the default's own value.
+            "var current = e; (function ({x} = {}) { current = other; })(); parse(current);",
+            "var current = e; (function ({x} = {}) { current = other; })(void 0); parse(current);",
         ] {
             let fields = helper_reached_via(body);
             assert!(
                 !fields.iter().any(|f| f.name == "id"),
                 "that body does run: {body}"
+            );
+        }
+        // And a bound of mine that has moved sides. I wrote last round that "a pattern with its
+        // own default never fails to bind" and listed `(function ({x} = {}) { … })(null)` as a
+        // case where the body runs. A default answers `undefined` and nothing else: an explicit
+        // `null` goes straight to the pattern and throws there. Eighth test of mine to encode
+        // the wrong answer, and the second in two rounds where the case I chose to bound a rule
+        // was the case that rule had wrong.
+        let fields = helper_reached_via(
+            "var current = e; try { (function ({x} = {}) { current = other; })(null); } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "a default does not catch `null`: {fields:?}"
+        );
+        // Nested, where the argument as a whole is fine and a property below it is not.
+        let fields = helper_reached_via(
+            "var current = e; try { (function ({a: {x}}) { current = other; })({a: null}); } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "binding `a` throws: {fields:?}"
+        );
+        let fields = helper_reached_via(
+            "var current = e; (function ({a: {x}}) { current = other; })({a: {}}); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "that nested pattern binds fine: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn a_concise_method_is_not_a_constructor() {
+        // `new ({ m(){ … } }).m()` throws before the body is entered: a concise method has no
+        // `[[Construct]]`. The round that taught this reader object methods hands back the
+        // method's function expression, and by the time `is_constructible` sees one the
+        // provenance is gone — so it read as an ordinary function and approved a body that runs
+        // on no path.
+        let fields = helper_reached_via(
+            "var current = e; try { new ({m(){ current = other }}).m(); } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "constructing a method throws: {fields:?}"
+        );
+        // The bounds: CALLING it still runs the body, and a property whose value is an ordinary
+        // function expression really is constructible.
+        for body in [
+            "var current = e; ({m(){ current = other }}).m(); parse(current);",
+            "var current = e; new ({m: function(){ current = other }}).m(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that body does run: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_prototype_setter_is_not_an_own_property() {
+        // `{ __proto__: null }` sets the object's prototype and creates no `__proto__` of its
+        // own, so a pattern naming it reads `undefined` and its default runs. The lookup
+        // returned the setter like an ordinary field and suppressed a default that really runs.
+        let fields = helper_reached_via(
+            "var current = e; (function ({__proto__: x = (current = other)}) {})({__proto__: null}); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "there is no own `__proto__`, so the default ran: {fields:?}"
+        );
+        // The bounds: the name is special only in that one spelling. A computed key, a
+        // shorthand and a method all create an own property.
+        for body in [
+            "var current = e; (function ({[\"__proto__\"]: x = (current = other)}) {})({[\"__proto__\"]: 1}); parse(current);",
+            "var current = e; (function ({__proto__: x = (current = other)}) {})({__proto__(){}}); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that spelling does supply the property: {body}"
             );
         }
     }
@@ -15614,6 +15822,18 @@ mod tests {
         .find(|f| f.name == "id")
         .expect("names one node");
         assert!(!id.required, "the switch half is not promoted yet: {id:?}");
+        // …and only each arm's FINAL assignment counts. An arm that gives `current` the node
+        // and then overwrites it leaves the node behind, so the two arms do not agree at all —
+        // clearing the flag on every matching record made the else-arm's copy unconditional and
+        // let it dominate the then-arm's overwrite, publishing the reads as required against a
+        // path that passes something else.
+        let fields = helper_reached_via(
+            "var current; if (flag) { current = e; current = other; } else { current = e; } parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the true branch passes something else: {fields:?}"
+        );
         // And the promotion is only for the OUTERMOST branch. Nested inside another region a
         // test can skip, the agreeing pair is still skippable as a whole — clearing the flag
         // there would claim a write an enclosing test bypasses.
