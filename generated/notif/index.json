@@ -662,10 +662,6 @@
             "name": "notification"
           },
           {
-            "kind": "tag",
-            "name": "notification"
-          },
-          {
             "kind": "attr",
             "name": "type",
             "value": "devices"

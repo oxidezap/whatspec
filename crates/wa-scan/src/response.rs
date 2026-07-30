@@ -474,7 +474,7 @@ fn analyze_seeded(
     a.visit_program(&ret.program);
     a.attach_pending_enum_keys();
     ParserResult {
-        assertions: a.assertions,
+        assertions: unconditional_assertions(&mut a),
         fields: a.fields,
         unresolved: a.unresolved,
         child_vars: a.child_vars,
@@ -708,6 +708,12 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
         // back through an intersection this had no equivalent of, so N weakened copies just
         // stayed weak and a field the parser always reads came out optional.
         let mut per_case: Vec<Vec<RelaxedId>> = Vec::new();
+        // The guards each case establishes, collected the same way and settled through the
+        // same intersection — a helper every arm calls enforces its `assertAttr` on every
+        // path, and discarding those while promoting the arm's FIELDS to required published a
+        // shape that accepts values every source path rejects.
+        let guard_mark = self.conditional_assertions.len();
+        let mut per_case_guards: Vec<Vec<ResponseAssertion>> = Vec::new();
         for (i, case) in stmt.cases.iter().enumerate() {
             // Falling through into a case runs its CONSEQUENT, never its test, so the two are
             // collected apart — folding a later case's test into the entry path had
@@ -718,16 +724,19 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
                 self.visit_expression(test);
             }
             let at = self.relaxed_by_branch.len();
+            let at_guards = self.conditional_assertions.len();
             for st in &case.consequent {
                 self.visit_statement(st);
             }
             per_case.push(self.relaxed_by_branch[at..].to_vec());
+            per_case_guards.push(self.conditional_assertions[at_guards..].to_vec());
         }
         // Entering at case `i` runs case `i` and then falls through to `i+1`, `i+2`… until one
         // of them leaves. `switch (mode) { case "a": default: parse(e); }` runs `parse` for
         // every value, and intersecting each case's OWN reads called the empty first case
         // decisive and left the payload optional.
         let mut entry: Vec<Vec<RelaxedId>> = vec![Vec::new(); stmt.cases.len()];
+        let mut entry_guards: Vec<Vec<ResponseAssertion>> = vec![Vec::new(); stmt.cases.len()];
         for i in (0..stmt.cases.len()).rev() {
             let body = &stmt.cases[i].consequent;
             let leaves = body.iter().any(exits_unconditionally)
@@ -735,12 +744,16 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
                     .iter()
                     .any(|st| matches!(st, Statement::BreakStatement(_)));
             let mut weak = per_case[i].clone();
+            let mut guards = per_case_guards[i].clone();
             if !leaves && i + 1 < stmt.cases.len() {
                 weak.extend(entry[i + 1].iter().cloned());
+                guards.extend(entry_guards[i + 1].iter().cloned());
             }
             entry[i] = weak;
+            entry_guards[i] = guards;
         }
         let per_case = entry;
+        let per_case_guards = entry_guards;
         // Only when a `default` makes the cases cover every value — otherwise an unlisted
         // value runs none of them, and promoting would require of every element something
         // the parser reads on no path at all. A case that merely falls through establishes
@@ -748,24 +761,31 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
         // Over the paths that can PRODUCE a result. An arm ending in `throw` returns nothing,
         // so every successful execution took one of the others — including it as an empty path
         // left a field optional that every path yielding a value reads.
-        let established = if stmt.cases.iter().any(|c| c.test.is_none()) {
+        let exhaustive = stmt.cases.iter().any(|c| c.test.is_none());
+        let yields_a_value = |i: &usize| -> bool { !throws_out(&stmt.cases[*i].consequent) };
+        let established = if exhaustive {
             per_case
                 .into_iter()
                 .enumerate()
-                .filter(|(i, _)| !throws_out(&stmt.cases[*i].consequent))
+                .filter(|(i, _)| yields_a_value(i))
                 .map(|(_, weak)| weak)
                 .reduce(|a, b| branch_intersection(&a, &b))
                 .unwrap_or_default()
         } else {
             Vec::new()
         };
-        // Assertions are NOT promoted here. A helper reached at nonzero depth has its guards
-        // discarded outright rather than parked anywhere, so there is nothing for an
-        // intersection to hand back — my earlier attempt folded `conditional_assertions`,
-        // which this path never writes to, and did nothing at all. Restoring them needs a
-        // channel parallel to `relaxed_by_branch`, and the gap is in every construct
-        // including `if`, not just here.
+        let guard_sides: Vec<Vec<ResponseAssertion>> = if exhaustive {
+            per_case_guards
+                .into_iter()
+                .enumerate()
+                .filter(|(i, _)| yields_a_value(i))
+                .map(|(_, g)| g)
+                .collect()
+        } else {
+            Vec::new()
+        };
         self.relaxed_by_branch.truncate(before.1);
+        self.settle_guard_intersection(guard_mark, &guard_sides);
         // Still inside this switch's own increment, so `settle` can tell whether an
         // enclosing conditional can skip the whole thing — the same order `if` uses.
         self.settle_branch_intersection(established);
@@ -892,22 +912,28 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
             // successful execution passed through it, which is the two-sided intersection
             // `if` already does and this had no equivalent of.
             Some(h) => {
-                let before = (self.assertions.len(), self.relaxed_by_branch.len());
+                let before = (
+                    self.conditional_assertions.len(),
+                    self.relaxed_by_branch.len(),
+                );
                 self.conditional_depth += 1;
                 self.visit_block_statement(&stmt.block);
                 let tried = (
-                    self.assertions[before.0..].to_vec(),
+                    self.conditional_assertions[before.0..].to_vec(),
                     self.relaxed_by_branch[before.1..].to_vec(),
                 );
-                let after_try = (self.assertions.len(), self.relaxed_by_branch.len());
+                let after_try = (
+                    self.conditional_assertions.len(),
+                    self.relaxed_by_branch.len(),
+                );
                 self.visit_catch_clause(h);
                 let caught = (
-                    self.assertions[after_try.0..].to_vec(),
+                    self.conditional_assertions[after_try.0..].to_vec(),
                     self.relaxed_by_branch[after_try.1..].to_vec(),
                 );
-                self.unmark_branch_intersection(&tried.0, &caught.0);
                 let established = branch_intersection(&tried.1, &caught.1);
                 self.relaxed_by_branch.truncate(before.1);
+                self.settle_guard_intersection(before.0, &[tried.0, caught.0]);
                 self.settle_branch_intersection(established);
                 self.conditional_depth -= 1;
             }
@@ -930,20 +956,26 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
         let n = tested.len();
         self.conditional_depth += 1;
 
-        let before_then = (self.assertions.len(), self.relaxed_by_branch.len());
+        let before_then = (
+            self.conditional_assertions.len(),
+            self.relaxed_by_branch.len(),
+        );
         self.guarded_names.extend(tested);
         self.visit_statement(&stmt.consequent);
         self.guarded_names.truncate(self.guarded_names.len() - n);
-        let then_side: Vec<ResponseAssertion> = self.assertions[before_then.0..].to_vec();
+        let then_side = self.conditional_assertions[before_then.0..].to_vec();
         let then_weak = self.relaxed_by_branch[before_then.1..].to_vec();
 
         let mut established = Vec::new();
         if let Some(alt) = &stmt.alternate {
-            let before_else = (self.assertions.len(), self.relaxed_by_branch.len());
+            let before_else = (
+                self.conditional_assertions.len(),
+                self.relaxed_by_branch.len(),
+            );
             self.visit_statement(alt);
-            let else_side: Vec<ResponseAssertion> = self.assertions[before_else.0..].to_vec();
+            let else_side = self.conditional_assertions[before_else.0..].to_vec();
             let else_weak = self.relaxed_by_branch[before_else.1..].to_vec();
-            self.unmark_branch_intersection(&then_side, &else_side);
+            self.settle_guard_intersection(before_then.0, &[then_side, else_side]);
             established = branch_intersection(&then_weak, &else_weak);
         }
         // Settled after the truncate, so a claim handed up outlives the branch that
@@ -979,18 +1011,24 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
         let n = tested.len();
         self.conditional_depth += 1;
 
-        let before_then = (self.assertions.len(), self.relaxed_by_branch.len());
+        let before_then = (
+            self.conditional_assertions.len(),
+            self.relaxed_by_branch.len(),
+        );
         self.guarded_names.extend(tested);
         self.visit_expression(&expr.consequent);
         self.guarded_names.truncate(self.guarded_names.len() - n);
-        let then_side: Vec<ResponseAssertion> = self.assertions[before_then.0..].to_vec();
+        let then_side = self.conditional_assertions[before_then.0..].to_vec();
         let then_weak = self.relaxed_by_branch[before_then.1..].to_vec();
 
-        let before_else = (self.assertions.len(), self.relaxed_by_branch.len());
+        let before_else = (
+            self.conditional_assertions.len(),
+            self.relaxed_by_branch.len(),
+        );
         self.visit_expression(&expr.alternate);
-        let else_side: Vec<ResponseAssertion> = self.assertions[before_else.0..].to_vec();
+        let else_side = self.conditional_assertions[before_else.0..].to_vec();
         let else_weak = self.relaxed_by_branch[before_else.1..].to_vec();
-        self.unmark_branch_intersection(&then_side, &else_side);
+        self.settle_guard_intersection(before_then.0, &[then_side, else_side]);
         let established = branch_intersection(&then_weak, &else_weak);
 
         self.relaxed_by_branch.truncate(before_then.1);
@@ -1035,10 +1073,6 @@ impl ParserAnalyzer<'_, '_> {
             .any(|r| span.start >= r.start && span.end <= r.end)
     }
 
-    /// An assertion made whichever way a branch goes is made always. Both occurrences were
-    /// marked conditional on the way in; their intersection is not. `if`/`else` and the
-    /// ternary are the same shape here, and teaching only one left the other filtering
-    /// both occurrences away.
     /// A helper called on both sides of a branch runs on every path, so what it reads is
     /// required after all — two weakened copies OR to weak, and the field ended up optional
     /// where the parser always demands it.
@@ -1055,18 +1089,39 @@ impl ParserAnalyzer<'_, '_> {
         }
     }
 
-    fn unmark_branch_intersection(
-        &mut self,
-        then_side: &[ResponseAssertion],
-        else_side: &[ResponseAssertion],
-    ) {
-        for a in then_side.iter().filter(|a| else_side.contains(a)) {
-            for _ in 0..2 {
-                if let Some(i) = self.conditional_assertions.iter().position(|x| x == a) {
-                    self.conditional_assertions.swap_remove(i);
-                }
-            }
+    /// An assertion made whichever way a branch goes is made always: the assertion half of
+    /// [`ParserAnalyzer::settle_branch_intersection`], and deliberately the same shape.
+    ///
+    /// `sides` are the parked slices, one per path that can produce a result, and `mark` is
+    /// where this conditional's parked region begins. A value every side establishes holds on
+    /// every path, so EVERY occurrence parked inside the region is released — how many times
+    /// one branch redundantly re-asserts it says nothing about whether it holds, and removing
+    /// a fixed two left `if (c) { parse(e); parse(e); } else { parse(e); }` with a stray mark
+    /// that filtered the guard back out.
+    fn settle_guard_intersection(&mut self, mark: usize, sides: &[Vec<ResponseAssertion>]) {
+        let Some((first, rest)) = sides.split_first() else {
+            return;
+        };
+        let established: Vec<ResponseAssertion> = first
+            .iter()
+            .filter(|a| rest.iter().all(|s| s.contains(a)))
+            .cloned()
+            .collect();
+        // Established relative to THIS conditional only. Nested inside a one-sided outer
+        // `if`, the outer can still skip every branch, so the claim stays parked and is handed
+        // up as the outer branch's own contribution — the enclosing intersection reads this
+        // same region, so leaving it alone is what hands it up. Releasing it regardless of
+        // nesting published a guard the parser enforces on no path at all.
+        //
+        // Every occurrence, not one per value: each parked entry pairs with one occurrence in
+        // `assertions`, and the subtraction is a multiset. Re-parking a single mark for a
+        // region that held two left one occurrence unmatched, so the guard published anyway.
+        if self.conditional_depth > 1 {
+            return;
         }
+        let mut region = self.conditional_assertions.split_off(mark);
+        region.retain(|a| !established.contains(a));
+        self.conditional_assertions.append(&mut region);
     }
 
     /// Whether an enclosing inner function re-binds the parser's own parameter, as seen
@@ -1782,11 +1837,21 @@ impl ParserAnalyzer<'_, '_> {
         // and dropping it published a shape that accepts what the parser rejects — but only
         // when the parser always runs it. Reached down one branch, its guards are that
         // branch's, and hoisting them would reject everything the other branches accept.
-        if self.conditional_depth == 0 {
-            for g in guards {
-                if !self.assertions.contains(&g) {
-                    self.assertions.push(g);
-                }
+        //
+        // So the conditional case is RECORDED rather than discarded, with the fact that it
+        // was conditional travelling alongside in `conditional_assertions` — exactly how a
+        // direct `e.assertAttr` behind an `if` is handled. Discarding it outright left
+        // nothing for an intersection to hand back, so a helper called on both sides of a
+        // branch had its fields promoted to required (the fields ARE parked, in
+        // `relaxed_by_branch`) while its guard vanished: decoding accepted values every
+        // source path rejects. No dedup on this side — two occurrences are what a two-sided
+        // intersection needs to see, and one is unmarked per occurrence.
+        for g in guards {
+            if self.conditional_depth > 0 {
+                self.assertions.push(g.clone());
+                self.conditional_assertions.push(g);
+            } else if !self.assertions.contains(&g) {
+                self.assertions.push(g);
             }
         }
         // Reached only down one branch, its payload is not required of every element —
@@ -2098,18 +2163,7 @@ fn analyze_node_helper(
     // without it lets the constraint ratchet read as clean while a byte range vanished.
     // Only what the helper enforces on every path: an `assertAttr` behind its own `if`
     // holds when that branch runs, and hoisting it would have the parser demand it always.
-    let mut guarded = a.conditional_assertions.clone();
-    let unconditional = a
-        .assertions
-        .into_iter()
-        .filter(|x| match guarded.iter().position(|g| g == x) {
-            Some(i) => {
-                guarded.swap_remove(i);
-                false
-            }
-            None => true,
-        })
-        .collect();
+    let unconditional = unconditional_assertions(&mut a);
     (a.fields, a.unresolved, unconditional)
 }
 
@@ -2289,6 +2343,36 @@ fn count_paths(f: &ParsedField, path: &str, out: &mut std::collections::HashSet<
 }
 
 /// What a shape claims, by identity, so an intersection of branches can put it back.
+/// The assertions that hold on EVERY path: everything recorded, minus the occurrences
+/// marked as made behind a branch.
+///
+/// A multiset subtraction rather than a filter — `if (c) assertAttr(k); else assertAttr(k);`
+/// records the assertion twice and `unmark_branch_intersection` unmarks both, so removing
+/// every occurrence of a marked value would delete the pair the two-sided intersection just
+/// established. The helper path did this inline and the top-level parser did not do it at
+/// all, so an `assertTag` made down one branch was published as one every response
+/// satisfies — the harmful direction, since decoding then rejects what the parser accepts.
+fn unconditional_assertions(a: &mut ParserAnalyzer) -> Vec<ResponseAssertion> {
+    let mut guarded = std::mem::take(&mut a.conditional_assertions);
+    let mut out: Vec<ResponseAssertion> = Vec::new();
+    for x in std::mem::take(&mut a.assertions) {
+        // Multiset subtraction first, THEN dedup. Collapsing duplicates before the
+        // subtraction would leave one occurrence matching a mark that belongs to another and
+        // filter out a guard that holds — the order is what makes both halves work.
+        if let Some(i) = guarded.iter().position(|g| *g == x) {
+            guarded.swap_remove(i);
+            continue;
+        }
+        // Two identical assertions constrain nothing a single one does not: a helper called
+        // on both sides of a branch establishes its guard once, and both occurrences reaching
+        // the output published `assertAttr("kind", "x")` twice on the same shape.
+        if !out.contains(&x) {
+            out.push(x);
+        }
+    }
+    out
+}
+
 /// What both branches of one conditional establish.
 fn branch_intersection(then_weak: &[RelaxedId], else_weak: &[RelaxedId]) -> Vec<RelaxedId> {
     then_weak
@@ -7152,6 +7236,34 @@ mod tests {
             .fields
     }
 
+    /// `(field is required, its helper's guard is published)` for a callback body that
+    /// reaches `parse` — which both reads `id` and asserts `kind`. The two travel together or
+    /// the shape contradicts itself, so both are read from one run.
+    fn guards_and_field(body: &str) -> (bool, bool) {
+        let module = format!(
+            r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){{
+            function parse(p){{ p.assertAttr("kind", "x"); p.attrString("id"); }}
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){{
+                e.assertTag("receipt");
+                {body}
+            }});
+        }}),1);"#
+        );
+        let out = parse_module_wap_parsers(&module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let required = p
+            .fields
+            .iter()
+            .find(|f| f.name == "id")
+            .expect("recovered")
+            .required;
+        let guarded = p
+            .assertions
+            .iter()
+            .any(|a| a.name.as_deref() == Some("kind"));
+        (required, guarded)
+    }
+
     #[test]
     fn a_destructured_formal_does_not_shift_the_node_position() {
         // `function parse({opts}, node)` has the node SECOND. Collecting only the formals
@@ -7784,33 +7896,104 @@ mod tests {
     }
 
     #[test]
-    fn a_helper_guard_is_dropped_when_the_call_is_conditional() {
-        // Recording a known gap rather than a fix. A helper reached at nonzero depth has its
-        // guards discarded outright — not parked for an intersection to hand back — so an
-        // exhaustive switch promotes the helper's FIELDS to required and loses its
-        // `assertAttr`. The same is true of a helper called on both sides of an `if`, so this
-        // predates the switch promotion; the promotion only made it contradictory.
+    fn a_helper_guard_every_switch_arm_makes_is_published() {
+        // The gap this test used to record. A helper reached at nonzero depth had its guards
+        // discarded outright while its FIELDS were parked in `relaxed_by_branch`, so an
+        // exhaustive switch promoted the fields to required and dropped the `assertAttr` —
+        // decoding then accepted values every source path rejects, and the shape said both
+        // "always present" and "unconstrained" about one read.
+        let guards =
+            guards_and_field(r#"switch (mode) { case "a": parse(e); break; default: parse(e); }"#);
+        assert_eq!(
+            guards,
+            (true, true),
+            "promoted field and its guard travel together"
+        );
+    }
+
+    #[test]
+    fn a_helper_guard_only_one_switch_arm_makes_is_not_published() {
+        // The bound on that: an arm the parser may not take enforces nothing, and hoisting its
+        // guard would reject everything the other arms accept.
+        let guards =
+            guards_and_field(r#"switch (mode) { case "a": parse(e); break; default: other(e); }"#);
+        assert_eq!(guards, (false, false), "one arm establishes neither");
+    }
+
+    #[test]
+    fn a_helper_guard_survives_a_call_on_both_sides_of_a_branch() {
+        // Not only the switch — the same channel, reached through `if`/`else`, whose field
+        // intersection has been there all along.
+        let guards = guards_and_field("if (c) { parse(e); } else { parse(e); }");
+        assert_eq!(guards, (true, true), "both sides call it");
+    }
+
+    #[test]
+    fn a_helper_guard_from_one_side_of_a_branch_is_not_published() {
+        let guards = guards_and_field("if (c) { parse(e); }");
+        assert_eq!(guards, (false, false), "one side establishes neither");
+    }
+
+    #[test]
+    fn a_helper_guard_from_both_try_and_catch_is_published() {
+        // Every successful execution passed through one of the two, and an `assertAttr` that
+        // throws in the block throws again in the handler, so the constraint holds either way.
+        let guards = guards_and_field("try { parse(e); } catch (x) { parse(e); }");
+        assert_eq!(guards, (true, true), "both paths call it");
+    }
+
+    #[test]
+    fn a_guard_established_inside_a_one_sided_outer_branch_is_not_published() {
+        // `if (o) { if (c) parse(e); else parse(e); }` — the INNER conditional establishes the
+        // guard on both of its paths, but the outer one can skip the whole thing. Releasing on
+        // the inner intersection regardless of nesting published a guard the parser enforces
+        // on no path at all; the fields have always been handed up as the outer branch's own
+        // parked entry, and the guards now are too.
+        let guards = guards_and_field("if (o) { if (c) { parse(e); } else { parse(e); } }");
+        assert_eq!(guards, (false, false), "the outer branch can skip both");
+    }
+
+    #[test]
+    fn a_guard_asserted_down_one_branch_of_the_callback_is_not_published() {
+        // The parked-assertion list was consumed for helpers and never for the top-level
+        // parser, so `if (c) e.assertAttr("kind", "x")` published as a constraint every
+        // response satisfies — the harmful direction, and it predates the helper channel.
         let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
-            function parse(p){ p.assertAttr("kind", "x"); p.attrString("id"); }
             var c=new(r("WADeprecatedWapParser"))("p", function(e){
                 e.assertTag("receipt");
-                switch (mode) {
-                    case "a": parse(e); break;
-                    default: parse(e);
-                }
+                if (c) { e.assertAttr("kind", "x"); }
             });
         }),1);"#;
         let out = parse_module_wap_parsers(module);
         let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
-        let id = p.fields.iter().find(|f| f.name == "id").expect("recovered");
-        assert!(id.required, "the field is promoted: {id:?}");
         assert!(
             !p.assertions
                 .iter()
                 .any(|a| a.name.as_deref() == Some("kind")),
-            "and its guard is not — change this test when that is fixed: {:?}",
+            "one branch enforces nothing: {:?}",
             p.assertions
         );
+    }
+
+    #[test]
+    fn a_guard_both_branches_make_is_published_once() {
+        // Two identical assertions constrain nothing a single one does not, and both branches
+        // recording their own occurrence is exactly what the intersection needs to see — so
+        // the collapse happens on the way out, after the subtraction rather than before it.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                if (c) { e.assertAttr("kind", "x"); } else { e.assertAttr("kind", "x"); }
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let n = p
+            .assertions
+            .iter()
+            .filter(|a| a.name.as_deref() == Some("kind"))
+            .count();
+        assert_eq!(n, 1, "published once: {:?}", p.assertions);
     }
 
     #[test]
