@@ -99,13 +99,18 @@ pub(crate) fn admits_negative(f: &ParsedField) -> bool {
     if wap::method_field_type(&f.method) != ParsedFieldType::Integer {
         return false;
     }
-    // A declared lower bound below zero, or — with no lower bound at all — an upper bound
-    // below zero. `attrIntRange("score", void 0, -1)` means "at most -1", which admits only
-    // negative values; reading the minimum alone left it `u64`, so every value the source
-    // accepts failed to decode and the union additionally called the arm unreachable.
+    // A declared lower bound below zero — or NO declared lower bound alongside an upper one,
+    // because a band open at the bottom admits every negative value whatever its ceiling.
+    // `attrIntRange("score", void 0, 10)` is "at most 10", which the source accepts `-1` for;
+    // reading the ceiling's sign instead left it `u64`, so the decoder rejected values the
+    // parser takes and the union called the arm's band contradictory. Only `-1` as a maximum
+    // was caught, which is the same rule stopping one case short of what it says.
+    //
+    // No range at all is untouched: an integer accessor with nothing declared is unsigned by
+    // this generator's convention, and that is not what a half-open BAND says.
     match (f.int_min, f.int_max) {
         (Some(lo), _) => lo < 0,
-        (None, Some(hi)) => hi < 0,
+        (None, Some(_)) => true,
         (None, None) => false,
     }
 }

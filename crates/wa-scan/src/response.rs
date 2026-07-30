@@ -459,6 +459,7 @@ fn analyze_seeded(
         unfollowable: Vec::new(),
         local_bindings: Default::default(),
         conditional_assertions: Vec::new(),
+        guard_claims: Vec::new(),
         relaxed_by_branch: Vec::new(),
         conditional_depth: 0,
         guarded_names: Vec::new(),
@@ -602,6 +603,19 @@ struct ParserAnalyzer<'src, 'ms> {
     /// count, not by value: the same guard made once inside an `if` and once outside is
     /// enforced on every path, and filtering by equality dropped both.
     conditional_assertions: Vec<ResponseAssertion>,
+    /// The same guards again, as CLAIMS a branch hands up — the assertion half of
+    /// [`ParserAnalyzer::relaxed_by_branch`], and separate storage for the same reason.
+    ///
+    /// `conditional_assertions` is a multiset subtracted from the output, so an entry must
+    /// stay in it for exactly as long as its guard is unpublished. The per-branch slices an
+    /// intersection reads want the opposite: rewriting, so a nested conditional hands its
+    /// enclosing one only what it established. Serving both from one list, the nested settle
+    /// could only leave the region alone — and every branch-local guard travelled up with it,
+    /// so `if (outer) { if (inner) assertAttr("kind","a"); else assertAttr("kind","b"); }`
+    /// published `kind="a"` against a parser that asserts `"b"` down one path and nothing at
+    /// all down another. Rejecting what the source accepts, from the one place the two roles
+    /// could not both be honoured.
+    guard_claims: Vec<ResponseAssertion>,
     /// Whether the call being visited sits under a branch. A helper reached only when
     /// `kind === "a"` does not make its payload required of every element.
     conditional_depth: u32,
@@ -779,7 +793,7 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
         // same intersection — a helper every arm calls enforces its `assertAttr` on every
         // path, and discarding those while promoting the arm's FIELDS to required published a
         // shape that accepts values every source path rejects.
-        let guard_mark = self.conditional_assertions.len();
+        let guard_mark = (self.guard_claims.len(), self.conditional_assertions.len());
         let mut per_case_guards: Vec<Vec<ResponseAssertion>> = Vec::new();
         // Every case shares ONE lexical scope, and it ends with the switch — so a `let`/`const`
         // naming a child must not outlive it. `switch (m) { case 1: let d = e.child("inner");
@@ -814,12 +828,12 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
                 }
             }
             let at = self.relaxed_by_branch.len();
-            let at_guards = self.conditional_assertions.len();
+            let at_guards = self.guard_claims.len();
             for st in &case.consequent {
                 self.visit_statement(st);
             }
             per_case.push(self.relaxed_by_branch[at..].to_vec());
-            per_case_guards.push(self.conditional_assertions[at_guards..].to_vec());
+            per_case_guards.push(self.guard_claims[at_guards..].to_vec());
         }
         // Entering at case `i` runs case `i` and then falls through to `i+1`, `i+2`… until one
         // of them leaves. `switch (mode) { case "a": default: parse(e); }` runs `parse` for
@@ -877,7 +891,7 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
             Vec::new()
         };
         self.relaxed_by_branch.truncate(before.1);
-        self.settle_guard_intersection(guard_mark, &guard_sides);
+        self.settle_guard_intersection(guard_mark.0, guard_mark.1, &guard_sides);
         // Still inside this switch's own increment, so `settle` can tell whether an
         // enclosing conditional can skip the whole thing — the same order `if` uses.
         self.settle_branch_intersection(established);
@@ -996,23 +1010,18 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
             // successful execution passed through it, which is the two-sided intersection
             // `if` already does and this had no equivalent of.
             Some(h) => {
-                let before = (
-                    self.conditional_assertions.len(),
-                    self.relaxed_by_branch.len(),
-                );
+                let parked = self.conditional_assertions.len();
+                let before = (self.guard_claims.len(), self.relaxed_by_branch.len());
                 self.conditional_depth += 1;
                 self.visit_block_statement(&stmt.block);
                 let tried = (
-                    self.conditional_assertions[before.0..].to_vec(),
+                    self.guard_claims[before.0..].to_vec(),
                     self.relaxed_by_branch[before.1..].to_vec(),
                 );
-                let after_try = (
-                    self.conditional_assertions.len(),
-                    self.relaxed_by_branch.len(),
-                );
+                let after_try = (self.guard_claims.len(), self.relaxed_by_branch.len());
                 self.visit_catch_clause(h);
                 let caught = (
-                    self.conditional_assertions[after_try.0..].to_vec(),
+                    self.guard_claims[after_try.0..].to_vec(),
                     self.relaxed_by_branch[after_try.1..].to_vec(),
                 );
                 // Over the paths that can PRODUCE a result, the same filter the switch arms
@@ -1036,7 +1045,7 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
                     .reduce(|a, b| branch_intersection(&a, &b))
                     .unwrap_or_default();
                 self.relaxed_by_branch.truncate(before.1);
-                self.settle_guard_intersection(before.0, &guard_sides);
+                self.settle_guard_intersection(before.0, parked, &guard_sides);
                 self.settle_branch_intersection(established);
                 self.conditional_depth -= 1;
             }
@@ -1057,26 +1066,21 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
         // by whatever the parser does next. A negated test flips the two.
         let tested = self.canonical_guards(&stmt.test);
         let n = tested.len();
+        let parked = self.conditional_assertions.len();
         self.conditional_depth += 1;
 
-        let before_then = (
-            self.conditional_assertions.len(),
-            self.relaxed_by_branch.len(),
-        );
+        let before_then = (self.guard_claims.len(), self.relaxed_by_branch.len());
         self.guarded_names.extend(tested);
         self.visit_statement(&stmt.consequent);
         self.guarded_names.truncate(self.guarded_names.len() - n);
-        let then_side = self.conditional_assertions[before_then.0..].to_vec();
+        let then_side = self.guard_claims[before_then.0..].to_vec();
         let then_weak = self.relaxed_by_branch[before_then.1..].to_vec();
 
         let mut established = Vec::new();
         if let Some(alt) = &stmt.alternate {
-            let before_else = (
-                self.conditional_assertions.len(),
-                self.relaxed_by_branch.len(),
-            );
+            let before_else = (self.guard_claims.len(), self.relaxed_by_branch.len());
             self.visit_statement(alt);
-            let else_side = self.conditional_assertions[before_else.0..].to_vec();
+            let else_side = self.guard_claims[before_else.0..].to_vec();
             let else_weak = self.relaxed_by_branch[before_else.1..].to_vec();
             // Over the sides that can PRODUCE a value. `if (flag) { parse(e); } else { throw
             // Error(); }` calls `parse` on every execution that yields anything, and
@@ -1093,12 +1097,20 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
             .collect();
             let guard_sides: Vec<Vec<ResponseAssertion>> =
                 sides.iter().map(|(_, g)| g.clone()).collect();
-            self.settle_guard_intersection(before_then.0, &guard_sides);
+            self.settle_guard_intersection(before_then.0, parked, &guard_sides);
             established = sides
                 .into_iter()
                 .map(|(w, _)| w)
                 .reduce(|a, b| branch_intersection(&a, &b))
                 .unwrap_or_default();
+        } else {
+            // With no `else` the implicit other side establishes nothing, so the intersection
+            // is empty — but the claims were still sitting in the region, and an enclosing
+            // conditional read them as this branch's own. `if (outer) { if (inner)
+            // assertAttr("kind", "a"); } else { assertAttr("kind", "a"); }` published a guard
+            // the parser makes only when `inner` holds. Settling with no sides at all says it:
+            // nothing established, claims dropped, everything stays parked.
+            self.settle_guard_intersection(before_then.0, parked, &[]);
         }
         // Settled after the truncate, so a claim handed up outlives the branch that
         // established it and the enclosing conditional can see it.
@@ -1121,9 +1133,11 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
         };
         let n = tested.len();
         self.guarded_names.extend(tested);
+        let claims = (self.guard_claims.len(), self.relaxed_by_branch.len());
         self.conditional_depth += 1;
         self.visit_expression(&expr.right);
         self.conditional_depth -= 1;
+        self.discard_claims(claims);
         self.guarded_names.truncate(self.guarded_names.len() - n);
     }
 
@@ -1131,26 +1145,21 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
         self.visit_expression(&expr.test);
         let tested = self.canonical_guards(&expr.test);
         let n = tested.len();
+        let parked = self.conditional_assertions.len();
         self.conditional_depth += 1;
 
-        let before_then = (
-            self.conditional_assertions.len(),
-            self.relaxed_by_branch.len(),
-        );
+        let before_then = (self.guard_claims.len(), self.relaxed_by_branch.len());
         self.guarded_names.extend(tested);
         self.visit_expression(&expr.consequent);
         self.guarded_names.truncate(self.guarded_names.len() - n);
-        let then_side = self.conditional_assertions[before_then.0..].to_vec();
+        let then_side = self.guard_claims[before_then.0..].to_vec();
         let then_weak = self.relaxed_by_branch[before_then.1..].to_vec();
 
-        let before_else = (
-            self.conditional_assertions.len(),
-            self.relaxed_by_branch.len(),
-        );
+        let before_else = (self.guard_claims.len(), self.relaxed_by_branch.len());
         self.visit_expression(&expr.alternate);
-        let else_side = self.conditional_assertions[before_else.0..].to_vec();
+        let else_side = self.guard_claims[before_else.0..].to_vec();
         let else_weak = self.relaxed_by_branch[before_else.1..].to_vec();
-        self.settle_guard_intersection(before_then.0, &[then_side, else_side]);
+        self.settle_guard_intersection(before_then.0, parked, &[then_side, else_side]);
         let established = branch_intersection(&then_weak, &else_weak);
 
         self.relaxed_by_branch.truncate(before_then.1);
@@ -1214,14 +1223,25 @@ impl ParserAnalyzer<'_, '_> {
     /// An assertion made whichever way a branch goes is made always: the assertion half of
     /// [`ParserAnalyzer::settle_branch_intersection`], and deliberately the same shape.
     ///
-    /// `sides` are the parked slices, one per path that can produce a result, and `mark` is
-    /// where this conditional's parked region begins. A value every side establishes holds on
-    /// every path, so EVERY occurrence parked inside the region is released — how many times
-    /// one branch redundantly re-asserts it says nothing about whether it holds, and removing
-    /// a fixed two left `if (c) { parse(e); parse(e); } else { parse(e); }` with a stray mark
-    /// that filtered the guard back out.
-    fn settle_guard_intersection(&mut self, mark: usize, sides: &[Vec<ResponseAssertion>]) {
+    /// `sides` are the claim slices, one per path that can produce a result. `claims` is where
+    /// this conditional's claim region begins and `parked` where its parked region does — the
+    /// two are rewritten differently, which is the whole reason they are two lists.
+    ///
+    /// A value every side establishes holds on every path, so EVERY occurrence parked inside
+    /// the region is released — how many times one branch redundantly re-asserts it says
+    /// nothing about whether it holds, and removing a fixed two left `if (c) { parse(e);
+    /// parse(e); } else { parse(e); }` with a stray mark that filtered the guard back out.
+    fn settle_guard_intersection(
+        &mut self,
+        claims: usize,
+        parked: usize,
+        sides: &[Vec<ResponseAssertion>],
+    ) {
         let Some((first, rest)) = sides.split_first() else {
+            // No path yields a value, so nothing is established — and the claims this
+            // conditional collected are nobody's, since no enclosing branch runs it for a
+            // result either.
+            self.guard_claims.truncate(claims);
             return;
         };
         let established: Vec<ResponseAssertion> = first
@@ -1229,19 +1249,21 @@ impl ParserAnalyzer<'_, '_> {
             .filter(|a| rest.iter().all(|s| s.contains(a)))
             .cloned()
             .collect();
-        // Established relative to THIS conditional only. Nested inside a one-sided outer
-        // `if`, the outer can still skip every branch, so the claim stays parked and is handed
-        // up as the outer branch's own contribution — the enclosing intersection reads this
-        // same region, so leaving it alone is what hands it up. Releasing it regardless of
-        // nesting published a guard the parser enforces on no path at all.
-        //
-        // Every occurrence, not one per value: each parked entry pairs with one occurrence in
-        // `assertions`, and the subtraction is a multiset. Re-parking a single mark for a
-        // region that held two left one occurrence unmatched, so the guard published anyway.
+        // The claims this conditional hands up are exactly what it established, whatever it
+        // took to establish them. Everything else was one inner path's alone.
+        self.guard_claims.truncate(claims);
+        // Established relative to THIS conditional only. Nested inside a one-sided outer `if`,
+        // the outer can still skip every branch, so the guard stays parked — unpublished — and
+        // travels on as the outer branch's own claim for the enclosing intersection to weigh.
+        // Releasing it regardless of nesting published a guard the parser enforces on no path
+        // at all.
         if self.conditional_depth > 1 {
+            self.guard_claims.extend(established);
             return;
         }
-        let mut region = self.conditional_assertions.split_off(mark);
+        // At the outermost conditional there is nothing left to skip the branch, so what every
+        // side established is unconditional: unpark every occurrence of it and it publishes.
+        let mut region = self.conditional_assertions.split_off(parked);
         region.retain(|a| !established.contains(a));
         self.conditional_assertions.append(&mut region);
     }
@@ -1344,9 +1366,29 @@ impl ParserAnalyzer<'_, '_> {
     /// statement is skippable differs per construct, so each says so itself and this only
     /// carries the counter.
     fn in_skipped_path(&mut self, f: impl FnOnce(&mut Self)) {
+        let claims = (self.guard_claims.len(), self.relaxed_by_branch.len());
         self.conditional_depth += 1;
         f(self);
         self.conditional_depth -= 1;
+        // And it claims nothing for the branch it sits in. There is no intersection here to
+        // settle — the path is simply skippable — so anything parked inside it must not travel
+        // on as the enclosing branch's contribution: `if (a) { for (x of y) helper(e); } else {
+        // helper(e); }` had both sides claim what `helper` reads, and the enclosing `if`
+        // intersected them into a promotion, requiring of every element a read an empty list
+        // performs on no path. The guards went the same way, publishing an `assertAttr` the
+        // parser may never make. Both directions reject what the source accepts.
+        self.discard_claims(claims);
+    }
+
+    /// Forget the claims made since `(guards, weak)` — for a construct that establishes
+    /// nothing, whatever ran inside it.
+    ///
+    /// The parked entries stay: a guard keeps its unpublished mark and a relaxed field keeps
+    /// being optional, which is what "this may not have run" means for the output. Only the
+    /// claim an enclosing intersection would read is dropped.
+    fn discard_claims(&mut self, (guards, weak): (usize, usize)) {
+        self.guard_claims.truncate(guards);
+        self.relaxed_by_branch.truncate(weak);
     }
 
     /// Whether `name`, read at `span`, belongs to an enclosing callback rather than to the
@@ -1587,9 +1629,9 @@ impl ParserAnalyzer<'_, '_> {
             // caller following this scope cannot see that from the call site, so the fact
             // travels with the assertion.
             if guarded {
-                for a in &self.assertions[before..] {
-                    self.conditional_assertions.push(a.clone());
-                }
+                let parked: Vec<ResponseAssertion> = self.assertions[before..].to_vec();
+                self.conditional_assertions.extend(parked.iter().cloned());
+                self.guard_claims.extend(parked);
             }
             return;
         }
@@ -2006,7 +2048,8 @@ impl ParserAnalyzer<'_, '_> {
         for g in guards {
             if self.conditional_depth > 0 {
                 self.assertions.push(g.clone());
-                self.conditional_assertions.push(g);
+                self.conditional_assertions.push(g.clone());
+                self.guard_claims.push(g);
                 continue;
             }
             // At depth zero the guard holds always, so it is recorded with nothing parked
@@ -2309,6 +2352,7 @@ fn analyze_node_helper(
         unfollowable: Vec::new(),
         local_bindings: Default::default(),
         conditional_assertions: Vec::new(),
+        guard_claims: Vec::new(),
         relaxed_by_branch: Vec::new(),
         conditional_depth: 0,
         guarded_names: Vec::new(),
@@ -2361,6 +2405,7 @@ fn analyze_child_node(
         unfollowable: Vec::new(),
         local_bindings: Default::default(),
         conditional_assertions: Vec::new(),
+        guard_claims: Vec::new(),
         relaxed_by_branch: Vec::new(),
         conditional_depth: 0,
         guarded_names: Vec::new(),
@@ -2856,13 +2901,33 @@ fn throws_out(body: &[Statement<'_>]) -> bool {
                 // A `finally` that completes abruptly wins over however the block and handler
                 // left: `finally { return fallback; }` hands back a result whatever was thrown,
                 // so the whole `try` is a value path. Only its throwing case was considered.
-                let fin_returns = t.finalizer.as_ref().is_some_and(|f| {
-                    f.body
-                        .iter()
-                        .any(|st| matches!(st, Statement::ReturnStatement(_)))
-                });
-                !fin_returns && (body || t.finalizer.as_ref().is_some_and(|f| throws_out(&f.body)))
+                //
+                // Anywhere in the finalizer, not only at its top: `finally { if (retry) return
+                // fallback; }` discards the pending error on the path that returns, and matching
+                // a bare `return` statement saw none of it. `break` and `continue` out of the
+                // finalizer discard it the same way, which is the question `exits_with_a_value`
+                // already asks — including attributing an unlabelled one to a loop the finalizer
+                // opens itself, and not looking inside a nested function.
+                let fin_leaves = t
+                    .finalizer
+                    .as_ref()
+                    .is_some_and(|f| f.body.iter().any(exits_with_a_value));
+                !fin_leaves && (body || t.finalizer.as_ref().is_some_and(|f| throws_out(&f.body)))
             }
+            // A loop whose first pass is guaranteed and whose body throws never comes round
+            // again: `while (!0) { throw Error(); }` is the minifier's spelling of an
+            // unconditional raise, and reading it as a path that yields something left a write
+            // before it live and both branches of an enclosing `if` in the intersection. The
+            // body's own answer decides, so a `break` anywhere in it still makes the loop
+            // completable — `throws_out` stops at the first statement control can leave by.
+            Statement::WhileStatement(w) if always_true(&w.test) => {
+                throws_out(std::slice::from_ref(&w.body))
+            }
+            Statement::ForStatement(f) if f.test.as_ref().is_none_or(always_true) => {
+                throws_out(std::slice::from_ref(&f.body))
+            }
+            // `do` runs its body before any test at all, so no test needs reading.
+            Statement::DoWhileStatement(d) => throws_out(std::slice::from_ref(&d.body)),
             // And a `switch` every arm of which throws, with a `default` so no value escapes
             // by matching nothing. The same `entry_paths_throw` the visitor uses.
             Statement::SwitchStatement(sw) => {
@@ -3490,7 +3555,17 @@ impl<'a> Visit<'a> for AllBindings {
     }
 
     fn visit_variable_declaration(&mut self, decl: &VariableDeclaration<'a>) {
+        let outer_hoists = self.hoists;
+        self.hoists = !decl.kind.is_lexical();
         for d in &decl.declarations {
+            // The binding first, THEN its value. `binding_extent` reads the recorded scopes to
+            // decide how far a value reaches, and a declaration's own scope is the one it must
+            // find — recording first left the lookup to whatever else answered to that name,
+            // so `var current = e; var current = current.child("detail")` scoped the second
+            // value by the first and the child it names was never filed. The doc comment on
+            // `binding_extent` claimed this order already held; it held for a later assignment
+            // and never for the declarator itself.
+            self.visit_variable_declarator(d);
             if let (Some(id), Some(init)) = (d.id.get_binding_identifier(), d.init.as_ref()) {
                 let from = match init {
                     Expression::Identifier(src) => Some(src.name.as_str()),
@@ -3506,10 +3581,7 @@ impl<'a> Visit<'a> for AllBindings {
                 self.assign_end = outer;
             }
         }
-        let outer = self.hoists;
-        self.hoists = !decl.kind.is_lexical();
-        walk::walk_variable_declaration(self, decl);
-        self.hoists = outer;
+        self.hoists = outer_hoists;
     }
 
     fn visit_statement(&mut self, st: &Statement<'a>) {
@@ -8022,6 +8094,38 @@ mod tests {
     }
 
     #[test]
+    fn a_declaration_inside_a_nested_function_binds_its_own_name() {
+        // The complement of the case below, one keyword apart: `(function(){ var current = … })()`
+        // binds a NEW `current` for that function, so the outer one still stands for the element
+        // and `parse(current)` hands over the response root.
+        //
+        // Its value was recorded before the walk registered the binding, so the lookup that
+        // decides how far a value reaches found no `current` in scope yet, fell back to the
+        // top-level binding — which reaches all of the source — and counted two values live at
+        // the call. `names_for` follows a copy only when exactly one is, so the alias was refused
+        // and the helper's fields left the shape with nothing recorded. `let` was unaffected: it
+        // takes its extent from the enclosing block directly and never consults the lookup,
+        // which is the asymmetry that located this. `binding_extent`'s own doc claimed the order
+        // already held, and it held for every assignment and not for the declarator itself.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                var current = e;
+                (function(){ var current = e.child("detail"); })();
+                parse(current);
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        assert!(
+            p.fields.iter().any(|f| f.name == "id"),
+            "the outer alias is untouched: {:?}",
+            p.fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
     fn an_assignment_inside_a_nested_function_reaches_the_outer_binding() {
         // `var current = e; (function(){ current = e.child("detail"); })(); parse(current)` —
         // the IIFE definitely updates the OUTER `current`, so it no longer stands for the
@@ -9070,6 +9174,80 @@ mod tests {
     }
 
     #[test]
+    fn a_finalizer_that_returns_from_inside_a_branch_overrides_too() {
+        // `finally { if (retry) return fallback; }` hands back a result on the path that
+        // returns, so the `try` is not a throwing one. Matching a bare `return` STATEMENT saw
+        // only the unconditional spelling — the same rule stopping at the top level of a block,
+        // which is how it read `finally { return … }` and missed every branch inside one. A
+        // `break` or `continue` out of the finalizer discards the pending error the same way.
+        for fin in [
+            "if (retry) return fallback;",
+            "for (;;) { if (retry) return fallback; }",
+        ] {
+            let guards = guards_and_field(&format!(
+                r#"try {{ parse(e); }} catch (x) {{ try {{ throw A(); }} catch (y) {{ throw B(); }}
+                   finally {{ {fin} }} }}"#
+            ));
+            assert_eq!(guards, (false, false), "`{fin}` leaves with a result");
+        }
+    }
+
+    #[test]
+    fn a_finalizer_that_cannot_leave_by_itself_does_not_override() {
+        // The bounds. A `return` inside a function the finalizer merely CONSTRUCTS leaves that
+        // function, not the finalizer, and a `break` belonging to a loop the finalizer opens
+        // itself lands back in the finalizer — neither discards the error, and counting either
+        // would call a cleanup path a value path and dilute the intersection with it. Nor does a
+        // finalizer that THROWS: it leaves abruptly, but with an error rather than a result, so
+        // the question is which exits hand something back and not which exits exist.
+        for fin in [
+            "done(function(){ return 1; });",
+            "for (;;) { break; }",
+            "throw C();",
+        ] {
+            let guards = guards_and_field(&format!(
+                r#"try {{ parse(e); }} catch (x) {{ try {{ throw A(); }} catch (y) {{ throw B(); }}
+                   finally {{ {fin} }} }}"#
+            ));
+            assert_eq!(guards, (true, true), "`{fin}` hands nothing back");
+        }
+    }
+
+    #[test]
+    fn a_loop_that_can_only_be_left_by_throwing_yields_nothing() {
+        // `while (!0) { throw A(); }` is the minifier's spelling of an unconditional raise: the
+        // first pass is guaranteed and the body never completes, so there is no second pass and
+        // no way out but the error. `throws_out` read the bare, braced, two-sided-`if`, labelled,
+        // `try` and exhaustive-`switch` forms and no loop at all, so a handler shaped this way
+        // counted as a path that hands something back and diluted the intersection.
+        for handler in [
+            "while (!0) { throw A(); }",
+            "for (;;) { throw A(); }",
+            "do { throw A(); } while (c);",
+        ] {
+            let guards =
+                guards_and_field(&format!("try {{ parse(e); }} catch (x) {{ {handler} }}"));
+            assert_eq!(guards, (true, true), "`{handler}` hands nothing back");
+        }
+    }
+
+    #[test]
+    fn a_loop_something_can_leave_still_yields_a_value() {
+        // The bounds, and both of them matter: a test that can be false has a zero-iteration
+        // path straight past the body, and a `break` reachable before the throw leaves the loop
+        // with the handler still able to return. `throws_out` stops at the first statement
+        // control can leave by, which is what keeps the second case out.
+        for handler in [
+            "while (c) { throw A(); }",
+            "while (!0) { if (c) break; throw A(); }",
+        ] {
+            let guards =
+                guards_and_field(&format!("try {{ parse(e); }} catch (x) {{ {handler} }}"));
+            assert_eq!(guards, (false, false), "`{handler}` can complete");
+        }
+    }
+
+    #[test]
     fn a_catch_that_throws_whichever_way_it_branches_yields_nothing() {
         // `catch (_) { if (flag) throw A(); else throw B(); }` produces no result on any path,
         // so every execution that returned one completed the block. `throws_out` matched only
@@ -9134,6 +9312,122 @@ mod tests {
         // parked entry, and the guards now are too.
         let guards = guards_and_field("if (o) { if (c) { parse(e); } else { parse(e); } }");
         assert_eq!(guards, (false, false), "the outer branch can skip both");
+    }
+
+    /// Every `kind` value the shape publishes for a callback body, so a guard established on
+    /// SOME path can be told from one established on every path — two assertions on one
+    /// attribute with different values is the case a single "is `kind` published" answer
+    /// cannot see, and it is the case the nested intersection got wrong.
+    fn published_kind_values(body: &str) -> Vec<Option<String>> {
+        let module = format!(
+            r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){{
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){{
+                e.assertTag("receipt");
+                {body}
+            }});
+        }}),1);"#
+        );
+        parse_module_wap_parsers(&module)
+            .into_iter()
+            .find(|r| r.parser_name == "p")
+            .expect("parser")
+            .assertions
+            .into_iter()
+            .filter(|a| a.name.as_deref() == Some("kind"))
+            .map(|a| a.value)
+            .collect()
+    }
+
+    #[test]
+    fn a_guard_only_one_nested_path_makes_is_not_the_branchs_claim() {
+        // The inner conditional establishes NOTHING — its two sides assert different values —
+        // so the outer branch it sits in claims nothing either. Parking and claiming shared one
+        // list, and a nested settle could only leave its region alone: both inner values
+        // travelled up as the outer branch's own contribution, the outer intersection found
+        // `"a"` on both sides, and the shape demanded `kind="a"` of responses the parser
+        // accepts with `kind="b"`.
+        let values = published_kind_values(
+            r#"if (o) { if (i) { e.assertAttr("kind", "a"); }
+                       else { e.assertAttr("kind", "b"); } }
+               else { e.assertAttr("kind", "a"); }"#,
+        );
+        assert!(
+            values.is_empty(),
+            "one inner path asserts b, so nothing holds always: {values:?}"
+        );
+    }
+
+    #[test]
+    fn a_guard_every_nested_path_makes_is_still_the_branchs_claim() {
+        // The complement, and the reason the claim is re-parked rather than dropped: the inner
+        // conditional establishes the guard on both of its paths, so the branch it sits in does
+        // establish it, and the outer intersection has something to agree with. Dropping every
+        // nested claim would fix the case above by publishing nothing at all, ever.
+        let values = published_kind_values(
+            r#"if (o) { if (i) { e.assertAttr("kind", "a"); }
+                       else { e.assertAttr("kind", "a"); } }
+               else { e.assertAttr("kind", "a"); }"#,
+        );
+        assert_eq!(
+            values,
+            vec![Some("a".to_string())],
+            "every path through the parser asserts it"
+        );
+    }
+
+    #[test]
+    fn a_guard_behind_a_one_sided_inner_if_is_not_the_branchs_claim() {
+        // The same hole through the construct that settles nothing at all: with no `else` there
+        // was no intersection to reach the region, so the claim sat there and the enclosing
+        // conditional read it as the whole branch's.
+        let values = published_kind_values(
+            r#"if (o) { if (i) { e.assertAttr("kind", "a"); } }
+               else { e.assertAttr("kind", "a"); }"#,
+        );
+        assert!(
+            values.is_empty(),
+            "the branch asserts it only when `i` holds: {values:?}"
+        );
+    }
+
+    #[test]
+    fn a_guard_inside_a_loop_body_is_not_the_branchs_claim() {
+        // And through a skipped path: an empty list runs the body no times, so the branch
+        // containing the loop establishes nothing.
+        let values = published_kind_values(
+            r#"if (o) { for (var k of ks) { e.assertAttr("kind", "a"); } }
+               else { e.assertAttr("kind", "a"); }"#,
+        );
+        assert!(
+            values.is_empty(),
+            "an empty list asserts nothing: {values:?}"
+        );
+    }
+
+    #[test]
+    fn a_guard_in_a_logical_right_side_is_not_the_branchs_claim() {
+        // `i && …` is the one-sided `if` spelled shorter, and it parks claims the same way.
+        let values = published_kind_values(
+            r#"if (o) { i && e.assertAttr("kind", "a"); }
+               else { e.assertAttr("kind", "a"); }"#,
+        );
+        assert!(values.is_empty(), "only when `i` holds: {values:?}");
+    }
+
+    #[test]
+    fn a_field_read_only_inside_a_loop_body_is_not_promoted() {
+        // The field half of the same claim, and the same harm: requiring `id` of every element
+        // rejects the ones the other branch's parser accepts. `relaxed_by_branch` and the guard
+        // claims are handed up by the same rule, so they are dropped by the same rule.
+        let both =
+            guards_and_field("if (o) { for (var k of ks) { parse(e); } } else { parse(e); }");
+        assert_eq!(both, (false, false), "an empty list reads nothing");
+    }
+
+    #[test]
+    fn a_field_read_only_in_a_logical_right_side_is_not_promoted() {
+        let both = guards_and_field("if (o) { i && parse(e); } else { parse(e); }");
+        assert_eq!(both, (false, false), "only when `i` holds");
     }
 
     #[test]

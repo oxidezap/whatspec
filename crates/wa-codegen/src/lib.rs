@@ -369,6 +369,65 @@ mod tests {
     }
 
     #[test]
+    fn a_band_with_no_lower_bound_is_signed_whatever_its_ceiling() {
+        // `attrIntRange(e, "score", void 0, 10)` enforces "at most 10" and nothing at all
+        // underneath, so the source accepts `-1` and the field has to be able to hold it.
+        // Reading the CEILING's sign — signed only when the maximum was itself negative —
+        // declared this `u64`, and then `n <= 10u64` accepted the value while `parse::<u64>()`
+        // had already failed on it: every negative response rejected, and inside a union the
+        // arm's band called contradictory. A band open at the bottom is signed however high
+        // its top is.
+        let ranged = |name: &str, min: Option<i64>, max: Option<i64>| {
+            let mut f = parsed("attrIntRange", name, ParsedFieldType::Integer);
+            f.int_min = min;
+            f.int_max = max;
+            f
+        };
+        let ir = IqIr {
+            wa_version: "0.0.0".into(),
+            stanzas: vec![IqStanzaDef {
+                module_name: "WAWebScores".into(),
+                namespace: "fb:thrift_iq".into(),
+                iq_type: IqType::Get,
+                target: IqTarget::Server,
+                parser_name: "p".into(),
+                exported_function: Some("scores".into()),
+                all_exports: vec!["scores".into()],
+                request: IqRequestDef {
+                    namespace: "fb:thrift_iq".into(),
+                    iq_type: IqType::Get,
+                    target: IqTarget::Server,
+                    children: vec![],
+                },
+                response: ParsedResponse {
+                    parser_name: "p".into(),
+                    assertions: vec![],
+                    fields: vec![
+                        ranged("score", None, Some(10)),
+                        ranged("count", Some(0), Some(10)),
+                        ranged("plain", None, None),
+                    ],
+                    ..Default::default()
+                },
+            }],
+            unparseable: vec![],
+        };
+        let c = &generate_iq(&ir);
+        assert!(
+            c.contains("pub score: i64,"),
+            "an open bottom admits negatives: {c}"
+        );
+        assert!(
+            c.contains("pub count: u64,"),
+            "a floor at zero does not: {c}"
+        );
+        assert!(
+            c.contains("pub plain: u64,"),
+            "and no band at all is left as it was: {c}"
+        );
+    }
+
+    #[test]
     fn a_content_uint_stays_unsigned_whatever_range_it_carries() {
         // `contentUint(N)` is N big-endian BYTES folded into a `u64`, not decimal text, so a
         // range could never make it signed — declaring the field `i64` against that fold is
