@@ -3450,11 +3450,21 @@ fn synchronous_until(
             walk::walk_await_expression(self, e);
         }
         // `for await (const x of xs)` suspends on every pass, and it is not an await EXPRESSION.
+        //
+        // The ITERABLE is not part of that: it is evaluated synchronously, and only drawing the
+        // first result from it suspends. Noting the suspension at the head of the whole
+        // statement put the iterable's own writes past the cutoff, so a write the caller does
+        // see was confined to the function and the helper's fields were published on a node it
+        // had replaced.
         fn visit_for_of_statement(&mut self, st: &oxc_ast::ast::ForOfStatement<'a>) {
-            if st.r#await {
-                self.note(st.span.start);
+            if !st.r#await {
+                walk::walk_for_of_statement(self, st);
+                return;
             }
-            walk::walk_for_of_statement(self, st);
+            self.visit_expression(&st.right);
+            self.note(st.right.span().end);
+            self.visit_for_statement_left(&st.left);
+            self.visit_statement(&st.body);
         }
         // An `await` under a test no value can change is one control never reaches, so it
         // suspends nothing: `if (0) await x;` leaves the statements after it as synchronous as
@@ -3504,8 +3514,11 @@ fn synchronous_until(
             self.visit_expression(&e.left);
             let dead = match e.operator {
                 oxc_syntax::operator::LogicalOperator::And => always_false(&e.left),
-                oxc_syntax::operator::LogicalOperator::Or
-                | oxc_syntax::operator::LogicalOperator::Coalesce => always_true(&e.left),
+                oxc_syntax::operator::LogicalOperator::Or => always_true(&e.left),
+                // `??` asks whether the left side is nullish, not whether it is falsy, and the
+                // two part company at `0` — which is non-nullish, so `0 ?? await 0` never
+                // reaches that await. Grouping it with `||` answered the narrower question.
+                oxc_syntax::operator::LogicalOperator::Coalesce => never_nullish(&e.left),
             };
             if !dead {
                 self.visit_expression(&e.right);
@@ -3820,6 +3833,10 @@ fn ends_the_list_but_for(
 struct ClassPhases<'s> {
     keys: &'s [Span],
     statics: &'s [Span],
+    /// A derived constructor's prefix up to and including its `super()` call. Its INSTANCE
+    /// fields initialize only once that call returns, so a read anywhere in here precedes
+    /// every one of them.
+    pre_super: Option<Span>,
 }
 
 /// Whether constructing this class runs its instance field initializers at all.
@@ -4923,11 +4940,19 @@ impl AllBindings {
         // from the syntax alone.
         let callee = invoked_callee(callee_expr);
         let runs_now = match callee {
-            // A generator call runs none of the body — it builds an iterator, and whether
+            // A generator call runs none of the BODY — it builds an iterator, and whether
             // anything ever draws from it is the call-graph question this scanner does not
-            // answer. So it is not immediately invoked in the only sense that matters here,
-            // and a write inside it belongs with the ones in a function nobody calls.
-            Expression::FunctionExpression(f) if f.generator => false,
+            // answer. Its PARAMETERS are another matter: binding them is part of the call, so a
+            // default runs before the iterator is handed back and the caller does see it.
+            // Declining the whole callee confined that write with the body's.
+            //
+            // Exactly the same shape as `async`, which runs synchronously as far as its first
+            // `await` — a synchronous region that is a prefix of the callee rather than all of
+            // it, which is what this list is for.
+            Expression::FunctionExpression(f) if f.generator => {
+                self.iife.push((f.span, vec![f.params.span]));
+                true
+            }
             Expression::FunctionExpression(f) => {
                 self.iife.push((
                     f.span,
@@ -5058,9 +5083,15 @@ impl AllBindings {
         if (is_static || constructed)
             && let Some(v) = value
         {
-            let declared = !keys.is_empty();
+            let mut after = keys.to_vec();
+            // A STATIC initializer runs when the class is defined, long before any constructor;
+            // only an instance one waits for `super()`.
+            if !is_static && let Some(pre) = phases.pre_super {
+                after.push(pre);
+            }
+            let declared = !after.is_empty();
             if declared {
-                self.runs_after.push(keys.to_vec());
+                self.runs_after.push(after);
             }
             self.visit_expression(v);
             if declared {
@@ -5683,6 +5714,12 @@ impl<'a> Visit<'a> for AllBindings {
         // and a field written after the constructor is textually after the read inside it. So
         // everything else in the class also declares that it precedes the part of the
         // constructor the fields really do precede.
+        // The other half of that ordering, and the half only a DERIVED class has. Its fields
+        // initialize when `super()` RETURNS, so a read in the constructor BEFORE that call sees
+        // none of them — and the fields are written above the constructor, so position alone
+        // called them already effective there. The post-`super` region below says what the
+        // fields precede; this says what they follow, and neither is right without the other.
+        let mut pre_super: Option<Span> = None;
         let ctor_body = constructed
             .then(|| {
                 let ctor = class.body.body.iter().find_map(|el| match el {
@@ -5714,6 +5751,7 @@ impl<'a> Visit<'a> for AllBindings {
                     },
                     _ => None,
                 })?;
+                pre_super = Some(Span::new(ctor.value.span.start, super_call.end));
                 Some(Span::new(super_call.end, ctor.value.span.end))
             })
             .flatten();
@@ -5756,6 +5794,7 @@ impl<'a> Visit<'a> for AllBindings {
                         ClassPhases {
                             keys: &key_spans,
                             statics: &static_spans,
+                            pre_super,
                         },
                     );
                 }
@@ -5776,6 +5815,7 @@ impl<'a> Visit<'a> for AllBindings {
                         ClassPhases {
                             keys: &key_spans,
                             statics: &static_spans,
+                            pre_super,
                         },
                     );
                 }
@@ -7179,6 +7219,36 @@ fn always_true(t: &Expression<'_>) -> bool {
         {
             always_false(&u.argument)
         }
+        _ => false,
+    }
+}
+
+/// Whether `t` is a value that is certainly neither `null` nor `undefined`.
+///
+/// Not the same question as [`always_true`], and `??` asks this one: `0` is falsy and perfectly
+/// non-nullish, so `0 ?? x` never evaluates `x`. Reading truthiness there answered a narrower
+/// question and left the right side of a coalesce walked when nothing reaches it.
+///
+/// Literals and the expressions whose result type is fixed by their spelling. `void 0` IS
+/// undefined, and a bare `undefined` is an identifier this cannot resolve, so both decline.
+fn never_nullish(t: &Expression<'_>) -> bool {
+    match t {
+        Expression::NullLiteral(_) => false,
+        Expression::BooleanLiteral(_)
+        | Expression::NumericLiteral(_)
+        | Expression::BigIntLiteral(_)
+        | Expression::StringLiteral(_)
+        | Expression::TemplateLiteral(_)
+        | Expression::RegExpLiteral(_)
+        | Expression::ObjectExpression(_)
+        | Expression::ArrayExpression(_)
+        | Expression::FunctionExpression(_)
+        | Expression::ArrowFunctionExpression(_)
+        | Expression::ClassExpression(_) => true,
+        Expression::ParenthesizedExpression(p) => never_nullish(&p.expression),
+        // Every unary operator but `void` yields a primitive that is not nullish — `typeof`
+        // a string, `delete` a boolean, `!`/`-`/`+`/`~` a boolean or a number.
+        Expression::UnaryExpression(u) => u.operator != oxc_syntax::operator::UnaryOperator::Void,
         _ => false,
     }
 }
@@ -16899,5 +16969,128 @@ mod tests {
             !fields.iter().any(|f| f.name == "id"),
             "the constructor body runs after it: {fields:?}"
         );
+    }
+    #[test]
+    fn a_coalesce_asks_about_null_not_about_truth() {
+        // `??` skips its right side when the left is non-nullish, which is not the same set as
+        // truthy: `0` and `""` are falsy and perfectly non-nullish, so the await after them is
+        // unreachable and the write is synchronous. Grouping the operator with `||` answered
+        // the narrower question and confined a write the caller does see.
+        for body in [
+            "var current = e; (async function () { 0 ?? await 0; current = other; })(); parse(current);",
+            "var current = e; (async function () { \"\" ?? await 0; current = other; })(); parse(current);",
+            "var current = e; (async function () { !1 ?? await 0; current = other; })(); parse(current);",
+            "var current = e; (async function () { ({}) ?? await 0; current = other; })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that left side is not nullish: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_nullish_left_side_still_reaches_the_coalesce() {
+        // The bound, and the three spellings of the value this has to decline: `null`, the
+        // `void 0` a minifier writes for `undefined`, and a bare `undefined`, which is an
+        // identifier this cannot resolve. An arbitrary expression declines with them.
+        for body in [
+            "var current = e; (async function () { null ?? await 0; current = other; })(); parse(current);",
+            "var current = e; (async function () { void 0 ?? await 0; current = other; })(); parse(current);",
+            "var current = e; (async function () { undefined ?? await 0; current = other; })(); parse(current);",
+            "var current = e; (async function () { c ?? await 0; current = other; })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that await still runs: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_for_await_evaluates_its_iterable_first() {
+        // `for await` suspends on drawing each result, not on producing the iterable — that is
+        // evaluated synchronously, before anything is awaited. Noting the suspension at the
+        // head of the whole statement put the iterable's own writes past the cutoff and
+        // confined a write the caller does see.
+        let fields = helper_reached_via(
+            "var current = e; (async function () { for await (const x of (current = other, [])) {} })(); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the iterable ran synchronously: {fields:?}"
+        );
+        // The bound: everything the loop itself does is past the suspension, and so is anything
+        // in the iterable that follows an await of its own — which is why the right side is
+        // walked rather than skipped over.
+        for body in [
+            "var current = e; (async function () { for await (const x of []) { current = other; } })(); parse(current);",
+            "var current = e; (async function () { for await (const x of (await g(), (current = other, []))) {} })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that write is the continuation's: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_derived_field_follows_the_code_before_super() {
+        // A derived class installs its instance fields the moment `super()` RETURNS, so a read
+        // in the constructor before that call sees none of them. The fields are written above
+        // the constructor, so position alone called them already effective — the round that
+        // said what they PRECEDE left out what they follow, and neither half is right without
+        // the other.
+        let fields = helper_reached_via(
+            "var current = e; new (class extends Base { x = (current = other); constructor(){ parse(current); super(); } })();",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the field had not initialized yet: {fields:?}"
+        );
+        // The bound, three ways. Past the `super()` the field is installed; a STATIC
+        // initializer runs when the class is defined and waits for no constructor at all; and a
+        // BASE class installs its fields before its constructor body, so nothing there follows
+        // anything.
+        for body in [
+            "var current = e; new (class extends Base { x = (current = other); constructor(){ super(); parse(current); } })();",
+            "var current = e; new (class extends Base { static x = (current = other); constructor(){ parse(current); super(); } })();",
+            "var current = e; new (class { x = (current = other); constructor(){ parse(current); } })();",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "the field had run by then: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_generator_call_runs_its_parameter_defaults() {
+        // Calling a generator binds its parameters and hands back an iterator: the default runs
+        // now, even though the body runs only when something draws from it. Declining the whole
+        // callee confined that write with the body's.
+        let fields = helper_reached_via(
+            "var current = e; (function* (x = (current = other)) {})(); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the default ran at the call: {fields:?}"
+        );
+        // The bound: the BODY is still nobody's until something iterates, and a supplied
+        // argument still prevents the default exactly as it does for a plain function.
+        for body in [
+            "var current = e; (function* () { current = other; })(); parse(current);",
+            "var current = e; (function* (x = (current = other)) {})(1); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "nothing the call ran moved it: {body}"
+            );
+        }
     }
 }
