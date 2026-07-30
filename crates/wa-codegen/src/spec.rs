@@ -117,12 +117,19 @@ fn fail_required_fields(fields: &[wa_ir::ParsedField]) -> std::collections::BTre
     fn walk(
         fields: &[wa_ir::ParsedField],
         base: &[String],
+        reached: bool,
         out: &mut std::collections::BTreeSet<String>,
     ) {
         for f in fields {
             let mut path = base.to_vec();
             path.extend(f.source_path.iter().flatten().cloned());
-            if f.required && (f.method == "child" || f.method.starts_with("attr")) {
+            // `f.required` alongside the method test is belt and braces: the accessor
+            // vocabulary already carries optionality, so an optional attribute reads
+            // `maybeAttrString` — which does not start with `attr` — and an optional child
+            // reads `maybeChild`. No well-formed IR separates the two conditions, and the
+            // mutation dropping `f.required` changes no answer. Kept because the alternative is
+            // code that depends on that invariant without saying so.
+            if reached && f.required && (f.method == "child" || f.method.starts_with("attr")) {
                 let (kind, wire) = if f.method == "child" {
                     ("child", f.tag.as_deref().unwrap_or(&f.name))
                 } else {
@@ -135,11 +142,17 @@ fn fail_required_fields(fields: &[wa_ir::ParsedField]) -> std::collections::BTre
                 if f.method == "child" || f.method == "maybeChild" {
                     inner.push(f.tag.as_deref().unwrap_or(&f.name).to_string());
                 }
-                walk(kids, &inner, out);
+                // Under an OPTIONAL child nothing is fail-on-absent: the emitter defaults the
+                // whole subtree when that child is missing, so a required attribute inside it
+                // does not make the parser bail and cannot discriminate a variant. The walk
+                // recorded it anyway, and once round forty-six qualified these keys by path
+                // that false requirement could differ from a later variant's real one — so the
+                // subset gate admitted a union whose first arm then took the later response.
+                walk(kids, &inner, reached && f.required, out);
             }
         }
     }
-    walk(fields, &[], &mut out);
+    walk(fields, &[], true, &mut out);
     out
 }
 
@@ -1195,6 +1208,129 @@ mod tests {
                 .count(),
             2,
             "a shared pin still guards its own variant:\n{code}"
+        );
+    }
+
+    #[test]
+    fn a_requirement_under_an_optional_child_discriminates_nothing() {
+        use wa_ir::{ParsedField, ParsedFieldType, ResponseVariant, ResponseVariantKind};
+        // The emitter defaults a whole subtree when its optional child is missing, so a
+        // required attribute INSIDE one never makes the parser bail and cannot tell a variant
+        // from its sibling. The signature walk recorded it anyway — and once round forty-six
+        // qualified these keys by path, that false requirement could differ from a later
+        // variant's real one, so the subset gate admitted a union whose first arm then took
+        // every response the second could.
+        fn attr(name: &str, required: bool) -> ParsedField {
+            ParsedField {
+                method: if required {
+                    "attrString"
+                } else {
+                    "maybeAttrString"
+                }
+                .into(),
+                name: name.into(),
+                field_type: ParsedFieldType::String,
+                required,
+                ..Default::default()
+            }
+        }
+        fn optional_child(tag: &str, kids: Vec<ParsedField>) -> ParsedField {
+            ParsedField {
+                method: "maybeChild".into(),
+                name: tag.into(),
+                tag: Some(tag.into()),
+                field_type: ParsedFieldType::String,
+                required: false,
+                children: Some(kids),
+                ..Default::default()
+            }
+        }
+        let mut op = stanza("WASmaxOutFooOptRequest", Some("makeOptRequest"));
+        op.response = ParsedResponse {
+            parser_name: "FooOptRPC".into(),
+            variants: vec![
+                ResponseVariant {
+                    tag: "OptResponseSuccess".into(),
+                    module_name: "m".into(),
+                    kind: ResponseVariantKind::Success,
+                    fields: vec![optional_child("detail", vec![attr("code", true)])],
+                    ..Default::default()
+                },
+                ResponseVariant {
+                    tag: "OptResponseError".into(),
+                    module_name: "m".into(),
+                    kind: ResponseVariantKind::Error,
+                    fields: vec![attr("reason", true)],
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let code = generate_spec(&op, "FOO_NAMESPACE", "MakeOptRequestSpec");
+        assert!(
+            !code.contains("enum MakeOptRequestResponse"),
+            "the first variant requires nothing, so it shadows the second:\n{code}"
+        );
+        // The bound: the same attribute under a REQUIRED child is fail-on-absent, so it does
+        // separate them and the union stands.
+        let mut op = stanza("WASmaxOutFooOptRequest", Some("makeOptRequest"));
+        let mut required_child = optional_child("detail", vec![attr("code", true)]);
+        required_child.method = "child".into();
+        required_child.required = true;
+        op.response = ParsedResponse {
+            parser_name: "FooOptRPC".into(),
+            variants: vec![
+                ResponseVariant {
+                    tag: "OptResponseSuccess".into(),
+                    module_name: "m".into(),
+                    kind: ResponseVariantKind::Success,
+                    fields: vec![required_child],
+                    ..Default::default()
+                },
+                ResponseVariant {
+                    tag: "OptResponseError".into(),
+                    module_name: "m".into(),
+                    kind: ResponseVariantKind::Error,
+                    fields: vec![attr("reason", true)],
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let code = generate_spec(&op, "FOO_NAMESPACE", "MakeOptRequestSpec");
+        assert!(
+            code.contains("enum MakeOptRequestResponse"),
+            "a required child really does discriminate:\n{code}"
+        );
+        // And the other bound, which is the rule this walk had right all along: an OPTIONAL
+        // field of the variant's own is not fail-on-absent either, so two variants told apart
+        // only by one are not separable. Recording every field regardless is the over-broad
+        // mutation.
+        let mut op = stanza("WASmaxOutFooOptRequest", Some("makeOptRequest"));
+        op.response = ParsedResponse {
+            parser_name: "FooOptRPC".into(),
+            variants: vec![
+                ResponseVariant {
+                    tag: "OptResponseSuccess".into(),
+                    module_name: "m".into(),
+                    kind: ResponseVariantKind::Success,
+                    fields: vec![attr("hint", false)],
+                    ..Default::default()
+                },
+                ResponseVariant {
+                    tag: "OptResponseError".into(),
+                    module_name: "m".into(),
+                    kind: ResponseVariantKind::Error,
+                    fields: vec![attr("reason", true)],
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let code = generate_spec(&op, "FOO_NAMESPACE", "MakeOptRequestSpec");
+        assert!(
+            !code.contains("enum MakeOptRequestResponse"),
+            "an optional field discriminates nothing:\n{code}"
         );
     }
 

@@ -4202,21 +4202,62 @@ fn instance_fields_initialize(class: &oxc_ast::ast::Class<'_>) -> bool {
     false
 }
 
-/// Whether a statement can evaluate `super(...)` anywhere inside it — including in an arrow,
-/// which inherits the constructor's own `super`.
+/// Whether evaluating this statement can call `super(...)`.
+///
+/// An arrow inherits the constructor's own `super`, so one WRITTEN here counts — but only when
+/// this statement evaluates its body. `const f = () => super();` creates a function and calls
+/// nothing, so `constructor(){ const f = () => super(); return {}; }` completes without ever
+/// running the super constructor and installs not a field. Descending into every deferred body
+/// read that as a call and recorded writes that happen on no path.
+///
+/// So: an arrow reached by an immediate invocation is followed, and a body merely defined is
+/// not. A `function` of any kind has its own `super` binding and can never call this one; a
+/// nested CLASS has its own too, and its constructor's `super()` belongs to that class.
 fn calls_super(st: &Statement<'_>) -> bool {
-    struct Seen(bool);
+    struct Seen {
+        found: bool,
+        /// Arrow bodies whose invocation this walk has seen, by span — an arrow is followed
+        /// only when the call that runs it is here too.
+        invoked: Vec<Span>,
+        deferred: u32,
+    }
     impl<'a> Visit<'a> for Seen {
         fn visit_call_expression(&mut self, c: &CallExpression<'a>) {
-            if matches!(c.callee, Expression::Super(_)) {
-                self.0 = true;
+            if matches!(c.callee, Expression::Super(_)) && self.deferred == 0 {
+                self.found = true;
+            }
+            // `(() => super())()` runs its body here, so what it calls this statement calls.
+            if let Expression::ArrowFunctionExpression(f) = invoked_callee(&c.callee) {
+                self.invoked.push(f.span);
             }
             walk::walk_call_expression(self, c);
         }
+        fn visit_arrow_function_expression(
+            &mut self,
+            f: &oxc_ast::ast::ArrowFunctionExpression<'a>,
+        ) {
+            let deferred = !self.invoked.contains(&f.span);
+            self.deferred += u32::from(deferred);
+            walk::walk_arrow_function_expression(self, f);
+            self.deferred -= u32::from(deferred);
+        }
+        // A `function` has its own `super` binding, so a `super()` inside one is never this
+        // constructor's however it is reached.
+        //
+        // That covers a nested CLASS as well, and a separate `visit_class` guard beside it was
+        // inert: every body of a class that could hold a `super()` is a method, which is a
+        // `Function` and stops here. A computed key or a static initializer is evaluated in the
+        // enclosing scope, and `super()` is a syntax error in either. One rule rather than a
+        // rule and a redundant sibling — the mutation that removed the second changed no answer.
+        fn visit_function(&mut self, _f: &Function<'a>, _flags: ScopeFlags) {}
     }
-    let mut seen = Seen(false);
+    let mut seen = Seen {
+        found: false,
+        invoked: Vec::new(),
+        deferred: 0,
+    };
     seen.visit_statement(st);
-    seen.0
+    seen.found
 }
 
 /// The spans of `callee` whose evaluation happens at CONSTRUCTION, so the arguments precede them.
@@ -6823,17 +6864,6 @@ impl Bindings {
         if rest.is_empty() {
             return Some(first);
         }
-        // `if (flag) current = e; else current = e;` writes twice and means one thing, and
-        // counting records refused the alias and dropped the helper's fields with nothing
-        // recorded. Records that COPY A NAME are comparable that way; two that computed their
-        // values are two values however alike they look — `current = row; current =
-        // row.child("detail")` — and those fall through to the ordering test below. Whether the
-        // paths are exhaustive is a separate question, and the answer is already carried: each
-        // record's own `conditional` travels to `names_for`, so a value only some path assigns
-        // still reaches the shape as an optional one.
-        if first.from.is_some() && rest.iter().all(|g| g.from == first.from) {
-            return Some(first);
-        }
         let last = live.iter().copied().max_by_key(|g| g.effective)?;
         let dominates = !last.conditional
             && live.iter().all(|g| g.repeats_in.is_none())
@@ -6848,7 +6878,29 @@ impl Bindings {
                         last.at,
                     )
             });
-        dominates.then_some(last)
+        if dominates {
+            return Some(last);
+        }
+        // The dominating record FIRST, and only then equivalent copies. `if (flag) current = e;
+        // current = e; parse(current)` gives the name one value by two records, and returning
+        // the first of them handed `names_for` the CONDITIONAL one — so the helper's fields came
+        // back optional though every execution reads them from `e`. The shortcut answers "which
+        // value", and the question here is "which record", which is not the same when one of
+        // them supersedes the other. That was a defect in the rule I added last round: I put
+        // this branch above the dominance test and it shadowed it.
+        //
+        // `if (flag) current = e; else current = e;` writes twice and means one thing, and
+        // counting records refused the alias and dropped the helper's fields with nothing
+        // recorded. Records that COPY A NAME are comparable that way; two that computed their
+        // values are two values however alike they look — `current = row; current =
+        // row.child("detail")` — and neither the test above nor this one settles those. Whether
+        // the paths are exhaustive is a separate question, and the answer is already carried:
+        // each record's own `conditional` travels to `names_for`, so a value only some path
+        // assigns still reaches the shape as an optional one.
+        if first.from.is_some() && rest.iter().all(|g| g.from == first.from) {
+            return Some(first);
+        }
+        None
     }
 
     /// The record [`Self::settled_value`] selects for `name` at `at`, or `None` when the name
@@ -11838,6 +11890,67 @@ mod tests {
                 "PROBE {tag:24} id={got:5} want={want}  {}",
                 if got == want { "OK" } else { "WRONG" }
             );
+        }
+    }
+
+    #[test]
+    fn a_super_call_in_a_body_nothing_runs_is_not_a_super_call() {
+        // An arrow inherits the constructor's own `super`, so one written there counts — but
+        // only when the statement evaluates its body. `const f = () => super();` creates a
+        // function and calls nothing, so the constructor returns its object having installed no
+        // field. Descending into every deferred body read that as a call and recorded writes
+        // that happen on no path.
+        let fields = helper_reached_via(
+            "var current = e; new (class extends Base { x = (current = other); constructor(){ const f = () => super(); return {}; } })(); parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "that arrow was never invoked: {fields:?}"
+        );
+        // A nested class has its own `super`, and its constructor's call belongs to it.
+        let fields = helper_reached_via(
+            "var current = e; new (class extends Base { x = (current = other); constructor(){ class D extends Base2 { constructor(){ super(); } }; return {}; } })(); parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "that `super()` is the nested class's: {fields:?}"
+        );
+        // The bounds: a real call still installs the fields, in the bare spelling and under a
+        // test whose every side calls it — and an arrow INVOKED on the spot runs its body, so
+        // the `super()` inside it is this constructor's after all.
+        for body in [
+            "var current = e; new (class extends Base { x = (current = other); constructor(){ super(); } })(); parse(current);",
+            "var current = e; new (class extends Base { x = (current = other); constructor(){ if (flag) super(); else super(); } })(); parse(current);",
+            "var current = e; new (class extends Base { x = (current = other); constructor(){ (() => super())(); } })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that constructor does reach `super()`: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_later_unconditional_copy_clears_what_the_first_left_uncertain() {
+        // `if (flag) current = e; current = e;` gives the name one value by two records, and
+        // the shortcut for equivalent copies returned the FIRST of them — the conditional one —
+        // so the helper's fields came back optional though every execution reads them from `e`.
+        // That shortcut answers "which value"; the question here is "which record", and the two
+        // differ exactly when one supersedes the other. I put the shortcut above the dominance
+        // test when I added it last round, and it shadowed it.
+        let (required, _) = guards_and_field(
+            "var current; if (flag) { current = e; } current = e; parse(current);",
+        );
+        assert!(required, "the later assignment runs on every path");
+        // The bounds: with nothing to supersede it the conditional record still answers, and
+        // two conditional records still leave the value uncertain.
+        for body in [
+            "var current; if (flag) { current = e; } parse(current);",
+            "var current; if (flag) { current = e; } if (other) { current = e; } parse(current);",
+        ] {
+            let (required, _) = guards_and_field(body);
+            assert!(!required, "no path settles that name: {body}");
         }
     }
 

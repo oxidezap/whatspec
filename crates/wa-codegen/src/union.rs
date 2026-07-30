@@ -217,12 +217,12 @@ fn variant_signature(v: &UnionVariant) -> BTreeSet<String> {
     // very same attribute, so the first accepts every node the second could and the second is
     // unreachable. The `attr`/`child` marker keeps the two spellings apart and the descent path
     // keeps a nested `code` from standing in for a top-level one.
-    fn walk(fields: &[ParsedField], base: &[String], s: &mut BTreeSet<String>) {
+    fn walk(fields: &[ParsedField], base: &[String], reached: bool, s: &mut BTreeSet<String>) {
         for f in fields {
             let mut path = base.to_vec();
             path.extend(f.source_path.iter().flatten().cloned());
             if f.field_type == ParsedFieldType::Union {
-                if f.required {
+                if reached && f.required {
                     // A nested union has no wire read of its own to name; its TAG is what the
                     // arm descends to, and failing that is what discriminates.
                     s.insert(format!(
@@ -242,7 +242,7 @@ fn variant_signature(v: &UnionVariant) -> BTreeSet<String> {
             if f.repeats == Some(true) {
                 continue;
             }
-            if f.required && (f.method == "child" || f.method.starts_with("attr")) {
+            if reached && f.required && (f.method == "child" || f.method.starts_with("attr")) {
                 let (kind, wire) = if f.method == "child" {
                     ("child", f.tag.as_deref().unwrap_or(&f.name))
                 } else {
@@ -255,11 +255,15 @@ fn variant_signature(v: &UnionVariant) -> BTreeSet<String> {
                 if f.method == "child" || f.method == "maybeChild" {
                     inner.push(f.tag.as_deref().unwrap_or(&f.name).to_string());
                 }
-                walk(kids, &inner, s);
+                // Under an OPTIONAL child nothing below is fail-on-absent — the emitter
+                // defaults the whole subtree when it is missing. The outcome-union walk has the
+                // same rule and took it in the same commit; review named both this time, which
+                // is the only reason the pair moved together.
+                walk(kids, &inner, reached && f.required, s);
             }
         }
     }
-    walk(&v.fields, &[], &mut s);
+    walk(&v.fields, &[], true, &mut s);
     s
 }
 
@@ -1793,6 +1797,57 @@ mod tests {
         assert!(
             src.contains("_ => None"),
             "an unknown value is still empty:\n{src}"
+        );
+    }
+
+    #[test]
+    fn an_arm_requirement_under_an_optional_child_separates_nothing() {
+        // The twin of the outcome-union rule, in the emitter that discriminates by tag. The
+        // parser defaults a whole subtree when its optional child is missing, so a required
+        // attribute inside one never makes the arm bail and cannot tell it from a sibling.
+        // Review named both walks this time; the previous two rounds each found a twin I had
+        // not been told about, so this pair moving together is the cheap version of that.
+        let f = union_field(serde_json::json!({
+            "method": "", "name": "opt", "type": "union", "required": true,
+            "unionVariants": [
+                {"name": "Alpha", "fields": [
+                    {"method": "maybeChild", "name": "detail", "tag": "detail",
+                     "type": "string", "required": false, "children": [
+                        {"method": "attrString", "name": "code", "wireName": "code",
+                         "type": "string", "required": true}
+                     ]}
+                ], "assertions": [{"kind": "tag", "name": "item"}]},
+                {"name": "Beta", "fields": [
+                    {"method": "attrString", "name": "reason", "wireName": "reason",
+                     "type": "string", "required": true}
+                ], "assertions": [{"kind": "tag", "name": "item"}]}
+            ]
+        }));
+        assert!(
+            emit_union_read(&f, "item", "Spec", "").is_none(),
+            "the first arm requires nothing, so it shadows the second"
+        );
+        // The bound: the same attribute under a REQUIRED child does make the arm bail, so it
+        // separates them and the union stands.
+        let f = union_field(serde_json::json!({
+            "method": "", "name": "opt", "type": "union", "required": true,
+            "unionVariants": [
+                {"name": "Alpha", "fields": [
+                    {"method": "child", "name": "detail", "tag": "detail",
+                     "type": "string", "required": true, "children": [
+                        {"method": "attrString", "name": "code", "wireName": "code",
+                         "type": "string", "required": true}
+                     ]}
+                ], "assertions": [{"kind": "tag", "name": "item"}]},
+                {"name": "Beta", "fields": [
+                    {"method": "attrString", "name": "reason", "wireName": "reason",
+                     "type": "string", "required": true}
+                ], "assertions": [{"kind": "tag", "name": "item"}]}
+            ]
+        }));
+        assert!(
+            emit_union_read(&f, "item", "Spec", "").is_some(),
+            "a required child really does separate them"
         );
     }
 
