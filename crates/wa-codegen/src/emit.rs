@@ -366,10 +366,10 @@ fn emit_struct_reads(
             // The child's OWN accessor decides when it has one, because `ContentType`
             // cannot tell decimal text from big-endian bytes: `contentInt` and
             // `contentUint` are both `Integer` and decode oppositely.
-            let leaf_method = children_of(f)
+            let leaf = children_of(f)
                 .iter()
-                .map(|c| c.method.as_str())
-                .find(|m| wap::is_content_method(m));
+                .find(|c| wap::is_content_method(&c.method));
+            let leaf_method = leaf.map(|c| c.method.as_str());
             let (opt_read, req_read) = match leaf_method {
                 Some("contentUint") => (
                     "content_bytes().map(|b| b.iter().fold(0u64, |acc, &x| (acc << 8) | x as u64))",
@@ -390,12 +390,42 @@ fn emit_struct_reads(
                     ),
                 },
             };
+            // The leaf's declared band, which THIS path was not applying. A relaxed
+            // `child("weight")` over a `contentInt` leaf bounded to `-10..=10` bypasses
+            // `emit_field_parse` entirely and parsed a `-20` straight into the field. That is
+            // the third site for one rule — the attribute read, the ordinary content read, and
+            // here — so it is `int_band` again rather than a third spelling, and it is asked of
+            // the LEAF, which is also where `collect_response_fields` took the width from.
+            let band = leaf.and_then(|c| super::fields::int_band(c, &id));
+            let fmsg = rust_lit_inner(tag);
             // Same two sources as the declared type, or the initializer will not match it.
             if f.method == "maybeChild" || !f.required {
-                lines.push(format!(
-                    "{indent}let {id} = {base}.get_optional_child({lit})"
-                ));
-                lines.push(format!("{indent}    .and_then(|n| n.{opt_read});"));
+                match &band {
+                    // Out of band is not absent, exactly as on the attribute path: the source
+                    // accessor THROWS on a value outside its range, so folding it to `None`
+                    // would take a response the parser rejects and leave the field simply
+                    // missing.
+                    Some(test) => {
+                        lines.push(format!(
+                            "{indent}let {id} = match {base}.get_optional_child({lit})"
+                        ));
+                        lines.push(format!("{indent}    .and_then(|n| n.{opt_read}) {{"));
+                        lines.push(format!("{indent}    Some({id}) => {{"));
+                        lines.push(format!(
+                            "{indent}        anyhow::ensure!({test}, \"{fmsg} out of range: {{}}\", {id});"
+                        ));
+                        lines.push(format!("{indent}        Some({id})"));
+                        lines.push(format!("{indent}    }}"));
+                        lines.push(format!("{indent}    None => None,"));
+                        lines.push(format!("{indent}}};"));
+                    }
+                    None => {
+                        lines.push(format!(
+                            "{indent}let {id} = {base}.get_optional_child({lit})"
+                        ));
+                        lines.push(format!("{indent}    .and_then(|n| n.{opt_read});"));
+                    }
+                }
             } else {
                 lines.push(format!(
                     "{indent}let {id}_node = {base}.get_optional_child({lit})"
@@ -405,6 +435,11 @@ fn emit_struct_reads(
                     rust_lit_inner(tag)
                 ));
                 lines.push(format!("{indent}let {id} = {id}_node.{req_read};"));
+                if let Some(test) = &band {
+                    lines.push(format!(
+                        "{indent}anyhow::ensure!({test}, \"{fmsg} out of range: {{}}\", {id});"
+                    ));
+                }
             }
             inits.push(format!("{indent}    {id},"));
             continue;
@@ -1682,5 +1717,97 @@ mod tests {
             !lines.join("\n").contains(".bytes("),
             "no content emitted for a malformed constant"
         );
+    }
+
+    /// A `child("weight")` whose only body is a bounded `contentInt` leaf.
+    fn child_over(leaf: ParsedField, required: bool) -> ParsedField {
+        ParsedField {
+            method: if required { "child" } else { "maybeChild" }.into(),
+            name: "weight".into(),
+            wire_name: Some("weight".into()),
+            required,
+            children: Some(vec![leaf]),
+            ..Default::default()
+        }
+    }
+
+    fn bounded_leaf(lo: Option<i64>, hi: Option<i64>) -> ParsedField {
+        let mut leaf = ranged("weight", lo, hi, true);
+        leaf.method = "contentInt".into();
+        leaf
+    }
+
+    #[test]
+    fn a_flattened_child_content_read_enforces_its_band() {
+        // A child collapsed to its content leaf is emitted HERE, not through
+        // `emit_field_parse`, so the band the other two paths apply reached neither shape: a
+        // `contentInt` leaf bounded to `-10..=10` parsed a `-20` straight into the field. The
+        // band is the leaf's, which is also where the declared width comes from.
+        for required in [true, false] {
+            let src = emit_struct_parser(
+                &[child_over(bounded_leaf(Some(-10), Some(10)), required)],
+                "n",
+                "R",
+                "",
+                "P",
+            )
+            .join("\n");
+            assert!(
+                src.contains(
+                    r#"anyhow::ensure!((-10i64..=10i64).contains(&weight), "weight out of range"#
+                ),
+                "the leaf's band is enforced (required={required}): {src}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_out_of_band_flattened_child_content_value_is_an_error_not_an_absence() {
+        // The optional shape keeps absence and rejection apart: the source accessor THROWS on a
+        // value outside its range, so mapping it to `None` would accept a response the parser
+        // turns away and leave the field quietly missing.
+        let src = emit_struct_parser(
+            &[child_over(bounded_leaf(Some(-10), Some(10)), false)],
+            "n",
+            "R",
+            "",
+            "P",
+        )
+        .join("\n");
+        assert!(
+            src.contains("Some(weight) => {") && src.contains("None => None,"),
+            "absent stays absent, out of band errors: {src}"
+        );
+    }
+
+    #[test]
+    fn an_unbounded_flattened_child_content_read_is_emitted_exactly_as_before() {
+        // The paired bound: with nothing declared there is no band, and both shapes read as
+        // they always have — no `ensure!`, and the optional one is still the plain `and_then`
+        // rather than a `match` with one arm.
+        for (required, expected) in [
+            (true, "let weight = weight_node.content_str()"),
+            (
+                false,
+                "    .and_then(|n| n.content_str().and_then(|s| s.parse().ok()));",
+            ),
+        ] {
+            let src = emit_struct_parser(
+                &[child_over(bounded_leaf(None, None), required)],
+                "n",
+                "R",
+                "",
+                "P",
+            )
+            .join("\n");
+            assert!(
+                !src.contains("ensure!"),
+                "nothing declared, nothing enforced (required={required}): {src}"
+            );
+            assert!(
+                src.contains(expected),
+                "and the read is untouched (required={required}): {src}"
+            );
+        }
     }
 }

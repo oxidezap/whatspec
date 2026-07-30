@@ -3441,6 +3441,28 @@ fn ends_the_list_but_for(
             ends_the_list_but_for(&i.consequent, inside, continue_counts)
                 && ends_the_list_but_for(alt, inside, continue_counts)
         }),
+        // A `try` hands on however its parts left: `try { break; } finally {}` breaks, and the
+        // statement after it never runs. Falling into the catch-all recorded a write there as
+        // effective and refused a descent for a node the parser had not reached — the same
+        // propagation `throws_out` does for the value question, on the reachability one.
+        Statement::TryStatement(t) => {
+            let ends = |body: &oxc_allocator::Vec<'_, Statement<'_>>, inside: &mut Vec<String>| {
+                body.iter()
+                    .any(|st| ends_the_list_but_for(st, inside, continue_counts))
+            };
+            // A finalizer that leaves of its own overrides whatever the block and handler did,
+            // the way its `return` overrides a pending throw.
+            if t.finalizer.as_ref().is_some_and(|f| ends(&f.body, inside)) {
+                return true;
+            }
+            let block = ends(&t.block.body, inside);
+            match &t.handler {
+                // With a handler, the block's exit is not the only outcome — a `catch` that
+                // completes normally carries on into the statements after the `try`.
+                Some(h) => block && ends(&h.body.body, inside),
+                None => block,
+            }
+        }
         // A loop or a switch CONSUMES an unlabelled transfer, so one inside it says nothing about
         // the list this statement sits in.
         _ => false,
@@ -14775,5 +14797,44 @@ mod tests {
             a_fields.iter().any(|n| n == "foo"),
             "one object, so the accumulator is settled: {a_fields:?}"
         );
+    }
+
+    #[test]
+    fn a_transfer_inside_a_try_ends_the_statement_list() {
+        // `try { break; } finally {}` breaks, so `current = other` after it never runs and the
+        // read still sees `e`. The catch-all said a `try` never ends the list, which recorded
+        // that write as effective and refused the descent.
+        for body in [
+            "var current = e; do { try { break; } finally {} current = other; } while (0); parse(current);",
+            // A finalizer that leaves of its own overrides whatever the block did.
+            "var current = e; do { try { g(); } finally { break; } current = other; } while (0); parse(current);",
+            // Block and handler both leave, so no path reaches the statement after the `try`.
+            "var current = e; do { try { break; } catch (x) { break; } current = other; } while (0); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "the write after the transfer is unreachable, so the descent stands: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_try_that_can_complete_does_not_end_the_statement_list() {
+        // The paired bound: answering `true` for every `TryStatement`, or reading the block
+        // without its handler, would call these unreachable too and publish a field the parser
+        // never reaches through this alias.
+        for body in [
+            // Nothing leaves, so the following write is plainly effective.
+            "var current = e; do { try { g(); } finally {} current = other; } while (0); parse(current);",
+            // A `catch` that completes normally carries on past the `try`.
+            "var current = e; do { try { break; } catch (x) {} current = other; } while (0); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "a path reaches the reassignment, so the descent is refused: {body}"
+            );
+        }
     }
 }
