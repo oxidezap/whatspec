@@ -35,7 +35,7 @@ use wa_ir::{AssertionKind, ParsedField, ParsedFieldType, ResponseAssertion, Unio
 use crate::emit::emit_struct_parser;
 use crate::fields::{
     RustChildStruct, RustEnum, RustEnumVariant, RustField, admits_negative, byte_band,
-    collect_response_fields, int_band, integer_width, is_attr_field, rust_field_type,
+    collect_response_fields, enum_values, int_band, integer_width, is_attr_field, rust_field_type,
 };
 use crate::naming::{pascal_case, rust_ident, rust_lit, rust_lit_inner};
 use crate::spec::parser_is_valid;
@@ -891,11 +891,33 @@ fn same_node_guard(arm: &ValueArm, node_var: &str) -> Option<String> {
     // is NOT acceptable. An arm reading `maybeAttrEnum("mode", …)` beside a required
     // discriminator was selected on `mode="invalid"` and copied that string into the variant,
     // where the source accessor rejects it.
+    //
+    // Content leaves included. `leaf_guard` has always known how to check one — it probes the
+    // raw accessor and applies the byte band — but this filter admitted attribute methods only,
+    // so a fallback carrying a required `contentBytes(32)` was left with nothing but its tag
+    // assertion, which is not an attribute test, and so with no guard at all. `pinned` names
+    // attributes, so it is asked only of the leaves that have one.
     conds.extend(
         arm.fields
             .iter()
-            .filter(|f| wap::is_attr_method(&f.method))
-            .filter(|f| !pinned.contains(f.wire_name.as_deref().unwrap_or(&f.name)))
+            .filter(|f| wap::is_attr_method(&f.method) || wap::is_content_method(&f.method))
+            .filter(|f| {
+                wap::is_content_method(&f.method)
+                    || !pinned.contains(f.wire_name.as_deref().unwrap_or(&f.name))
+            })
+            // A content leaf that DECLARES something — a vocabulary, a pin, a numeric band, a
+            // byte length. Not one whose only guard is "the node has text at all": whether an
+            // empty element is a payload the source accessor takes or one it rejects is a
+            // question about WA's own `contentString`, not about this IR, and gating a live
+            // fallback on the answer I would have to guess is the wrong way to be wrong. The
+            // reported case is a declared 32-byte length, and that is what this covers.
+            .filter(|f| {
+                !wap::is_content_method(&f.method)
+                    || enum_values(f).is_some()
+                    || f.literal_value.is_some()
+                    || int_band(f, "n").is_some()
+                    || byte_band(f, "b").is_some()
+            })
             .filter_map(|f| leaf_guard(f, node_var)),
     );
     if conds.is_empty() {
@@ -1140,17 +1162,6 @@ fn representable(n: i128, width: &str) -> bool {
 fn is_typed(f: &ParsedField) -> bool {
     let t = wap::method_field_type(&f.method);
     t == ParsedFieldType::Integer || t.is_jid() || wap::is_content_method(&f.method)
-}
-
-/// The values an enum leaf accepts, however the scan recorded them — a resolved module
-/// enum's variants, or the key set an `attrEnumValues` table listed.
-fn enum_values(f: &ParsedField) -> Option<Vec<String>> {
-    if let Some(r) = f.enum_ref.as_ref()
-        && !r.variants.is_empty()
-    {
-        return Some(r.variants.iter().map(|v| v.value.clone()).collect());
-    }
-    f.enum_keys.as_ref().filter(|k| !k.is_empty()).cloned()
 }
 
 fn field_expr(f: &ParsedField, node_var: &str) -> String {
@@ -2227,7 +2238,9 @@ mod tests {
                  "assertions": [{"kind": "tag", "name": "blob"},
                                 {"kind": "content", "value": "known"}]},
                 {"name": "Other",
-                 "fields": [{"method": "attrString", "name": "kind", "wireName": "kind",
+                 "fields": [{"method": "contentBytes", "name": "elementValue",
+                             "type": "bytes", "required": true, "byteLength": 32},
+                            {"method": "attrString", "name": "kind", "wireName": "kind",
                              "type": "string", "required": true}],
                  "assertions": [{"kind": "tag", "name": "blob"},
                                 {"kind": "attr", "name": "extra", "value": "yes"}]}
@@ -2241,7 +2254,14 @@ mod tests {
         );
         assert!(
             code.contains(r#"n.get_attr("kind").is_some()"#),
-            "and its required leaf: {code}"
+            "and its required attribute leaf: {code}"
+        );
+        // The one the comment above named and the fixture did not carry until review said so:
+        // a CONTENT leaf was excluded by a filter that admitted attribute methods only, so a
+        // fallback whose whole constraint is a 32-byte payload had no guard at all.
+        assert!(
+            code.contains(r#"n.content_bytes().is_some_and(|b| b.len() == 32)"#),
+            "and its required content leaf: {code}"
         );
         assert!(
             code.contains("} else {") && code.contains("None"),

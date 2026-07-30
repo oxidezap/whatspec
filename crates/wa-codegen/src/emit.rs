@@ -141,16 +141,69 @@ pub(crate) fn emit_field_parse(f: &ParsedField, node_var: &str, indent: &str) ->
         t if t.is_jid() => vec![format!(
             "{indent}let {name} = {node_var}.get_attr({flit}).and_then(|v| v.to_jid()).ok_or_else(|| anyhow::anyhow!(\"missing {fmsg}\"))?;"
         )],
-        _ if optional => vec![format!(
-            "{indent}let {name} = {node_var}.get_attr({flit}).map(|v| v.as_str().to_string());"
-        )],
-        _ => vec![
-            format!("{indent}let {name} = {node_var}.get_attr({flit})"),
-            format!("{indent}    .ok_or_else(|| anyhow::anyhow!(\"missing {fmsg}\"))?"),
-            format!("{indent}    .as_str()"),
-            format!("{indent}    .to_string();"),
-        ],
+        _ if optional => {
+            let mut out = vec![format!(
+                "{indent}let {name} = {node_var}.get_attr({flit}).map(|v| v.as_str().to_string());"
+            )];
+            out.extend(enum_membership(f, &name, &fmsg, indent, true));
+            out
+        }
+        _ => {
+            let mut out = vec![
+                format!("{indent}let {name} = {node_var}.get_attr({flit})"),
+                format!("{indent}    .ok_or_else(|| anyhow::anyhow!(\"missing {fmsg}\"))?"),
+                format!("{indent}    .as_str()"),
+                format!("{indent}    .to_string();"),
+            ];
+            out.extend(enum_membership(f, &name, &fmsg, indent, false));
+            out
+        }
     }
+}
+
+/// The membership check an enum accessor enforces, for a field this path decoded as a plain
+/// string and did not validate at all.
+///
+/// The union arm's selection guard has applied this vocabulary all along; the ordinary read
+/// copied whatever text was there, so a `reason="invalid"` became `Some("invalid")` for a field
+/// whose accessor takes seven values. One rule, two places, one copy missing it — the fourth
+/// constraint to be found that way on this branch, after the integer band, the byte length and
+/// the optional-leaf guard.
+///
+/// Absence is untouched in both shapes. An optional accessor takes a missing attribute, and
+/// whether a REQUIRED one tolerates one is a separate question this path already answers its own
+/// way; only a value that IS there has to be one the accessor accepts.
+fn enum_membership(
+    f: &ParsedField,
+    name: &str,
+    fmsg: &str,
+    indent: &str,
+    optional: bool,
+) -> Vec<String> {
+    let Some(values) = super::fields::enum_values(f) else {
+        return Vec::new();
+    };
+    // Two spellings, because the two shapes hand back different types and neither should be
+    // bent to the other: the optional read yields an `Option<String>`, whose `None` is a value
+    // the accessor takes, and the required read yields a `String` that is always there.
+    let lits = |wrap: fn(&str) -> String| {
+        values
+            .iter()
+            .map(|v| wrap(&rust_lit(v)))
+            .collect::<Vec<_>>()
+            .join(" | ")
+    };
+    let test = if optional {
+        format!(
+            "matches!({name}.as_deref(), None | {})",
+            lits(|l| format!("Some({l})"))
+        )
+    } else {
+        format!("matches!({name}.as_str(), {})", lits(str::to_string))
+    };
+    vec![format!(
+        "{indent}anyhow::ensure!({test}, \"{fmsg} not accepted: {{:?}}\", {name});"
+    )]
 }
 
 /// How to read a content leaf off a node, as a full expression yielding the field's type.
@@ -1950,5 +2003,41 @@ mod tests {
                 "no length check here ({method}): {src}"
             );
         }
+    }
+
+    #[test]
+    fn an_enum_field_enforces_its_vocabulary() {
+        // The union arm's selection guard has applied this vocabulary all along; the ordinary
+        // read copied whatever text was there, so `reason="invalid"` became `Some("invalid")`
+        // for a field whose accessor takes seven values. Both shapes, and absence untouched:
+        // an optional accessor takes a missing attribute.
+        let mut f = ranged("reason", None, None, false);
+        f.method = "maybeAttrEnum".into();
+        f.field_type = ParsedFieldType::String;
+        f.enum_keys = Some(vec!["a".into(), "b".into()]);
+        let src = emit_field_parse(&f, "n", "").join("\n");
+        assert!(
+            src.contains(r#"matches!(reason.as_deref(), None | Some("a") | Some("b"))"#),
+            "absent, or one of the accessor's values: {src}"
+        );
+
+        f.method = "attrEnum".into();
+        f.required = true;
+        let src = emit_field_parse(&f, "n", "").join("\n");
+        assert!(
+            src.contains(r#"matches!(reason.as_str(), "a" | "b")"#),
+            "the required read yields a String, so it is tested as one: {src}"
+        );
+    }
+
+    #[test]
+    fn a_field_with_no_vocabulary_checks_nothing_extra() {
+        // The bound: the check follows the declared values, not the accessor's name, so a field
+        // with none is read exactly as before.
+        let mut f = ranged("reason", None, None, false);
+        f.method = "maybeAttrString".into();
+        f.field_type = ParsedFieldType::String;
+        let src = emit_field_parse(&f, "n", "").join("\n");
+        assert!(!src.contains("not accepted"), "nothing declared: {src}");
     }
 }

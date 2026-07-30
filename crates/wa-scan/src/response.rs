@@ -3208,25 +3208,44 @@ fn synchronous_until(
     is_async: bool,
     span: Span,
     body: Option<&oxc_ast::ast::FunctionBody<'_>>,
-) -> u32 {
+) -> Vec<Span> {
     if !is_async {
-        return span.end;
+        return vec![span];
     }
     struct FirstAwait {
         at: Option<u32>,
         nested: u32,
+        /// Branches of an undecided `if` that contain no await of their own. Whichever side
+        /// suspends, the other one still runs to its end without waiting for anything.
+        unsuspended: Vec<Span>,
+    }
+    impl FirstAwait {
+        fn note(&mut self, at: u32) {
+            if self.nested == 0 {
+                self.at = Some(self.at.map_or(at, |a| a.min(at)));
+            }
+        }
+        /// The first await inside one statement, ignoring nested functions — asked of each side
+        /// of a branch separately, which is the whole point.
+        fn within(st: &Statement<'_>) -> Option<u32> {
+            let mut probe = FirstAwait {
+                at: None,
+                nested: 0,
+                unsuspended: Vec::new(),
+            };
+            probe.visit_statement(st);
+            probe.at
+        }
     }
     impl<'a> Visit<'a> for FirstAwait {
         fn visit_await_expression(&mut self, e: &oxc_ast::ast::AwaitExpression<'a>) {
-            if self.nested == 0 {
-                self.at = Some(self.at.map_or(e.span.start, |a| a.min(e.span.start)));
-            }
+            self.note(e.span.start);
             walk::walk_await_expression(self, e);
         }
         // `for await (const x of xs)` suspends on every pass, and it is not an await EXPRESSION.
         fn visit_for_of_statement(&mut self, st: &oxc_ast::ast::ForOfStatement<'a>) {
-            if self.nested == 0 && st.r#await {
-                self.at = Some(self.at.map_or(st.span.start, |a| a.min(st.span.start)));
+            if st.r#await {
+                self.note(st.span.start);
             }
             walk::walk_for_of_statement(self, st);
         }
@@ -3234,20 +3253,38 @@ fn synchronous_until(
         // suspends nothing: `if (0) await x;` leaves the statements after it as synchronous as
         // they look. Taking the first TEXTUAL await confined a write the caller does see, and
         // the helper's fields were published on the node it had moved away from.
+        //
+        // And the two sides of an UNDECIDED `if` are alternatives, not a sequence. One side's
+        // await says nothing about the other, which runs to its end without waiting — taking
+        // the minimum across both confined a write that really is synchronous whenever its own
+        // side is selected, and the field came out required on a node half the executions had
+        // replaced. Each side is asked separately and the one that does not suspend is kept.
         fn visit_if_statement(&mut self, st: &oxc_ast::ast::IfStatement<'a>) {
             self.visit_expression(&st.test);
-            match statically_selected(&st.test, &st.consequent, st.alternate.as_ref()) {
-                Some((taken, _dead)) => {
-                    if let Some(taken) = taken {
-                        self.visit_statement(taken);
-                    }
+            if let Some((taken, _dead)) =
+                statically_selected(&st.test, &st.consequent, st.alternate.as_ref())
+            {
+                if let Some(taken) = taken {
+                    self.visit_statement(taken);
                 }
-                None => {
-                    self.visit_statement(&st.consequent);
-                    if let Some(alt) = &st.alternate {
-                        self.visit_statement(alt);
+                return;
+            }
+            let sides: Vec<(&Statement<'a>, Option<u32>)> = std::iter::once(&st.consequent)
+                .chain(st.alternate.as_ref())
+                .map(|s| (s, FirstAwait::within(s)))
+                .collect();
+            for (side, first) in &sides {
+                match first {
+                    Some(at) => self.note(*at),
+                    // Only when a SIBLING suspends is this worth recording: with no await
+                    // anywhere in the `if`, the statements after it are synchronous too and the
+                    // ordinary cutoff already covers this side.
+                    None if sides.iter().any(|(_, o)| o.is_some()) && self.nested == 0 => {
+                        self.unsuspended.push(side.span());
                     }
+                    None => {}
                 }
+                self.visit_statement(side);
             }
         }
         // An `await` inside a nested function is that function's suspension, not this one's.
@@ -3268,11 +3305,19 @@ fn synchronous_until(
     let mut probe = FirstAwait {
         at: None,
         nested: 0,
+        unsuspended: Vec::new(),
     };
     if let Some(body) = body {
         probe.visit_function_body(body);
     }
-    probe.at.unwrap_or(span.end)
+    let Some(cutoff) = probe.at else {
+        return vec![span];
+    };
+    let mut regions = vec![Span::new(span.start, cutoff)];
+    // A side that suspends nothing, but only past the cutoff — before it the first region
+    // already covers the same ground.
+    regions.extend(probe.unsuspended.into_iter().filter(|r| r.end > cutoff));
+    regions
 }
 
 /// Whether every path through `body` leaves by throwing, so it can produce no result at all.
@@ -4344,16 +4389,21 @@ struct AllBindings {
     /// node. Ordering that write by its own span had it look already effective, and the descent
     /// was refused for a node still standing.
     effects_land_at: Vec<(Span, u32)>,
-    /// Function bodies that are immediately invoked, each with the position its synchronous
-    /// part ends at: a write inside one and before that position has certainly run by the time
+    /// Function bodies that are immediately invoked, each with the REGIONS of it that run
+    /// synchronously with the call: a write inside one of those has certainly run by the time
     /// anything after the call reads it.
+    ///
+    /// Regions rather than one cutoff, because the two sides of an undecided `if` are
+    /// alternatives: `if (flag) { await x; } else { current = other; }` suspends on one side and
+    /// not on the other, and a single position across both confined a write that really is
+    /// synchronous whenever its own side is selected.
     ///
     /// Not the whole body, because calling a function is not always running it. A generator
     /// call builds an iterator and runs nothing, and an `async` body runs only as far as its
     /// first `await` before handing control back — so `(async function(){ await x; current =
     /// other; })()` had a write the callback returns before recorded as one that already
     /// happened.
-    iife: Vec<(Span, u32)>,
+    iife: Vec<(Span, Vec<Span>)>,
 
     /// How many enclosing constructs could have skipped the part being walked. A value assigned
     /// down such a path is not certainly the one a later read sees, however textually early it
@@ -4510,7 +4560,7 @@ impl AllBindings {
     fn runs_before(&self, f: Span, at: Span) -> bool {
         self.iife
             .iter()
-            .any(|(g, sync_until)| *g == f && at.end <= *sync_until)
+            .any(|(g, regions)| *g == f && regions.iter().any(|r| covers(*r, at)))
     }
 
     /// Where a record made here has taken effect by. An assignment's own end, so its
@@ -5263,7 +5313,7 @@ impl<'a> Visit<'a> for AllBindings {
                 oxc_ast::ast::ClassElement::MethodDefinition(m)
                     if constructed && m.kind == oxc_ast::ast::MethodDefinitionKind::Constructor =>
                 {
-                    self.iife.push((m.value.span, m.value.span.end));
+                    self.iife.push((m.value.span, vec![m.value.span]));
                     if ctor_last {
                         held_ctor = Some(el);
                     } else {
@@ -15858,6 +15908,44 @@ mod tests {
             assert!(
                 !fields.iter().any(|f| f.name == "id"),
                 "the write can happen: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn one_branch_of_an_if_suspending_does_not_confine_the_other() {
+        // The two sides of an undecided `if` are alternatives, not a sequence. `if (flag) {
+        // await x; } else { current = other; }` suspends on one side and runs to its end on the
+        // other, and taking the minimum await position across both confined a write that really
+        // is synchronous whenever its own side is selected — so the node looked unmoved and the
+        // field came out REQUIRED on a node half the executions had replaced. Two live values
+        // now, which is a decline.
+        let fields = helper_reached_via(
+            "var current = e; (async function () { if (flag) { await 0; } else { current = other; } })(); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the write may have happened, so the alias is refused: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn a_suspension_the_write_really_is_past_still_confines_it() {
+        // The bound, and it is what stops the branch rule swallowing a real suspension: an
+        // await BEFORE the `if` is one every side is past, and an `if` both of whose sides
+        // suspend leaves everything after it past one too. In both the caller returns before
+        // that write and still sees the original node.
+        for body in [
+            "var current = e; (async function () { await 0; if (flag) {} else { current = other; } })(); parse(current);",
+            "var current = e; (async function () { if (flag) { await 0; } else { await 1; } current = other; })(); parse(current);",
+            // And a write past the await on its OWN side is past one: keeping the whole branch
+            // as synchronous because a sibling suspends would answer that with the sibling.
+            "var current = e; (async function () { if (flag) { await 0; current = other; } else {} })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "the caller does not wait for that write: {body}"
             );
         }
     }

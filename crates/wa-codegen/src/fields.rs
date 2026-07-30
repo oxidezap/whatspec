@@ -143,6 +143,21 @@ pub(crate) fn int_band(f: &ParsedField, var: &str) -> Option<String> {
     }
 }
 
+/// The values an enum leaf accepts, however the scan recorded them — a resolved module enum's
+/// variants, or the key set an `attrEnumValues` table listed.
+///
+/// One spelling for the union arm's selection guard and for the ordinary struct read, which had
+/// no membership check at all — it copied whatever text was there for a field whose accessor
+/// takes seven values and nothing else.
+pub(crate) fn enum_values(f: &ParsedField) -> Option<Vec<String>> {
+    if let Some(r) = f.enum_ref.as_ref()
+        && !r.variants.is_empty()
+    {
+        return Some(r.variants.iter().map(|v| v.value.clone()).collect());
+    }
+    f.enum_keys.as_ref().filter(|k| !k.is_empty()).cloned()
+}
+
 /// The byte-length constraint a bytes accessor enforces, as a test on a decoded `Vec<u8>` named
 /// `var` — `contentBytes(32)` → `var.len() == 32`, `contentBytesRange(1, 128)` →
 /// `(1..=128).contains(&var.len())`.
