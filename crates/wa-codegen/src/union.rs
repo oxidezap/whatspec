@@ -37,7 +37,7 @@ use crate::fields::{
     RustChildStruct, RustEnum, RustEnumVariant, RustField, admits_negative, byte_band,
     collect_response_fields, enum_values, int_band, integer_width, is_attr_field, rust_field_type,
 };
-use crate::naming::{pascal_case, rust_ident, rust_lit};
+use crate::naming::{fmt_lit_inner, pascal_case, rust_ident, rust_lit};
 use crate::spec::parser_is_valid;
 
 /// The codegen-able shape of a `type=union` field.
@@ -827,6 +827,15 @@ fn emit_content(
 /// Emit an attr-discriminated read: take the discriminator once, then match its value.
 /// An unrecognized value decodes to `None`, so a name this bundle did not know about
 /// leaves the field empty rather than failing the whole response.
+///
+/// A RECOGNIZED one is a different answer. The arm's payload checks were a match GUARD, so a
+/// `kind="a"` whose required `attrInt("count")` reads `count="abc"` fell past the arm to
+/// `_ => None` and the whole response parsed — where the source dispatch has already taken the
+/// `a` path and rejects the accessor. The discriminator selects the arm and the payload is
+/// enforced inside it, which is the same correction the tag cascade took in round forty and the
+/// response-root cascade with it. This is the third emitter with that shape and the only one
+/// review had not named; the match makes it terminal by construction, because distinct literal
+/// values select exactly one arm each.
 #[allow(clippy::too_many_arguments)]
 fn emit_attr_discriminated(
     enum_name: &str,
@@ -867,16 +876,23 @@ fn emit_attr_discriminated(
             })
             .filter_map(|f| leaf_guard(f, node_var))
             .collect();
-        let guard = if required.is_empty() {
-            String::new()
+        let payload = value_payload(enum_name, &a.variant, &a.fields, node_var);
+        if required.is_empty() {
+            lines.push(format!(
+                "{indent}    Some({}) => Some({payload}),",
+                rust_lit(&a.value)
+            ));
         } else {
-            format!(" if {}", required.join(" && "))
-        };
-        lines.push(format!(
-            "{indent}    Some({}){guard} => Some({}),",
-            rust_lit(&a.value),
-            value_payload(enum_name, &a.variant, &a.fields, node_var)
-        ));
+            lines.push(format!("{indent}    Some({}) => {{", rust_lit(&a.value)));
+            lines.push(format!(
+                "{indent}        anyhow::ensure!({}, \"{}: {} payload rejected\");",
+                required.join(" && "),
+                fmt_lit_inner(field),
+                fmt_lit_inner(&a.value)
+            ));
+            lines.push(format!("{indent}        Some({payload})"));
+            lines.push(format!("{indent}    }}"));
+        }
     }
     lines.push(format!("{indent}    _ => None,"));
     lines.push(format!("{indent}}};"));
@@ -1388,9 +1404,17 @@ mod tests {
             src.contains("match node.get_attr(\"name\").map(|x| x.as_str()).as_deref()"),
             "reads the discriminator once: {src}"
         );
+        // The discriminator SELECTS the arm and the payload is enforced inside it. Spelling
+        // the payload as a match guard let a recognized `calladd` whose value is missing fall
+        // past the arm to `_ => None`, so the whole response parsed where the source dispatch
+        // had already taken that path and rejects the accessor. My assertion here encoded the
+        // guard form, which is the same defect the tag cascade and the response-root cascade
+        // were corrected for in round forty — this was the third emitter with it.
         assert!(
-            src.contains("Some(\"calladd\") if node.get_attr(\"value\")")
-                && src.contains(".is_some() => Some(SpecNameDispatch::Calladd {"),
+            src.contains("Some(\"calladd\") => {")
+                && src.contains(
+                    "anyhow::ensure!(node.get_attr(\"value\").is_some(), \"name_dispatch: calladd payload rejected\");"
+                ),
             "a required leaf gates its arm rather than being defaulted: {src}"
         );
         assert!(
@@ -1423,9 +1447,9 @@ mod tests {
         let src = lines.join("\n");
         assert!(
             src.contains(
-                r#"and_then(|v| v.as_str().parse().ok()).is_some() => Some(SpecKindDispatch::A {"#
+                r#"anyhow::ensure!(node.get_attr("count").and_then(|v| v.as_str().parse().ok()).is_some()"#
             ),
-            "the guard decodes rather than checking presence: {src}"
+            "the check decodes rather than checking presence, and is fatal inside the arm: {src}"
         );
     }
 
@@ -1473,8 +1497,9 @@ mod tests {
         let (lines, _) = emit_union_read(&f, "node", "Spec", "").expect("emitted");
         let src = lines.join("\n");
         assert!(
-            src.contains(r#"Some("a") if node.content_bytes().is_some_and(|b| b.len() == 32)"#),
-            "the raw accessor is probed, and the pinned length checked: {src}"
+            src.contains(r#"anyhow::ensure!(node.content_bytes().is_some_and(|b| b.len() == 32)"#),
+            "the raw accessor is probed, the pinned length checked, and a failure is fatal \
+             inside the arm rather than a fall-through to `_ => None`: {src}"
         );
         assert!(
             !src.contains("unwrap_or_default().is_some()"),
@@ -1726,6 +1751,48 @@ mod tests {
         assert!(
             !code.contains("else { None }"),
             "the empty-required arm is the catch-all, not None:\n{code}"
+        );
+    }
+
+    #[test]
+    fn a_recognized_discriminator_does_not_fall_through_on_its_payload() {
+        // The third emitter with round forty's defect, and the only one review had not named
+        // until now. The arm's payload checks were a match GUARD, so `kind="a"` with a
+        // malformed `count` fell past the arm to `_ => None` and the whole response parsed —
+        // where the source dispatch has already taken the `a` path and rejects the accessor.
+        // An UNRECOGNIZED value is still `None`, which is a different answer and the right one:
+        // a name this bundle did not know about leaves the field empty.
+        let f = union_field(serde_json::json!({
+            "method": "", "name": "dispatch", "type": "union", "required": true,
+            "attrDiscriminator": "kind",
+            "unionVariants": [
+                {"name": "A", "fields": [
+                    {"method": "attrInt", "name": "count", "wireName": "count",
+                     "type": "integer", "required": true}
+                ], "assertions": [{"kind": "attr", "name": "kind", "value": "a"}]},
+                {"name": "B", "fields": [],
+                 "assertions": [{"kind": "attr", "name": "kind", "value": "b"}]}
+            ]
+        }));
+        let (lines, _) = emit_union_read(&f, "node", "Spec", "").expect("emitted");
+        let src = lines.join("\n");
+        assert!(
+            src.contains(r#"Some("a") => {"#) && src.contains("anyhow::ensure!("),
+            "the discriminator selects the arm and the payload is fatal inside it:\n{src}"
+        );
+        assert!(
+            !src.contains(r#"Some("a") if "#),
+            "no payload check survives as a match guard:\n{src}"
+        );
+        // The bounds. An arm with nothing to enforce needs no block at all, and an
+        // unrecognized discriminator still decodes to `None` rather than failing the response.
+        assert!(
+            src.contains(r#"Some("b") => Some(SpecDispatch::B)"#),
+            "an arm with no required payload is unchanged:\n{src}"
+        );
+        assert!(
+            src.contains("_ => None"),
+            "an unknown value is still empty:\n{src}"
         );
     }
 

@@ -4395,30 +4395,15 @@ fn bound_getters<'b, 'a>(
             let Some(name) = prop.key.static_name() else {
                 continue;
             };
-            let getter = objects.iter().rev().find_map(|supplied| {
-                // Only the properties written after the LAST spread, which is the rule
-                // `suppress_in_pattern` has had since round twenty-nine and this lookup did
-                // not. A spread can overwrite a name, so a getter above one no longer owns the
-                // property and never runs: `{ get x(){ … }, ...{x: 1} }` binds `x` to the data
-                // property and the getter body is dead. Marking it immediate recorded a write
-                // that happens on no path.
-                let after_spreads = supplied
-                    .properties
-                    .iter()
-                    .rposition(|p| matches!(p, oxc_ast::ast::ObjectPropertyKind::SpreadProperty(_)))
-                    .map_or(0, |i| i + 1);
-                supplied.properties[after_spreads..]
-                    .iter()
-                    .rev()
-                    .find_map(|p| match p {
-                        oxc_ast::ast::ObjectPropertyKind::ObjectProperty(op)
-                            if op.key.static_name().as_deref() == Some(name.as_ref()) =>
-                        {
-                            Some(op)
-                        }
-                        _ => None,
-                    })
-            });
+            // The property the object ends up with, which a spread may have replaced: `{ get
+            // x(){ … }, ...{x: 1} }` binds `x` to the data property and the getter body is
+            // dead, so marking it immediate recorded a write that happens on no path. One that
+            // demonstrably cannot hold the name — `...{y: 1}` — leaves the getter standing,
+            // which is the half a blanket cut at the last spread was losing.
+            let getter = objects
+                .iter()
+                .rev()
+                .find_map(|supplied| owned_property(supplied, name.as_ref()));
             if let Some(op) = getter
                 && op.kind == oxc_ast::ast::PropertyKind::Get
                 && let Expression::FunctionExpression(f) = &op.value
@@ -4487,17 +4472,8 @@ fn suppress_in_pattern(
             // object ends up with whatever the spreads held, so it settles the question exactly
             // as it would in an object with no spread at all. Discarding the whole literal the
             // moment one appeared threw those away too.
-            let props: Option<&[oxc_ast::ast::ObjectPropertyKind<'_>]> = match value {
-                Some(Expression::ObjectExpression(obj)) => {
-                    let after_spreads = obj
-                        .properties
-                        .iter()
-                        .rposition(|p| {
-                            matches!(p, oxc_ast::ast::ObjectPropertyKind::SpreadProperty(_))
-                        })
-                        .map_or(0, |i| i + 1);
-                    Some(&obj.properties[after_spreads..])
-                }
+            let obj = match value {
+                Some(Expression::ObjectExpression(obj)) => Some(obj),
                 _ => None,
             };
             for prop in &o.properties {
@@ -4506,24 +4482,14 @@ fn suppress_in_pattern(
                 // nothing, because `static_name` already answers `None` for a key that is not:
                 // an inert gate that only cost precision. Removed rather than documented.
                 let named = prop.key.static_name().and_then(|name| {
-                    // The LAST property of that name, which is the one the object ends up with.
-                    // Taking the first had `{x: 1, ["x"]: undefined}` read as supplying `x`,
-                    // suppressing a default the effective `undefined` really does run.
-                    // The last property of that name FIRST, then whether its text is the
-                    // value. Deciding both in one `find_map` let a trailing getter fall
-                    // through to an earlier plain property of the same name, which is the
-                    // one the object does not end up with.
-                    props?
-                        .iter()
-                        .rev()
-                        .find_map(|p| match p {
-                            oxc_ast::ast::ObjectPropertyKind::ObjectProperty(op)
-                                if op.key.static_name().as_deref() == Some(name.as_ref()) =>
-                            {
-                                Some(op)
-                            }
-                            _ => None,
-                        })
+                    // The LAST property of that name, which is the one the object ends up with,
+                    // and only when no spread could have replaced it. Taking the first had `{x:
+                    // 1, ["x"]: undefined}` read as supplying `x`, suppressing a default the
+                    // effective `undefined` really does run; cutting at the last spread
+                    // regardless discarded a property `...{y: 1}` cannot touch. `owned_property`
+                    // answers both, and the getter walk beside it reads the very same function
+                    // rather than a second copy of this rule.
+                    owned_property(obj?, name.as_ref())
                         // `{get x(){ … }}` supplies `x` by INVOKING that function, whose result
                         // this cannot read — and `{set x(v){}}` supplies no getter at all, so
                         // reading `x` yields `undefined` and the default runs. The property's own
@@ -4565,6 +4531,54 @@ fn suppress_in_pattern(
             }
         }
     }
+}
+
+/// The property this object ends up with for `name` — the last one written with that name,
+/// stopping at any spread that could have supplied it.
+///
+/// A spread contributes an unknown set of names, so a property above one is only the answer
+/// when the spread demonstrably cannot hold that name. `{ get x(){ … }, ...{y: 1} }` still ends
+/// up with the getter, and cutting at the last spread regardless discarded it — a loss both
+/// this and the suppression walk were taking, and one of them was reported.
+///
+/// Only a literal object settles a spread. Anything else — an identifier, a call — may hold
+/// anything, and so may a literal carrying a key this cannot read.
+fn owned_property<'b, 'a>(
+    obj: &'b oxc_ast::ast::ObjectExpression<'a>,
+    name: &str,
+) -> Option<&'b oxc_ast::ast::ObjectProperty<'a>> {
+    for p in obj.properties.iter().rev() {
+        match p {
+            oxc_ast::ast::ObjectPropertyKind::SpreadProperty(s) => {
+                if spread_may_define(&s.argument, name) {
+                    return None;
+                }
+            }
+            oxc_ast::ast::ObjectPropertyKind::ObjectProperty(op) => {
+                if op.key.static_name().as_deref() == Some(name) {
+                    return Some(op);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Whether spreading `e` could supply `name`.
+///
+/// `true` unless this can read every key the spread contributes and none of them is `name`.
+/// A key the pass cannot read is one that might be it, and so is anything that is not a
+/// literal object — the direction that keeps a property above the spread from being trusted.
+fn spread_may_define(e: &Expression<'_>, name: &str) -> bool {
+    let Expression::ObjectExpression(o) = peel(e) else {
+        return true;
+    };
+    o.properties.iter().any(|p| match p {
+        oxc_ast::ast::ObjectPropertyKind::SpreadProperty(s) => spread_may_define(&s.argument, name),
+        oxc_ast::ast::ObjectPropertyKind::ObjectProperty(op) => {
+            op.key.static_name().is_none_or(|n| n == name)
+        }
+    })
 }
 
 /// The defaults a tagged template's strings object prevents inside the pattern its first
@@ -11758,19 +11772,73 @@ mod tests {
             fields.iter().any(|f| f.name == "id"),
             "the last spread overwrote it: {fields:?}"
         );
-        // And a stated LOSS rather than a bound. A spread of any shape stops the lookup, so a
-        // getter above `...{y: 1}` — which cannot touch `x` — goes unclaimed and its write is
-        // not recorded. That loses a write rather than inventing one, it is exactly what
-        // `suppress_in_pattern` does with the same shape, and reading the spread's own keys to
-        // narrow it is a separate change to both. Recorded here so the next reader does not
-        // mistake this answer for the right one.
+        // And the loss this had one round ago is closed rather than carried. `...{y: 1}` cannot
+        // touch `x`, so the getter above it is still the one the object ends up with and it
+        // still runs. I recorded that as a stated loss last round — "reading a spread's own
+        // keys to narrow it is a separate change to both" — and review asked for the change;
+        // `owned_property` is it, and both readers share it rather than one being taught.
         let fields = helper_reached_via(
             "var current = e; (function ({x}) {})({get x(){ current = other }, ...{y: 1}}); parse(current);",
         );
         assert!(
-            fields.iter().any(|f| f.name == "id"),
-            "a spread of another name stops the lookup too, which is a loss: {fields:?}"
+            !fields.iter().any(|f| f.name == "id"),
+            "that spread cannot replace `x`: {fields:?}"
         );
+        // The bounds on THAT: a spread this cannot read, and one carrying a key it cannot read,
+        // may both hold `x` — so the getter above them is not the answer.
+        for body in [
+            "var current = e; (function ({x}) {})({get x(){ current = other }, ...rest}); parse(current);",
+            "var current = e; (function ({x}) {})({get x(){ current = other }, ...{[k]: 1}}); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that spread may supply `x`: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn zz_probe_r52() {
+        for (tag, body, want) in [
+            (
+                "T1_disjoint_spread",
+                "var current = e; (function ({x}) {})({get x(){ current = other }, ...{y: 1}}); parse(current);",
+                false,
+            ),
+            (
+                "T2_overlapping_spread",
+                "var current = e; (function ({x}) {})({get x(){ current = other }, ...{x: 1}}); parse(current);",
+                true,
+            ),
+            (
+                "T3_unreadable_spread",
+                "var current = e; (function ({x}) {})({get x(){ current = other }, ...rest}); parse(current);",
+                true,
+            ),
+            (
+                "T4_computed_key_spread",
+                "var current = e; (function ({x}) {})({get x(){ current = other }, ...{[k]: 1}}); parse(current);",
+                true,
+            ),
+            (
+                "T5_default_disjoint",
+                "var current = e; (function ({x = (current = other)}) {})({x: 1, ...{y: 2}}); parse(current);",
+                true,
+            ),
+            (
+                "T6_default_overlapping",
+                "var current = e; (function ({x = (current = other)}) {})({x: 1, ...{x: void 0}}); parse(current);",
+                false,
+            ),
+        ] {
+            let f = helper_reached_via(body);
+            let got = f.iter().any(|f| f.name == "id");
+            println!(
+                "PROBE {tag:24} id={got:5} want={want}  {}",
+                if got == want { "OK" } else { "WRONG" }
+            );
+        }
     }
 
     fn helper_reached_via(body: &str) -> Vec<ParsedField> {
@@ -17808,16 +17876,32 @@ mod tests {
 
     #[test]
     fn a_property_a_later_spread_can_shadow_settles_nothing() {
-        // The paired bound: only properties after EVERY spread count, because any spread after
-        // one can overwrite it — with `undefined` among other things, which runs the default.
+        // The paired bound: a property counts only when no LATER spread could overwrite it —
+        // with `undefined` among other things, which runs the default.
         for body in [
             "var current = e; (function ({x = (current = other)}) {})({x: 1, ...rest}); parse(current);",
             "var current = e; (function ({x = (current = other)}) {})({...a, x: 1, ...b}); parse(current);",
+            "var current = e; (function ({x = (current = other)}) {})({x: 1, ...{x: void 0}}); parse(current);",
+            "var current = e; (function ({x = (current = other)}) {})({x: 1, ...{[k]: 1}}); parse(current);",
         ] {
             let fields = helper_reached_via(body);
             assert!(
                 !fields.iter().any(|f| f.name == "id"),
                 "a later spread can shadow it, so the default may run: {body}"
+            );
+        }
+        // "Could" and not "does". A spread whose every key this can read, none of them the one
+        // being asked about, replaces nothing — so the property above it is still what the
+        // object ends up with. Cutting at the last spread regardless discarded it, and this
+        // walk was taking that loss alongside the getter lookup that was reported.
+        for body in [
+            "var current = e; (function ({x = (current = other)}) {})({x: 1, ...{y: 2}}); parse(current);",
+            "var current = e; (function ({x = (current = other)}) {})({x: 1, ...{y: 2}, ...{z: 3}}); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that spread cannot touch `x`, so the default runs for nobody: {body}"
             );
         }
     }
