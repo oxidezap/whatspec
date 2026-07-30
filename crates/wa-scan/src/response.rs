@@ -4088,25 +4088,41 @@ fn bound_getters<'b, 'a>(
     };
     let mut out = Vec::new();
     for (i, param) in params.items.iter().enumerate() {
-        let Some(Some(Expression::ObjectExpression(supplied))) = arguments.get(i).copied() else {
-            continue;
-        };
-        // Past the parameter's own default: what the pattern takes apart is the argument, since
-        // an argument that is a literal object is one `definitely_defined` accepts.
         let oxc_ast::ast::BindingPattern::ObjectPattern(pat) = &param.pattern else {
             continue;
         };
+        let supplied_arg = arguments.get(i).copied().flatten();
+        // What the pattern actually takes apart. The argument when the call supplies one — and
+        // the parameter's OWN default object when it does not, which is the object
+        // `(function ({x} = { get x() { … } }) {})()` destructures and whose getter the binding
+        // therefore invokes. Reading only the argument skipped that shape entirely.
+        //
+        // Both, unconditionally. A guard here asking whether the argument already supplies the
+        // parameter would be an inert one: `suppressed_defaults` answers that with the same
+        // `definitely_defined`, and a suppressed initializer is never walked at all — so the
+        // getter inside it is never reached whatever this list says. I wrote the guard first and
+        // no mutation could tell the two versions apart, which is the round-twenty-seven answer:
+        // a condition no test can hold is one to remove rather than to document.
+        let mut objects: Vec<&oxc_ast::ast::ObjectExpression<'a>> = Vec::new();
+        if let Some(Expression::ObjectExpression(o)) = supplied_arg {
+            objects.push(o);
+        }
+        if let Some(Expression::ObjectExpression(o)) = param.initializer.as_deref() {
+            objects.push(o);
+        }
         for prop in &pat.properties {
             let Some(name) = prop.key.static_name() else {
                 continue;
             };
-            let getter = supplied.properties.iter().rev().find_map(|p| match p {
-                oxc_ast::ast::ObjectPropertyKind::ObjectProperty(op)
-                    if op.key.static_name().as_deref() == Some(name.as_ref()) =>
-                {
-                    Some(op)
-                }
-                _ => None,
+            let getter = objects.iter().rev().find_map(|supplied| {
+                supplied.properties.iter().rev().find_map(|p| match p {
+                    oxc_ast::ast::ObjectPropertyKind::ObjectProperty(op)
+                        if op.key.static_name().as_deref() == Some(name.as_ref()) =>
+                    {
+                        Some(op)
+                    }
+                    _ => None,
+                })
             });
             if let Some(op) = getter
                 && op.kind == oxc_ast::ast::PropertyKind::Get
@@ -5145,6 +5161,16 @@ impl AllBindings {
         // that to the call would order it after a body it precedes.
         self.effects_land_at.push((callee.span(), span.end));
         let effective = effective_arguments(callee_expr, arguments);
+        // Registered before the callee is walked, not only around the arguments: a getter the
+        // binding invokes may live in the PARAMETER's own default object, which is inside the
+        // callee. It is matched by span in `visit_function`, so widening the window reaches
+        // nothing else.
+        let restore_getters = self.binding_getters.len();
+        self.binding_getters.extend(
+            bound_getters(callee, &effective, constructs)
+                .into_iter()
+                .map(|g| (g, span.end)),
+        );
         let suppressed = suppressed_defaults(callee, &effective, constructs);
         let restore = self.suppressed_defaults.len();
         self.suppressed_defaults.extend(suppressed);
@@ -5179,12 +5205,6 @@ impl AllBindings {
         // its write at the getter's own offset, above a later argument that precedes it. So the
         // registration is carried and applied around the getter's own body alone, where it also
         // declares that its effects land at the CALL.
-        let restore_getters = self.binding_getters.len();
-        self.binding_getters.extend(
-            bound_getters(callee, &effective, constructs)
-                .into_iter()
-                .map(|g| (g, span.end)),
-        );
         self.runs_before
             .push(construction_regions(callee, constructs));
         for arg in arguments {
@@ -17594,5 +17614,36 @@ mod tests {
             !fields.iter().any(|f| f.name == "id"),
             "an argument still precedes the body: {fields:?}"
         );
+    }
+    #[test]
+    fn a_getter_in_a_parameter_default_runs_too() {
+        // When the call supplies nothing, the pattern takes apart the parameter's OWN default
+        // object — so a getter in THAT object is the one binding invokes. Reading only the
+        // argument skipped the shape entirely, and the getter was left confined to a function
+        // nobody was known to call.
+        for body in [
+            "var current = e; (function ({x} = { get x() { current = other; return 1; } }) {})(); parse(current);",
+            "var current = e; (function ({x} = { get x() { current = other; return 1; } }) {})(void 0); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "the default's getter ran: {body}"
+            );
+        }
+        // The bound: a supplied argument means the default never runs, so its object is never
+        // built and its getter never called — held by the suppression one level up rather than
+        // by anything in the getter walk, which is why that walk carries no guard of its own.
+        // And a pattern naming something else reads nothing from the object either.
+        for body in [
+            "var current = e; (function ({x} = { get x() { current = other; return 1; } }) {})({x: 1}); parse(current);",
+            "var current = e; (function ({y} = { get x() { current = other; return 1; } }) {})(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "nothing invoked that getter: {body}"
+            );
+        }
     }
 }

@@ -652,7 +652,7 @@ fn emit_tag_cascade(
     indent: &str,
     lines: &mut Vec<String>,
 ) {
-    for a in arms {
+    for (idx, a) in arms.iter().enumerate() {
         let vname = pascal_case(&a.variant);
         let struct_name = format!("{enum_name}{vname}");
         // Two kinds of arm live in this cascade, and only one of them may fall through.
@@ -678,17 +678,24 @@ fn emit_tag_cascade(
                 )
             })
             .collect();
-        // …and only when that pin set picks ONE arm. Two arms may share a pin and be told apart
-        // by their required fields alone, in which case the pin is not the discriminator and a
+        // …and only when that pin set picks THIS arm alone. Two arms may share a pin and be told
+        // apart by their required fields, in which case the pin is not the discriminator and a
         // failed payload is still the miss. The response-root cascade had exactly that pair in
         // the committed corpus, and making a match terminal there turned a real response into an
         // error; the rule is the same here whether or not this snapshot spells it.
+        //
+        // Asked as "could a node satisfying these pins reach a LATER arm", not as equality of
+        // the pin lists — which misses the same pins in a different order, and a later arm
+        // pinning a SUPERSET, every node of which this arm's own condition also matches. Later
+        // only: an earlier arm is tried first, so a node it would take never reaches this one.
         let unique = !conds.is_empty()
-            && arms
-                .iter()
-                .filter(|o| o.attr_values == a.attr_values)
-                .count()
-                == 1;
+            && !arms[idx + 1..].iter().any(|o| {
+                !a.attr_values.iter().any(|(n, val)| {
+                    o.attr_values
+                        .iter()
+                        .any(|(o_n, o_val)| o_n == n && o_val != val)
+                })
+            });
         let pinned = unique;
         let body_indent = if pinned {
             lines.push(format!("{indent}if {} {{", conds.join(" && ")));
@@ -1715,13 +1722,16 @@ mod tests {
         // reaches the emitter rather than passing vacuously.
         let (lines, _) = emit_union_read(&f, "item", "Spec", "").expect("classified");
         let code = lines.join("\n");
+        // The EARLIER of the pair falls through — its pin does not tell it from the one below.
         assert!(
-            code.contains("if let Ok(__v) = __r"),
+            code.contains("if let Ok(__v) = __r { return Ok(Some(SpecTwinned::Alpha(__v))); }"),
             "a shared pin is not a discriminator:\n{code}"
         );
+        // The LAST may be terminal, and should be: nothing below it could have taken the node,
+        // so its payload error is the only answer left.
         assert!(
-            !code.contains("(__r?)"),
-            "and nothing there is terminal:\n{code}"
+            code.contains("return Ok(Some(SpecTwinned::Beta(__r?)));"),
+            "the last matching arm has nothing to fall through to:\n{code}"
         );
     }
 

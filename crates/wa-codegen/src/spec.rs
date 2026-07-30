@@ -125,21 +125,45 @@ fn fail_required_fields(fields: &[wa_ir::ParsedField]) -> std::collections::BTre
 /// variant's parser validates ([`parser_is_valid`]); otherwise `None` (and nothing
 /// emitted), so the caller falls back to the single-shape/`()` path rather than
 /// generating an invalid parser. Models the IR's outcome wire shape, not domain types.
-/// The attribute pins a response variant asserts, as generated conditions — the set that has to
-/// be unique before a match may be treated as final.
-fn pin_conditions(v: &ResponseVariant, node: &str) -> Vec<String> {
+/// The attribute pins a response variant asserts, as `(name, value)` — the set that has to
+/// pick this variant alone before a match may be treated as final.
+fn variant_pins(v: &ResponseVariant) -> Vec<(&str, &str)> {
     v.assertions
         .iter()
         .filter(|a| a.kind == AssertionKind::Attr)
         .filter_map(|a| match (&a.name, &a.value) {
-            (Some(name), Some(value)) => Some(format!(
-                "{node}.get_attr({}).map(|x| x.as_str()).as_deref() == Some({})",
-                rust_lit(name),
-                rust_lit(value),
-            )),
+            (Some(name), Some(value)) => Some((name.as_str(), value.as_str())),
             _ => None,
         })
         .collect()
+}
+
+/// The same pins as generated conditions.
+fn pin_conditions(v: &ResponseVariant, node: &str) -> Vec<String> {
+    variant_pins(v)
+        .into_iter()
+        .map(|(name, value)| {
+            format!(
+                "{node}.get_attr({}).map(|x| x.as_str()).as_deref() == Some({})",
+                rust_lit(name),
+                rust_lit(value),
+            )
+        })
+        .collect()
+}
+
+/// Whether a node satisfying `mine` could satisfy `other` as well.
+///
+/// Only a pin the two disagree on rules that out — anything `other` pins and `mine` does not is
+/// a value the node is free to carry, and a pin `mine` has that `other` lacks constrains
+/// nothing about `other`. So a variant pinning a SUPERSET of another's is still reachable
+/// through it, and an unpinned variant is reachable through every one of them.
+fn pins_can_coincide(mine: &[(&str, &str)], other: &[(&str, &str)]) -> bool {
+    !mine.iter().any(|(name, value)| {
+        other
+            .iter()
+            .any(|(o_name, o_value)| o_name == name && o_value != value)
+    })
 }
 
 fn emit_outcome_types(
@@ -288,7 +312,7 @@ fn emit_outcome_parse(
     indent: &str,
 ) -> Vec<String> {
     let mut lines = Vec::new();
-    for (v, (vname, sname)) in op.response.variants.iter().zip(info) {
+    for (i, (v, (vname, sname))) in op.response.variants.iter().zip(info).enumerate() {
         // The discriminator SELECTS; it does not bail. Spelled as a bail inside the payload
         // closure, a pin miss and a malformed payload were one `Err` and both moved on — so a
         // `type="result"` response whose success payload failed came back as the Error variant,
@@ -299,21 +323,23 @@ fn emit_outcome_parse(
         // A variant with NO pin is discriminated by its own required fields, exactly as an
         // unpinned union arm is, so there a failed parse IS the miss and it still falls through.
         let conds: Vec<String> = pin_conditions(v, "response");
-        // A pin set is a discriminator only when it picks ONE variant. The committed
+        // A pin set is a discriminator only when it picks this variant ALONE. The committed
         // `WASmaxOutGroupsCreateRequest` pins both `CreateResponseSuccess` and
         // `CreateResponseGroupAlreadyExists` to `type="result"` and tells them apart by
         // disjoint required fields — `emit_outcome_types` admitted the pair for exactly that
         // reason — so making the first match terminal turned a group-already-exists response
-        // into an error. Sharing a pin set puts a variant back on the first-success side, where
-        // its own payload is the only thing that can select it.
-        let unique = !conds.is_empty()
-            && op
-                .response
-                .variants
+        // into an error.
+        //
+        // Asked as "could a node that satisfies these conditions reach a LATER variant", not as
+        // equality of the condition lists. Equality missed two shapes at once: the same pins
+        // written in a different order, and a later variant pinning a SUPERSET, whose responses
+        // this arm's own condition also matches. Later only — an earlier variant is tried first,
+        // so a node it would take never reaches this one.
+        let mine = variant_pins(v);
+        let unique = !mine.is_empty()
+            && !op.response.variants[i + 1..]
                 .iter()
-                .filter(|o| pin_conditions(o, "response") == conds)
-                .count()
-                == 1;
+                .any(|o| pins_can_coincide(&mine, &variant_pins(o)));
         let pinned = unique;
         let body = if pinned {
             lines.push(format!("{indent}if {} {{", conds.join(" && ")));
@@ -997,6 +1023,73 @@ mod tests {
     }
 
     #[test]
+    fn a_variant_a_later_superset_can_also_take_is_not_unique() {
+        use wa_ir::{
+            ParsedField, ParsedFieldType, ResponseAssertion, ResponseVariant, ResponseVariantKind,
+        };
+        // Equality of the pin lists is the wrong question. A variant pinning `type="result"`
+        // followed by one pinning `type="result"` AND `kind="special"` has a DIFFERENT list, so
+        // ordered equality called it unique — but every response the second takes, the first's
+        // own condition also matches, so making it terminal means the second is never tried.
+        // The question is whether a node satisfying these conditions can reach a later variant.
+        fn attr(name: &str) -> ParsedField {
+            ParsedField {
+                method: "attrString".into(),
+                name: name.into(),
+                field_type: ParsedFieldType::String,
+                required: true,
+                ..Default::default()
+            }
+        }
+        fn pin(name: &str, value: &str) -> ResponseAssertion {
+            ResponseAssertion {
+                kind: AssertionKind::Attr,
+                name: Some(name.into()),
+                value: Some(value.into()),
+                reference_path: None,
+            }
+        }
+        let mut op = stanza("WASmaxOutFooWideRequest", Some("makeWideRequest"));
+        op.response = ParsedResponse {
+            parser_name: "FooWideRPC".into(),
+            variants: vec![
+                ResponseVariant {
+                    tag: "WideResponsePlain".into(),
+                    module_name: "m".into(),
+                    kind: ResponseVariantKind::Success,
+                    assertions: vec![pin("type", "result")],
+                    fields: vec![attr("plainOnly")],
+                    ..Default::default()
+                },
+                ResponseVariant {
+                    tag: "WideResponseSpecial".into(),
+                    module_name: "m".into(),
+                    kind: ResponseVariantKind::Success,
+                    assertions: vec![pin("type", "result"), pin("kind", "special")],
+                    fields: vec![attr("specialOnly")],
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let code = generate_spec(&op, "FOO_NAMESPACE", "MakeWideRequestSpec");
+        assert!(
+            code.contains(
+                "if let Ok(__v) = __r { return Ok(MakeWideRequestResponse::Plain(__v)); }"
+            ),
+            "the wider pin cannot be terminal:\n{code}"
+        );
+        // The bound: pins that CONTRADICT rule each other out, so a node matching one cannot
+        // reach the other and the first is a discriminator after all.
+        op.response.variants[1].assertions = vec![pin("type", "error")];
+        let code = generate_spec(&op, "FOO_NAMESPACE", "MakeWideRequestSpec");
+        assert!(
+            code.contains("return Ok(MakeWideRequestResponse::Plain(__r?));"),
+            "disagreeing pins separate the two:\n{code}"
+        );
+    }
+
+    #[test]
     fn variants_sharing_a_pin_still_cascade() {
         use wa_ir::{
             ParsedField, ParsedFieldType, ResponseAssertion, ResponseVariant, ResponseVariantKind,
@@ -1048,13 +1141,20 @@ mod tests {
             ..Default::default()
         };
         let code = generate_spec(&op, "FOO_NAMESPACE", "MakeCreateRequestSpec");
+        // The EARLIER of the pair must fall through: its pin does not tell it from the one
+        // below, so a failed payload is still a miss.
         assert!(
-            code.contains("if let Ok(__v) = __r"),
+            code.contains(
+                "if let Ok(__v) = __r { return Ok(MakeCreateRequestResponse::Success(__v)); }"
+            ),
             "a shared pin is not a discriminator:\n{code}"
         );
+        // The LAST one may be terminal, and should be: nothing below it could have taken the
+        // node, so its payload error is the only answer left — and the tail below it bails
+        // anyway, with a less precise message.
         assert!(
-            !code.contains("(__r?)"),
-            "and nothing there is terminal:\n{code}"
+            code.contains("return Ok(MakeCreateRequestResponse::GroupAlreadyExists(__r?));"),
+            "the last matching variant has nothing to fall through to:\n{code}"
         );
     }
 
