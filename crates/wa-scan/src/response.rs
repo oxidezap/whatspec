@@ -3110,6 +3110,9 @@ struct AllBindings {
     blocks: Vec<Span>,
     /// Loop bodies currently open, so a write can say whether it repeats.
     loops: Vec<Span>,
+    /// How many blocks deep the walk is, so the outermost one can be told apart from a
+    /// genuinely nested scope.
+    block_depth: u32,
     /// Whether the binding being collected reaches past its block: a parameter, a `var`,
     /// or a function declaration. `let`, `const`, a class and a `catch` parameter stop at
     /// the block — the same split `BoundNames` keeps, which this collector was missing.
@@ -3246,9 +3249,24 @@ impl<'a> Visit<'a> for AllBindings {
     }
 
     fn visit_block_statement(&mut self, block: &oxc_ast::ast::BlockStatement<'a>) {
-        self.blocks.push(block.span);
+        // The outermost braces ARE the analysed callback body, not a scope inside it, so a
+        // `let` at the top of them lives for all of it. Recording that span as a scope made
+        // `bound_inside` answer true for every read in the body, so `let detail =
+        // e.child("detail")` followed by a mapped callback reading `detail` had the read
+        // refused as one an inner scope accounts for — and both dispatch-arm reads vanished
+        // with nothing recorded at all. `var` binds through `names` and worked, which is the
+        // asymmetry that located it. `ParserAnalyzer::visit_block_statement` already draws
+        // this same line for its own restore; this collector did not.
+        let body_itself = self.block_depth == 0 && self.fns.is_empty();
+        self.block_depth += 1;
+        if !body_itself {
+            self.blocks.push(block.span);
+        }
         walk::walk_block_statement(self, block);
-        self.blocks.pop();
+        if !body_itself {
+            self.blocks.pop();
+        }
+        self.block_depth -= 1;
     }
 
     fn visit_while_statement(&mut self, stmt: &oxc_ast::ast::WhileStatement<'a>) {
@@ -7237,6 +7255,41 @@ mod tests {
         }
         out.sort();
         out
+    }
+
+    #[test]
+    fn a_let_bound_child_at_the_top_of_the_body_reaches_the_dispatch_arms() {
+        // `let detail = e.child("detail")` followed by arms reading `detail` lost BOTH reads
+        // and recorded nothing — the outermost braces were registered as a scope, so
+        // `bound_inside` called every read in the body one an inner scope accounts for and the
+        // walk refused to place them. The same source with `var` recovered both, which is what
+        // showed the cause was the scope registration rather than the missing lexical model I
+        // had blamed on the review thread.
+        let arms = |decl: &str| {
+            let src = format!(
+                r#"{{ {decl} detail = e.child("detail");
+                     e.forEachChildWithTag("row", function(row){{
+                         var k = row.attrString("kind");
+                         if (k === "a") {{ t.one = detail.attrString("first"); }}
+                         if (k === "b") {{ t.two = detail.attrString("second"); }}
+                     }});
+                   }}"#
+            );
+            let r = analyze_parser_ast(&src, "e");
+            r.fields
+                .iter()
+                .find(|f| f.name == "detail")
+                .and_then(|f| f.children.as_ref())
+                .map(|k| k.iter().map(|c| c.name.clone()).collect::<Vec<_>>())
+                .unwrap_or_default()
+        };
+        for decl in ["let", "const", "var"] {
+            let kids = arms(decl);
+            assert!(
+                kids.iter().any(|n| n == "first") && kids.iter().any(|n| n == "second"),
+                "`{decl}` at the top of the body reaches the arms: {kids:?}"
+            );
+        }
     }
 
     #[test]
