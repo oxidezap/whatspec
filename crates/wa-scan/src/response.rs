@@ -1078,8 +1078,27 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
             self.visit_statement(alt);
             let else_side = self.conditional_assertions[before_else.0..].to_vec();
             let else_weak = self.relaxed_by_branch[before_else.1..].to_vec();
-            self.settle_guard_intersection(before_then.0, &[then_side, else_side]);
-            established = branch_intersection(&then_weak, &else_weak);
+            // Over the sides that can PRODUCE a value. `if (flag) { parse(e); } else { throw
+            // Error(); }` calls `parse` on every execution that yields anything, and
+            // intersecting against the empty throwing side left the payload optional and its
+            // guard unpublished. The switch and the try have filtered this for two rounds; the
+            // construct that taught them the intersection had not.
+            let sides: Vec<(Vec<RelaxedId>, Vec<ResponseAssertion>)> = [
+                (&stmt.consequent, then_weak, then_side),
+                (alt, else_weak, else_side),
+            ]
+            .into_iter()
+            .filter(|(body, _, _)| !throws_out(std::slice::from_ref(*body)))
+            .map(|(_, w, g)| (w, g))
+            .collect();
+            let guard_sides: Vec<Vec<ResponseAssertion>> =
+                sides.iter().map(|(_, g)| g.clone()).collect();
+            self.settle_guard_intersection(before_then.0, &guard_sides);
+            established = sides
+                .into_iter()
+                .map(|(w, _)| w)
+                .reduce(|a, b| branch_intersection(&a, &b))
+                .unwrap_or_default();
         }
         // Settled after the truncate, so a claim handed up outlives the branch that
         // established it and the enclosing conditional can see it.
@@ -2834,7 +2853,15 @@ fn throws_out(body: &[Statement<'_>]) -> bool {
                     Some(h) => block && throws_out(&h.body.body),
                     None => block,
                 };
-                body || t.finalizer.as_ref().is_some_and(|f| throws_out(&f.body))
+                // A `finally` that completes abruptly wins over however the block and handler
+                // left: `finally { return fallback; }` hands back a result whatever was thrown,
+                // so the whole `try` is a value path. Only its throwing case was considered.
+                let fin_returns = t.finalizer.as_ref().is_some_and(|f| {
+                    f.body
+                        .iter()
+                        .any(|st| matches!(st, Statement::ReturnStatement(_)))
+                });
+                !fin_returns && (body || t.finalizer.as_ref().is_some_and(|f| throws_out(&f.body)))
             }
             // And a `switch` every arm of which throws, with a `default` so no value escapes
             // by matching nothing. The same `entry_paths_throw` the visitor uses.
@@ -3267,6 +3294,12 @@ struct AllBindings {
     /// How many enclosing statements cannot be left with a result. A write in one of those
     /// never takes effect for anything a later call can observe.
     dead: u32,
+    /// Function bodies that are immediately invoked, so a write inside one has certainly run by
+    /// the time anything after the call reads it.
+    iife: Vec<Span>,
+    /// How many enclosing `try` BLOCKS have a handler. A throw inside one of those does not end
+    /// anything, so nothing under it is a dead path however it leaves.
+    caught: u32,
     /// Whether the binding being collected reaches past its block: a parameter, a `var`,
     /// or a function declaration. `let`, `const`, a class and a `catch` parameter stop at
     /// the block — the same split `BoundNames` keeps, which this collector was missing.
@@ -3358,7 +3391,17 @@ impl AllBindings {
         // looked expired at the call and `names_for` followed the stale `current = e` alias to
         // the response root.
         if self.names.contains(name) {
-            return None;
+            // It reaches all of the source — but only if it RUNS before the read. Inside an
+            // immediately invoked function it does. Inside a function that may never be called
+            // it may not, and `var current = e; function mutate(){ current = other; }
+            // parse(current)` then refused a still-valid alias and lost the helper's fields
+            // silently. Deciding that in general is call-graph work this scanner does not do; an
+            // IIFE is the case syntax decides, so it is the only one that escapes. Narrowed from
+            // "always escapes", which is what I shipped one commit earlier.
+            return match self.fns.last() {
+                Some(f) if !self.iife.contains(f) => Some(*f),
+                _ => None,
+            };
         }
         self.fns.last().copied()
     }
@@ -3367,7 +3410,7 @@ impl AllBindings {
     /// right-hand side is ordered before it — and `u32::MAX` on a path that cannot produce a
     /// result, which no call site can be after.
     fn effect_position(&self, default_end: u32) -> u32 {
-        if self.dead > 0 {
+        if self.dead > 0 && self.caught == 0 {
             return u32::MAX;
         }
         self.assign_end.unwrap_or(default_end)
@@ -3410,7 +3453,7 @@ impl<'a> Visit<'a> for AllBindings {
                 effective: self.effect_position(id.span.end),
                 // A loop whose body throws does not come round again, so a dead write must not
                 // claim repetition either — that is the other half of `effective`.
-                repeats_in: (self.dead == 0)
+                repeats_in: (self.dead == 0 || self.caught > 0)
                     .then(|| self.loops.last().copied())
                     .flatten(),
             };
@@ -3453,7 +3496,14 @@ impl<'a> Visit<'a> for AllBindings {
                     Expression::Identifier(src) => Some(src.name.as_str()),
                     _ => None,
                 };
+                // After the initializer, not at the binding identifier: `var e = parse(e)`
+                // evaluates `parse` against the original parameter and only then rebinds. I gave
+                // the ASSIGNMENT form this last round and left the declarator on the
+                // identifier's span — the same rule in two places with one copy missing it,
+                // which is the shape of half the findings on this branch.
+                let outer = self.assign_end.replace(d.span.end);
                 self.given_value(id.name.as_str(), from, id.span, decl.kind.is_lexical());
+                self.assign_end = outer;
             }
         }
         let outer = self.hoists;
@@ -3472,6 +3522,46 @@ impl<'a> Visit<'a> for AllBindings {
         self.dead += u32::from(dead);
         walk::walk_statement(self, st);
         self.dead -= u32::from(dead);
+    }
+
+    fn visit_try_statement(&mut self, t: &oxc_ast::ast::TryStatement<'a>) {
+        // A throw inside a block a handler CATCHES does not end anything: the handler runs and
+        // execution carries on, so a write before that throw is as effective as any other.
+        // Asking `throws_out` without the enclosing catch marked those writes dead, and the
+        // descent then went ahead against a node the parser had already moved — the wrong-node
+        // direction, introduced by the dead-path rule one commit earlier.
+        // A SUPPRESSION, not a reset: zeroing `dead` here achieved nothing, because
+        // `visit_statement` recomputes it from the very statement that throws. The flag has to
+        // outrank the computation.
+        //
+        // Raised around the block only. A throw in the handler is not caught by its own `try`,
+        // and one in the finalizer is not either.
+        self.caught += u32::from(t.handler.is_some());
+        self.visit_block_statement(&t.block);
+        self.caught -= u32::from(t.handler.is_some());
+        if let Some(h) = &t.handler {
+            self.visit_catch_clause(h);
+        }
+        if let Some(f) = &t.finalizer {
+            self.visit_block_statement(f);
+        }
+    }
+
+    fn visit_call_expression(&mut self, call: &CallExpression<'a>) {
+        // An immediately invoked function has certainly run by the time anything after the call
+        // reads what it wrote — the one case where "does this nested function execute" is
+        // decidable from the syntax alone.
+        match &call.callee {
+            Expression::FunctionExpression(f) => self.iife.push(f.span),
+            Expression::ArrowFunctionExpression(f) => self.iife.push(f.span),
+            Expression::ParenthesizedExpression(p) => match &p.expression {
+                Expression::FunctionExpression(f) => self.iife.push(f.span),
+                Expression::ArrowFunctionExpression(f) => self.iife.push(f.span),
+                _ => {}
+            },
+            _ => {}
+        }
+        walk::walk_call_expression(self, call);
     }
 
     fn visit_block_statement(&mut self, block: &oxc_ast::ast::BlockStatement<'a>) {
@@ -7904,6 +7994,34 @@ mod tests {
     }
 
     #[test]
+    fn an_assignment_in_a_function_that_may_never_run_does_not_move_the_node() {
+        // `var current = e; function mutate(){ current = other; } parse(current)` — nothing calls
+        // `mutate`, so `current` still stands for the element and the helper's fields are
+        // recoverable. Letting every write to a top-level binding escape its function extent —
+        // which is what I shipped one commit earlier to fix the IIFE case — counted this one as
+        // an effective second value and lost the fields silently.
+        //
+        // An IIFE is the case syntax decides; anything else is call-graph work this scanner does
+        // not do, so only an IIFE escapes.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                var current = e;
+                function mutate(){ current = other; }
+                parse(current);
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        assert!(
+            p.fields.iter().any(|f| f.name == "id"),
+            "the alias still stands: {:?}",
+            p.fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
     fn an_assignment_inside_a_nested_function_reaches_the_outer_binding() {
         // `var current = e; (function(){ current = e.child("detail"); })(); parse(current)` —
         // the IIFE definitely updates the OUTER `current`, so it no longer stands for the
@@ -8906,6 +9024,52 @@ mod tests {
     }
 
     #[test]
+    fn a_throwing_if_branch_does_not_dilute_the_intersection() {
+        // `if (flag) { parse(e); } else { throw Error(); }` calls `parse` on every execution
+        // that yields anything, so intersecting against the empty throwing side left the payload
+        // optional and its guard unpublished. The switch and the try have filtered non-completing
+        // sides for two rounds; `if` — the construct that taught them the intersection — had not.
+        let guards = guards_and_field(r#"if (flag) { parse(e); } else { throw Error("z"); }"#);
+        assert_eq!(guards, (true, true), "the throwing side yields nothing");
+    }
+
+    #[test]
+    fn a_returning_if_branch_still_dilutes_the_intersection() {
+        // The bound: a side that RETURNS hands back a result without the read, so the payload
+        // really is optional. Only throwing sides drop out.
+        let guards = guards_and_field("if (flag) { parse(e); } else { return t; }");
+        assert_eq!(guards, (false, false), "the else returns a value");
+    }
+
+    #[test]
+    fn a_finalizer_that_returns_overrides_the_throw_it_covers() {
+        // `finally { return fallback; }` completes abruptly and hands back a result whatever the
+        // block and handler threw, so the whole `try` is a value path. Only the finalizer's
+        // THROWING case was considered, so a handler shaped this way was excluded from the
+        // successful-path intersection and the outer try's reads were promoted to required.
+        let guards = guards_and_field(
+            r#"try { parse(e); } catch (x) { try { throw A(); } catch (y) { throw B(); }
+               finally { return fallback; } }"#,
+        );
+        assert_eq!(
+            guards,
+            (false, false),
+            "the fallback returns without the read"
+        );
+    }
+
+    #[test]
+    fn a_finalizer_that_only_cleans_up_does_not_override() {
+        // The bound: a finalizer that completes normally leaves the throw in place, so the
+        // handler still yields nothing and the outer reads stay required.
+        let guards = guards_and_field(
+            r#"try { parse(e); } catch (x) { try { throw A(); } catch (y) { throw B(); }
+               finally { cleanup(); } }"#,
+        );
+        assert_eq!(guards, (true, true), "the throw carries on");
+    }
+
+    #[test]
     fn a_catch_that_throws_whichever_way_it_branches_yields_nothing() {
         // `catch (_) { if (flag) throw A(); else throw B(); }` produces no result on any path,
         // so every execution that returned one completed the block. `throws_out` matched only
@@ -9170,6 +9334,127 @@ mod tests {
                 .iter()
                 .any(|u| u == "reassignedNodeHandedOn@parse"),
             "the write precedes the call: {:?}",
+            p.pending_drops
+        );
+    }
+
+    #[test]
+    fn a_declarator_takes_effect_after_its_initializer() {
+        // `var e = parse(e)` evaluates `parse` against the original parameter and only then
+        // rebinds. I gave the ASSIGNMENT form its effect position one commit earlier and left the
+        // declarator ordered from the binding identifier — the same rule in two places with one
+        // copy missing it, which is the shape of half the findings on this branch.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                var e = parse(e);
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        assert!(
+            p.fields.iter().any(|f| f.name == "id"),
+            "the initializer sees the original node: {:?}",
+            p.fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+        assert!(
+            p.pending_drops.is_empty(),
+            "nothing moved yet: {:?}",
+            p.pending_drops
+        );
+    }
+
+    #[test]
+    fn a_declarator_that_moves_the_node_before_the_call_still_counts() {
+        // The bound: `var e = e.child("a"); parse(e)` really does hand over the child, so the
+        // reads belong under `<a>` and the root descent is still refused and still reported.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                var e = e.child("a");
+                parse(e);
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        assert!(
+            p.pending_drops
+                .iter()
+                .any(|u| u == "reassignedNodeHandedOn@parse"),
+            "the declarator moved it: {:?}",
+            p.pending_drops
+        );
+    }
+
+    #[test]
+    fn a_write_whose_throw_nothing_catches_is_still_dead() {
+        // The bound on the suppression: with no handler anywhere, the throw really does end
+        // everything, so the write never reaches a value-producing path and must stay dead.
+        // Wrapped in a one-sided `if` so the try block itself can complete and `parse(e)` is
+        // actually reachable — otherwise the distinction is unobservable downstream.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                try {
+                    if (g) {
+                        if (f) { e = e.child("a"); throw A(); }
+                        else { e = e.child("a"); throw B(); }
+                    }
+                } finally {}
+                parse(e);
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        assert!(
+            p.fields.iter().any(|f| f.name == "id"),
+            "the surviving path never wrote: {:?}",
+            p.fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+        assert!(
+            p.pending_drops.is_empty(),
+            "nothing lost: {:?}",
+            p.pending_drops
+        );
+    }
+
+    #[test]
+    fn a_write_whose_throw_a_handler_catches_still_moves_the_node() {
+        // A throw inside a block a handler CATCHES ends nothing — the handler runs and execution
+        // carries on — so a write before it is as effective as any other. The dead-path rule
+        // added one commit earlier asked `throws_out` without the enclosing catch, marked these
+        // writes dead, and let the descent proceed against a node the parser had already moved.
+        // Wrong-node, and a regression of my own.
+        //
+        // The suppression has to outrank the computation rather than reset it: zeroing the
+        // counter at the `try` boundary achieved nothing, because `visit_statement` recomputes it
+        // from the very statement that throws.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                try {
+                    if (f) { e = e.child("a"); throw A(); }
+                    else { e = e.child("a"); throw B(); }
+                } catch (x) {}
+                parse(e);
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        assert!(
+            !p.fields.iter().any(|f| f.name == "id"),
+            "not at the root, where the parser no longer reads it: {:?}",
+            p.fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+        assert!(
+            p.pending_drops
+                .iter()
+                .any(|u| u == "reassignedNodeHandedOn@parse"),
+            "and the loss is reported: {:?}",
             p.pending_drops
         );
     }
