@@ -301,14 +301,20 @@ pub(crate) fn collect_response_fields(
             // `child("x").contentString()` → a single `x: String` field (named by
             // the child tag), not a stray `content` attr that collapses siblings.
             if let Some(ct) = f.content_type.or_else(|| child_content_type(f)) {
+                // The leaf the emitter will actually read: the FIRST content accessor among
+                // the children, which is the same `find` `emit_*` does. Asking whether ANY
+                // child admits negatives let a negative-bounded ATTRIBUTE sibling declare the
+                // flattened field `i64` while the emitter went on folding a `contentUint`
+                // into a `u64` — a struct initialization that does not compile. The width has
+                // to come from the leaf that decodes the value, and `contentUint` is a
+                // big-endian byte fold that is unsigned however its range is declared.
+                let signed_content = kids
+                    .iter()
+                    .find(|c| wap::is_content_method(&c.method))
+                    .is_some_and(|c| c.method != "contentUint" && admits_negative(c));
                 let base = match ct {
                     ContentType::Bytes => "Vec<u8>",
-                    // The range lives on the content leaves, not on the `child` that carries
-                    // them, so the width is asked of them. `contentUint` folds bytes and is
-                    // unsigned by construction; only a decoded text integer can be negative.
-                    // A `content_type` set on the child itself has no leaf to ask and stays
-                    // unsigned — no such field carries a negative bound today.
-                    ContentType::Integer if kids.iter().any(admits_negative) => "i64",
+                    ContentType::Integer if signed_content => "i64",
                     ContentType::Integer => "u64",
                     _ => "String",
                 };
