@@ -749,7 +749,7 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
         // sees. Counted rather than resolved — see `SWITCH_ARM_SHADOW`.
         let tracked_before: Vec<String> = self.child_vars.keys().cloned().collect();
         for (i, case) in stmt.cases.iter().enumerate() {
-            if leaves_switch(&case.consequent) || i + 1 >= stmt.cases.len() {
+            if leaves_switch(&case.consequent, true) || i + 1 >= stmt.cases.len() {
                 continue;
             }
             for name in case
@@ -843,7 +843,7 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
         let mut entry_guards: Vec<Vec<ResponseAssertion>> = vec![Vec::new(); stmt.cases.len()];
         for i in (0..stmt.cases.len()).rev() {
             let body = &stmt.cases[i].consequent;
-            let leaves = leaves_switch(body);
+            let leaves = leaves_switch(body, false);
             let mut weak = per_case[i].clone();
             let mut guards = per_case_guards[i].clone();
             if !leaves && i + 1 < stmt.cases.len() {
@@ -3049,7 +3049,8 @@ fn entry_paths_throw(cases: &oxc_allocator::Vec<'_, oxc_ast::ast::SwitchCase<'_>
     let mut out = vec![false; cases.len()];
     for i in (0..cases.len()).rev() {
         let body = &cases[i].consequent;
-        out[i] = throws_out(body) || (!leaves_switch(body) && i + 1 < cases.len() && out[i + 1]);
+        out[i] =
+            throws_out(body) || (!leaves_switch(body, false) && i + 1 < cases.len() && out[i + 1]);
     }
     out
 }
@@ -3061,11 +3062,49 @@ fn entry_paths_throw(cases: &oxc_allocator::Vec<'_, oxc_ast::ast::SwitchCase<'_>
 /// CAN, not must: what the next arm establishes is only guaranteed for an entry path that
 /// certainly reaches it, so `case "a": if (flag) break;` must not borrow the default's reads
 /// either. And matching only a top-level `BreakStatement` missed `case "a": { break; }`,
-/// which leaves exactly as the bare form does — `contains_exit` already answers both,
+/// which leaves exactly as the bare form does — `contains_exit_where` already answers both,
 /// including attributing an unlabelled `break` to a nested loop or switch rather than to
 /// this one.
-fn leaves_switch(body: &[Statement<'_>]) -> bool {
-    body.iter().any(contains_exit)
+///
+/// `throwing_counts` picks WHICH ending is being asked about, because the two callers want
+/// different ones and giving them one answer was wrong for one of them:
+///
+/// - Folding what an entry path READS asks about endings that hand something back. `case "a": if
+///   (bad) throw Error(); default: parse(e);` reaches `parse` on every execution that returns
+///   anything, because the only path skipping the fallthrough throws — counting that throw as an
+///   ending left the payload optional and its guards unpublished.
+/// - Deciding whether an arm's declaration can shadow a LATER arm's asks about endings of any
+///   kind: a throw never reaches the next arm either.
+fn leaves_switch(body: &[Statement<'_>], throwing_counts: bool) -> bool {
+    body.iter()
+        .any(|st| contains_exit_where(st, throwing_counts, true))
+}
+
+/// Whether `stmt` transfers control out of the statement list it sits in, so nothing after it in
+/// that list runs.
+///
+/// Deliberately NOT [`exits_unconditionally`], which answers a different question for the dispatch
+/// chain: there an unlabelled `break` leaves only the nearest loop or switch and says nothing about
+/// the arms after it, so it does not count. Here the list IS that loop's or switch's body, and an
+/// unlabelled `break` or `continue` ends it — `do { break; current = other; } while (0)` can never
+/// run that assignment, and recording it as effective refused a descent for a node nothing had
+/// moved. Reusing the dispatch predicate covered `return` and `throw` and left both transfers out.
+fn ends_the_statement_list(stmt: &Statement<'_>) -> bool {
+    match stmt {
+        Statement::ReturnStatement(_)
+        | Statement::ThrowStatement(_)
+        | Statement::BreakStatement(_)
+        | Statement::ContinueStatement(_) => true,
+        Statement::BlockStatement(b) => b.body.iter().any(ends_the_statement_list),
+        Statement::LabeledStatement(l) => ends_the_statement_list(&l.body),
+        // Both sides, or neither: a one-sided `if` falls through and the rest of the list runs.
+        Statement::IfStatement(i) => i.alternate.as_ref().is_some_and(|alt| {
+            ends_the_statement_list(&i.consequent) && ends_the_statement_list(alt)
+        }),
+        // A loop or a switch CONSUMES an unlabelled transfer, so one inside it says nothing about
+        // the list this statement sits in.
+        _ => false,
+    }
 }
 
 /// Whether `stmt` ends the body on every path it can take. A bare `return`/`throw`, or a
@@ -3626,7 +3665,7 @@ impl AllBindings {
                 continue;
             }
             self.visit_statement(st);
-            past_the_exit = exits_unconditionally(st);
+            past_the_exit = ends_the_statement_list(st);
         }
     }
 
@@ -8615,6 +8654,61 @@ mod tests {
     }
 
     #[test]
+    fn a_write_past_a_break_or_continue_moves_nothing() {
+        // `do { break; current = other; } while (0)` can never run that assignment. The in-order
+        // walk was asking `exits_unconditionally`, which answers a DIFFERENT question for the
+        // dispatch chain — there an unlabelled `break` leaves only the nearest loop or switch and
+        // says nothing about the arms after it, so it does not count. Here the list IS that loop's
+        // body. Reusing the predicate covered `return` and `throw` and left both transfers out.
+        for body in [
+            "var current = e; do { break; current = other; } while (0); parse(current);",
+            "var current = e; for (var i = 0; i < 2; i++) { continue; current = other; } parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "`{body}` never runs the write: {:?}",
+                fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn a_break_a_nested_loop_consumes_does_not_end_the_outer_list() {
+        // The other bound on the same rule, and the one the dispatch predicate gets right for its
+        // own reasons: an unlabelled transfer is consumed by the nearest loop or switch, so a
+        // `break` inside one says nothing about the list the loop itself sits in. `do { while (c)
+        // { break; } current = other; } while (0)` really does run that assignment.
+        // A `return` inside that loop is the case that actually distinguishes the two answers: the
+        // loop may run zero times, so the statement after it still runs, and reading "this
+        // statement can be left" as "this list ends here" would call the write unreachable.
+        for body in [
+            "var current = e; do { while (c) { break; } current = other; } while (0); parse(current);",
+            "var current = e; do { while (c) { return t; } current = other; } while (0); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "`{body}` still runs the write: {:?}",
+                fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn a_write_before_a_break_still_moves_the_node() {
+        // The bound: the transfer ends what FOLLOWS it, not what precedes it.
+        let fields = helper_reached_via(
+            "var current = e; do { current = other; break; } while (0); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the write ran before the break: {:?}",
+            fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
     fn a_write_before_a_caught_throw_still_moves_the_node() {
         // The bound, and the reason the two counters are separate: this write DOES run, the
         // handler resumes after it, and the node is moved by the time the helper is called.
@@ -9349,6 +9443,36 @@ mod tests {
     }
 
     #[test]
+    fn an_arm_that_shadows_a_tracked_node_and_throws_is_not_counted_either() {
+        // A throw never reaches the next arm, so a declaration behind one shadows nothing anybody
+        // can see — the shadow question is about endings of ANY kind, unlike the fallthrough fold
+        // beside it, which is about endings that hand something back. One predicate answers both
+        // and takes which one as an argument; giving it the value-producing answer here would put
+        // a false loss in `dropsByReason`.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                var x = e.child("outer");
+                switch (mode) {
+                    case "a": var x = e.child("inner"); throw Error("z");
+                    case "b": parse(x); break;
+                    default: break;
+                }
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        assert!(
+            !p.pending_drops
+                .iter()
+                .any(|u| u.starts_with("arm-shadowed")),
+            "the throw reaches no later arm: {:?}",
+            p.pending_drops
+        );
+    }
+
+    #[test]
     fn an_arm_that_shadows_a_tracked_node_and_breaks_is_not_counted() {
         // The bound: `case "a": var x = …; break;` rebinds nothing any other arm can see, so
         // there is no ambiguity and nothing to report. Counting it would put false losses in
@@ -9384,6 +9508,30 @@ mod tests {
         let fields = helper_reached_via(r#"switch (mode) { case "a": default: parse(e); }"#);
         let id = fields.iter().find(|f| f.name == "id").expect("recovered");
         assert!(id.required, "the fallthrough reaches it: {id:?}");
+    }
+
+    #[test]
+    fn a_case_whose_only_skip_throws_borrows_the_next_ones_reads() {
+        // `case "a": if (bad) throw Error(); default: parse(e);` reaches `parse` on every execution
+        // that returns anything, because the only path skipping the fallthrough throws. Asking
+        // whether the arm can end AT ALL counted that throw, so the entry did not inherit the
+        // default's reads and the payload stayed optional with its guards unpublished — the same
+        // "which paths hand something back" rule the rest of the switch already applies, missing
+        // from the one predicate both fallthrough passes share.
+        let guards = guards_and_field(
+            r#"switch (mode) { case "a": if (bad) throw Error(); default: parse(e); break; }"#,
+        );
+        assert_eq!(guards, (true, true), "the skipping path yields nothing");
+    }
+
+    #[test]
+    fn a_case_that_can_break_past_the_next_one_still_does_not_borrow_it() {
+        // The bound, and the reason the predicate takes the question as an argument: a `break` ends
+        // the arm WITH a result, so that entry really can return without the default's reads.
+        let guards = guards_and_field(
+            r#"switch (mode) { case "a": if (bad) break; default: parse(e); break; }"#,
+        );
+        assert_eq!(guards, (false, false), "the breaking path returns");
     }
 
     #[test]
