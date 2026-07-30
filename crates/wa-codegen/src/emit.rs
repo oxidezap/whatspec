@@ -42,10 +42,21 @@ pub(crate) fn emit_field_parse(f: &ParsedField, node_var: &str, indent: &str) ->
     // classifier, so a newly-recognized one (`contentUint`, `contentEnum`,
     // `contentBytesRange`, `contentLiteralBytes`) is parsed rather than silently skipped.
     if wap::is_content_method(method) {
-        return vec![format!(
+        let mut out = vec![format!(
             "{indent}let {name} = {node_var}.{};",
             content_decoder(method)
         )];
+        // The same band the attribute path enforces. A content leaf declaring `intMin: -10`
+        // decoded the number and checked nothing, and the moment its width could be signed a
+        // `-20` materialized where the unsigned parse had been refusing every negative value by
+        // accident. The union's content guard already tests this band; the ordinary read did
+        // not, which is one rule spelled in two places with one copy missing it — again.
+        if let Some(test) = super::fields::int_band(f, &name) {
+            out.push(format!(
+                "{indent}anyhow::ensure!({test}, \"{fmsg} out of range: {{}}\", {name});"
+            ));
+        }
+        return out;
     }
     if !wap::is_attr_method(method) {
         return Vec::new();
@@ -1060,6 +1071,39 @@ mod tests {
         assert!(
             src.contains(r#"anyhow::ensure!((-10000i64..=10000i64).contains(&weight)"#),
             "and the band is enforced after decoding: {src}"
+        );
+    }
+
+    #[test]
+    fn a_bounded_content_read_enforces_its_band_as_well() {
+        // The same accessor promise on the content path. A `contentInt` leaf declaring a range
+        // decoded the number and checked nothing, and the moment its width could be signed a
+        // `-20` materialized where the unsigned parse had been refusing every negative value by
+        // accident. The union's content guard has tested this band all along — one rule spelled
+        // in two places with one copy missing it, which is most of this branch's review.
+        let mut f = ranged("weight", Some(-10), Some(10), true);
+        f.method = "contentInt".into();
+        let src = emit_field_parse(&f, "n", "").join("\n");
+        assert!(
+            src.contains("content_str()"),
+            "still the content decoder: {src}"
+        );
+        assert!(
+            src.contains(r#"anyhow::ensure!((-10i64..=10i64).contains(&weight)"#),
+            "and the band is enforced after decoding: {src}"
+        );
+    }
+
+    #[test]
+    fn an_unbounded_content_read_checks_nothing_extra() {
+        // The bound: a content leaf with no declared range is read exactly as before. The check
+        // follows the band, not the accessor.
+        let mut f = ranged("weight", None, None, true);
+        f.method = "contentInt".into();
+        let src = emit_field_parse(&f, "n", "").join("\n");
+        assert!(
+            !src.contains("ensure!"),
+            "nothing declared, nothing enforced: {src}"
         );
     }
 

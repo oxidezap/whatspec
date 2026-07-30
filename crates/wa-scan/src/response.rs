@@ -21,7 +21,9 @@ use wa_ir::{
     UnionVariant,
 };
 
-use wa_oxc::{arg_expr, as_call, as_identifier, as_string_lit, callee_method, callee_object};
+use wa_oxc::{
+    arg_expr, as_call, as_identifier, as_int, as_string_lit, callee_method, callee_object,
+};
 
 /// The class name a legacy response parser is constructed from.
 const PARSER_CLASS: &str = "WADeprecatedWapParser";
@@ -359,10 +361,14 @@ fn field_from_call(
         // `count="99"` the source turns away. An open bound stays open: WA writes
         // `attrIntRange(e, "t", 0, void 0)` for "no upper limit".
         "attrIntRange" => {
-            let bound = |i: usize| match call.arguments.get(i).and_then(arg_expr) {
-                Some(Expression::NumericLiteral(n)) => Some(n.value as i64),
-                _ => None,
-            };
+            // Through `as_int`, because JavaScript has no negative literal: `-10` is a unary
+            // minus over `10`, and matching `NumericLiteral` alone recorded no floor at all.
+            // An absent floor is not neutral — it is the open-bottom band, which the width rule
+            // reads as "this field is signed with no lower limit", so the emitted decoder took
+            // a `-20` the accessor turns away. The exact opposite of what the bound is for, and
+            // reachable only for a negative one. `as_int` also turns away a fractional or
+            // out-of-range literal, which the cast quietly truncated.
+            let bound = |i: usize| call.arguments.get(i).and_then(arg_expr).and_then(as_int);
             f.int_min = bound(1);
             f.int_max = bound(2);
         }
@@ -2327,15 +2333,23 @@ struct ModuleScopeBuilder<'a> {
 }
 
 impl ModuleScopeBuilder<'_> {
-    /// Record `name`'s params + body source, first declaration wins (matching the prior
-    /// first-match-in-visit-order `FnFinder` behavior for a shadowed name).
+    /// Record `name`'s params + body source. First one wins, except for a hoisted
+    /// declaration, where the LAST is the binding that survives.
+    ///
+    /// `function parse(p){A} function parse(p){B} parse(e)` calls B: both declarations are
+    /// hoisted and the later assignment is the one left standing. Keeping the first published
+    /// the fields of a body that never runs and omitted the ones that do — a shape disagreeing
+    /// with the helper the parser actually calls. An assignment form is not hoisted this way,
+    /// so which of two is live depends on where the call sits, and first-wins stays the
+    /// conservative reading there.
     fn record_fn(
         &mut self,
         name: &str,
         params: &oxc_ast::ast::FormalParameters,
         body: oxc_span::Span,
+        hoisted: bool,
     ) {
-        if self.functions.contains_key(name) {
+        if self.functions.contains_key(name) && !hoisted {
             return;
         }
         // By POSITION, not just the ones that have a name: a destructured formal
@@ -2358,11 +2372,17 @@ impl<'a> Visit<'a> for ModuleScopeBuilder<'_> {
         // A `function name(){…}` directly in the factory body (depth 1) is a module-scope
         // sibling helper; deeper ones are function-local and must not be resolvable as
         // module-scope. `record_fn` still first-wins, matching the old finder's order.
+        // A generator is not one of these: `function* parse(p){…}` called as `parse(e)` builds
+        // an iterator and runs none of the body, so descending into it required of every
+        // response what no execution of that call reads. The same fact the IIFE rule learned
+        // one round earlier, at the other site that decides whether a body runs.
         if self.fn_depth == 1
+            && !func.generator
             && let Some(id) = func.id.as_ref()
             && let Some(body) = func.body.as_ref()
         {
-            self.record_fn(id.name.as_str(), &func.params, body.span);
+            let hoisted = func.r#type == oxc_ast::ast::FunctionType::FunctionDeclaration;
+            self.record_fn(id.name.as_str(), &func.params, body.span, hoisted);
         }
         self.fn_depth += 1;
         walk::walk_function(self, func, flags);
@@ -2377,9 +2397,9 @@ impl<'a> Visit<'a> for ModuleScopeBuilder<'_> {
                 // `var name = function(p){ body }` — the common minified helper form the
                 // old declaration-only finder missed. Only a factory-body-level (depth 1)
                 // binding is a module-scope helper.
-                Expression::FunctionExpression(f) if self.fn_depth == 1 => {
+                Expression::FunctionExpression(f) if self.fn_depth == 1 && !f.generator => {
                     if let Some(body) = f.body.as_ref() {
-                        self.record_fn(name.as_str(), &f.params, body.span);
+                        self.record_fn(name.as_str(), &f.params, body.span, false);
                     }
                 }
                 // `var name = { key: val, … }` — an enum value map — or the same object
@@ -2978,6 +2998,38 @@ fn one_read_per_property(fields: &mut [ParsedField]) -> bool {
         .all(|f| seen.insert(rust_member_form(&f.name)))
 }
 
+/// The expression a call actually invokes, through the wrappers that do not change it:
+/// parentheses, and a comma expression, whose value is its last element.
+///
+/// `(0, function(){ … })()` is how a minifier calls a function with `this` unbound, and reading
+/// only the parenthesised form classified that body as one nobody calls — so a write inside it
+/// stayed confined and the helper's fields were published on the node it had moved away from.
+fn invoked_callee<'b, 'a>(mut e: &'b Expression<'a>) -> &'b Expression<'a> {
+    loop {
+        e = match e {
+            Expression::ParenthesizedExpression(p) => &p.expression,
+            Expression::SequenceExpression(s) if !s.expressions.is_empty() => {
+                s.expressions.last().expect("checked non-empty")
+            }
+            other => return other,
+        };
+    }
+}
+
+/// Everything such a callee evaluates on the way to the function it invokes.
+fn leading_parts<'b, 'a>(e: &'b Expression<'a>, out: &mut Vec<&'b Expression<'a>>) {
+    match e {
+        Expression::ParenthesizedExpression(p) => leading_parts(&p.expression, out),
+        Expression::SequenceExpression(s) => {
+            if let Some((last, rest)) = s.expressions.split_last() {
+                out.extend(rest);
+                leading_parts(last, out);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Whether `t`'s finalizer can complete abruptly with something other than an error, in which
 /// case it hands that back whatever the block and handler did.
 ///
@@ -2990,9 +3042,22 @@ fn one_read_per_property(fields: &mut [ParsedField]) -> bool {
 /// Asked by `throws_out` about the try as a whole and by the visitor about the try's own reads.
 /// It was spelled inline for the first and not asked at all by the second.
 fn fin_leaves_with_a_value(t: &oxc_ast::ast::TryStatement<'_>) -> bool {
-    t.finalizer
-        .as_ref()
-        .is_some_and(|f| f.body.iter().any(exits_with_a_value))
+    let Some(fin) = t.finalizer.as_ref() else {
+        return false;
+    };
+    // In order, stopping where control does: `finally { throw Error(); return fallback; }`
+    // never reaches that `return`, and asking `any` of the whole list called the finalizer one
+    // that hands a result back — so a `try` that really does throw counted as a value path and
+    // diluted the intersection around it. The same in-order reading the statement walks use.
+    for st in &fin.body {
+        if exits_with_a_value(st) {
+            return true;
+        }
+        if ends_the_statement_list(st) {
+            return false;
+        }
+    }
+    false
 }
 
 /// Whether `body` can neither complete nor raise — it hangs, so nothing after it runs and no
@@ -4129,10 +4194,7 @@ impl<'a> Visit<'a> for AllBindings {
         // An immediately invoked function has certainly run by the time anything after the call
         // reads what it wrote — the one case where "does this nested function execute" is
         // decidable from the syntax alone.
-        let callee = match &call.callee {
-            Expression::ParenthesizedExpression(p) => &p.expression,
-            other => other,
-        };
+        let callee = invoked_callee(&call.callee);
         let runs_now = match callee {
             // A generator call runs none of the body — it builds an iterator, and whether
             // anything ever draws from it is the call-graph question this scanner does not
@@ -4165,8 +4227,15 @@ impl<'a> Visit<'a> for AllBindings {
         // Around the callee only: an argument that writes runs where it is written, and pinning
         // that to the call would order it after a body it precedes.
         self.effects_land_at.push(call.span.end);
-        self.visit_expression(&call.callee);
+        self.visit_expression(callee);
         self.effects_land_at.pop();
+        // Whatever a comma callee evaluates on the way to that function runs before the
+        // arguments and before the body, so it keeps its own position.
+        let mut leading = Vec::new();
+        leading_parts(&call.callee, &mut leading);
+        for part in leading {
+            self.visit_expression(part);
+        }
         // And the arguments run before that body, whatever their position relative to it:
         // `(function(){ parse(current); })(current = e)` reads what the argument assigned.
         // Only the callee's own span, so a read in another argument still orders normally
@@ -4472,6 +4541,17 @@ impl<'a> Visit<'a> for AllBindings {
                         &p.key,
                         p.value.as_ref(),
                     );
+                }
+                // Its braces are a scope: `static { let current = other; }` binds a NEW
+                // `current` that dies with the block, and walking it generically recorded that
+                // value against the OUTER binding — a second live value for the name, so the
+                // alias was refused and the helper's fields left the shape with nothing said.
+                oxc_ast::ast::ClassElement::StaticBlock(b) => {
+                    self.blocks.push(b.span);
+                    self.block_depth += 1;
+                    self.walk_in_order(&b.body, false);
+                    self.block_depth -= 1;
+                    self.blocks.pop();
                 }
                 other => self.visit_class_element(other),
             }
@@ -5837,6 +5917,15 @@ fn always_false(t: &Expression<'_>) -> bool {
         Expression::NumericLiteral(n) => n.value == 0.0,
         Expression::NullLiteral(_) => true,
         Expression::ParenthesizedExpression(p) => always_false(&p.expression),
+        // `while (!1)` and `if (!1)` are as decided as `!0` is, and this pair was written with
+        // the negation on one side only — so `if (!1) { … } else { parse(e); }` intersected the
+        // reads of a side nothing reaches, and left what the parser always performs optional.
+        // The two are each other's mirror and now say so.
+        Expression::UnaryExpression(u)
+            if u.operator == oxc_syntax::operator::UnaryOperator::LogicalNot =>
+        {
+            always_true(&u.argument)
+        }
         _ => false,
     }
 }
@@ -8779,7 +8868,7 @@ mod tests {
     }
 
     /// A module whose parser reaches `parse` only through `body`.
-    fn helper_reached_via(body: &str) -> Vec<ParsedField> {
+    pub(super) fn helper_reached_via(body: &str) -> Vec<ParsedField> {
         let module = format!(
             r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){{
             function parse(p){{ p.attrString("id"); }}
@@ -8799,7 +8888,7 @@ mod tests {
     /// `(field is required, its helper's guard is published)` for a callback body that
     /// reaches `parse` — which both reads `id` and asserts `kind`. The two travel together or
     /// the shape contradicts itself, so both are read from one run.
-    fn guards_and_field(body: &str) -> (bool, bool) {
+    pub(super) fn guards_and_field(body: &str) -> (bool, bool) {
         let module = format!(
             r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){{
             function parse(p){{ p.assertAttr("kind", "x"); p.attrString("id"); }}
@@ -9274,6 +9363,150 @@ mod tests {
                 .unwrap_or_else(|| panic!("`{body}` moved the node instead"));
             assert!(!id.required, "`{body}` has a path that assigns nothing");
         }
+    }
+
+    #[test]
+    fn a_negative_range_bound_is_a_bound_and_not_an_absent_one() {
+        // JavaScript has no negative literal: `-10` is a unary minus over `10`, so matching
+        // `NumericLiteral` recorded NO floor. That is not neutral — an absent floor beside a
+        // present ceiling is the open-bottom band, which the width rule reads as "signed, no
+        // lower limit", so the emitted decoder took a `-20` the accessor turns away. The
+        // opposite of what the bound is for, and reachable only for a negative one.
+        let r = analyze_parser_ast(
+            r#"{ e.attrIntRange("weight", -10, 10); e.attrIntRange("count", 1, 10);
+                 e.attrIntRange("ratio", 1.5, 10); }"#,
+            "e",
+        );
+        let band = |n: &str| {
+            r.fields
+                .iter()
+                .find(|f| f.name == n)
+                .map(|f| (f.int_min, f.int_max))
+                .expect("field")
+        };
+        assert_eq!(
+            band("weight"),
+            (Some(-10), Some(10)),
+            "the floor is negative"
+        );
+        // The bounds: an ordinary pair is unchanged, and a fractional literal is no bound at
+        // all — the cast this replaced truncated it to `1` and published a band the source
+        // never enforces.
+        assert_eq!(band("count"), (Some(1), Some(10)), "unchanged");
+        assert_eq!(
+            band("ratio"),
+            (None, Some(10)),
+            "1.5 is not an integer bound"
+        );
+    }
+
+    #[test]
+    fn a_negated_truthy_literal_selects_its_side_too() {
+        // `if (!1) { … } else { parse(e); }` runs the else on every execution. The pair of
+        // literal evaluators had the negation on ONE side, so this intersected the reads with a
+        // side nothing reaches and left what the parser always performs optional. They are each
+        // other's mirror and now say so.
+        for body in [
+            "if (!1) { other(); } else { parse(e); }",
+            "if (!0) { parse(e); } else { other(); }",
+            "if (0) { other(); } else { parse(e); }",
+        ] {
+            let id = helper_reached_via(body)
+                .into_iter()
+                .find(|f| f.name == "id")
+                .unwrap_or_else(|| panic!("`{body}` reaches parse"));
+            assert!(id.required, "`{body}` selects the reachable side");
+        }
+        // The bound: an ordinary test is still a branch, and both sides stay conditional.
+        let id = helper_reached_via("if (flag) { other(); } else { parse(e); }")
+            .into_iter()
+            .find(|f| f.name == "id")
+            .expect("recovered");
+        assert!(!id.required, "an undecided test is still a branch");
+    }
+
+    #[test]
+    fn a_comma_wrapped_callee_is_still_immediately_invoked() {
+        // `(0, function(){ current = other; })()` is how a minifier calls a function with
+        // `this` unbound. The matcher unwrapped parentheses only, so that body was classified
+        // as one nobody calls: the write stayed confined and the helper's fields were published
+        // on the node the parser had already moved away from — the wrong node, confidently.
+        for body in [
+            "var current = e; (0, function(){ current = other; })(); parse(current);",
+            "var current = e; (0, 1, () => { current = other; })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "`{body}` moved the node: {:?}",
+                fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+            );
+        }
+        // And what the comma evaluates on the way to the function keeps its own position: it
+        // runs before the call, and before the arguments. Pinning it to the call the way the
+        // BODY's writes are pinned reads it as later than an argument it precedes, which is the
+        // wrong node again — so the read has to sit in an argument to tell the two apart.
+        for body in [
+            "var current = e; ((current = other), function(){})(parse(current));",
+            "var current = e; ((current = other), function(){})(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "`{body}` moved the node before the read: {:?}",
+                fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn a_static_block_binds_its_own_lexical_names() {
+        // `class C { static { let current = other; } }` binds a NEW `current` that dies with
+        // the block. Walking it generically recorded that value against the OUTER binding, so
+        // the name had two live values, the alias was refused, and every field the helper reads
+        // left the shape with nothing recorded.
+        let fields = helper_reached_via(
+            "var current = e; class C { static { let current = other; } } parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the inner binding is its own: {:?}",
+            fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+        // The bound: a static block runs when the class is DEFINED, so an assignment to the
+        // captured outer name really does move the node.
+        let fields = helper_reached_via(
+            "var current = e; class C { static { current = other; } } parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the outer name was assigned: {:?}",
+            fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_finalizer_exit_nothing_reaches_does_not_override() {
+        // `finally { throw Error(); return fallback; }` never reaches that `return`, and asking
+        // `any` of the whole list called the finalizer one that hands a result back — so a
+        // `try` that really does throw counted as a value path and diluted the intersection
+        // around it. Walked in order now, stopping where control does.
+        assert_eq!(
+            guards_and_field(
+                "if (flag) { try { other(); } finally { throw Error(); return fallback; } }
+                 else { parse(e); }"
+            ),
+            (true, true),
+            "the return is unreachable"
+        );
+        // The bound: a return the finalizer does reach still overrides whatever was thrown.
+        assert_eq!(
+            guards_and_field(
+                "if (flag) { try { other(); } finally { return fallback; } } else { parse(e); }"
+            ),
+            (false, false),
+            "the finalizer hands back a result"
+        );
     }
 
     #[test]
@@ -11598,6 +11831,103 @@ mod tests {
                 fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
             );
         }
+    }
+
+    #[test]
+    fn a_generator_helper_is_not_one_the_call_runs() {
+        // `function* parse(p){…}` called as `parse(e)` builds an iterator and runs none of the
+        // body, so descending into it required of every response what no execution of that call
+        // reads — the generated decoder then turns away input the source callback accepts
+        // without looking at. The IIFE rule learned this one round earlier; the site that
+        // decides whether a module HELPER runs had not.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function* parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                parse(e);
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        assert!(
+            !p.fields.iter().any(|f| f.name == "id"),
+            "the body never runs: {:?}",
+            p.fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_helper_the_call_does_run_is_still_descended_into() {
+        // The bounds. A plain declaration runs, and so does an `async` one — its body executes
+        // synchronously as far as its first `await`, and there is none here. Declining every
+        // function whose form is unusual would lose what the parser really reads.
+        for helper in [
+            r#"function parse(p){ p.attrString("id"); }"#,
+            r#"async function parse(p){ p.attrString("id"); }"#,
+        ] {
+            let module = format!(
+                r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){{
+                {helper}
+                var c=new(r("WADeprecatedWapParser"))("p", function(e){{
+                    e.assertTag("receipt");
+                    parse(e);
+                }});
+            }}),1);"#
+            );
+            let out = parse_module_wap_parsers(&module);
+            let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+            assert!(
+                p.fields.iter().any(|f| f.name == "id"),
+                "`{helper}` runs: {:?}",
+                p.fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn the_later_of_two_hoisted_declarations_is_the_one_that_runs() {
+        // Both are hoisted and the later assignment is the binding left standing, so `parse(e)`
+        // calls the second body. Keeping the first published the fields of a body that never
+        // runs and omitted the ones that do — a shape disagreeing with the helper the parser
+        // actually calls.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("wrong"); }
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                parse(e);
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let names: Vec<String> = p.fields.iter().map(|f| f.name.clone()).collect();
+        assert!(
+            names.iter().any(|n| n == "id") && !names.iter().any(|n| n == "wrong"),
+            "the second declaration is the live one: {names:?}"
+        );
+    }
+
+    #[test]
+    fn two_assigned_function_expressions_keep_the_first() {
+        // The bound, and why the rule is about HOISTING rather than about being last: `var
+        // parse = function(){…}` is not hoisted, so which of two is live depends on where the
+        // call sits — `var parse = A; parse(e); var parse = B;` calls A. First-wins is the
+        // conservative reading there and is unchanged.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            var parse = function(p){ p.attrString("id"); };
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                parse(e);
+            });
+            var parse = function(p){ p.attrString("later"); };
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let names: Vec<String> = p.fields.iter().map(|f| f.name.clone()).collect();
+        assert!(
+            names.iter().any(|n| n == "id") && !names.iter().any(|n| n == "later"),
+            "the one live at the call: {names:?}"
+        );
     }
 
     #[test]
