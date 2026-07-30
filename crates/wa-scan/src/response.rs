@@ -691,15 +691,30 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
     fn visit_switch_statement(&mut self, stmt: &oxc_ast::ast::SwitchStatement<'a>) {
         // The discriminant is evaluated to choose a case, so it runs whichever case wins.
         self.visit_expression(&stmt.discriminant);
-        // The first TESTED case is evaluated before any case can be selected, so it runs
-        // whatever happens; the later ones only if the earlier tests did not match. A
-        // `default` written first is not a test and does not shield the one after it —
-        // `switch (mode) { default: break; case parse(e): break; }` still evaluates `parse`.
-        let first_tested = stmt.cases.iter().position(|c| c.test.is_some());
-        if let Some(k) = first_tested
-            && let Some(test) = stmt.cases[k].test.as_ref()
-        {
-            self.visit_expression(test);
+        // Tests are evaluated in order until one matches, so a test is skipped only when an
+        // earlier one matched. A test is therefore reached on every execution that can produce
+        // a value when every earlier tested case, once entered, THROWS — the paths that skip it
+        // are exactly the paths that hand nothing back.
+        //
+        // The first tested case is the vacuous instance of that, and a `default` written first
+        // is not a test and does not shield the one after it: `switch (mode) { default: break;
+        // case parse(e): break; }` still evaluates `parse`. So is `switch (mode) { case "a":
+        // throw Error(); case parse(e): break; default: break; }`, where the only value-
+        // producing executions are the ones that fell through the `"a"` test — reading that
+        // second test as conditional relaxed a read every successful parse performs.
+        let entry_throws = entry_paths_throw(&stmt.cases);
+        let always_evaluated: Vec<bool> = (0..stmt.cases.len())
+            .map(|i| {
+                stmt.cases[i].test.is_some()
+                    && (0..i).all(|j| stmt.cases[j].test.is_none() || entry_throws[j])
+            })
+            .collect();
+        for (i, case) in stmt.cases.iter().enumerate() {
+            if always_evaluated[i]
+                && let Some(test) = case.test.as_ref()
+            {
+                self.visit_expression(test);
+            }
         }
         let before = (self.assertions.len(), self.relaxed_by_branch.len());
         self.conditional_depth += 1;
@@ -718,7 +733,7 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
             // Falling through into a case runs its CONSEQUENT, never its test, so the two are
             // collected apart — folding a later case's test into the entry path had
             // `case "a": case parse(e): break;` promote reads the `"a"` path never performs.
-            if first_tested != Some(i)
+            if !always_evaluated[i]
                 && let Some(test) = case.test.as_ref()
             {
                 self.visit_expression(test);
@@ -739,10 +754,7 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
         let mut entry_guards: Vec<Vec<ResponseAssertion>> = vec![Vec::new(); stmt.cases.len()];
         for i in (0..stmt.cases.len()).rev() {
             let body = &stmt.cases[i].consequent;
-            let leaves = body.iter().any(exits_unconditionally)
-                || body
-                    .iter()
-                    .any(|st| matches!(st, Statement::BreakStatement(_)));
+            let leaves = leaves_switch(body);
             let mut weak = per_case[i].clone();
             let mut guards = per_case_guards[i].clone();
             if !leaves && i + 1 < stmt.cases.len() {
@@ -931,9 +943,28 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
                     self.conditional_assertions[after_try.0..].to_vec(),
                     self.relaxed_by_branch[after_try.1..].to_vec(),
                 );
-                let established = branch_intersection(&tried.1, &caught.1);
+                // Over the paths that can PRODUCE a result, the same filter the switch arms
+                // get. `catch (_) { throw Error(); }` hands nothing back, so every execution
+                // that yielded a result completed the block — intersecting against the empty
+                // handler left the block's reads optional where every successful parse
+                // performs them. Both throwing means no path yields anything and nothing is
+                // established, which `unwrap_or_default` already says.
+                let mut weak_sides = Vec::new();
+                let mut guard_sides = Vec::new();
+                if !throws_out(&stmt.block.body) {
+                    weak_sides.push(tried.1);
+                    guard_sides.push(tried.0);
+                }
+                if !throws_out(&h.body.body) {
+                    weak_sides.push(caught.1);
+                    guard_sides.push(caught.0);
+                }
+                let established = weak_sides
+                    .into_iter()
+                    .reduce(|a, b| branch_intersection(&a, &b))
+                    .unwrap_or_default();
                 self.relaxed_by_branch.truncate(before.1);
-                self.settle_guard_intersection(before.0, &[tried.0, caught.0]);
+                self.settle_guard_intersection(before.0, &guard_sides);
                 self.settle_branch_intersection(established);
                 self.conditional_depth -= 1;
             }
@@ -2651,21 +2682,64 @@ fn one_read_per_property(fields: &mut [ParsedField]) -> bool {
         .all(|f| seen.insert(rust_member_form(&f.name)))
 }
 
-/// Whether `stmt` ends the body on every path it can take. A bare `return`/`throw`, or a
-/// block that reaches one — `{ return result; }` runs exactly as the bare statement does,
-/// and the arms after either of them are unreachable.
 /// Whether every path through `body` leaves by throwing, so it can produce no result at all.
 ///
 /// A `switch` arm like `default: throw Error()` is not a path a successful parse can have
 /// taken, so it has nothing to say about which fields such a parse read.
+///
+/// EVERY path, which is why this walks in order and stops rather than asking `any`. In
+/// `{ if (flag) break; throw Error(); }` the throw is reachable but so is the break, and
+/// calling that arm non-completing let `entry_paths_throw` promote a later case test the
+/// breaking path never evaluates. Anything that can leave without throwing ends the question
+/// where it stands.
 fn throws_out(body: &[Statement<'_>]) -> bool {
-    body.iter().any(|st| match st {
-        Statement::ThrowStatement(_) => true,
-        Statement::BlockStatement(b) => throws_out(&b.body),
-        _ => false,
-    })
+    for st in body {
+        let throws = match st {
+            Statement::ThrowStatement(_) => true,
+            Statement::BlockStatement(b) => throws_out(&b.body),
+            _ => false,
+        };
+        if throws {
+            return true;
+        }
+        if contains_exit(st) {
+            return false;
+        }
+    }
+    false
 }
 
+/// For each case, whether ENTERING there leaves the switch by throwing on every path — its
+/// own consequent throws, or it falls through into a chain that does.
+///
+/// Which is what says whether a later case's test can be skipped by anything that still
+/// produces a value: a case that throws is not one of those paths.
+fn entry_paths_throw(cases: &oxc_allocator::Vec<'_, oxc_ast::ast::SwitchCase<'_>>) -> Vec<bool> {
+    let mut out = vec![false; cases.len()];
+    for i in (0..cases.len()).rev() {
+        let body = &cases[i].consequent;
+        out[i] = throws_out(body) || (!leaves_switch(body) && i + 1 < cases.len() && out[i + 1]);
+    }
+    out
+}
+
+/// Whether an arm can end the switch rather than falling into the next one. Both passes over
+/// the cases ask this, and asking it twice in two spellings is how the fallthrough model
+/// drifts.
+///
+/// CAN, not must: what the next arm establishes is only guaranteed for an entry path that
+/// certainly reaches it, so `case "a": if (flag) break;` must not borrow the default's reads
+/// either. And matching only a top-level `BreakStatement` missed `case "a": { break; }`,
+/// which leaves exactly as the bare form does — `contains_exit` already answers both,
+/// including attributing an unlabelled `break` to a nested loop or switch rather than to
+/// this one.
+fn leaves_switch(body: &[Statement<'_>]) -> bool {
+    body.iter().any(contains_exit)
+}
+
+/// Whether `stmt` ends the body on every path it can take. A bare `return`/`throw`, or a
+/// block that reaches one — `{ return result; }` runs exactly as the bare statement does,
+/// and the arms after either of them are unreachable.
 fn exits_unconditionally(stmt: &Statement<'_>) -> bool {
     match stmt {
         Statement::ReturnStatement(_) | Statement::ThrowStatement(_) => true,
@@ -3055,14 +3129,30 @@ struct AllBindings {
 }
 
 impl AllBindings {
-    /// Record that `name` was given a value, scoped to the function it sits in. A top-level
-    /// one covers the whole analysed source, the same split `names`/`scoped` keeps.
-    fn given_value(&mut self, name: &str, from: Option<&str>, at: Span) {
-        let extent = self
-            .fns
-            .last()
-            .copied()
-            .unwrap_or_else(|| Span::new(0, u32::MAX));
+    /// Record that `name` was given a value, scoped to the extent the value can be read
+    /// through. A top-level one covers the whole analysed source, the same split
+    /// `names`/`scoped` keeps.
+    ///
+    /// `lexical` is for a `let`/`const` DECLARATOR, whose value dies with its block: after
+    /// `{ let current = row; }` the name `current` at the call site is a different binding
+    /// entirely, and giving the copy the whole function extent had `names_for` follow the
+    /// expired one and file the helper's reads under `<row>`. `bind` already kept this split
+    /// and this collector did not. An ASSIGNMENT is not this — `current = row` inside a block
+    /// writes through whatever binding is in scope, which reaches as far as that binding
+    /// does, so the function extent stays the conservative answer for it.
+    fn given_value(&mut self, name: &str, from: Option<&str>, at: Span, lexical: bool) {
+        let extent = if lexical {
+            self.blocks
+                .last()
+                .copied()
+                .or_else(|| self.fns.last().copied())
+                .unwrap_or_else(|| Span::new(0, u32::MAX))
+        } else {
+            self.fns
+                .last()
+                .copied()
+                .unwrap_or_else(|| Span::new(0, u32::MAX))
+        };
         self.given.push(Given {
             scope: extent,
             name: name.to_string(),
@@ -3126,7 +3216,7 @@ impl<'a> Visit<'a> for AllBindings {
                 // `+=` and friends compute from the old value, so the name is not a copy.
                 _ => None,
             };
-            self.given_value(t.name.as_str(), from, t.span);
+            self.given_value(t.name.as_str(), from, t.span, false);
         }
         walk::walk_assignment_expression(self, e);
     }
@@ -3138,7 +3228,7 @@ impl<'a> Visit<'a> for AllBindings {
                     Expression::Identifier(src) => Some(src.name.as_str()),
                     _ => None,
                 };
-                self.given_value(id.name.as_str(), from, id.span);
+                self.given_value(id.name.as_str(), from, id.span, decl.kind.is_lexical());
             }
         }
         let outer = self.hoists;
@@ -7405,6 +7495,66 @@ mod tests {
     }
 
     #[test]
+    fn a_block_local_copy_does_not_name_the_node_outside_its_block() {
+        // `{ let current = row; } parse(current)` calls the helper with the OUTER `current`,
+        // whatever that is — the block-local copy died with its block. Recording every copy
+        // with the enclosing function extent had `names_for` follow the expired one and file
+        // `id` under `<row>`, which is the harmful direction: consumers reject `<row>`
+        // elements the parser accepts. `bind` already kept the lexical/hoisting split; the
+        // value collector did not.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            var current = t.somethingElse;
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                e.mapChildrenWithTag("row", function(row){
+                    { let current = row; }
+                    parse(current);
+                });
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let row = p.fields.iter().find(|f| f.name == "row").expect("row");
+        let at_root = row
+            .children
+            .as_ref()
+            .is_some_and(|kids| kids.iter().any(|f| f.name == "id"));
+        assert!(
+            !at_root,
+            "the block-local copy is out of scope: {:?}",
+            row.children
+        );
+    }
+
+    #[test]
+    fn a_var_copy_in_a_block_still_names_the_node_after_it() {
+        // The bound on that: `var` hoists out of the block, so `{ var current = row; }
+        // parse(current)` really does hand the helper the row — treating every copy as
+        // block-scoped would lose it, and silently.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                e.mapChildrenWithTag("row", function(row){
+                    { var current = row; }
+                    parse(current);
+                });
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let row = p.fields.iter().find(|f| f.name == "row").expect("row");
+        assert!(
+            row.children
+                .as_ref()
+                .is_some_and(|kids| kids.iter().any(|f| f.name == "id")),
+            "a hoisting copy outlives its block: {:?}",
+            row.children
+        );
+    }
+
+    #[test]
     fn an_alias_captured_before_the_node_moves_is_still_followed() {
         // `var original = row; row = row.child("detail"); parse(original)` — `original` still
         // names the row. Rejecting the whole call because the PARAMETER was written somewhere
@@ -7813,6 +7963,79 @@ mod tests {
     }
 
     #[test]
+    fn a_case_test_past_a_throwing_arm_is_always_reached() {
+        // `switch (mode) { case "a": throw Error(); case parse(e): break; default: break; }` —
+        // the only way to skip the second test is for `"a"` to match, and that path hands back
+        // nothing. So every execution that produces a value evaluated `parse`. This is the
+        // general form of the first-tested-case rule: a test is reached on every value path
+        // when every earlier tested arm, once entered, throws.
+        let fields = helper_reached_via(
+            r#"switch (mode) { case "a": throw Error("bad"); case parse(e): break; default: break; }"#,
+        );
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(id.required, "the skipping path throws: {id:?}");
+    }
+
+    #[test]
+    fn a_case_test_past_a_throwing_arm_that_falls_through_is_reached_too() {
+        // `case "a":` with an empty consequent falls into the next arm, so entering at `"a"`
+        // runs the `throw` below it — the chain is what throws, not the arm alone.
+        let fields = helper_reached_via(
+            r#"switch (mode) { case "a": case "b": throw Error("bad");
+                              case parse(e): break; default: break; }"#,
+        );
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(id.required, "the fallthrough chain throws: {id:?}");
+    }
+
+    #[test]
+    fn a_case_test_past_a_throwing_arm_that_breaks_first_is_not_reached() {
+        // The bound: `case "a": break;` ahead of the throw leaves the switch WITHOUT throwing,
+        // so a value-producing path skipped the later test after all.
+        let fields = helper_reached_via(
+            r#"switch (mode) { case "a": break; case parse(e): break; default: break; }"#,
+        );
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(!id.required, "the break returns a value: {id:?}");
+    }
+
+    #[test]
+    fn a_case_that_can_break_before_throwing_does_not_certainly_throw() {
+        // `case "a": if (flag) break; throw Error();` reaches the throw on one path and leaves
+        // normally on the other, so it IS one of the value-producing paths — and one that never
+        // evaluated the later test. Asking whether a throw appears anywhere in the arm, rather
+        // than whether every path reaches one, promoted a read the breaking path skips.
+        let fields = helper_reached_via(
+            r#"switch (mode) { case "a": if (flag) break; throw Error("bad");
+                              case parse(e): break; default: break; }"#,
+        );
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(!id.required, "the break is a path out with a value: {id:?}");
+    }
+
+    #[test]
+    fn a_case_whose_break_is_wrapped_in_a_block_does_not_borrow_the_next_ones_reads() {
+        // `case "a": { break; }` leaves the switch exactly as a bare `break` does. Matching
+        // only a top-level `BreakStatement` read it as falling through, so entering at `"a"`
+        // inherited the default's reads and promoted what that path never performs.
+        let fields =
+            helper_reached_via(r#"switch (mode) { case "a": { break; } default: parse(e); }"#);
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(!id.required, "the wrapped break still leaves: {id:?}");
+    }
+
+    #[test]
+    fn a_case_that_may_break_does_not_borrow_the_next_ones_reads_either() {
+        // What the next arm establishes is guaranteed only for an entry path that certainly
+        // reaches it, so a conditional `break` is enough to stop the borrowing.
+        let fields = helper_reached_via(
+            r#"switch (mode) { case "a": if (flag) break; default: parse(e); }"#,
+        );
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(!id.required, "the break may skip the default: {id:?}");
+    }
+
+    #[test]
     fn a_case_test_after_a_matching_one_is_not_always_reached() {
         // The other side of the same rule: once a test can match, the ones after it are only
         // reached when it did not, so `switch (mode) { case "a": break; case parse(e): break; }`
@@ -7932,6 +8155,33 @@ mod tests {
     fn a_helper_guard_from_one_side_of_a_branch_is_not_published() {
         let guards = guards_and_field("if (c) { parse(e); }");
         assert_eq!(guards, (false, false), "one side establishes neither");
+    }
+
+    #[test]
+    fn a_throwing_catch_does_not_relax_the_block_it_guards() {
+        // `catch (_) { throw Error(); }` hands nothing back, so every execution that produced
+        // a result completed the block. Intersecting the block's reads against the empty
+        // throwing handler left them optional where every successful parse performs them —
+        // the same rule the switch arms get, one construct over.
+        let fields = helper_reached_via(r#"try { parse(e); } catch (x) { throw Error("bad"); }"#);
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(id.required, "the handler yields nothing: {id:?}");
+    }
+
+    #[test]
+    fn a_catch_that_swallows_the_error_still_relaxes_the_block() {
+        // The bound: a handler that RETURNS a result is a path on which the block stopped
+        // partway, so what the block read past a throwing call is not read every time.
+        let fields = helper_reached_via("try { parse(e); } catch (x) { other(e); }");
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(!id.required, "the handler is a path too: {id:?}");
+    }
+
+    #[test]
+    fn a_guard_from_a_block_whose_catch_throws_is_published() {
+        // And the guard travels with the field, as everywhere else.
+        let guards = guards_and_field(r#"try { parse(e); } catch (x) { throw Error("bad"); }"#);
+        assert_eq!(guards, (true, true), "the only surviving path calls it");
     }
 
     #[test]
