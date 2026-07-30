@@ -300,6 +300,7 @@ fn field_from_call(
     method: &str,
     call: &CallExpression,
     module_scope: &ModuleScope,
+    undefined_shadowed: bool,
     unresolved: &mut Vec<String>,
 ) -> ParsedField {
     let arg0 = call.arguments.first().and_then(arg_expr);
@@ -379,7 +380,7 @@ fn field_from_call(
                 // A missing argument, `void 0`, `undefined` or `null`: the accessor is told
                 // there is no bound on that side.
                 None => IntBound::Open,
-                Some(e) if is_no_bound(e) => IntBound::Open,
+                Some(e) if is_no_bound(e, undefined_shadowed) => IntBound::Open,
                 // Through `as_int`, because JavaScript has no negative literal: `-10` is a
                 // unary minus over `10`. It also turns away a fractional or out-of-range
                 // literal, which the old cast quietly truncated.
@@ -590,12 +591,19 @@ impl IntBound {
 }
 
 /// Whether `e` is how a source says "no bound on this side".
-fn is_no_bound(e: &Expression<'_>) -> bool {
+///
+/// `undefined` is an ordinary identifier and a source may bind it — `{ let undefined = 5;
+/// e.attrIntRange("score", undefined, 10) }` enforces a floor of five. Reading the spelling
+/// alone recorded no lower bound, and an absent floor is the open-bottom band, which the width
+/// rule reads as "signed with no lower limit": the emitted decoder took a negative the accessor
+/// turns away. `shadowed` says whether that name is bound where the call sits; `void` and
+/// `null` are operators and a literal, which nothing can rebind.
+fn is_no_bound(e: &Expression<'_>, shadowed: bool) -> bool {
     match e {
         Expression::NullLiteral(_) => true,
-        Expression::Identifier(i) => i.name == "undefined",
+        Expression::Identifier(i) => i.name == "undefined" && !shadowed,
         Expression::UnaryExpression(u) => u.operator == oxc_syntax::operator::UnaryOperator::Void,
-        Expression::ParenthesizedExpression(p) => is_no_bound(&p.expression),
+        Expression::ParenthesizedExpression(p) => is_no_bound(&p.expression, shadowed),
         _ => false,
     }
 }
@@ -1643,7 +1651,13 @@ impl ParserAnalyzer<'_, '_> {
     /// `hasChild(…) ? … : null` it is not required of every element, however unconditional
     /// the accessor itself looks.
     fn read_field(&mut self, method: &str, call: &CallExpression) -> ParsedField {
-        let mut f = field_from_call(method, call, self.module, &mut self.unresolved);
+        let mut f = field_from_call(
+            method,
+            call,
+            self.module,
+            self.local_bindings.shadows("undefined", call.span),
+            &mut self.unresolved,
+        );
         let wire = f.wire_name.clone().unwrap_or_else(|| f.name.clone());
         let node = callee_object(call)
             .and_then(receiver_path)
@@ -4477,28 +4491,107 @@ fn bound_getters<'b, 'a>(
                 _ => Vec::new(),
             },
         };
-        for prop in &pat.properties {
-            let Some(name) = prop.key.static_name() else {
-                continue;
-            };
-            // The property the object ends up with, which a spread may have replaced: `{ get
-            // x(){ … }, ...{x: 1} }` binds `x` to the data property and the getter body is
-            // dead, so marking it immediate recorded a write that happens on no path. One that
-            // demonstrably cannot hold the name — `...{y: 1}` — leaves the getter standing,
-            // which is the half a blanket cut at the last spread was losing.
-            let getter = objects
-                .iter()
-                .rev()
-                .find_map(|supplied| owned_property(supplied, name.as_ref()));
-            if let Some(op) = getter
-                && op.kind == oxc_ast::ast::PropertyKind::Get
+        for object in objects.iter().rev() {
+            getters_in_pattern(pat, object, &mut out);
+        }
+    }
+    out
+}
+
+/// Whether binding these parameters must fail, so the body is entered on no path.
+///
+/// A pattern destructures its value, and `null` and `undefined` have no properties: `function
+/// ({x}) {}` called with either throws a `TypeError` before the first statement. Only the
+/// spellings that settle it — `null`, `void 0` and a bare `undefined` this scan can read — and
+/// only against a pattern that really takes the value apart, which a plain identifier parameter
+/// does not.
+///
+/// A missing argument is `undefined` too, so `(function ({x}) {})()` throws as surely as
+/// passing it: the position past the end of the list counts.
+fn binding_certainly_throws(
+    callee: &Expression<'_>,
+    effective: &[Option<&Expression<'_>>],
+    implicit_leading: usize,
+    complete: bool,
+    constructs: bool,
+) -> bool {
+    let Some(params) = callee_params(callee, constructs) else {
+        return false;
+    };
+    params.items.iter().enumerate().any(|(i, param)| {
+        // A position supplied without an expression — a tagged template's strings object — is
+        // an array, which destructures perfectly well.
+        let Some(slot) = i.checked_sub(implicit_leading) else {
+            return false;
+        };
+        if !matches!(
+            param.pattern,
+            oxc_ast::ast::BindingPattern::ObjectPattern(_)
+                | oxc_ast::ast::BindingPattern::ArrayPattern(_)
+        ) {
+            return false;
+        }
+        // A default runs for exactly the values that would otherwise throw, so a parameter
+        // carrying one never fails to bind.
+        if param.initializer.is_some() {
+            return false;
+        }
+        match effective.get(slot) {
+            Some(Some(a)) => certainly_nullish(a),
+            // An elision holds `undefined`; past the end of a COMPLETE list, so does the
+            // position. A list stopped by a spread says nothing about what lands here.
+            Some(None) => true,
+            None => complete,
+        }
+    })
+}
+
+/// The getters binding `pat` against `object` will invoke, at every depth of the pattern.
+///
+/// A nested pattern destructures the value of the property above it, and binding it invokes
+/// that property's getter too: `(function ({a: {x}}) {})({a: {get x(){ … }}})` runs the getter
+/// before the body is entered. Reading only the pattern's top level left it deferred, and the
+/// helper's fields were published on the node the write had moved away from.
+///
+/// Still shallow in the ways that matter: a computed key names nothing this can read, and a
+/// property whose value is not a literal object ends the descent, which loses a getter rather
+/// than inventing one.
+fn getters_in_pattern<'a>(
+    pat: &oxc_ast::ast::ObjectPattern<'a>,
+    object: &oxc_ast::ast::ObjectExpression<'a>,
+    out: &mut Vec<Span>,
+) {
+    for prop in &pat.properties {
+        let Some(name) = prop.key.static_name() else {
+            continue;
+        };
+        // The property the object ends up with, which a spread may have replaced: `{ get
+        // x(){ … }, ...{x: 1} }` binds `x` to the data property and the getter body is
+        // dead, so marking it immediate recorded a write that happens on no path. One that
+        // demonstrably cannot hold the name — `...{y: 1}` — leaves the getter standing,
+        // which is the half a blanket cut at the last spread was losing.
+        let Some(op) = owned_property(object, name.as_ref()) else {
+            continue;
+        };
+        {
+            if op.kind == oxc_ast::ast::PropertyKind::Get
                 && let Expression::FunctionExpression(f) = &op.value
             {
                 out.push(f.span);
             }
         }
+        // …and one level further in, for as far as both sides are written out. The pattern
+        // below this property takes apart the value of THIS one, so a getter there is invoked
+        // by the same binding.
+        // No `PropertyKind::Init` test beside the match: a getter's or setter's value is a
+        // FUNCTION, never an object literal, so the pattern below already excludes them. The
+        // mutation dropping it changed no answer, and the redundancy is visible right here.
+        if let oxc_ast::ast::BindingPattern::ObjectPattern(inner) = &prop.value
+            && let Expression::ObjectExpression(o) = &op.value
+        {
+            getters_in_pattern(inner, o, out);
+        }
     }
-    out
 }
 
 /// The formals a call binds, for the callee shapes that have any.
@@ -5610,6 +5703,7 @@ impl AllBindings {
         if constructs && !is_constructible(callee) {
             return false;
         }
+
         let runs_now = match callee {
             // A generator call runs none of the BODY — it builds an iterator, and whether
             // anything ever draws from it is the call-graph question this scanner does not
@@ -5654,6 +5748,41 @@ impl AllBindings {
         //
         // Around the callee only: an argument that writes runs where it is written, and pinning
         // that to the call would order it after a body it precedes.
+        let (effective, implicit_leading) = match template {
+            Some(q) => (
+                q.expressions.iter().map(Some).collect::<Vec<_>>(),
+                // The strings object, and only it: the substitutions follow it one for one.
+                1,
+            ),
+            None => (effective_arguments(callee_expr, arguments), 0),
+        };
+        // Destructuring `null` or `undefined` throws while the parameters are bound, before the
+        // body is entered — `(function ({x}) { … })(null)` runs none of it. The invocation was
+        // approved on the callee alone, so the body's writes were recorded for a call that
+        // performs them on no path. Declining here leaves the ARGUMENTS to the ordinary walk,
+        // which is right: they are evaluated before the binding and their own writes happen.
+        //
+        // Asked of the EFFECTIVE list, so a tagged template's strings object counts as the
+        // value it supplies at position 0 — my first draft asked it of the written arguments
+        // alone and read every tagged template as a binding failure.
+        let complete = template.is_some() || mapped(arguments).1;
+        if binding_certainly_throws(callee, &effective, implicit_leading, complete, constructs) {
+            // The arguments are evaluated BEFORE the binding, so their own writes happen and
+            // are walked here. The body is entered on no path, so it is walked as unreachable
+            // — declining the invocation and leaving it to the ordinary walk was not enough:
+            // a deferred body's writes are still recorded, and one of them counted as a live
+            // value for the name, which refused the alias just as surely.
+            for arg in arguments {
+                self.visit_argument(arg);
+            }
+            if let Some(q) = template {
+                self.visit_template_literal(q);
+            }
+            self.unreachable += 1;
+            self.visit_expression(callee_expr);
+            self.unreachable -= 1;
+            return true;
+        }
         self.effects_land_at.push((
             construction_regions(callee, constructs),
             callee.span(),
@@ -5663,15 +5792,8 @@ impl AllBindings {
         // mapping is the substitutions shifted one place — and position 0 is supplied by a value
         // that is certainly not `undefined`, whatever the template says. Handing this an empty
         // list, which is what the round that taught it tagged templates did, read parameter 0 as
-        // unsupplied and recorded a default the call always prevents.
-        let (effective, implicit_leading) = match template {
-            Some(q) => (
-                q.expressions.iter().map(Some).collect::<Vec<_>>(),
-                // The strings object, and only it: the substitutions follow it one for one.
-                1,
-            ),
-            None => (effective_arguments(callee_expr, arguments), 0),
-        };
+        // unsupplied and recorded a default the call always prevents. Computed above, because
+        // the binding check reads it too.
         // Registered before the callee is walked, not only around the arguments: a getter the
         // binding invokes may live in the PARAMETER's own default object, which is inside the
         // callee. It is matched by span in `visit_function`, so widening the window reaches
@@ -6274,6 +6396,18 @@ impl<'a> Visit<'a> for AllBindings {
         // `flag && (current = e)` assigns only when the left side allowed it — and `!0 && …`
         // always allows it.
         self.visit_expression(&expr.left);
+        // A left side that settles the operator makes its right side dead, not merely
+        // skippable: `0 && (current = other)` evaluates nothing there, so that assignment is
+        // not a second live value for the name and the alias beside it stands. Walking it as a
+        // conditional write kept both values live and the descent was refused for an ambiguity
+        // no execution has — the same pruning `if` and the ternary have had since round
+        // thirty-seven, in the spelling that never got it.
+        if logical_right_is_dead(expr) {
+            self.unreachable += 1;
+            self.visit_expression(&expr.right);
+            self.unreachable -= 1;
+            return;
+        }
         if logical_right_is_certain(expr) {
             self.visit_expression(&expr.right);
             return;
@@ -7122,7 +7256,7 @@ impl<'a> Visit<'a> for DiscriminatorFinder<'_> {
                 && let Some(wire) = arg_str(call, 0)
             {
                 let mut discard = Vec::new();
-                let mut f = field_from_call(method, call, self.module, &mut discard);
+                let mut f = field_from_call(method, call, self.module, false, &mut discard);
                 f.name = wire.to_string();
                 f.wire_name = None;
                 let extent = self.blocks.last().copied();
@@ -8208,6 +8342,19 @@ fn iterates_at_least_once(e: &Expression<'_>) -> bool {
         Expression::StringLiteral(l) => !l.value.is_empty(),
         Expression::TemplateLiteral(t) => single_quasi(t).is_some_and(|c| !c.is_empty()),
         _ => false,
+    }
+}
+
+/// Whether the left side settles the operator, so the right side is evaluated on no path.
+///
+/// The mirror of [`logical_right_is_certain`]: `&&` skips its right side when the left is
+/// falsy, `||` when it is truthy, and `??` when it is neither `null` nor `undefined`.
+fn logical_right_is_dead(e: &oxc_ast::ast::LogicalExpression<'_>) -> bool {
+    use oxc_syntax::operator::LogicalOperator as L;
+    match e.operator {
+        L::And => always_false(&e.left),
+        L::Or => always_true(&e.left),
+        L::Coalesce => never_nullish(&e.left),
     }
 }
 
@@ -11643,19 +11790,29 @@ mod tests {
             fields.iter().any(|f| f.name == "id"),
             "the strings array supplied that element: {fields:?}"
         );
-        // The bounds. A parameter past the strings object is supplied by nothing, so its
-        // default runs; and an element past the last quasi is `undefined`, so its default runs
-        // too — which is where reading the array stops.
-        for body in [
-            "var current = e; (function (a, [x = (current = other)]) {})`tag`; parse(current);",
+        // The bound: an element past the last quasi is `undefined`, so ITS default runs — which
+        // is where reading the array stops.
+        let fields = helper_reached_via(
             "var current = e; (function ([x, y = (current = other)]) {})`tag`; parse(current);",
-        ] {
-            let fields = helper_reached_via(body);
-            assert!(
-                !fields.iter().any(|f| f.name == "id"),
-                "that default still runs: {body}"
-            );
-        }
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "there is no second string, so that default runs: {fields:?}"
+        );
+        // And a case that has moved sides. I had this as a second bound, reasoning that a
+        // parameter past the strings object is supplied by nothing so its default runs. The
+        // default never gets the chance: destructuring `undefined` throws while the parameters
+        // are bound, before any element default is evaluated, so
+        // ``(function (a, [x = …]) {})`tag` `` performs that write on no path at all. Seventh
+        // test of mine to encode the wrong answer, and the first that a fix in a later round
+        // exposed rather than review.
+        let fields = helper_reached_via(
+            "var current = e; (function (a, [x = (current = other)]) {})`tag`; parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the binding throws before that default: {fields:?}"
+        );
     }
 
     #[test]
@@ -12168,6 +12325,108 @@ mod tests {
         ] {
             let (required, _) = guards_and_field(body);
             assert!(!required, "`{body}` may iterate no times");
+        }
+    }
+
+    #[test]
+    fn a_dead_logical_right_side_is_no_value_at_all() {
+        // A left side that settles the operator makes its right side dead, not merely
+        // skippable: `0 && (current = other)` evaluates nothing there, so that assignment is
+        // not a second live value for the name and the alias beside it stands. The `if` and the
+        // ternary have pruned their dead side since round thirty-seven; the short-circuit
+        // spelling of the same choice never got it.
+        for body in [
+            "var current = e; 0 && (current = other); parse(current);",
+            "var current = e; 1 || (current = other); parse(current);",
+            "var current = e; 0 ?? (current = other); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "nothing there runs: {body}"
+            );
+        }
+        // The bounds: a left side that lets the right through, and one this pass cannot decide.
+        // `0 ?? …` is dead and `null ?? …` is not, which is the predicate that asks about
+        // nullishness rather than truth.
+        for body in [
+            "var current = e; 1 && (current = other); parse(current);",
+            "var current = e; null ?? (current = other); parse(current);",
+            "var current = e; flag && (current = other); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that assignment is live: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_getter_below_a_nested_pattern_is_invoked_too() {
+        // A nested pattern destructures the value of the property above it, and binding it
+        // invokes that property's getter: `(function ({a: {x}}) {})({a: {get x(){ … }}})` runs
+        // the getter before the body is entered. Reading only the pattern's top level left it
+        // deferred, and the helper's fields were published on the node the write moved away
+        // from.
+        let fields = helper_reached_via(
+            "var current = e; (function ({a: {x}}) {})({a: {get x(){ current = other; return 1 }}}); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "that nested getter already ran: {fields:?}"
+        );
+        // The bounds: the descent stops where either side stops being written out, which loses
+        // a getter rather than inventing one.
+        for body in [
+            "var current = e; (function ({a: {x}}) {})({a: obj}); parse(current);",
+            "var current = e; (function ({[k]: {x}}) {})({a: {get x(){ current = other; return 1 }}}); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "nothing here names that getter: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_binding_that_must_throw_leaves_its_body_unrun() {
+        // A pattern destructures its value, and `null` has no properties: `(function ({x}) { …
+        // })(null)` throws while the parameters are bound and enters none of the body. The
+        // invocation was approved on the callee alone, so the body's writes were recorded for a
+        // call that performs them on no path.
+        let fields = helper_reached_via(
+            "var current = e; try { (function ({x}) { current = other; })(null); } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "that body was never entered: {fields:?}"
+        );
+        // The ARGUMENTS are evaluated before the binding, so their writes still happen —
+        // declining the invocation without walking them would have lost a write that does.
+        // `void (…)` because the argument has to be one this reads as certainly nullish AND one
+        // that writes: my first bound here was `(current = other, null)`, which `certainly_nullish`
+        // does not read through, so it never reached the path it was meant to hold.
+        let fields = helper_reached_via(
+            "var current = e; try { (function ({x}) {})(void (current = other)); } catch (_) {} parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the argument ran before the binding failed: {fields:?}"
+        );
+        // The bounds: an object binds fine, a plain identifier parameter takes `null` without
+        // complaint, and a pattern with its own default never fails to bind.
+        for body in [
+            "var current = e; (function ({x}) { current = other; })({}); parse(current);",
+            "var current = e; (function (x) { current = other; })(null); parse(current);",
+            "var current = e; (function ({x} = {}) { current = other; })(null); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that body does run: {body}"
+            );
         }
     }
 
@@ -12846,6 +13105,40 @@ mod tests {
                 r.unresolved.is_empty(),
                 "nothing dropped: {:?}",
                 r.unresolved
+            );
+        }
+        // …but `undefined` is an ordinary identifier and a source may bind it. `void` is an
+        // operator and `null` a literal, which nothing can rebind — the identifier is the only
+        // one of the three whose spelling does not settle its value, and reading it as open
+        // regardless recorded no floor where the accessor enforces one. An absent floor is the
+        // open-bottom band, which the width rule reads as "signed with no lower limit", so the
+        // emitted decoder took a negative the source turns away.
+        let r = analyze_parser_ast(
+            r#"{ let undefined = 5; e.attrIntRange("score", undefined, 10); }"#,
+            "e",
+        );
+        let f = r.fields.iter().find(|f| f.name == "score").expect("field");
+        assert_eq!(
+            (f.int_min, f.int_max),
+            (None, None),
+            "a shadowed `undefined` is an unreadable bound, not an open one"
+        );
+        assert!(
+            !r.unresolved.is_empty(),
+            "and the drop is recorded rather than swallowed"
+        );
+        // The bound: shadowing that name does not touch the two spellings that cannot be
+        // rebound.
+        for spelling in ["void 0", "null"] {
+            let r = analyze_parser_ast(
+                &format!(r#"{{ let undefined = 5; e.attrIntRange("t", 0, {spelling}); }}"#),
+                "e",
+            );
+            let f = r.fields.iter().find(|f| f.name == "t").expect("field");
+            assert_eq!(
+                (f.int_min, f.int_max),
+                (Some(0), None),
+                "`{spelling}` is open whatever is in scope"
             );
         }
     }
