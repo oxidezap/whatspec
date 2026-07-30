@@ -4014,6 +4014,9 @@ fn ends_the_list_but_for(
 struct ClassPhases<'s> {
     keys: &'s [Span],
     statics: &'s [Span],
+    /// Where the static phase stops, when a static block before this element throws: nothing
+    /// static written past that point is evaluated at all.
+    static_phase_ends: Option<u32>,
     /// A derived constructor's prefix up to and including its `super()` call. Its INSTANCE
     /// fields initialize only once that call returns, so a read anywhere in here precedes
     /// every one of them.
@@ -4099,8 +4102,18 @@ fn heritage_throws(super_class: &Expression<'_>) -> bool {
 /// today's answer, and the fields are treated as skipped only when an unconditional exit is
 /// reached with none seen. Guessing the other way suppresses a write that really happens.
 fn instance_fields_initialize(class: &oxc_ast::ast::Class<'_>) -> bool {
-    if class.super_class.is_none() {
+    let Some(heritage) = class.super_class.as_ref() else {
         return true;
+    };
+    // `extends null` is a legal class and an impossible construction: the derived constructor's
+    // `super()` — implicit or written — calls `null`, which throws a `TypeError` before a single
+    // field initializes. The one derived shape that survives it is a constructor returning an
+    // object without calling `super()`, and that already answers `false` below. So a statically
+    // null heritage settles the whole question here, and the implicit-constructor shortcut
+    // underneath it — which reads a missing constructor as `super(...a)` and therefore as
+    // successful — no longer runs for the one heritage where that call cannot return.
+    if matches!(peel(heritage), Expression::NullLiteral(_)) {
+        return false;
     }
     let ctor = class.body.body.iter().find_map(|el| match el {
         oxc_ast::ast::ClassElement::MethodDefinition(m)
@@ -4189,9 +4202,15 @@ fn construction_regions(callee: &Expression<'_>, constructs: bool) -> Vec<Span> 
 /// direction that files a helper's fields under a node the parser has already replaced.
 ///
 /// A spread argument makes every position after it unknowable, so it ends the mapping.
+///
+/// `implicit_leading` counts positions the call supplies with a value that has no expression to
+/// read and cannot be `undefined` — a tagged template's strings object. Their parameters' own
+/// defaults are prevented exactly as a written argument prevents one, and the pattern they bind
+/// is taken apart from a value this cannot read, so nothing nested is claimed.
 fn suppressed_defaults(
     callee: &Expression<'_>,
     arguments: &[Option<&Expression<'_>>],
+    implicit_leading: usize,
     constructs: bool,
 ) -> Vec<Span> {
     // `new (class { constructor(x = (current = other)) {} })(1)` passes its arguments to that
@@ -4203,8 +4222,16 @@ fn suppressed_defaults(
     };
     let mut out = Vec::new();
     for (i, param) in params.items.iter().enumerate() {
+        // A position supplied without an expression: the default is prevented and the pattern
+        // takes apart a value this cannot read, so the walk below has nothing to add.
+        if i < implicit_leading {
+            if let Some(init) = param.initializer.as_ref() {
+                out.push(init.span());
+            }
+            continue;
+        }
         // Past the end of what the call supplies: every remaining default runs.
-        let Some(slot) = arguments.get(i).copied() else {
+        let Some(slot) = arguments.get(i - implicit_leading).copied() else {
             break;
         };
         // An array ELISION in an `.apply` list — `f.apply(null, [, 1])` — is a position that
@@ -4250,9 +4277,14 @@ fn suppressed_defaults(
 /// over a literal object argument, taking the LAST property of that name — the same reading the
 /// suppression lookup takes, for the same reason. A nested pattern, a computed key or a spread
 /// leaves the getter unclaimed, which loses a write rather than inventing one.
+///
+/// `implicit_leading` is as in [`suppressed_defaults`]: a position supplied by a value with no
+/// expression to read holds no getter this can name, and it is not the parameter's default that
+/// the binding takes apart either.
 fn bound_getters<'b, 'a>(
     callee: &'b Expression<'a>,
     arguments: &[Option<&'b Expression<'a>>],
+    implicit_leading: usize,
     constructs: bool,
 ) -> Vec<Span> {
     let Some(params) = callee_params(callee, constructs) else {
@@ -4263,25 +4295,36 @@ fn bound_getters<'b, 'a>(
         let oxc_ast::ast::BindingPattern::ObjectPattern(pat) = &param.pattern else {
             continue;
         };
-        let supplied_arg = arguments.get(i).copied().flatten();
+        if i < implicit_leading {
+            continue;
+        }
+        let supplied_arg = arguments.get(i - implicit_leading).copied().flatten();
         // What the pattern actually takes apart. The argument when the call supplies one — and
         // the parameter's OWN default object when it does not, which is the object
         // `(function ({x} = { get x() { … } }) {})()` destructures and whose getter the binding
         // therefore invokes. Reading only the argument skipped that shape entirely.
         //
-        // Both, unconditionally. A guard here asking whether the argument already supplies the
-        // parameter would be an inert one: `suppressed_defaults` answers that with the same
-        // `definitely_defined`, and a suppressed initializer is never walked at all — so the
-        // getter inside it is never reached whatever this list says. I wrote the guard first and
-        // no mutation could tell the two versions apart, which is the round-twenty-seven answer:
-        // a condition no test can hold is one to remove rather than to document.
-        let mut objects: Vec<&oxc_ast::ast::ObjectExpression<'a>> = Vec::new();
-        if let Some(Expression::ObjectExpression(o)) = supplied_arg {
-            objects.push(o);
-        }
-        if let Some(Expression::ObjectExpression(o)) = param.initializer.as_deref() {
-            objects.push(o);
-        }
+        // ONE of them: whichever object the binding actually takes apart. The default is taken
+        // apart only when the argument does not supply the parameter, which is the very question
+        // `suppressed_defaults` answers, with the same predicate.
+        //
+        // I removed that guard two rounds ago as inert, on the reasoning that a suppressed
+        // initializer is never walked so the getter inside it is unreachable whatever this list
+        // says. Unreachable, and not harmless: with BOTH objects listed, the lookup below found
+        // the DEFAULT's getter first and stopped, so the supplied getter — the one that really
+        // runs — was never claimed. The claim was wrong and no mutation of mine could show it,
+        // because no test named the same property in both objects. It is the sixth claim of mine
+        // review has had to reverse.
+        let objects: Vec<&oxc_ast::ast::ObjectExpression<'a>> = match supplied_arg {
+            Some(supplied) if definitely_defined(supplied) => match supplied {
+                Expression::ObjectExpression(o) => vec![o],
+                _ => Vec::new(),
+            },
+            _ => match param.initializer.as_deref() {
+                Some(Expression::ObjectExpression(o)) => vec![o],
+                _ => Vec::new(),
+            },
+        };
         for prop in &pat.properties {
             let Some(name) = prop.key.static_name() else {
                 continue;
@@ -5272,6 +5315,7 @@ impl AllBindings {
         &mut self,
         callee_expr: &Expression<'a>,
         arguments: &[oxc_ast::ast::Argument<'a>],
+        template: Option<&oxc_ast::ast::TemplateLiteral<'a>>,
         span: Span,
         constructs: bool,
     ) -> bool {
@@ -5351,18 +5395,30 @@ impl AllBindings {
         // Around the callee only: an argument that writes runs where it is written, and pinning
         // that to the call would order it after a body it precedes.
         self.effects_land_at.push((callee.span(), span.end));
-        let effective = effective_arguments(callee_expr, arguments);
+        // A tagged template hands its tag the strings object and then the substitutions, so the
+        // mapping is the substitutions shifted one place — and position 0 is supplied by a value
+        // that is certainly not `undefined`, whatever the template says. Handing this an empty
+        // list, which is what the round that taught it tagged templates did, read parameter 0 as
+        // unsupplied and recorded a default the call always prevents.
+        let (effective, implicit_leading) = match template {
+            Some(q) => (
+                q.expressions.iter().map(Some).collect::<Vec<_>>(),
+                // The strings object, and only it: the substitutions follow it one for one.
+                1,
+            ),
+            None => (effective_arguments(callee_expr, arguments), 0),
+        };
         // Registered before the callee is walked, not only around the arguments: a getter the
         // binding invokes may live in the PARAMETER's own default object, which is inside the
         // callee. It is matched by span in `visit_function`, so widening the window reaches
         // nothing else.
         let restore_getters = self.binding_getters.len();
         self.binding_getters.extend(
-            bound_getters(callee, &effective, constructs)
+            bound_getters(callee, &effective, implicit_leading, constructs)
                 .into_iter()
                 .map(|g| (g, span.end)),
         );
-        let suppressed = suppressed_defaults(callee, &effective, constructs);
+        let suppressed = suppressed_defaults(callee, &effective, implicit_leading, constructs);
         let restore = self.suppressed_defaults.len();
         self.suppressed_defaults.extend(suppressed);
         self.visit_expression(callee);
@@ -5400,6 +5456,13 @@ impl AllBindings {
             .push(construction_regions(callee, constructs));
         for arg in arguments {
             self.visit_argument(arg);
+        }
+        // A template's substitutions are arguments like any other: every one is evaluated before
+        // the tag is called. Visiting the quasi AFTER this region closed ordered them by their
+        // own position, which is below the tag — so `(function(){ parse(current); })`t${current =
+        // other}`` read the body against a write that had in fact already run.
+        if let Some(q) = template {
+            self.visit_template_literal(q);
         }
         self.runs_before.pop();
         self.binding_getters.truncate(restore_getters);
@@ -5465,6 +5528,19 @@ impl AllBindings {
         // A static initializer runs when the class is defined. An INSTANCE one runs per `new`,
         // of which there may be none — unless this very class is being constructed in place,
         // where there is exactly one and it happens now.
+        // A static element written past a static block that throws is never evaluated: class
+        // definition stops at the abrupt completion, so the class binding is never created and
+        // nothing below it in the second phase runs. Walking them all recorded a write that
+        // happens on no path, which publishes a helper's reads under a node nothing had moved.
+        // Its computed KEY still runs — every key is evaluated in the first phase, before any
+        // initializer or block — which is why this gates the value alone.
+        let skipped = is_static
+            && phases
+                .static_phase_ends
+                .is_some_and(|end| key.span().start >= end);
+        if skipped {
+            self.unreachable += 1;
+        }
         if (is_static || constructed)
             && let Some(v) = value
         {
@@ -5482,6 +5558,9 @@ impl AllBindings {
             if declared {
                 self.runs_after.pop();
             }
+        }
+        if skipped {
+            self.unreachable -= 1;
         }
     }
 
@@ -5710,7 +5789,7 @@ impl<'a> Visit<'a> for AllBindings {
     }
 
     fn visit_call_expression(&mut self, call: &CallExpression<'a>) {
-        if !self.walk_invocation(&call.callee, &call.arguments, call.span, false) {
+        if !self.walk_invocation(&call.callee, &call.arguments, None, call.span, false) {
             walk::walk_call_expression(self, call);
         }
     }
@@ -5720,15 +5799,23 @@ impl<'a> Visit<'a> for AllBindings {
     /// so the write inside it stayed confined and the helper's fields were published on the node
     /// it had moved away from.
     ///
-    /// The tag is handed a strings array and then the substitutions, so there is no argument
-    /// list this can map onto its parameters: none is offered, and a default this cannot rule
-    /// out simply runs.
+    /// The tag is handed the strings object and then the substitutions, which is the argument
+    /// list `walk_invocation` maps onto its parameters — with the strings object standing in
+    /// position 0 as a value nothing can make `undefined`.
+    ///
+    /// Only when the tag IS the function. A tag reached through `.call`/`.apply`/`.bind` is
+    /// handed the strings object in a position those reshape, and not the way an argument list
+    /// is reshaped: ``f.call`x` `` invokes `Function.prototype.call`, which reaches `f` only by
+    /// forwarding and with the strings object as its receiver, while ``f.bind(null, 1)`x` ``
+    /// puts the strings object AFTER bind's own arguments. Mapping either as if the substitutions
+    /// began at parameter 0 would suppress a default that really runs, so the invocation is
+    /// declined there and the body's write is lost rather than invented.
     fn visit_tagged_template_expression(&mut self, t: &oxc_ast::ast::TaggedTemplateExpression<'a>) {
-        if self.walk_invocation(&t.tag, &[], t.span, false) {
-            self.visit_template_literal(&t.quasi);
-        } else {
-            walk::walk_tagged_template_expression(self, t);
+        let direct = invoked_callee(&t.tag).span() == peel(&t.tag).span();
+        if direct && self.walk_invocation(&t.tag, &[], Some(&t.quasi), t.span, false) {
+            return;
         }
+        walk::walk_tagged_template_expression(self, t);
     }
 
     /// `new (function(){ … })()` runs that body before the next statement exactly as a call
@@ -5736,7 +5823,7 @@ impl<'a> Visit<'a> for AllBindings {
     /// helper's fields were published on the node it had moved away from. One method answers
     /// for both spellings rather than the second learning it a round later.
     fn visit_new_expression(&mut self, new: &oxc_ast::ast::NewExpression<'a>) {
-        if !self.walk_invocation(&new.callee, &new.arguments, new.span, true) {
+        if !self.walk_invocation(&new.callee, &new.arguments, None, new.span, true) {
             walk::walk_new_expression(self, new);
         }
     }
@@ -6129,6 +6216,20 @@ impl<'a> Visit<'a> for AllBindings {
                 _ => None,
             })
             .collect();
+        // The second phase runs static blocks and static initializers in source order, and stops
+        // at the first one that completes abruptly. Only a block that certainly throws is
+        // decidable here: a static block ending its own statement list. An INITIALIZER that
+        // throws ends the phase exactly as much, and asking whether an arbitrary expression can
+        // throw is a question this pass does not answer, so that half is left — it loses the
+        // stop rather than inventing one.
+        let static_phase_ends: Option<u32> = class.body.body.iter().find_map(|el| match el {
+            oxc_ast::ast::ClassElement::StaticBlock(b)
+                if b.body.iter().any(ends_the_statement_list) =>
+            {
+                Some(b.span.end)
+            }
+            _ => None,
+        });
         // Constructing it does not, on its own, run its instance field initializers. A DERIVED
         // constructor installs them when `super()` returns, and one that leaves before calling
         // it — `constructor(){ return {}; }`, which is legal and completes construction — runs
@@ -6225,6 +6326,7 @@ impl<'a> Visit<'a> for AllBindings {
                             keys: &key_spans,
                             statics: &static_spans,
                             pre_super,
+                            static_phase_ends,
                         },
                     );
                 }
@@ -6246,6 +6348,7 @@ impl<'a> Visit<'a> for AllBindings {
                             keys: &key_spans,
                             statics: &static_spans,
                             pre_super,
+                            static_phase_ends,
                         },
                     );
                 }
@@ -6260,7 +6363,16 @@ impl<'a> Visit<'a> for AllBindings {
                     if declared {
                         self.runs_after.push(key_spans.clone());
                     }
+                    // …and a block written past an earlier one that throws is not evaluated,
+                    // the same rule the initializers above are given.
+                    let skipped = static_phase_ends.is_some_and(|end| b.span.start >= end);
+                    if skipped {
+                        self.unreachable += 1;
+                    }
                     self.walk_in_order(&b.body, false);
+                    if skipped {
+                        self.unreachable -= 1;
+                    }
                     if declared {
                         self.runs_after.pop();
                     }
@@ -10711,6 +10823,153 @@ mod tests {
     }
 
     /// A module whose parser reaches `parse` only through `body`.
+    #[test]
+    fn a_tagged_template_supplies_its_strings_object() {
+        // A tag is called with the strings object and then the substitutions, so parameter 0 is
+        // ALWAYS supplied and its default runs for nobody. The round that taught this reader
+        // tagged templates handed the mapping an empty argument list and said in a comment that
+        // "a default this cannot rule out simply runs" — which recorded a write no execution
+        // performs, so `parse` was read against a node the model had moved on paper only.
+        let fields = helper_reached_via(
+            "var current = e; (function (x = (current = other)) {})`t`; parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the strings object supplies that parameter: {fields:?}"
+        );
+        // The bounds: only the positions the template really fills. A second parameter with no
+        // substitution behind it still runs its default, a substitution supplies the position
+        // after the strings object, and a substitution spelling `undefined` supplies nothing.
+        for body in [
+            "var current = e; (function (a, x = (current = other)) {})`t`; parse(current);",
+            "var current = e; (function (a, x = (current = other)) {})`t${void 0}`; parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that default still runs: {body}"
+            );
+        }
+        let fields = helper_reached_via(
+            "var current = e; (function (a, x = (current = other)) {})`t${1}`; parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the substitution fills that position: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn a_templates_substitutions_run_before_its_tag() {
+        // Every substitution is evaluated before the tag is called, so the body reads what they
+        // wrote. Visiting the quasi after the invocation ordered them by their own position,
+        // which is below the tag — the body was read against a write that had already run.
+        let fields = helper_reached_via(
+            "var current = e; (function () { parse(current); })`t${current = other}`;",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the substitution already replaced it: {fields:?}"
+        );
+        // The bound: the body's own write still lands at the call, as it does for a `()` call.
+        let fields = helper_reached_via(
+            "var current = e; (function () { current = other; })`t`; parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the tag body ran before `parse`: {fields:?}"
+        );
+        // And the second bound, which is a decline rather than an answer: a tag reached through
+        // `.call` invokes `Function.prototype.call`, whose reshaping of the strings object is
+        // not the reshaping an argument list gets. That is not modelled, so the invocation is
+        // declined and the write is lost — never inverted.
+        let fields = helper_reached_via(
+            "var current = e; (function () { current = other; }).call`t`; parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "declined rather than mapped wrongly: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn a_class_extending_null_initializes_no_fields() {
+        // `extends null` defines a legal class and constructs none: the derived constructor's
+        // `super()` — here the implicit one — calls `null` and throws before a field
+        // initializes. The implicit-constructor shortcut read a missing constructor as
+        // `super(...a)` and therefore as successful, recording a write that happens on no path.
+        let fields = helper_reached_via(
+            "var current = e; try { new (class extends null { x = (current = other) })() } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "that construction throws: {fields:?}"
+        );
+        // The bound: a heritage that really is a constructor still installs its fields.
+        let fields = helper_reached_via(
+            "var current = e; new (class extends (function(){}) { x = (current = other) })(); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "an ordinary derived class still runs them: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn a_static_block_that_throws_ends_the_static_phase() {
+        // Class definition evaluates static blocks and static initializers in source order and
+        // stops at the first abrupt completion, so nothing static below a block that throws is
+        // evaluated at all. The element loop walked every one of them.
+        let fields = helper_reached_via(
+            "var current = e; try { class C { static { throw 0 }; static x = (current = other) } } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the phase stopped above that initializer: {fields:?}"
+        );
+        // The bounds: a block that completes normally stops nothing, and an element written
+        // ABOVE the throwing block has already run.
+        for body in [
+            "var current = e; try { class C { static { 0 }; static x = (current = other) } } catch (_) {} parse(current);",
+            "var current = e; try { class C { static x = (current = other); static { throw 0 } } } catch (_) {} parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that initializer does run: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_binding_destructures_the_argument_when_one_is_supplied() {
+        // Parameter binding takes apart ONE object: the argument when the call supplies it, the
+        // parameter's own default only when it does not. Listing both and searching the default
+        // first selected a getter that never runs and left the supplied one — the one that does
+        // — deferred.
+        //
+        // I removed the guard that decided this two rounds ago, calling it inert on the
+        // reasoning that a suppressed initializer is never walked. Unreachable is not harmless:
+        // it still won the lookup. No mutation of mine could show it, because no test until this
+        // one named the same property in both objects.
+        let fields = helper_reached_via(
+            "var current = e; (function ({x} = {get x(){ current = third }}) {})({get x(){ current = other }}); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the supplied getter is the one that runs: {fields:?}"
+        );
+        // The bound, which is round forty-two's answer and still holds: with no argument at all
+        // the default object is the one taken apart, so ITS getter is the one that runs.
+        let fields = helper_reached_via(
+            "var current = e; (function ({x} = {get x(){ current = other }}) {})(); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the default's getter runs when nothing is supplied: {fields:?}"
+        );
+    }
+
     fn helper_reached_via(body: &str) -> Vec<ParsedField> {
         let module = format!(
             r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){{

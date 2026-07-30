@@ -696,8 +696,15 @@ fn emit_tag_cascade(
                         .any(|(o_n, o_val)| o_n == n && o_val != val)
                 })
             });
-        let pinned = unique;
-        let body_indent = if pinned {
+        // Two decisions, and folding them into one dropped the guard. A pin that does NOT pick
+        // this arm alone is still a necessary condition for entering it — `kind="a"` shared with
+        // a later arm still means a `kind="b"` node is not this variant. Emitting no `if` at all
+        // for those arms let a `kind="b"` node whose attributes happen to satisfy this arm's
+        // required fields come back as this variant, which is the source dispatch rejecting a
+        // node and the generated parser accepting it. So the pin guards whenever there is one,
+        // and uniqueness decides only whether a payload error inside the guard is terminal.
+        let guarded = !conds.is_empty();
+        let body_indent = if guarded {
             lines.push(format!("{indent}if {} {{", conds.join(" && ")));
             format!("{indent}    ")
         } else {
@@ -717,15 +724,17 @@ fn emit_tag_cascade(
             &struct_name,
         ));
         lines.push(format!("{body_indent}}})();"));
-        if pinned {
+        if unique {
             lines.push(format!(
                 "{body_indent}return Ok(Some({enum_name}::{vname}(__r?)));"
             ));
-            lines.push(format!("{indent}}}"));
         } else {
             lines.push(format!(
                 "{body_indent}if let Ok(__v) = __r {{ return Ok(Some({enum_name}::{vname}(__v))); }}"
             ));
+        }
+        if guarded {
+            lines.push(format!("{indent}}}"));
         }
     }
     lines.push(format!("{indent}Ok(None)"));
@@ -1732,6 +1741,18 @@ mod tests {
         assert!(
             code.contains("return Ok(Some(SpecTwinned::Beta(__r?)));"),
             "the last matching arm has nothing to fall through to:\n{code}"
+        );
+        // …and both are still GUARDED on the pin they share. Falling through is about what a
+        // payload error means, not about whether the pin holds: a shared `kind="a"` still says a
+        // `kind="b"` node is neither of these arms. Reading one flag for both decisions dropped
+        // the condition from every shared-pin arm, so a `kind="b"` node whose attributes happened
+        // to satisfy `alpha_only` came back as Alpha — the source dispatch rejecting a node and
+        // the generated parser accepting it.
+        assert_eq!(
+            code.matches("get_attr(\"kind\").map(|x| x.as_str()).as_deref() == Some(\"a\")")
+                .count(),
+            2,
+            "a shared pin still guards its own arm:\n{code}"
         );
     }
 

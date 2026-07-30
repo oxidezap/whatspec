@@ -98,24 +98,48 @@ pub(crate) fn parser_is_valid(
     true
 }
 
-/// The names of fields whose absence makes a generated variant parser return `Err`
+/// The reads whose absence makes a generated variant parser return `Err`
 /// (so they discriminate which variant a response matches): required attrs
 /// (`attr…`, read with `?`) and required `child` nodes (read with `ok_or_else`).
 /// Excludes optionals (`maybe…`), content reads (defaulted, never fail), and
 /// untyped union/mixin placeholders (`method == ""`). Recursive.
+///
+/// Keyed by what the parser READS, not by the struct field it writes: the descent path,
+/// then the wire attribute name or the child tag. Two variants can name the same wire
+/// attribute differently — `{name: "success_code", wire_name: "code"}` against
+/// `{name: "error_code", wire_name: "code"}` — and by output name those sets look disjoint,
+/// so the shadowing gate below admitted a union whose first parser accepts every response
+/// the second could and left the second unreachable. The `attr`/`child` marker keeps an
+/// attribute and a child tag of the same spelling apart, and the path keeps a nested `code`
+/// from standing in for a top-level one.
 fn fail_required_fields(fields: &[wa_ir::ParsedField]) -> std::collections::BTreeSet<String> {
     let mut out = std::collections::BTreeSet::new();
-    fn walk(fields: &[wa_ir::ParsedField], out: &mut std::collections::BTreeSet<String>) {
+    fn walk(
+        fields: &[wa_ir::ParsedField],
+        base: &[String],
+        out: &mut std::collections::BTreeSet<String>,
+    ) {
         for f in fields {
+            let mut path = base.to_vec();
+            path.extend(f.source_path.iter().flatten().cloned());
             if f.required && (f.method == "child" || f.method.starts_with("attr")) {
-                out.insert(f.name.clone());
+                let (kind, wire) = if f.method == "child" {
+                    ("child", f.tag.as_deref().unwrap_or(&f.name))
+                } else {
+                    ("attr", f.wire_name.as_deref().unwrap_or(&f.name))
+                };
+                out.insert(format!("{}/{kind}:{wire}", path.join("/")));
             }
             if let Some(kids) = &f.children {
-                walk(kids, out);
+                let mut inner = path;
+                if f.method == "child" || f.method == "maybeChild" {
+                    inner.push(f.tag.as_deref().unwrap_or(&f.name).to_string());
+                }
+                walk(kids, &inner, out);
             }
         }
     }
-    walk(fields, &mut out);
+    walk(fields, &[], &mut out);
     out
 }
 
@@ -340,8 +364,12 @@ fn emit_outcome_parse(
             && !op.response.variants[i + 1..]
                 .iter()
                 .any(|o| pins_can_coincide(&mine, &variant_pins(o)));
-        let pinned = unique;
-        let body = if pinned {
+        // The pin guards whenever there is one; uniqueness decides only whether a payload error
+        // inside that guard is terminal. Reading one flag for both dropped the condition
+        // entirely from every shared-pin arm, so a response this variant's pin excludes could
+        // still be returned as it whenever its required fields happened to parse.
+        let guarded = !conds.is_empty();
+        let body = if guarded {
             lines.push(format!("{indent}if {} {{", conds.join(" && ")));
             format!("{indent}    ")
         } else {
@@ -357,13 +385,15 @@ fn emit_outcome_parse(
             sname,
         ));
         lines.push(format!("{body}}})();"));
-        if pinned {
+        if unique {
             lines.push(format!("{body}return Ok({enum_name}::{vname}(__r?));"));
-            lines.push(format!("{indent}}}"));
         } else {
             lines.push(format!(
                 "{body}if let Ok(__v) = __r {{ return Ok({enum_name}::{vname}(__v)); }}"
             ));
+        }
+        if guarded {
+            lines.push(format!("{indent}}}"));
         }
     }
     lines.push(format!(
@@ -1155,6 +1185,127 @@ mod tests {
         assert!(
             code.contains("return Ok(MakeCreateRequestResponse::GroupAlreadyExists(__r?));"),
             "the last matching variant has nothing to fall through to:\n{code}"
+        );
+        // …and both are still GUARDED on the pin they share. What uniqueness decides is whether
+        // a payload error inside the guard is terminal, not whether the pin is tested at all: a
+        // shared `type="result"` still excludes a `type="error"` response. Reading one flag for
+        // both dropped the condition from every shared-pin variant.
+        assert_eq!(
+            code.matches("get_attr(\"type\").map(|x| x.as_str()).as_deref() == Some(\"result\")")
+                .count(),
+            2,
+            "a shared pin still guards its own variant:\n{code}"
+        );
+    }
+
+    #[test]
+    fn two_variants_reading_one_wire_attribute_are_not_disjoint() {
+        use wa_ir::{ParsedField, ParsedFieldType, ResponseVariant, ResponseVariantKind};
+        // The shadowing gate asks whether an earlier variant's required reads are a subset of a
+        // later one's, and it asked that of the OUTPUT field names. Two variants may bind one
+        // wire attribute under different result names — `success_code` and `error_code`, both
+        // reading `code` — and by output name those sets look disjoint, so the union was
+        // admitted with two parsers of identical acceptance and the second unreachable. Keyed by
+        // what the parser reads, the sets are equal and the gate declines to the single-shape
+        // path.
+        fn coded(name: &str) -> ParsedField {
+            ParsedField {
+                method: "attrString".into(),
+                name: name.into(),
+                wire_name: Some("code".into()),
+                field_type: ParsedFieldType::String,
+                required: true,
+                ..Default::default()
+            }
+        }
+        let mut op = stanza("WASmaxOutFooCodeRequest", Some("makeCodeRequest"));
+        op.response = ParsedResponse {
+            parser_name: "FooCodeRPC".into(),
+            variants: vec![
+                ResponseVariant {
+                    tag: "CodeResponseSuccess".into(),
+                    module_name: "m".into(),
+                    kind: ResponseVariantKind::Success,
+                    fields: vec![coded("successCode")],
+                    ..Default::default()
+                },
+                ResponseVariant {
+                    tag: "CodeResponseError".into(),
+                    module_name: "m".into(),
+                    kind: ResponseVariantKind::Error,
+                    fields: vec![coded("errorCode")],
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let code = generate_spec(&op, "FOO_NAMESPACE", "MakeCodeRequestSpec");
+        assert!(
+            !code.contains("enum MakeCodeRequestResponse"),
+            "one wire read cannot separate two variants:\n{code}"
+        );
+        // The bounds, both of them things the key must NOT conflate. First: the same wire name
+        // read at a different DESCENT is a different read. A `code` on the response and a `code`
+        // inside an `<error>` wrapper are told apart by whether that wrapper exists, so keying
+        // on the name alone would decline a union that is perfectly separable — a loss of typing
+        // rather than a wrong parser, and still not the answer.
+        let mut op = stanza("WASmaxOutFooCodeRequest", Some("makeCodeRequest"));
+        let mut nested = coded("errorCode");
+        nested.source_path = Some(vec!["error".into()]);
+        op.response = ParsedResponse {
+            parser_name: "FooCodeRPC".into(),
+            variants: vec![
+                ResponseVariant {
+                    tag: "CodeResponseSuccess".into(),
+                    module_name: "m".into(),
+                    kind: ResponseVariantKind::Success,
+                    fields: vec![coded("successCode")],
+                    ..Default::default()
+                },
+                ResponseVariant {
+                    tag: "CodeResponseError".into(),
+                    module_name: "m".into(),
+                    kind: ResponseVariantKind::Error,
+                    fields: vec![nested],
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let code = generate_spec(&op, "FOO_NAMESPACE", "MakeCodeRequestSpec");
+        assert!(
+            code.contains("enum MakeCodeRequestResponse"),
+            "the same name at a different descent is a different read:\n{code}"
+        );
+        // Second: two variants reading different wire attributes are separable exactly as
+        // before, so the key change narrows nothing it should not.
+        let mut op = stanza("WASmaxOutFooCodeRequest", Some("makeCodeRequest"));
+        let mut distinct = coded("errorCode");
+        distinct.wire_name = Some("reason".into());
+        op.response = ParsedResponse {
+            parser_name: "FooCodeRPC".into(),
+            variants: vec![
+                ResponseVariant {
+                    tag: "CodeResponseSuccess".into(),
+                    module_name: "m".into(),
+                    kind: ResponseVariantKind::Success,
+                    fields: vec![coded("successCode")],
+                    ..Default::default()
+                },
+                ResponseVariant {
+                    tag: "CodeResponseError".into(),
+                    module_name: "m".into(),
+                    kind: ResponseVariantKind::Error,
+                    fields: vec![distinct],
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let code = generate_spec(&op, "FOO_NAMESPACE", "MakeCodeRequestSpec");
+        assert!(
+            code.contains("enum MakeCodeRequestResponse"),
+            "different wire reads still separate them:\n{code}"
         );
     }
 
