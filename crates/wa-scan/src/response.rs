@@ -3543,6 +3543,21 @@ fn synchronous_until(
         }
     }
     impl<'a> Visit<'a> for FirstAwait {
+        // An `await` control never reaches suspends nothing, and a statement list stops at an
+        // unconditional transfer exactly as `walk_in_order` says it does. `try { throw 0; await
+        // 0; } catch (_) {} current = other;` runs the assignment before the call returns, and
+        // taking the unreachable await as the cutoff confined a write the caller does see.
+        //
+        // The list only. Whatever encloses it carries on — a `throw` ends the try's block and
+        // the handler still runs, so the walk reaches it by the ordinary route.
+        fn visit_statements(&mut self, stmts: &oxc_allocator::Vec<'a, Statement<'a>>) {
+            for st in stmts {
+                self.visit_statement(st);
+                if ends_the_statement_list(st) {
+                    break;
+                }
+            }
+        }
         fn visit_await_expression(&mut self, e: &oxc_ast::ast::AwaitExpression<'a>) {
             self.note(e.span.start);
             walk::walk_await_expression(self, e);
@@ -4232,9 +4247,10 @@ fn construction_regions(callee: &Expression<'_>, constructs: bool) -> Vec<Span> 
 fn suppressed_defaults(
     callee: &Expression<'_>,
     arguments: &[Option<&Expression<'_>>],
-    implicit_leading: usize,
+    implicit: Option<&oxc_ast::ast::TemplateLiteral<'_>>,
     constructs: bool,
 ) -> Vec<Span> {
+    let implicit_leading = usize::from(implicit.is_some());
     // `new (class { constructor(x = (current = other)) {} })(1)` passes its arguments to that
     // constructor exactly as a call passes them to a function, so the same defaults are
     // prevented — which is why `callee_params` answers for the class shape too, and why the
@@ -4244,11 +4260,15 @@ fn suppressed_defaults(
     };
     let mut out = Vec::new();
     for (i, param) in params.items.iter().enumerate() {
-        // A position supplied without an expression: the default is prevented and the pattern
-        // takes apart a value this cannot read, so the walk below has nothing to add.
+        // A position supplied without an expression: the parameter's own default is prevented.
+        // Not "and nothing more" — a tagged template's strings object is an array whose entries
+        // this CAN read, so a pattern taking it apart has its own defaults settled too.
         if i < implicit_leading {
             if let Some(init) = param.initializer.as_ref() {
                 out.push(init.span());
+            }
+            if let Some(q) = implicit {
+                suppress_in_strings(&param.pattern, q, &mut out);
             }
             continue;
         }
@@ -4506,6 +4526,46 @@ fn suppress_in_pattern(
                 suppress_in_pattern(el, at, out);
             }
         }
+    }
+}
+
+/// The defaults a tagged template's strings object prevents inside the pattern its first
+/// parameter binds.
+///
+/// That object is an array-like: index `i` holds the template's `i`th COOKED string, and there
+/// are as many as the template has quasis. So an array pattern's leading elements are supplied
+/// and a default beside one of them runs for nobody — while an element past the last quasi is
+/// `undefined` and its default does run, which is where this stops.
+///
+/// Deliberately shallow, in the direction that loses a suppression rather than inventing one:
+/// the top level of an array pattern, and only where the cooked string exists — a template with
+/// an invalid escape carries `undefined` there and keeps the text in `raw` alone. Anything below
+/// an element destructures a STRING, and an object pattern over the array names `raw` or
+/// `length`; neither is modelled, so neither is claimed.
+fn suppress_in_strings(
+    pat: &oxc_ast::ast::BindingPattern<'_>,
+    quasi: &oxc_ast::ast::TemplateLiteral<'_>,
+    out: &mut Vec<Span>,
+) {
+    use oxc_ast::ast::BindingPattern as BP;
+    match pat {
+        // The strings object is never `undefined`, so a default on the parameter's own pattern
+        // is prevented and what that pattern binds is still the array.
+        BP::AssignmentPattern(p) => {
+            out.push(p.right.span());
+            suppress_in_strings(&p.left, quasi, out);
+        }
+        BP::ArrayPattern(a) => {
+            for (i, el) in a.elements.iter().enumerate() {
+                if quasi.quasis.get(i).is_none_or(|q| q.value.cooked.is_none()) {
+                    break;
+                }
+                if let Some(BP::AssignmentPattern(p)) = el.as_ref() {
+                    out.push(p.right.span());
+                }
+            }
+        }
+        _ => {}
     }
 }
 
@@ -5152,6 +5212,9 @@ struct AllBindings {
     /// How many enclosing `try` BLOCKS have a handler. A throw inside one of those does not end
     /// anything, so nothing under it is a dead path however it leaves.
     caught: u32,
+    /// Per enclosing `catch` being walked: whether its block fails on every path, so the handler
+    /// is not a branch at all. See [`ParserAnalyzer::visit_try_statement`].
+    handler_is_certain: Vec<bool>,
     /// Whether the binding being collected reaches past its block: a parameter, a `var`,
     /// or a function declaration. `let`, `const`, a class and a `catch` parameter stop at
     /// the block — the same split `BoundNames` keeps, which this collector was missing.
@@ -5474,7 +5537,7 @@ impl AllBindings {
                 .into_iter()
                 .map(|g| (g, span.end)),
         );
-        let suppressed = suppressed_defaults(callee, &effective, implicit_leading, constructs);
+        let suppressed = suppressed_defaults(callee, &effective, template, constructs);
         let restore = self.suppressed_defaults.len();
         self.suppressed_defaults.extend(suppressed);
         self.visit_expression(callee);
@@ -5858,7 +5921,29 @@ impl<'a> Visit<'a> for AllBindings {
         self.visit_block_statement(&t.block);
         self.caught -= u32::from(t.handler.is_some());
         if let Some(h) = &t.handler {
+            // A handler runs only when the block failed — unless the block fails on EVERY path,
+            // and then it runs on every path there is. `try { throw 0; } catch (_) { current =
+            // e; }` hands `parse` nothing but `e`, and calling that write skippable kept the
+            // pre-`try` value live beside it, so two values answered to the name and the alias
+            // was refused for an ambiguity no execution has.
+            //
+            // Not a block that HANGS: `throws_out` answers true for one, because a loop nothing
+            // leaves produces no result either — but it reaches no handler at all, so claiming
+            // its handler certain would be the same error pointing the other way. The whole-try
+            // classification has drawn that distinction since round thirty; this is the same
+            // question asked of the handler alone.
+            //
+            // No input can hold that clause, and it stays anyway. If the block hangs, the
+            // handler does not run and neither does anything after the `try`, so there is no
+            // reader anywhere to observe which answer this gave — the mutation that drops it
+            // breaks nothing and cannot. That is unobservable rather than equivalent: dropping
+            // it would leave the model asserting something false and waiting for the first
+            // reader that can see it. Round twenty's clause is recorded the same way, and this
+            // says so rather than implying a coverage it does not have.
+            self.handler_is_certain
+                .push(throws_out(&t.block.body) && !hangs_forever(&t.block.body));
             self.visit_catch_clause(h);
+            self.handler_is_certain.pop();
         }
         if let Some(f) = &t.finalizer {
             self.visit_block_statement(f);
@@ -6087,8 +6172,13 @@ impl<'a> Visit<'a> for AllBindings {
         let outer = self.hoists;
         self.hoists = false;
         // A handler runs only when the block failed, so what it assigns is assigned on that
-        // path alone.
-        self.maybe_skipped(|s| walk::walk_catch_clause(s, clause));
+        // path alone — unless the block fails on every path, which `visit_try_statement`
+        // decides and records here.
+        if self.handler_is_certain.last().copied().unwrap_or(false) {
+            walk::walk_catch_clause(self, clause);
+        } else {
+            self.maybe_skipped(|s| walk::walk_catch_clause(s, clause));
+        }
         self.hoists = outer;
         self.blocks.pop();
     }
@@ -11132,6 +11222,89 @@ mod tests {
                 fields.iter().any(|f| f.name == "id"),
                 "that write lands at the call, after the argument: {body}"
             );
+        }
+    }
+
+    #[test]
+    fn an_await_control_cannot_reach_suspends_nothing() {
+        // The probe visited every statement of the body, so an `await` past an unconditional
+        // throw became the cutoff: `try { throw 0; await 0; } catch (_) {} current = other;`
+        // finishes the handler and the assignment before the call returns. The dead-branch rules
+        // this probe already had answer "which side is selected"; this is the other half of
+        // reachability, and `walk_in_order` has stated it for statement lists all along.
+        let fields = helper_reached_via(
+            "var current = e; (async function () { try { throw 0; await 0; } catch (_) {} current = other; })(); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "nothing suspended before that write: {fields:?}"
+        );
+        // The bounds: an await control DOES reach is still the cutoff, whether a throw follows
+        // it or there is no throw at all. The list stops at the transfer, not before it.
+        for body in [
+            "var current = e; (async function () { try { await 0; throw 0; } catch (_) {} current = other; })(); parse(current);",
+            "var current = e; (async function () { try { await 0; } catch (_) {} current = other; })(); parse(current);",
+            // The transfer itself is still visited: `throw await 0` suspends before it raises.
+            // Stopping the list ABOVE the statement that ends it is the over-broad mutation.
+            "var current = e; (async function () { try { throw await 0; } catch (_) {} current = other; })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "the caller does not wait for that write: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_tags_strings_object_supplies_the_pattern_it_binds() {
+        // Round forty-six settled that the strings object supplies parameter 0 and stopped
+        // there, suppressing the parameter's OWN default and skipping the pattern beneath it.
+        // The object is an array whose entries this can read: ``(function ([x = …]) {})`tag` ``
+        // binds `x` to `"tag"`, so that default runs for nobody either.
+        let fields = helper_reached_via(
+            "var current = e; (function ([x = (current = other)]) {})`tag`; parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the strings array supplied that element: {fields:?}"
+        );
+        // The bounds. A parameter past the strings object is supplied by nothing, so its
+        // default runs; and an element past the last quasi is `undefined`, so its default runs
+        // too — which is where reading the array stops.
+        for body in [
+            "var current = e; (function (a, [x = (current = other)]) {})`tag`; parse(current);",
+            "var current = e; (function ([x, y = (current = other)]) {})`tag`; parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that default still runs: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_handler_the_block_certainly_reaches_is_not_a_branch() {
+        // A `catch` runs only when the block failed — unless the block fails on EVERY path, and
+        // then it runs on every path there is. Wrapping every handler in `maybe_skipped`
+        // invented a path around `try { throw 0; } catch (_) { var current = e; }`, so the value
+        // it gives is recorded as only conditionally the node and the helper's read comes back
+        // optional.
+        let (required, guard) =
+            guards_and_field("try { throw 0; } catch (_) { var current = e; } parse(current);");
+        assert!(
+            required && guard,
+            "that handler runs on every path: required={required} guard={guard}"
+        );
+        // The bounds: a block that may complete leaves its handler a real branch, and so does
+        // one that throws only under a test.
+        for body in [
+            "try { f(); } catch (_) { var current = e; } parse(current);",
+            "try { if (flag) throw 0; } catch (_) { var current = e; } parse(current);",
+        ] {
+            let (required, _) = guards_and_field(body);
+            assert!(!required, "that handler is still skippable: {body}");
         }
     }
 
