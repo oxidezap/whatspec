@@ -4693,6 +4693,25 @@ impl AllBindings {
         self.assign_end.unwrap_or(default_end)
     }
 
+    /// The target and body of a `for-of`/`for-in`, walked as what they are: everything that
+    /// FOLLOWS the one evaluation of the iterable.
+    ///
+    /// `for (current of (parse(current), []))` hands `parse` the node, because JavaScript
+    /// evaluates the iterable before it ever assigns the target. Two things had said
+    /// otherwise. The target's write is written above the iterable, so position alone called
+    /// it effective there; and the write repeats with the loop, whose span covers the
+    /// iterable textually, so even ordering it after would have been overruled by the
+    /// next-pass rule. The iterable is evaluated ONCE and no pass returns to it, which is a
+    /// region every write in here follows — the same mirror the class keys use, and the only
+    /// spelling that answers both halves at once.
+    fn after_the_iterable(&mut self, iterable: Span, f: impl FnOnce(&mut Self)) {
+        let mut after = self.runs_after.last().cloned().unwrap_or_default();
+        after.push(iterable);
+        self.runs_after.push(after);
+        f(self);
+        self.runs_after.pop();
+    }
+
     /// The innermost enclosing loop that can actually come round again — a write inside one
     /// that cannot is carried by whichever loop outside it can.
     fn innermost_repeating(&self) -> Option<Span> {
@@ -5330,9 +5349,11 @@ impl<'a> Visit<'a> for AllBindings {
         // The object is evaluated to be enumerated, however few keys it turns out to have; the
         // binding and body run once per key, of which there may be none.
         self.visit_expression(&stmt.right);
-        self.maybe_skipped(|s| {
-            s.visit_for_statement_left(&stmt.left);
-            s.visit_statement(&stmt.body);
+        self.after_the_iterable(stmt.right.span(), |s| {
+            s.maybe_skipped(|s| {
+                s.visit_for_statement_left(&stmt.left);
+                s.visit_statement(&stmt.body);
+            });
         });
         self.blocks.pop();
         self.loops.pop();
@@ -5347,15 +5368,19 @@ impl<'a> Visit<'a> for AllBindings {
         // the same guaranteed pass the requiredness side gives it. An arbitrary expression
         // keeps its zero-iteration path.
         if iterates_at_least_once(&stmt.right) {
-            self.visit_for_statement_left(&stmt.left);
-            self.walk_first_pass(&stmt.body);
+            self.after_the_iterable(stmt.right.span(), |s| {
+                s.visit_for_statement_left(&stmt.left);
+                s.walk_first_pass(&stmt.body);
+            });
             self.blocks.pop();
             self.loops.pop();
             return;
         }
-        self.maybe_skipped(|s| {
-            s.visit_for_statement_left(&stmt.left);
-            s.visit_statement(&stmt.body);
+        self.after_the_iterable(stmt.right.span(), |s| {
+            s.maybe_skipped(|s| {
+                s.visit_for_statement_left(&stmt.left);
+                s.visit_statement(&stmt.body);
+            });
         });
         self.blocks.pop();
         self.loops.pop();
@@ -16396,5 +16421,44 @@ mod tests {
             !fields.iter().any(|f| f.name == "id"),
             "a next pass sees it: {fields:?}"
         );
+    }
+
+    #[test]
+    fn an_iterable_is_evaluated_before_the_loop_target() {
+        // JavaScript evaluates the iterable, then assigns the target once per element — so
+        // `parse` here is handed the node itself and the empty list never assigns anything.
+        // Two rules had said otherwise at once: the target's write is WRITTEN above the
+        // iterable, and it repeats with a loop whose span covers the iterable textually, so
+        // ordering it alone would still have been overruled by the next-pass rule.
+        for body in [
+            "var current = e; for (current of (parse(current), [])) {}",
+            "var current = e; for (current in (parse(current), {})) {}",
+            // And the guaranteed-pass branch is the same statement with a decidable length.
+            "var current = e; for (current of (parse(current), [1])) {}",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "the iterable ran first: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_body_and_what_follows_still_see_the_loop_target() {
+        // The bound, both ways. Only the ITERABLE precedes the write; the body runs after the
+        // target is assigned, and so does everything past the loop.
+        for body in [
+            "var current = e; for (current of xs) { parse(current); }",
+            "var current = e; for (current of xs) {} parse(current);",
+            "var current = e; for (current in xs) { parse(current); }",
+            "var current = e; for (current of [1]) { parse(current); }",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "the target was assigned by then: {body}"
+            );
+        }
     }
 }
