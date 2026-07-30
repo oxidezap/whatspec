@@ -100,7 +100,7 @@ pub(crate) fn emit_field_parse(f: &ParsedField, node_var: &str, indent: &str) ->
                 "{node_var}.get_attr({flit}).and_then(|v| v.as_str().parse::<{}>().ok())",
                 super::fields::integer_width(f)
             );
-            match &band {
+            let mut out = match &band {
                 // Out of band is not the same as absent: the source accessor THROWS on a value
                 // outside its range, so mapping it to `None` would accept a response the parser
                 // rejects — quietly, and with the field simply missing. Whether an unparseable
@@ -117,7 +117,9 @@ pub(crate) fn emit_field_parse(f: &ParsedField, node_var: &str, indent: &str) ->
                     format!("{indent}}};"),
                 ],
                 None => vec![format!("{indent}let {name} = {read};")],
-            }
+            };
+            out.extend(literal_pin(f, &name, &fmsg, indent, true));
+            out
         }
         ParsedFieldType::Integer => {
             let mut out = vec![
@@ -134,6 +136,7 @@ pub(crate) fn emit_field_parse(f: &ParsedField, node_var: &str, indent: &str) ->
                     "{indent}anyhow::ensure!({test}, \"{fmsg} out of range: {{}}\", {name});"
                 ));
             }
+            out.extend(literal_pin(f, &name, &fmsg, indent, false));
             out
         }
         // An OPTIONAL JID must come first: `rust_field_type` declares `Option<Jid>` for a
@@ -189,18 +192,69 @@ fn literal_pin(
     let Some(lit) = f.literal_value.as_deref() else {
         return Vec::new();
     };
-    if wap::method_field_type(&f.method) != ParsedFieldType::String {
-        return Vec::new();
-    }
-    let pin = rust_lit(lit);
-    let test = if optional {
-        format!("matches!({name}.as_deref(), None | Some({pin}))")
-    } else {
-        format!("{name}.as_str() == {pin}")
+    // Per decoded type, not string alone. The IR records every pin as TEXT, and the committed
+    // corpus has `attrInt` pins such as `code = 500` and byte-content ones — for those the
+    // decoder took any value the source `literal(...)` accessor turns away. An integer pin is
+    // compared AFTER decoding, the same reading `leaf_guard` takes: `"0429"` is a value the
+    // source accepts and a raw text compare against `"429"` would reject.
+    let width = super::fields::integer_width(f);
+    let test = match wap::method_field_type(&f.method) {
+        ParsedFieldType::String => {
+            let pin = rust_lit(lit);
+            if optional {
+                format!("matches!({name}.as_deref(), None | Some({pin}))")
+            } else {
+                format!("{name}.as_str() == {pin}")
+            }
+        }
+        // A pin no value of the field's width can equal is not a pin this can compare — the
+        // same `representable` question the union arm asks, answered by the parse itself.
+        ParsedFieldType::Integer => {
+            let Some(n) = lit.parse::<i128>().ok().filter(|n| match width {
+                "i64" => i64::try_from(*n).is_ok(),
+                _ => u64::try_from(*n).is_ok(),
+            }) else {
+                return Vec::new();
+            };
+            if optional {
+                format!("{name}.is_none_or(|n| n == {n}{width})")
+            } else {
+                format!("{name} == {n}{width}")
+            }
+        }
+        // A byte pin is recorded as hex text, which this does not decode. Left alone rather
+        // than compared against a spelling it might not be in.
+        _ => return Vec::new(),
     };
     vec![format!(
         "{indent}anyhow::ensure!({test}, \"{fmsg} is pinned to {}: {{:?}}\", {name});",
         rust_lit_inner(lit)
+    )]
+}
+
+/// The byte length a `contentUint(N)` leaf pins, checked on the RAW payload.
+///
+/// `contentUint` folds N big-endian bytes into a `u64`, so by the time the value exists its
+/// length is gone — and the committed IQ IR carries `contentUint(4)`, `(1)` and `(3)`, where
+/// that count is part of what the source accessor accepts. The band helper cannot ask this,
+/// because it tests the decoded value and the decoded value is a number.
+fn raw_length_check(
+    leaf: Option<&ParsedField>,
+    id: &str,
+    fmsg: &str,
+    indent: &str,
+    node: &str,
+) -> Vec<String> {
+    let Some(leaf) = leaf else { return Vec::new() };
+    if leaf.method != "contentUint" {
+        return Vec::new();
+    }
+    let Some(n) = leaf.byte_length else {
+        return Vec::new();
+    };
+    let _ = id;
+    vec![format!(
+        "{indent}anyhow::ensure!({node}.content_bytes().is_none_or(|b| b.len() == {n}), \"{fmsg} wrong length: {{}}\", {node}.content_bytes().map_or(0, |b| b.len()));"
     )]
 }
 
@@ -522,6 +576,20 @@ fn emit_struct_reads(
                         "anyhow::ensure!({test}, \"{fmsg} out of range: {{}}\", {id});"
                     ));
                 }
+                // The leaf's vocabulary, which the two other content paths enforce and this one
+                // did not: the committed `token_type` child carries a `contentEnum` limited to
+                // two values and stored any string at all. Fourth site for that rule, the same
+                // count the integer band and the byte length each took to close.
+                if let Some(values) = super::fields::enum_values(c) {
+                    let arms = values
+                        .iter()
+                        .map(|v| rust_lit(v))
+                        .collect::<Vec<_>>()
+                        .join(" | ");
+                    return Some(format!(
+                        "anyhow::ensure!(matches!({id}.as_str(), {arms}), \"{fmsg} not accepted: {{:?}}\", {id});"
+                    ));
+                }
                 if wap::method_field_type(&c.method) != ParsedFieldType::Bytes {
                     return None;
                 }
@@ -553,7 +621,21 @@ fn emit_struct_reads(
                         lines.push(format!(
                             "{indent}let {id} = {base}.get_optional_child({lit})"
                         ));
-                        lines.push(format!("{indent}    .and_then(|n| n.{opt_read});"));
+                        let len = raw_length_check(leaf, &id, &fmsg, indent, "n");
+                        if len.is_empty() {
+                            lines.push(format!("{indent}    .and_then(|n| n.{opt_read});"));
+                        } else {
+                            // The length is a property of the RAW payload, so it cannot be
+                            // folded into the `and_then` chain without turning a wrong length
+                            // into an absence — which is the answer round twenty-five settled
+                            // is wrong for a band, and is no better for a length.
+                            lines.push(format!("{indent}    .map(|n| -> anyhow::Result<_> {{"));
+                            lines.extend(len.iter().map(|l| format!("    {l}")));
+                            lines.push(format!("{indent}        Ok(n.{opt_read})"));
+                            lines.push(format!("{indent}    }})"));
+                            lines.push(format!("{indent}    .transpose()?"));
+                            lines.push(format!("{indent}    .flatten();"));
+                        }
                     }
                 }
             } else {
@@ -563,6 +645,13 @@ fn emit_struct_reads(
                 lines.push(format!(
                     "{indent}    .ok_or_else(|| anyhow::anyhow!(\"missing <{}>\"))?;",
                     rust_lit_inner(tag)
+                ));
+                lines.extend(raw_length_check(
+                    leaf,
+                    &id,
+                    &fmsg,
+                    indent,
+                    &format!("{id}_node"),
                 ));
                 lines.push(format!("{indent}let {id} = {id}_node.{req_read};"));
                 if let Some(check) = &band {
@@ -2033,17 +2122,52 @@ mod tests {
 
     #[test]
     fn a_flattened_child_content_read_asks_the_classifier_for_its_length() {
-        // The bound, and it is the one that stops this emitting code that does not compile:
-        // `contentUint(N)` records a byte length too and folds those bytes into a `u64`, which
-        // has no `len()`. Nothing declared is nothing enforced, as before.
-        for (method, len) in [("contentUint", Some(8)), ("contentBytes", None)] {
-            let mut leaf = ranged("blob", None, None, true);
-            leaf.method = method.into();
-            leaf.byte_length = len;
-            let src = emit_struct_parser(&[child_over(leaf, true)], "n", "R", "", "P").join("\n");
+        // Nothing declared is nothing enforced.
+        let mut leaf = ranged("blob", None, None, true);
+        leaf.method = "contentBytes".into();
+        let src = emit_struct_parser(&[child_over(leaf, true)], "n", "R", "", "P").join("\n");
+        assert!(!src.contains("wrong length"), "nothing declared: {src}");
+    }
+
+    #[test]
+    fn a_flattened_child_content_read_enforces_its_vocabulary() {
+        // Fourth site for the enum rule — the same count the integer band and the byte length
+        // each took to close. The committed `token_type` child carries a `contentEnum` limited
+        // to two values and this path stored any string at all.
+        let mut leaf = ranged("mode", None, None, true);
+        leaf.method = "contentEnum".into();
+        leaf.enum_keys = Some(vec!["Strong".into(), "Weak".into()]);
+        for required in [true, false] {
+            let src = emit_struct_parser(&[child_over(leaf.clone(), required)], "n", "R", "", "P")
+                .join("\n");
             assert!(
-                !src.contains("wrong length"),
-                "no length check here ({method}): {src}"
+                src.contains(r#"matches!(weight.as_str(), "Strong" | "Weak")"#),
+                "the leaf's vocabulary is enforced (required={required}): {src}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_content_uint_length_is_checked_on_the_raw_payload() {
+        // `contentUint(N)` folds N big-endian bytes into a `u64`, so by the time the value
+        // exists its length is gone — and the committed IR carries `contentUint(4)`, `(1)` and
+        // `(3)`, where that count is part of what the accessor takes. I had asserted this leaf
+        // gets no length check at all, which was right about the DECODED value (a `u64` has no
+        // `len()`, and asking for one is code that does not compile) and wrong about the
+        // payload. Review was right; the bound now says which of the two it is about.
+        let mut leaf = ranged("blob", None, None, true);
+        leaf.method = "contentUint".into();
+        leaf.byte_length = Some(3);
+        for required in [true, false] {
+            let src = emit_struct_parser(&[child_over(leaf.clone(), required)], "n", "R", "", "P")
+                .join("\n");
+            assert!(
+                src.contains("content_bytes().is_none_or(|b| b.len() == 3)"),
+                "the raw payload is measured (required={required}): {src}"
+            );
+            assert!(
+                !src.contains("weight.len()"),
+                "and never the folded number (required={required}): {src}"
             );
         }
     }
@@ -2126,16 +2250,24 @@ mod tests {
         // The bound: the IR records a pin as TEXT, and comparing it against a decoded number or
         // a byte payload needs the care `leaf_guard` takes over a pin that does not fit the
         // field's width. Those keep the reading they have until there is a case to measure.
+        // An integer pin IS compared, after decoding — which is what review corrected here,
+        // and the corpus has `code = 500` among others. I had asserted the opposite.
         let mut f = ranged("count", None, None, true);
         f.method = "attrInt".into();
         f.literal_value = Some("7".into());
         let src = emit_field_parse(&f, "n", "").join("\n");
-        assert!(!src.contains("is pinned to"), "not compared here: {src}");
+        assert!(src.contains("count == 7u64"), "compared as a number: {src}");
 
-        // The content path reaches the pin directly, so this is where dropping the type test
-        // would emit `.as_str()` on a `u64` — code that does not compile.
-        f.method = "contentInt".into();
+        // What is still left alone: a pin no value of the field's width can equal, which is not
+        // a comparison at all — the same `representable` question the union arm asks.
+        f.literal_value = Some("-7".into());
         let src = emit_field_parse(&f, "n", "").join("\n");
-        assert!(!src.contains("is pinned to"), "nor here: {src}");
+        assert!(!src.contains("is pinned to"), "unrepresentable: {src}");
+
+        // And a bytes pin, recorded as text this does not decode.
+        f.method = "contentBytes".into();
+        f.literal_value = Some("05".into());
+        let src = emit_field_parse(&f, "n", "").join("\n");
+        assert!(!src.contains("is pinned to"), "bytes are left alone: {src}");
     }
 }

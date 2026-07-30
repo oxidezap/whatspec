@@ -3085,13 +3085,29 @@ fn invoked_callee<'b, 'a>(mut e: &'b Expression<'a>) -> &'b Expression<'a> {
     }
 }
 
-/// Which of this call's arguments reach the invoked function's parameters, as an index to start
-/// from — and `None` where reading them settles nothing.
+/// What actually reaches the invoked function's parameters, one slot per position.
 ///
-/// `f.call(thisArg, a, b)` hands `a, b` to the parameters, so the mapping starts at one.
-/// `f.apply(thisArg, list)` hands whatever `list` holds, which is not a positional argument list
-/// at all, so no default can be said to be prevented.
-fn parameters_start_at(callee_expr: &Expression<'_>) -> Option<usize> {
+/// `f(a, b)` hands them straight through. `f.call(thisArg, a, b)` hands `a, b`, the first
+/// argument being the receiver. `f.apply(thisArg, [1])` hands the elements of that array — a
+/// literal one is as readable as an argument list, and answering "unknowable" for every `.apply`
+/// walked a default the call really does prevent.
+///
+/// `None` in a slot is "nothing readable here", and every slot after a spread is `None` too,
+/// because a spread moves the positions after it by an amount nothing here knows.
+fn effective_arguments<'b, 'a>(
+    callee_expr: &'b Expression<'a>,
+    arguments: &'b [Argument<'a>],
+) -> Vec<Option<&'b Expression<'a>>> {
+    let direct = |args: &'b [Argument<'a>]| -> Vec<Option<&'b Expression<'a>>> {
+        let mut out = Vec::new();
+        for a in args {
+            match a {
+                Argument::SpreadElement(_) => break,
+                other => out.push(other.as_expression()),
+            }
+        }
+        out
+    };
     let mut e = callee_expr;
     loop {
         e = match e {
@@ -3101,12 +3117,26 @@ fn parameters_start_at(callee_expr: &Expression<'_>) -> Option<usize> {
             }
             Expression::StaticMemberExpression(m) => {
                 return match m.property.name.as_str() {
-                    "call" => Some(1),
-                    "apply" => None,
-                    _ => Some(0),
+                    "call" => direct(arguments.get(1..).unwrap_or_default()),
+                    "apply" => {
+                        let Some(Expression::ArrayExpression(arr)) =
+                            arguments.get(1).and_then(Argument::as_expression)
+                        else {
+                            return Vec::new();
+                        };
+                        let mut out = Vec::new();
+                        for el in &arr.elements {
+                            match el {
+                                oxc_ast::ast::ArrayExpressionElement::SpreadElement(_) => break,
+                                other => out.push(other.as_expression()),
+                            }
+                        }
+                        out
+                    }
+                    _ => direct(arguments),
                 };
             }
-            _ => return Some(0),
+            _ => return direct(arguments),
         };
     }
 }
@@ -3120,6 +3150,15 @@ fn leading_parts<'b, 'a>(e: &'b Expression<'a>, out: &mut Vec<&'b Expression<'a>
                 out.extend(rest);
                 leading_parts(last, out);
             }
+        }
+        // Through the `.call`/`.apply` wrapper the callee unwrapper now looks through, or
+        // `(current = other, function(){}).call(null)` loses that assignment entirely — the
+        // function is found and the comma's leading element is not. Two readers of one shape,
+        // and only one of them was taught it.
+        Expression::StaticMemberExpression(m)
+            if matches!(m.property.name.as_str(), "call" | "apply") =>
+        {
+            leading_parts(&m.object, out);
         }
         _ => {}
     }
@@ -3626,6 +3665,17 @@ fn ends_the_list_but_for(
     }
 }
 
+/// The two phases a class definition runs in, as the spans that make each of them up: every
+/// computed key is evaluated before any static initializer or static block, whatever their
+/// source order. Carried together because each half is only correct beside the other — saying
+/// that an initializer follows the keys, and not that a key precedes the initializers, is a
+/// rule shipped one direction at a time.
+#[derive(Clone, Copy)]
+struct ClassPhases<'s> {
+    keys: &'s [Span],
+    statics: &'s [Span],
+}
+
 /// The spans of `callee` whose evaluation happens at CONSTRUCTION, so the arguments precede them.
 ///
 /// For a function it is the whole callee: everything in the body runs after the arguments. For
@@ -3672,7 +3722,7 @@ fn construction_regions(callee: &Expression<'_>, constructs: bool) -> Vec<Span> 
 /// A spread argument makes every position after it unknowable, so it ends the mapping.
 fn suppressed_defaults(
     callee: &Expression<'_>,
-    arguments: &[Argument<'_>],
+    arguments: &[Option<&Expression<'_>>],
     constructs: bool,
 ) -> Vec<Span> {
     let params = match callee {
@@ -3701,12 +3751,11 @@ fn suppressed_defaults(
     };
     let mut out = Vec::new();
     for (i, param) in params.items.iter().enumerate() {
-        let supplied = match arguments.get(i) {
-            // A spread makes every position after it unknowable, so it ends the mapping.
-            Some(Argument::SpreadElement(_)) | None => break,
-            Some(arg) => arg.as_expression(),
+        // `None` at a position — a spread, or anything the caller could not read — ends the
+        // mapping, because everything after it has moved by an amount nothing here knows.
+        let Some(Some(supplied)) = arguments.get(i).copied() else {
+            break;
         };
-        let Some(supplied) = supplied else { break };
         // The parameter's OWN default, then whatever the pattern it binds destructures. When
         // the default runs, the pattern takes the default's value apart, not the argument's —
         // so the recursion carries `None` on that side rather than the argument.
@@ -4691,14 +4740,8 @@ impl AllBindings {
         // Around the callee only: an argument that writes runs where it is written, and pinning
         // that to the call would order it after a body it precedes.
         self.effects_land_at.push((callee.span(), span.end));
-        // Through `.call`, the first argument is the receiver and the parameters start after
-        // it; through `.apply` there is no positional list to read at all.
-        let suppressed = match parameters_start_at(callee_expr) {
-            Some(from) if from <= arguments.len() => {
-                suppressed_defaults(callee, &arguments[from..], constructs)
-            }
-            _ => Vec::new(),
-        };
+        let effective = effective_arguments(callee_expr, arguments);
+        let suppressed = suppressed_defaults(callee, &effective, constructs);
         let restore = self.suppressed_defaults.len();
         self.suppressed_defaults.extend(suppressed);
         self.visit_expression(callee);
@@ -4764,12 +4807,21 @@ impl AllBindings {
         key: &oxc_ast::ast::PropertyKey<'a>,
         value: Option<&Expression<'a>>,
         constructed: bool,
-        keys: &[Span],
+        phases: ClassPhases<'_>,
     ) {
+        let (keys, statics) = (phases.keys, phases.statics);
         // The key first, and OUTSIDE the declaration below: keys run in their own source order
-        // among themselves, and only the initializers follow all of them.
+        // among themselves, and only the initializers follow all of them. What a key writes
+        // does precede every one of those initializers, whichever way round they are written.
         if computed {
+            let declared = !statics.is_empty();
+            if declared {
+                self.runs_before.push(statics.to_vec());
+            }
             self.visit_property_key(key);
+            if declared {
+                self.runs_before.pop();
+            }
         }
         // A static initializer runs when the class is defined. An INSTANCE one runs per `new`,
         // of which there may be none — unless this very class is being constructed in place,
@@ -5356,6 +5408,27 @@ impl<'a> Visit<'a> for AllBindings {
                 _ => None,
             })
             .collect();
+        // The same ordering read the other way. Saying only that an initializer FOLLOWS the
+        // keys left a key written below one still at its own offset, so `class C { static x =
+        // parse(current); [(current = other)]() {} }` had the initializer read a node the key
+        // had in fact already replaced. Both halves of one rule, and shipping the first alone
+        // is the shape this branch keeps finding — so the key's own writes declare that they
+        // PRECEDE every static initializer and block.
+        let static_spans: Vec<Span> = class
+            .body
+            .body
+            .iter()
+            .filter_map(|el| match el {
+                oxc_ast::ast::ClassElement::PropertyDefinition(p) if p.r#static => {
+                    p.value.as_ref().map(GetSpan::span)
+                }
+                oxc_ast::ast::ClassElement::AccessorProperty(p) if p.r#static => {
+                    p.value.as_ref().map(GetSpan::span)
+                }
+                oxc_ast::ast::ClassElement::StaticBlock(b) => Some(b.span),
+                _ => None,
+            })
+            .collect();
         let ctor_last = constructed && class.super_class.is_none();
         // Reordering the WALK is not enough on its own: effectiveness is decided by position,
         // and a field written after the constructor is textually after the read inside it. So
@@ -5414,6 +5487,16 @@ impl<'a> Visit<'a> for AllBindings {
                         self.visit_class_element(el);
                     }
                 }
+                // A computed METHOD key is evaluated in the same phase as any other, and it is
+                // the spelling the reported case used — the field walk below never sees one.
+                oxc_ast::ast::ClassElement::MethodDefinition(m)
+                    if m.computed && !static_spans.is_empty() =>
+                {
+                    self.runs_before.push(static_spans.clone());
+                    self.visit_property_key(&m.key);
+                    self.runs_before.pop();
+                    self.visit_function(&m.value, ScopeFlags::Function);
+                }
                 oxc_ast::ast::ClassElement::PropertyDefinition(p) => {
                     self.visit_field_at_definition(
                         p.computed,
@@ -5421,7 +5504,10 @@ impl<'a> Visit<'a> for AllBindings {
                         &p.key,
                         p.value.as_ref(),
                         constructed,
-                        &key_spans,
+                        ClassPhases {
+                            keys: &key_spans,
+                            statics: &static_spans,
+                        },
                     );
                 }
                 // `accessor value = …` is a field with a getter and a setter generated for it,
@@ -5438,7 +5524,10 @@ impl<'a> Visit<'a> for AllBindings {
                         &p.key,
                         p.value.as_ref(),
                         constructed,
-                        &key_spans,
+                        ClassPhases {
+                            keys: &key_spans,
+                            statics: &static_spans,
+                        },
                     );
                 }
                 // Its braces are a scope: `static { let current = other; }` binds a NEW
@@ -16105,18 +16194,27 @@ mod tests {
     #[test]
     fn call_shifts_the_parameters_past_the_receiver() {
         // `.call(thisArg, a)` hands `a` to the first parameter, so a default it supplies does
-        // not run — and `.apply(thisArg, list)` hands whatever the list holds, which is not a
-        // positional argument list at all, so nothing can be said to be prevented.
-        let supplied = helper_reached_via(
+        // not run — and a LITERAL `.apply(thisArg, [a])` list is as readable as an argument
+        // list, which I asserted the opposite of one round ago. Review was right: answering
+        // "unknowable" for every `.apply` walked a default the call really does prevent.
+        for body in [
             "var current = e; (function (x = (current = other)) {}).call(null, 1); parse(current);",
-        );
-        assert!(
-            supplied.iter().any(|f| f.name == "id"),
-            "the argument past the receiver supplies it: {supplied:?}"
-        );
+            "var current = e; (function (x = (current = other)) {}).apply(null, [1]); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "the argument past the receiver supplies it: {body}"
+            );
+        }
         for body in [
             "var current = e; (function (x = (current = other)) {}).call(null); parse(current);",
-            "var current = e; (function (x = (current = other)) {}).apply(null, [1]); parse(current);",
+            // A list this cannot read, and one whose positions a spread has moved.
+            "var current = e; (function (x = (current = other)) {}).apply(null, list); parse(current);",
+            "var current = e; (function (x = (current = other)) {}).apply(null, [...r]); parse(current);",
+            // A spread ENDS the mapping rather than being skipped over: the `1` after it is not
+            // at position zero, whatever it looks like.
+            "var current = e; (function (x = (current = other)) {}).apply(null, [...r, 1]); parse(current);",
         ] {
             let fields = helper_reached_via(body);
             assert!(
@@ -16163,5 +16261,52 @@ mod tests {
                 "that write is effective here: {body}"
             );
         }
+    }
+
+    #[test]
+    fn a_computed_key_write_precedes_every_static_initializer() {
+        // The same ordering read the other way. Saying only that an initializer FOLLOWS the
+        // keys left a key written below one still at its own offset, so the initializer read a
+        // node the key had in fact already replaced. Both halves of one rule; shipping the
+        // first alone is the shape this branch keeps finding in its own work.
+        for body in [
+            "var current = e; class C { static x = parse(current); [(current = other)]() {} }",
+            "var current = e; class C { static x = parse(current); static [(current = other)] = 1; }",
+            "var current = e; class C { static { parse(current); } [(current = other)]() {} }",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "the key ran before the initializer read it: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_apply_list_this_can_read_supplies_the_parameters() {
+        // A literal `.apply(thisArg, [1])` list is as readable as an argument list. Answering
+        // "unknowable" for every `.apply` walked a default the call really does prevent — which
+        // I asserted was correct one round ago, and it was not.
+        let fields = helper_reached_via(
+            "var current = e; (function (x = (current = other)) {}).apply(null, [1]); parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the list supplies that parameter: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn a_call_receiver_keeps_its_leading_effects() {
+        // The callee unwrapper looks through `.call`, and `leading_parts` was still handed the
+        // member expression — so `(current = other, function(){}).call(null)` found the function
+        // and lost the assignment beside it. Two readers of one shape, one of them taught.
+        let fields = helper_reached_via(
+            "var current = e; (current = other, function () {}).call(null); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the comma's leading element still runs: {fields:?}"
+        );
     }
 }
