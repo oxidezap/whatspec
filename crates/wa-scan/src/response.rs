@@ -3102,10 +3102,15 @@ fn bind_member<'b, 'a>(callee: &'b Expression<'a>) -> Option<&'b Expression<'a>>
 /// only the parenthesised form classified that body as one nobody calls — so a write inside it
 /// stayed confined and the helper's fields were published on the node it had moved away from.
 fn invoked_callee<'b, 'a>(mut e: &'b Expression<'a>) -> &'b Expression<'a> {
+    // A member taken through the comma operator is a bare function VALUE: the reference is
+    // discarded, so `(0, f.call)(null)` hands `Function.prototype.call` an `undefined` receiver
+    // and throws before `f` is entered. Parentheses keep the reference and are not this.
+    let mut through_comma = false;
     loop {
         e = match e {
             Expression::ParenthesizedExpression(p) => &p.expression,
             Expression::SequenceExpression(s) if !s.expressions.is_empty() => {
+                through_comma = true;
                 s.expressions.last().expect("checked non-empty")
             }
             // `(function(){ … }).call(null)` runs that body as immediately as `()` does; the
@@ -3125,7 +3130,11 @@ fn invoked_callee<'b, 'a>(mut e: &'b Expression<'a>) -> &'b Expression<'a> {
                 None => return e,
             },
             other => match named_member(other) {
-                Some((name, object)) if matches!(name.as_ref(), "call" | "apply") => object,
+                Some((name, object))
+                    if matches!(name.as_ref(), "call" | "apply") && !through_comma =>
+                {
+                    object
+                }
                 _ => return other,
             },
         };
@@ -3455,13 +3464,34 @@ fn synchronous_until(
         unsuspended: Vec<Span>,
         /// Where the walked body ends, for naming that continuation.
         body_end: u32,
+        /// Continuations still to be closed: a position past a branch some path bypasses. Each
+        /// runs synchronously until the next suspension EVERY surviving path reaches, which is
+        /// not known until the walk has gone past it.
+        pending: Vec<u32>,
+        /// Every await, in source order, for closing those continuations.
+        ///
+        /// Every one of them, rather than only the ones no branch can bypass. I wrote the
+        /// narrower rule first and no input separates the two: a construct that makes an await
+        /// skippable records its own continuation after itself, so closing an earlier
+        /// continuation at that await and closing it where the later continuation begins cover
+        /// the same ground. A gate no test can hold is one to remove.
+        unavoidable: Vec<u32>,
     }
     impl FirstAwait {
         fn note(&mut self, at: u32) {
             if self.nested == 0 {
                 self.at = Some(self.at.map_or(at, |a| a.min(at)));
+                self.unavoidable.push(at);
             }
         }
+        /// A branch some execution skips: what follows it is synchronous on that path, until
+        /// the next suspension every surviving path reaches.
+        fn bypassed_after(&mut self, at: u32) {
+            if self.nested == 0 {
+                self.pending.push(at);
+            }
+        }
+
         /// The first await inside one statement, ignoring nested functions — asked of each side
         /// of a branch separately, which is the whole point.
         fn within(st: &Statement<'_>) -> Option<u32> {
@@ -3470,6 +3500,8 @@ fn synchronous_until(
                 nested: 0,
                 unsuspended: Vec::new(),
                 body_end: 0,
+                pending: Vec::new(),
+                unavoidable: Vec::new(),
             };
             probe.visit_statement(st);
             probe.at
@@ -3481,6 +3513,8 @@ fn synchronous_until(
                 nested: 0,
                 unsuspended: Vec::new(),
                 body_end: 0,
+                pending: Vec::new(),
+                unavoidable: Vec::new(),
             };
             probe.visit_expression(e);
             probe.at
@@ -3575,9 +3609,8 @@ fn synchronous_until(
             // direction only marks more writes as seen, which loses fields rather than filing
             // them under the wrong node — the same asymmetry every other choice in this probe is
             // made on.
-            if bypassed && self.nested == 0 {
-                self.unsuspended
-                    .push(Span::new(st.span.end, self.body_end.max(st.span.end)));
+            if bypassed {
+                self.bypassed_after(st.span.end);
             }
         }
         // A ternary is the decided branch the `if` arm already prunes, one syntactic level over.
@@ -3600,15 +3633,23 @@ fn synchronous_until(
             // function. The `if` arm has recorded that since round nineteen; this one merged
             // them, which is the same half-a-rule the ternary keeps being reported for.
             let sides = [&e.consequent, &e.alternate].map(|s| (s, FirstAwait::within_expr(s)));
+            let suspends = sides.iter().any(|(_, o)| o.is_some());
             for (side, first) in &sides {
                 match first {
                     Some(at) => self.note(*at),
-                    None if sides.iter().any(|(_, o)| o.is_some()) && self.nested == 0 => {
+                    None if suspends && self.nested == 0 => {
                         self.unsuspended.push(side.span());
                     }
                     None => {}
                 }
                 self.visit_expression(side);
+            }
+            // And the continuation, exactly as the `if` records it: when one arm suspends and
+            // the other does not, everything after the ternary is synchronous on the arm that
+            // did not. The `if` was given this a round ago and its expression form was not,
+            // which is the half-a-rule these two keep trading.
+            if suspends && sides.iter().any(|(_, o)| o.is_none()) {
+                self.bypassed_after(e.span.end);
             }
         }
         // A short-circuit operator is the same decided branch in expression form. `0 && await 0`
@@ -3627,7 +3668,21 @@ fn synchronous_until(
                 // reaches that await. Grouping it with `||` answered the narrower question.
                 oxc_syntax::operator::LogicalOperator::Coalesce => never_nullish(&e.left),
             };
-            if !dead {
+            if dead {
+                return;
+            }
+            // The right side runs only when the left side allowed it, so an await inside it is
+            // one some execution skips — and everything AFTER the operator is synchronous on
+            // that path. Same rule as the `if` and the ternary, and the third place it had to
+            // be written because each was reported after the previous one was closed.
+            let bypassable = !logical_right_is_certain(e);
+            if bypassable {
+                let before = self.at;
+                self.visit_expression(&e.right);
+                if self.at != before {
+                    self.bypassed_after(e.span.end);
+                }
+            } else {
                 self.visit_expression(&e.right);
             }
         }
@@ -3651,17 +3706,35 @@ fn synchronous_until(
         nested: 0,
         unsuspended: Vec::new(),
         body_end: span.end,
+        pending: Vec::new(),
+        unavoidable: Vec::new(),
     };
     if let Some(body) = body {
         probe.visit_function_body(body);
     }
+    // Each continuation runs until the next suspension EVERY surviving path reaches. Recording
+    // it to the end of the body — which is how it was first written — treated a write past a
+    // LATER unconditional await as synchronous, and that direction loses fields rather than
+    // filing them under the wrong node, but it loses them all the same.
+    let body_end = probe.body_end;
+    let unavoidable = probe.unavoidable;
+    let mut unsuspended = probe.unsuspended;
+    unsuspended.extend(probe.pending.into_iter().filter_map(|start| {
+        let end = unavoidable
+            .iter()
+            .copied()
+            .filter(|h| *h > start)
+            .min()
+            .unwrap_or(body_end);
+        (end > start).then(|| Span::new(start, end))
+    }));
     let Some(cutoff) = probe.at else {
         return vec![span];
     };
     let mut regions = vec![Span::new(span.start, cutoff)];
     // A side that suspends nothing, but only past the cutoff — before it the first region
     // already covers the same ground.
-    regions.extend(probe.unsuspended.into_iter().filter(|r| r.end > cutoff));
+    regions.extend(unsuspended.into_iter().filter(|r| r.end > cutoff));
     regions
 }
 
@@ -3987,6 +4060,33 @@ fn is_constructible(callee: &Expression<'_>) -> bool {
     }
 }
 
+/// Whether a class with this heritage throws the moment it is DEFINED.
+///
+/// `class C extends (() => {})` evaluates the arrow and then rejects it: a heritage has to be
+/// `null` or a constructor, and an arrow, an async function and a generator are none of them —
+/// nor is any primitive or a plain object. The class body never runs, so a static initializer
+/// in it writes nothing.
+///
+/// Only a spelling that settles it. An identifier is left alone, because claiming a throw where
+/// none happens confines a write the caller does see.
+fn heritage_throws(super_class: &Expression<'_>) -> bool {
+    match peel(super_class) {
+        // `extends null` is legal and makes a base-like class with no prototype parent.
+        Expression::NullLiteral(_) => false,
+        Expression::ClassExpression(_) => false,
+        Expression::FunctionExpression(f) => f.generator || f.r#async,
+        Expression::ArrowFunctionExpression(_)
+        | Expression::BooleanLiteral(_)
+        | Expression::NumericLiteral(_)
+        | Expression::BigIntLiteral(_)
+        | Expression::StringLiteral(_)
+        | Expression::TemplateLiteral(_)
+        | Expression::ObjectExpression(_)
+        | Expression::ArrayExpression(_) => true,
+        _ => false,
+    }
+}
+
 /// Whether constructing this class runs its instance field initializers at all.
 ///
 /// A DERIVED class installs them the moment `super()` returns, so a constructor that leaves
@@ -4021,7 +4121,11 @@ fn instance_fields_initialize(class: &oxc_ast::ast::Class<'_>) -> bool {
             return false;
         }
     }
-    true
+    // Reaching the end without one is the same answer as leaving before one: a derived
+    // constructor that never calls `super()` throws a `ReferenceError` on return, so not a field
+    // initializes. Answering `true` here read `constructor(){}` as ordinary construction and
+    // recorded a write that happens on no path.
+    false
 }
 
 /// Whether a statement can evaluate `super(...)` anywhere inside it — including in an arrow,
@@ -5167,7 +5271,7 @@ impl AllBindings {
     fn walk_invocation<'a>(
         &mut self,
         callee_expr: &Expression<'a>,
-        arguments: &oxc_allocator::Vec<'a, oxc_ast::ast::Argument<'a>>,
+        arguments: &[oxc_ast::ast::Argument<'a>],
         span: Span,
         constructs: bool,
     ) -> bool {
@@ -5611,6 +5715,22 @@ impl<'a> Visit<'a> for AllBindings {
         }
     }
 
+    /// A tagged template calls its tag as immediately as `()` does — ``(function(){ … })`x` ``
+    /// runs that body before the next statement. Only calls and `new` were read as invocations,
+    /// so the write inside it stayed confined and the helper's fields were published on the node
+    /// it had moved away from.
+    ///
+    /// The tag is handed a strings array and then the substitutions, so there is no argument
+    /// list this can map onto its parameters: none is offered, and a default this cannot rule
+    /// out simply runs.
+    fn visit_tagged_template_expression(&mut self, t: &oxc_ast::ast::TaggedTemplateExpression<'a>) {
+        if self.walk_invocation(&t.tag, &[], t.span, false) {
+            self.visit_template_literal(&t.quasi);
+        } else {
+            walk::walk_tagged_template_expression(self, t);
+        }
+    }
+
     /// `new (function(){ … })()` runs that body before the next statement exactly as a call
     /// does, and only calls were read that way — so the write inside it stayed confined and the
     /// helper's fields were published on the node it had moved away from. One method answers
@@ -5926,6 +6046,17 @@ impl<'a> Visit<'a> for AllBindings {
         // visitor that enumerated the parts of a class it happened to think of.
         if let Some(heritage) = class.super_class.as_ref() {
             self.visit_expression(heritage);
+            // …and a heritage that is not a constructor rejects the class the moment it is
+            // DEFINED, so nothing in the body runs — not a computed key, not a static
+            // initializer, not a static block. The heritage itself is evaluated first and keeps
+            // whatever it wrote; the same constructibility rule `new` reads, at the other place
+            // that needs it.
+            if heritage_throws(heritage) {
+                self.unreachable += 1;
+                walk::walk_class_body(self, &class.body);
+                self.unreachable -= 1;
+                return;
+            }
         }
         // And only what the class evaluates when it is DEFINED. An instance field initializer
         // runs per `new`, of which there may be none: `class C { value = (current = other) }`
@@ -17189,10 +17320,10 @@ mod tests {
         // selects the OTHER way. `null ?? x` is the case that separates "certainly falsy" from
         // "certainly non-nullish" — the two are not the same question.
         for body in [
-            "var current = e; (async function () { c && await 0; current = other; })(); parse(current);",
-            "var current = e; (async function () { 1 && await 0; current = other; })(); parse(current);",
-            "var current = e; (async function () { 0 || await 0; current = other; })(); parse(current);",
-            "var current = e; (async function () { null ?? await 0; current = other; })(); parse(current);",
+            "var current = e; (async function () { c && (await 0, current = other); })(); parse(current);",
+            "var current = e; (async function () { 1 && (await 0, current = other); })(); parse(current);",
+            "var current = e; (async function () { 0 || (await 0, current = other); })(); parse(current);",
+            "var current = e; (async function () { null ?? (await 0, current = other); })(); parse(current);",
         ] {
             let fields = helper_reached_via(body);
             assert!(
@@ -17319,10 +17450,10 @@ mod tests {
         // `void 0` a minifier writes for `undefined`, and a bare `undefined`, which is an
         // identifier this cannot resolve. An arbitrary expression declines with them.
         for body in [
-            "var current = e; (async function () { null ?? await 0; current = other; })(); parse(current);",
-            "var current = e; (async function () { void 0 ?? await 0; current = other; })(); parse(current);",
-            "var current = e; (async function () { undefined ?? await 0; current = other; })(); parse(current);",
-            "var current = e; (async function () { c ?? await 0; current = other; })(); parse(current);",
+            "var current = e; (async function () { null ?? (await 0, current = other); })(); parse(current);",
+            "var current = e; (async function () { void 0 ?? (await 0, current = other); })(); parse(current);",
+            "var current = e; (async function () { undefined ?? (await 0, current = other); })(); parse(current);",
+            "var current = e; (async function () { c ?? (await 0, current = other); })(); parse(current);",
         ] {
             let fields = helper_reached_via(body);
             assert!(
@@ -17434,7 +17565,7 @@ mod tests {
         // The bound: an undecided test reaches both sides, and the await in either of them is
         // a real cutoff.
         let fields = helper_reached_via(
-            "var current = e; (async function () { c ? 0 : await 0; current = other; })(); parse(current);",
+            "var current = e; (async function () { c ? 0 : (await 0, current = other); })(); parse(current);",
         );
         assert!(
             fields.iter().any(|f| f.name == "id"),
@@ -17906,5 +18037,178 @@ mod tests {
             fields.iter().any(|f| f.name == "id"),
             "constructing `bind` itself reaches no body either: {fields:?}"
         );
+    }
+    #[test]
+    fn a_bypassed_continuation_ends_at_the_next_unavoidable_await() {
+        // `if (flag) await 0; await 0; current = other;` suspends on EVERY path before the
+        // write, so the caller always passes the original node. The continuation after a
+        // bypassed branch was recorded to the end of the body — which I flagged a round ago as
+        // over-reaching and safe, and it is safe in direction and still a loss. It ends at the
+        // next suspension every surviving path reaches now.
+        let fields = helper_reached_via(
+            "var current = e; (async function () { if (flag) await 0; await 0; current = other; })(); parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "every path waits by then: {fields:?}"
+        );
+        // The bound: with nothing unavoidable after it the continuation still runs to the end,
+        // and an await inside ANOTHER bypassable branch does not close it either.
+        for body in [
+            "var current = e; (async function () { if (flag) await 0; current = other; })(); parse(current);",
+            "var current = e; (async function () { if (flag) await 0; if (other) await 1; current = other; })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "a path reaches that write without waiting: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_bypassed_short_circuit_leaves_its_continuation_synchronous() {
+        // The rule the `if` was given a round ago, in the two expression forms that were left
+        // without it. `flag && await 0; current = other;` assigns synchronously whenever `flag`
+        // is falsy, and `flag ? await 0 : 0` whenever the other arm is taken — so two executions
+        // disagree about what `parse` receives and the model owes the answer that declines.
+        for body in [
+            "var current = e; (async function () { flag && await 0; current = other; })(); parse(current);",
+            "var current = e; (async function () { flag || await 0; current = other; })(); parse(current);",
+            "var current = e; (async function () { flag ?? await 0; current = other; })(); parse(current);",
+            "var current = e; (async function () { flag ? await 0 : 0; current = other; })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "a path bypasses that await: {body}"
+            );
+        }
+        // The bound: a right side that ALWAYS runs suspends every path, and so does a ternary
+        // whose arms both await.
+        for body in [
+            "var current = e; (async function () { !0 && await 0; current = other; })(); parse(current);",
+            "var current = e; (async function () { 0 || await 0; current = other; })(); parse(current);",
+            "var current = e; (async function () { null ?? await 0; current = other; })(); parse(current);",
+            "var current = e; (async function () { flag ? await 0 : await 1; current = other; })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "every path waits: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_derived_constructor_without_super_initializes_nothing() {
+        // Reaching the end of a derived constructor without calling `super()` throws a
+        // `ReferenceError` on return, so not a field initializes. The walk answered `true` on
+        // that fallthrough and read `constructor(){}` as ordinary construction.
+        let fields = helper_reached_via(
+            "var current = e; try { new (class extends Base { constructor(){} x = (current = other) })(); } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "that construction throws: {fields:?}"
+        );
+        // The bound: a `super()` anywhere on the way still installs them, and a class with no
+        // heritage needs none.
+        for body in [
+            "var current = e; new (class extends Base { constructor(){ super(); } x = (current = other) })(); parse(current);",
+            "var current = e; new (class extends Base { constructor(){ if (c) super(); } x = (current = other) })(); parse(current);",
+            "var current = e; new (class { constructor(){} x = (current = other) })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "the field initializes: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_member_taken_through_a_comma_has_lost_its_receiver() {
+        // `(0, f.call)(null)` discards the reference and hands `Function.prototype.call` an
+        // `undefined` receiver, which throws before `f` is entered. Parentheses keep the
+        // reference and are not this, which is the bound.
+        let fields = helper_reached_via(
+            "var current = e; try { (0, (function () { current = other; }).call)(null); } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "that call throws first: {fields:?}"
+        );
+        for body in [
+            "var current = e; ((function () { current = other; }).call)(null); parse(current);",
+            // And a comma around the FUNCTION rather than the member is unaffected: the value
+            // is the function itself, which needs no receiver.
+            "var current = e; (0, function () { current = other; })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that body does run: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_tagged_template_calls_its_tag() {
+        // ``(function(){ … })`x` `` runs that body before the next statement, as immediately as
+        // `()` does. Only calls and `new` were read as invocations.
+        let fields = helper_reached_via(
+            "var current = e; (function () { current = other; })`x`; parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the tag ran: {fields:?}"
+        );
+        // The bound: a tag this has never seen the body of invokes nothing it can follow, and
+        // the substitutions are still walked where they are written.
+        let fields = helper_reached_via("var current = e; thing`x`; parse(current);");
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "nothing inline was invoked: {fields:?}"
+        );
+        let fields = helper_reached_via(
+            "var current = e; (function () {})`x${(current = other)}`; parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the substitution ran: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn a_heritage_that_is_not_a_constructor_runs_no_class_body() {
+        // `class C extends (() => {})` evaluates the arrow and then rejects it, so nothing in
+        // the body runs — not a static initializer, not a computed key. The same
+        // constructibility rule `new` reads, at the other place that needs it.
+        for body in [
+            "var current = e; try { class C extends (() => {}) { static x = (current = other); } } catch (_) {} parse(current);",
+            "var current = e; try { class C extends (async function () {}) { static x = (current = other); } } catch (_) {} parse(current);",
+            "var current = e; try { class C extends 1 { static x = (current = other); } } catch (_) {} parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that class definition throws: {body}"
+            );
+        }
+        // The bound: `extends null` is legal, a plain function and a class are constructors, an
+        // identifier is left alone — and the heritage EXPRESSION is evaluated either way.
+        for body in [
+            "var current = e; class C extends null { static x = (current = other); } parse(current);",
+            "var current = e; class C extends Base { static x = (current = other); } parse(current);",
+            "var current = e; class C extends (function () {}) { static x = (current = other); } parse(current);",
+            "var current = e; try { class C extends (current = other, () => {}) {} } catch (_) {} parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that write does happen: {body}"
+            );
+        }
     }
 }
