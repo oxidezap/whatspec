@@ -3066,7 +3066,9 @@ fn named_member<'b, 'a>(
             std::borrow::Cow::Borrowed(m.property.name.as_str()),
             &m.object,
         )),
-        Expression::ComputedMemberExpression(m) => match &m.expression {
+        // Peeled: `f[("call")]` names the same property as `f["call"]`, and parentheses around
+        // a key change nothing about which one it is.
+        Expression::ComputedMemberExpression(m) => match peel(&m.expression) {
             Expression::StringLiteral(s) => {
                 Some((std::borrow::Cow::Borrowed(s.value.as_str()), &m.object))
             }
@@ -3438,9 +3440,13 @@ fn synchronous_until(
     struct FirstAwait {
         at: Option<u32>,
         nested: u32,
-        /// Branches of an undecided `if` that contain no await of their own. Whichever side
-        /// suspends, the other one still runs to its end without waiting for anything.
+        /// Branches of an undecided `if` that contain no await of their own, and the
+        /// CONTINUATION after a branch some path bypasses. Whichever side suspends, the other
+        /// one still runs to its end without waiting for anything — and so does everything
+        /// after the branch, on that same path.
         unsuspended: Vec<Span>,
+        /// Where the walked body ends, for naming that continuation.
+        body_end: u32,
     }
     impl FirstAwait {
         fn note(&mut self, at: u32) {
@@ -3455,6 +3461,7 @@ fn synchronous_until(
                 at: None,
                 nested: 0,
                 unsuspended: Vec::new(),
+                body_end: 0,
             };
             probe.visit_statement(st);
             probe.at
@@ -3465,6 +3472,7 @@ fn synchronous_until(
                 at: None,
                 nested: 0,
                 unsuspended: Vec::new(),
+                body_end: 0,
             };
             probe.visit_expression(e);
             probe.at
@@ -3528,18 +3536,40 @@ fn synchronous_until(
                 .chain(st.alternate.as_ref())
                 .map(|s| (s, FirstAwait::within(s)))
                 .collect();
+            // A one-sided `if` has an implicit empty alternate, which suspends nothing — so a
+            // path bypasses the await whenever the alternate is missing OR some side holds no
+            // await of its own.
+            let suspends = sides.iter().any(|(_, o)| o.is_some());
+            let bypassed =
+                suspends && (st.alternate.is_none() || sides.iter().any(|(_, o)| o.is_none()));
             for (side, first) in &sides {
                 match first {
                     Some(at) => self.note(*at),
                     // Only when a SIBLING suspends is this worth recording: with no await
                     // anywhere in the `if`, the statements after it are synchronous too and the
                     // ordinary cutoff already covers this side.
-                    None if sides.iter().any(|(_, o)| o.is_some()) && self.nested == 0 => {
+                    None if suspends && self.nested == 0 => {
                         self.unsuspended.push(side.span());
                     }
                     None => {}
                 }
                 self.visit_statement(side);
+            }
+            // And the CONTINUATION. The sides were recorded from round nineteen and what comes
+            // after them was not, so `if (flag) await 0; current = other;` — where a one-sided
+            // `if` supplies no non-suspending sibling span at all — made the await a global
+            // cutoff and confined a write that runs synchronously whenever `flag` is false. Two
+            // executions disagree about whether the caller sees it, and the model owes the
+            // answer that declines rather than the one that publishes under a node half of them
+            // replaced.
+            //
+            // To the end of the body, which over-reaches past a LATER unconditional await. That
+            // direction only marks more writes as seen, which loses fields rather than filing
+            // them under the wrong node — the same asymmetry every other choice in this probe is
+            // made on.
+            if bypassed && self.nested == 0 {
+                self.unsuspended
+                    .push(Span::new(st.span.end, self.body_end.max(st.span.end)));
             }
         }
         // A ternary is the decided branch the `if` arm already prunes, one syntactic level over.
@@ -3612,6 +3642,7 @@ fn synchronous_until(
         at: None,
         nested: 0,
         unsuspended: Vec::new(),
+        body_end: span.end,
     };
     if let Some(body) = body {
         probe.visit_function_body(body);
@@ -3906,6 +3937,35 @@ struct ClassPhases<'s> {
     /// fields initialize only once that call returns, so a read anywhere in here precedes
     /// every one of them.
     pre_super: Option<Span>,
+}
+
+/// Whether this call is a `.apply` whose argument list cannot be one: `Function.prototype.apply`
+/// takes `null`, `undefined` or an object, and throws a `TypeError` on anything else before the
+/// receiver's body is entered.
+///
+/// Only a spelling that settles it. An identifier, a call, anything this cannot read is left
+/// alone — claiming a throw where none happens would confine a write the caller does see.
+fn apply_list_throws(callee_expr: &Expression<'_>, arguments: &[Argument<'_>]) -> bool {
+    let Some((name, _)) = named_member(peel(callee_expr)) else {
+        return false;
+    };
+    if name != "apply" {
+        return false;
+    }
+    let Some(list) = arguments.get(1).and_then(Argument::as_expression) else {
+        return false;
+    };
+    match peel(list) {
+        // `null` and `void 0` are the two spellings that mean "no arguments".
+        Expression::NullLiteral(_) => false,
+        Expression::UnaryExpression(u) => u.operator != oxc_syntax::operator::UnaryOperator::Void,
+        Expression::BooleanLiteral(_)
+        | Expression::NumericLiteral(_)
+        | Expression::BigIntLiteral(_)
+        | Expression::StringLiteral(_)
+        | Expression::TemplateLiteral(_) => true,
+        _ => false,
+    }
 }
 
 /// Whether `new` can call this callee at all. A class and a plain function can be constructed;
@@ -5107,6 +5167,13 @@ impl AllBindings {
         // what it wrote — the one case where "does this nested function execute" is decidable
         // from the syntax alone.
         let callee = invoked_callee(callee_expr);
+        // `f.apply(thisArg, 1)` throws a `TypeError` before `f` is entered: the argument list
+        // has to be `null`, `undefined` or an object, and a non-null primitive is none of them.
+        // Unwrapping `.apply` unconditionally marked the body immediate for a call that runs it
+        // on no path at all.
+        if apply_list_throws(callee_expr, arguments) {
+            return false;
+        }
         // `new` needs a CONSTRUCTOR. An arrow, an async function and a generator are none of
         // them, so `new (() => { … })()` throws a TypeError with the body never entered — and
         // recording its writes published a helper's reads under a node nothing had moved. The
@@ -16623,11 +16690,12 @@ mod tests {
 
     #[test]
     fn an_await_that_can_run_still_ends_the_synchronous_part() {
-        // The paired bound, both ways: a plain `await` cuts the prefix, and one under an
-        // UNDECIDED test still might, so it cuts too. Only a test no value can change prunes.
+        // The paired bound: an `await` EVERY path reaches cuts the prefix, and what follows it
+        // is the continuation's whatever else the body does.
         for body in [
             "var current = e; (async function () { await 0; current = other; })(); parse(current);",
-            "var current = e; (async function () { if (flag) await 0; current = other; })(); parse(current);",
+            // Including a write inside the suspending branch itself, past its own await.
+            "var current = e; (async function () { if (flag) { await 0; current = other; } })(); parse(current);",
         ] {
             let fields = helper_reached_via(body);
             assert!(
@@ -16635,6 +16703,13 @@ mod tests {
                 "the caller does not wait for that write: {body}"
             );
         }
+        // `if (flag) await 0; current = other;` is NOT one of them, and I had it here asserting
+        // that it was. When `flag` is false nothing suspends and the write is as synchronous as
+        // it looks, so the two executions disagree about what `parse` receives — and a model
+        // that answers "the caller did not see it" publishes the helper's reads under a node
+        // half of them replaced. Declining is the answer that loses fields instead. The claim
+        // was mine and review corrected it; the case sits in
+        // `a_bypassed_await_leaves_its_continuation_synchronous`.
     }
 
     #[test]
@@ -17643,6 +17718,97 @@ mod tests {
             assert!(
                 fields.iter().any(|f| f.name == "id"),
                 "nothing invoked that getter: {body}"
+            );
+        }
+    }
+    #[test]
+    fn a_bypassed_await_leaves_its_continuation_synchronous() {
+        // `if (flag) await 0; current = other;` assigns synchronously whenever `flag` is false,
+        // so the caller may well see it. The sides of an undecided `if` were recorded from round
+        // nineteen and the CONTINUATION after them was not — and a one-sided `if` supplies no
+        // non-suspending sibling span at all, so the await became a global cutoff. Two
+        // executions disagree, and the model owes the answer that declines rather than the one
+        // that publishes under a node half of them replaced.
+        for body in [
+            "var current = e; (async function () { if (flag) await 0; current = other; })(); parse(current);",
+            // The explicit empty alternate is the same statement written out.
+            "var current = e; (async function () { if (flag) { await 0; } else { } current = other; })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "a path bypasses that await: {body}"
+            );
+        }
+        // The bound: when EVERY path suspends there is no continuation to keep, whether the
+        // await is unconditional or written into both sides.
+        for body in [
+            "var current = e; (async function () { await 0; current = other; })(); parse(current);",
+            "var current = e; (async function () { if (flag) { await 0; } else { await 1; } current = other; })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "every path waits: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_parenthesized_computed_key_names_the_same_member() {
+        // `f[("call")]` names the same property as `f["call"]`; parentheses around a key change
+        // nothing about which one it is.
+        for body in [
+            "var current = e; (function () { current = other; })[(\"call\")](null); parse(current);",
+            "var current = e; (function () { current = other; })[(\"bind\")](null)(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "the body ran now: {body}"
+            );
+        }
+        // The bound: still only a key this can READ — a parenthesized identifier names whatever
+        // it holds.
+        let fields = helper_reached_via(
+            "var current = e; (function () { current = other; })[(k)](null); parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "nothing inline was invoked: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn an_apply_that_throws_runs_no_body() {
+        // `f.apply(thisArg, 1)` throws a `TypeError` before `f` is entered: the argument list
+        // has to be `null`, `undefined` or an object. Unwrapping `.apply` unconditionally marked
+        // the body immediate for a call that runs it on no path at all.
+        for body in [
+            "var current = e; try { (function () { current = other; }).apply(null, 1); } catch (_) {} parse(current);",
+            "var current = e; try { (function () { current = other; }).apply(null, \"x\"); } catch (_) {} parse(current);",
+            "var current = e; try { (function () { current = other; }).apply(null, !0); } catch (_) {} parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that call throws first: {body}"
+            );
+        }
+        // The bound: `null`, `void 0` and a missing second argument all mean "no arguments" and
+        // run the body, an array runs it, and anything this cannot read is left alone — claiming
+        // a throw where none happens confines a write the caller does see.
+        for body in [
+            "var current = e; (function () { current = other; }).apply(null, [1]); parse(current);",
+            "var current = e; (function () { current = other; }).apply(null); parse(current);",
+            "var current = e; (function () { current = other; }).apply(null, null); parse(current);",
+            "var current = e; (function () { current = other; }).apply(null, void 0); parse(current);",
+            "var current = e; (function () { current = other; }).apply(null, args); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that body does run: {body}"
             );
         }
     }
