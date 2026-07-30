@@ -3022,25 +3022,53 @@ fn hangs_forever(body: &[Statement<'_>]) -> bool {
 
 /// A loop that is entered, cannot be left, and evaluates nothing that could raise.
 fn is_a_hang(st: &Statement<'_>) -> bool {
+    hangs_under(st, None)
+}
+
+/// The same, carrying the label the loop was written with — a `continue` naming it is one of
+/// this loop's own, so it spins rather than leaves.
+fn hangs_under(st: &Statement<'_>, label: Option<&str>) -> bool {
     match st {
-        Statement::WhileStatement(w) => always_true(&w.test) && is_quiet(&w.body),
-        Statement::DoWhileStatement(d) => always_true(&d.test) && is_quiet(&d.body),
+        Statement::WhileStatement(w) => always_true(&w.test) && spins(&w.body, label),
+        Statement::DoWhileStatement(d) => always_true(&d.test) && spins(&d.body, label),
         // A header that holds anything is a header that runs it: an init or an update can
         // raise, and a test that is not a literal is not decidable here anyway.
         Statement::ForStatement(f) => {
             f.init.is_none()
                 && f.update.is_none()
                 && f.test.as_ref().is_none_or(always_true)
-                && is_quiet(&f.body)
+                && spins(&f.body, label)
         }
-        Statement::LabeledStatement(l) => is_a_hang(&l.body),
+        Statement::LabeledStatement(l) => hangs_under(&l.body, Some(l.label.name.as_str())),
         Statement::BlockStatement(b) => hangs_forever(&b.body),
         _ => false,
     }
 }
 
+/// A loop body that goes round again and does nothing else: it evaluates nothing, so it cannot
+/// raise, and the only transfer it makes is back to the top of this same loop.
+///
+/// `while (!0) { continue; }` is as much a hang as `while (!0) {}`, and reading only the empty
+/// spelling left the `catch` around it counting as a path that yields something. A `break` is
+/// the opposite answer — it leaves — and anything evaluated at all could raise instead.
+fn spins(st: &Statement<'_>, label: Option<&str>) -> bool {
+    match st {
+        // `continue` starts the next pass; unlabelled it belongs to the nearest loop, which is
+        // this one, and labelled it has to name this one.
+        Statement::ContinueStatement(c) => match &c.label {
+            None => true,
+            Some(l) => label == Some(l.name.as_str()),
+        },
+        Statement::BlockStatement(b) => b.body.iter().all(|st| spins(st, label)),
+        other => is_quiet(other),
+    }
+}
+
 /// A statement that evaluates nothing and ends nothing: it can neither raise nor leave the
 /// construct around it. Everything else is assumed to be able to do both.
+///
+/// A `continue` is NOT one of these at the statement-list level, where it leaves the list —
+/// only inside the body of the loop it belongs to, which is what [`spins`] asks.
 fn is_quiet(st: &Statement<'_>) -> bool {
     match st {
         Statement::EmptyStatement(_) | Statement::DebuggerStatement(_) => true,
@@ -3618,6 +3646,7 @@ struct Write {
     /// pairing with it.
     effective: u32,
     repeats_in: Option<Span>,
+    runs_before: Option<Span>,
 }
 
 impl Write {
@@ -3625,6 +3654,23 @@ impl Write {
     fn covers(&self, at: Span) -> bool {
         self.scope.is_none_or(|e| covers(e, at))
     }
+}
+
+/// Whether a record made at `effective` has already taken effect at `at`.
+///
+/// Three ways it can have: textual position, repetition — a write below the call runs before it
+/// on the next pass — and a region the record precedes whatever its position, which is how a
+/// call's arguments relate to its callee's body. The rule was spelled out at each of its five
+/// askers, which is how the first two came to be asked in four places and the third in none.
+fn in_effect_at(
+    effective: u32,
+    repeats_in: Option<Span>,
+    runs_before: Option<Span>,
+    at: Span,
+) -> bool {
+    effective <= at.start
+        || repeats_in.is_some_and(|l| covers(l, at))
+        || runs_before.is_some_and(|r| covers(r, at))
 }
 
 /// Whether `outer` contains `inner`.
@@ -3647,6 +3693,12 @@ struct Given {
     /// the two records of one assignment must not disagree about when it happened.
     effective: u32,
     repeats_in: Option<Span>,
+    /// A region this record precedes however late it is written. Every argument of a call runs
+    /// before the callee's body is entered, so `(function(){ parse(current); })(current = e)`
+    /// hands `parse` what the ARGUMENT assigned — and the argument is textually after the body
+    /// that reads it. Position alone had that read seeing the older value, and it filed the
+    /// helper's fields under a node the parser had already replaced.
+    runs_before: Option<Span>,
 }
 
 #[derive(Default)]
@@ -3678,6 +3730,9 @@ struct AllBindings {
     /// the transfer run. `try { throw Error(); current = other; } catch (_) {}` recorded that
     /// assignment as effective and refused the descent for a node nothing had moved.
     unreachable: u32,
+    /// The callee bodies whose call is having its ARGUMENTS walked. A write here precedes
+    /// everything in that body, however far after it the argument is written.
+    runs_before: Vec<Span>,
     /// Regions being walked whose writes take effect somewhere other than where they are
     /// written, each recorded by the position they land at, outermost first.
     ///
@@ -3777,6 +3832,7 @@ impl AllBindings {
             from: from.map(|s| s.to_string()),
             at,
             effective: self.effect_position(at.end),
+            runs_before: self.runs_before.last().copied(),
             repeats_in: self.loops.last().copied(),
         });
     }
@@ -3965,6 +4021,7 @@ impl<'a> Visit<'a> for AllBindings {
                 name: id.name.as_str().to_string(),
                 at: id.span,
                 effective: self.effect_position(id.span.end),
+                runs_before: self.runs_before.last().copied(),
                 // A loop whose body throws does not come round again, so a dead write must not
                 // claim repetition either — that is the other half of `effective`.
                 repeats_in: (self.dead == 0 || self.caught > 0)
@@ -4110,9 +4167,15 @@ impl<'a> Visit<'a> for AllBindings {
         self.effects_land_at.push(call.span.end);
         self.visit_expression(&call.callee);
         self.effects_land_at.pop();
+        // And the arguments run before that body, whatever their position relative to it:
+        // `(function(){ parse(current); })(current = e)` reads what the argument assigned.
+        // Only the callee's own span, so a read in another argument still orders normally
+        // against this write — the arguments run in their own order.
+        self.runs_before.push(callee.span());
         for arg in &call.arguments {
             self.visit_argument(arg);
         }
+        self.runs_before.pop();
     }
 
     fn visit_block_statement(&mut self, block: &oxc_ast::ast::BlockStatement<'a>) {
@@ -4454,7 +4517,7 @@ impl Bindings {
                 // The part that is not textual is repetition — a write below the call runs
                 // before it on the next pass — so a write inside a loop that also contains
                 // the call still counts.
-                && (w.effective <= at.start || w.repeats_in.is_some_and(|l| covers(l, at)))
+                && in_effect_at(w.effective, w.repeats_in, w.runs_before, at)
         })
     }
 
@@ -4507,8 +4570,7 @@ impl Bindings {
                         // its source was already in the set — filing the helper's fields under
                         // `row` at a call where `current` still holds `other`. Same rule the
                         // count uses: textual position, unless a loop repeats it.
-                        && (g.effective <= at.start
-                            || g.repeats_in.is_some_and(|l| covers(l, at)))
+                        && in_effect_at(g.effective, g.repeats_in, g.runs_before, at)
                         && self.given_once_in(&g.name, at)
                         && !self.written_without_a_value(&g.name, at)
                 })
@@ -4546,7 +4608,7 @@ impl Bindings {
         self.writes.iter().any(|w| {
             w.name == name
                 && w.covers(at)
-                && (w.effective <= at.start || w.repeats_in.is_some_and(|l| covers(l, at)))
+                && in_effect_at(w.effective, w.repeats_in, w.runs_before, at)
                 && !self.given.iter().any(|g| g.name == name && g.at == w.at)
         })
     }
@@ -4563,7 +4625,7 @@ impl Bindings {
         self.given.iter().any(|g| {
             g.name == name
                 && covers(g.scope, at)
-                && (g.effective <= at.start || g.repeats_in.is_some_and(|l| covers(l, at)))
+                && in_effect_at(g.effective, g.repeats_in, g.runs_before, at)
         })
     }
 
@@ -4582,7 +4644,7 @@ impl Bindings {
             .filter(|g| {
                 g.name == name
                     && covers(g.scope, at)
-                    && (g.effective <= at.start || g.repeats_in.is_some_and(|l| covers(l, at)))
+                    && in_effect_at(g.effective, g.repeats_in, g.runs_before, at)
             })
             .collect();
         match live.split_first() {
@@ -9069,6 +9131,31 @@ mod tests {
     }
 
     #[test]
+    fn an_argument_runs_before_the_body_it_is_passed_to() {
+        // The other half of the same ordering, and the one that was wrong in the harmful
+        // direction: `(function(){ parse(current); })(current = other)` evaluates the argument
+        // FIRST, so the body reads what it assigned. The write is textually after the read, so
+        // position alone called it not-yet-effective and the helper's fields were filed under
+        // the node the parser had already replaced — and marked required, at that.
+        //
+        // A record now carries the region it precedes whatever its position, the same escape
+        // hatch a write inside a loop has always had. The node the argument assigns is not one
+        // this scan tracks, so the honest outcome is that the fields go nowhere rather than
+        // somewhere wrong.
+        for body in [
+            "var current = e; (function(){ parse(current); })(current = other);",
+            "var current = e; ((current) => { parse(current); })(other);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "`{body}` reads a node this scan cannot place: {:?}",
+                fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
     fn an_argument_that_writes_still_runs_where_it_is_written() {
         // The bound: only the CALLEE's effects move to the call. An argument runs in its own
         // place, before the ones after it and before the body — pinning every write inside the
@@ -9080,6 +9167,16 @@ mod tests {
         assert!(
             !fields.iter().any(|f| f.name == "id"),
             "the earlier argument moved it: {:?}",
+            fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+        // And the other way round: a read in an EARLIER argument runs before a later argument's
+        // write, so the node it is handed is the untouched one. The region a write precedes is
+        // the callee's body alone — widening it to the whole call would swallow this.
+        let fields =
+            helper_reached_via("var current = e; (function(){})(parse(current), current = other);");
+        assert!(
+            fields.iter().any(|f| f.name == "id" && f.required),
+            "the write is in a later argument: {:?}",
             fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
         );
     }
@@ -10663,6 +10760,60 @@ mod tests {
             ));
             assert_eq!(guards, (true, true), "`{block}` reaches nothing after it");
         }
+    }
+
+    #[test]
+    fn a_loop_that_only_goes_round_again_is_a_hang_too() {
+        // `while (!0) { continue; }` evaluates nothing and leaves nothing — it is `while (!0) {}`
+        // with a step in it, and the hang check recognised only the empty spelling. So the
+        // `catch` around it counted as a path that yields something and weakened the reads on
+        // the other side of the `if`. A `continue` is the one transfer that does not leave the
+        // loop it belongs to, unlabelled or naming that loop itself.
+        for block in [
+            "while (!0) { continue; }",
+            "for (;;) { continue; }",
+            "do { continue; } while (!0)",
+            "spin: while (!0) { continue spin; }",
+            "while (!0) { { continue; } }",
+        ] {
+            let guards = guards_and_field(&format!(
+                "if (flag) {{ try {{ {block} }} catch (_) {{}} }} else {{ parse(e); }}"
+            ));
+            assert_eq!(
+                guards,
+                (true, true),
+                "`{block}` never leaves and never raises"
+            );
+        }
+    }
+
+    #[test]
+    fn a_transfer_that_leaves_the_loop_is_not_it_spinning() {
+        // The bounds. A `break` leaves, so the loop completes and the `try` is a value path; a
+        // `continue` naming an OUTER loop leaves this one the same way; and a `return` leaves
+        // the callback entirely. Only the transfer that goes back to the top of this loop makes
+        // it a hang — reading them all alike would call a loop that ends an infinite one.
+        for block in [
+            "while (!0) { break; }",
+            "outer: while (!0) { while (!0) { continue outer; } }",
+            "while (!0) { return t; }",
+        ] {
+            let guards = guards_and_field(&format!(
+                "if (flag) {{ try {{ {block} }} catch (_) {{}} }} else {{ parse(e); }}"
+            ));
+            assert_eq!(guards, (false, false), "`{block}` can leave the loop");
+        }
+        // Which label it names is what decides, and only a loop OUTSIDE the `try` can make that
+        // visible — the inner loop is the one being asked about, so the outer one has to be
+        // somewhere its own iteration does not change the answer. A `do`/`while (0)` runs once.
+        assert_eq!(
+            guards_and_field(
+                "outer: do { if (flag) { try { while (!0) { continue outer; } } catch (_) {} }
+                 else { parse(e); } } while (0)"
+            ),
+            (false, false),
+            "`continue outer` leaves the loop it is written in"
+        );
     }
 
     #[test]
