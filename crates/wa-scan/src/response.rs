@@ -3080,6 +3080,17 @@ fn invoked_callee<'b, 'a>(mut e: &'b Expression<'a>) -> &'b Expression<'a> {
             {
                 &m.object
             }
+            // `(function(){ … }).bind(null)()` runs that body now too. The callee of the outer
+            // call is itself a CALL, so nothing above matched it and the body was walked as one
+            // nobody reaches. Only `.bind`, and only for its own arguments to be ignored: what
+            // `bind` returns takes the OUTER call's arguments after whatever was bound, which
+            // this does not model, so `effective_arguments` answers nothing for it.
+            Expression::CallExpression(c) => match invoked_callee(&c.callee) {
+                Expression::StaticMemberExpression(m) if m.property.name.as_str() == "bind" => {
+                    &m.object
+                }
+                _ => return e,
+            },
             other => return other,
         };
     }
@@ -3115,6 +3126,9 @@ fn effective_arguments<'b, 'a>(
             Expression::SequenceExpression(s) if !s.expressions.is_empty() => {
                 s.expressions.last().expect("checked non-empty")
             }
+            // Through `bind` the outer call's arguments land after whatever was bound, at
+            // positions this does not read. Nothing is claimed rather than the wrong thing.
+            Expression::CallExpression(_) => return Vec::new(),
             Expression::StaticMemberExpression(m) => {
                 return match m.property.name.as_str() {
                     "call" => direct(arguments.get(1..).unwrap_or_default()),
@@ -5287,7 +5301,14 @@ impl<'a> Visit<'a> for AllBindings {
         // a pass that completed, so it stays skippable whichever way the test went.
         if stmt.test.as_ref().is_none_or(always_true) {
             self.walk_first_pass(&stmt.body);
-            if let Some(update) = &stmt.update {
+            // …and only if a pass can reach it. `for (;; current = other) { parse(current);
+            // break; }` runs its body once and leaves, so that update never evaluates — but it
+            // is written in the HEADER, before the body, so recording it at all had it look
+            // effective at a call below it and the descent was refused for a node nothing had
+            // moved. The same `can_come_round_again` the loop-carried rule reads.
+            if let Some(update) = &stmt.update
+                && can_come_round_again(&stmt.body)
+            {
                 self.maybe_skipped(|s| s.visit_expression(update));
             }
         } else {
@@ -16307,6 +16328,73 @@ mod tests {
         assert!(
             !fields.iter().any(|f| f.name == "id"),
             "the comma's leading element still runs: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn a_bound_function_called_at_once_runs_now() {
+        // `(function(){ … }).bind(null)()` runs that body as immediately as `()` does. The
+        // callee of the outer call is itself a CALL, so nothing matched it and the body was
+        // walked as one nobody reaches.
+        let fields = helper_reached_via(
+            "var current = e; (function () { current = other; }).bind(null)(); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the bound body ran: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn binding_anything_else_is_not_an_invocation() {
+        // The bound: `thing.bind(null)()` calls a body this scanner has never seen.
+        for body in [
+            "var current = e; thing.bind(null)(); parse(current);",
+            // And only `.bind`: what `(function(){ … }).map(g)` hands back is not that function,
+            // so calling it runs a body this scanner has not seen.
+            "var current = e; (function () { current = other; }).map(null)(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "nothing inline was invoked: {body}"
+            );
+        }
+        // Through `bind` the outer call's arguments land after whatever was bound, at positions
+        // this does not read — so nothing is claimed about a default they might supply.
+        let fields = helper_reached_via(
+            "var current = e; (function (x = (current = other)) {}).bind(null)(1); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the bound positions are not read: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn an_update_the_body_never_reaches_is_not_recorded() {
+        // `for (;; current = other) { parse(current); break; }` runs its body once and leaves,
+        // so the update never evaluates — but it is written in the HEADER, above the body, so
+        // recording it had it look effective at a call below and the descent was refused for a
+        // node nothing had moved. The same `can_come_round_again` the loop-carried rule reads.
+        let fields = helper_reached_via(
+            "var current = e; for (;; current = other) { parse(current); break; }",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "that update never runs: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn an_update_a_next_pass_can_reach_is_still_recorded() {
+        // The bound: a body that can come round again reaches its update, and the write is then
+        // carried into the next pass exactly as before.
+        let fields =
+            helper_reached_via("var current = e; for (;; current = other) { parse(current); }");
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "a next pass sees it: {fields:?}"
         );
     }
 }

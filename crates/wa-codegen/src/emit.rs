@@ -244,6 +244,7 @@ fn raw_length_check(
     fmsg: &str,
     indent: &str,
     node: &str,
+    required: bool,
 ) -> Vec<String> {
     let Some(leaf) = leaf else { return Vec::new() };
     if leaf.method != "contentUint" {
@@ -253,8 +254,18 @@ fn raw_length_check(
         return Vec::new();
     };
     let _ = id;
+    // A REQUIRED read has to reject an absent payload as firmly as a wrong-length one: an
+    // existing but empty `<registration/>` yields no bytes at all, and the decoder behind this
+    // check ends in `unwrap_or_default`, so letting absence through stores a fabricated zero
+    // for a node the source accessor turns away. The optional shape is the other answer —
+    // there absence is a value the field can hold, and the read yields `None` on its own.
+    let present = if required {
+        "is_some_and"
+    } else {
+        "is_none_or"
+    };
     vec![format!(
-        "{indent}anyhow::ensure!({node}.content_bytes().is_none_or(|b| b.len() == {n}), \"{fmsg} wrong length: {{}}\", {node}.content_bytes().map_or(0, |b| b.len()));"
+        "{indent}anyhow::ensure!({node}.content_bytes().{present}(|b| b.len() == {n}), \"{fmsg} wrong length: {{}}\", {node}.content_bytes().map_or(0, |b| b.len()));"
     )]
 }
 
@@ -621,7 +632,7 @@ fn emit_struct_reads(
                         lines.push(format!(
                             "{indent}let {id} = {base}.get_optional_child({lit})"
                         ));
-                        let len = raw_length_check(leaf, &id, &fmsg, indent, "n");
+                        let len = raw_length_check(leaf, &id, &fmsg, indent, "n", false);
                         if len.is_empty() {
                             lines.push(format!("{indent}    .and_then(|n| n.{opt_read});"));
                         } else {
@@ -652,6 +663,7 @@ fn emit_struct_reads(
                     &fmsg,
                     indent,
                     &format!("{id}_node"),
+                    true,
                 ));
                 lines.push(format!("{indent}let {id} = {id}_node.{req_read};"));
                 if let Some(check) = &band {
@@ -2158,11 +2170,20 @@ mod tests {
         let mut leaf = ranged("blob", None, None, true);
         leaf.method = "contentUint".into();
         leaf.byte_length = Some(3);
-        for required in [true, false] {
+        // And absence is judged per shape. A REQUIRED read has to turn an empty element away as
+        // firmly as a wrong-length one — the decoder behind it ends in `unwrap_or_default`, so
+        // letting absence through stores a fabricated zero. An OPTIONAL one is the other answer:
+        // absence is a value that field holds, and the read yields `None` on its own. I had
+        // written one spelling for both, and review was right that it is the wrong one for
+        // required.
+        for (required, expect) in [
+            (true, "content_bytes().is_some_and(|b| b.len() == 3)"),
+            (false, "content_bytes().is_none_or(|b| b.len() == 3)"),
+        ] {
             let src = emit_struct_parser(&[child_over(leaf.clone(), required)], "n", "R", "", "P")
                 .join("\n");
             assert!(
-                src.contains("content_bytes().is_none_or(|b| b.len() == 3)"),
+                src.contains(expect),
                 "the raw payload is measured (required={required}): {src}"
             );
             assert!(
