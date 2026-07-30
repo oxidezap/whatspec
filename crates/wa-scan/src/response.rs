@@ -3243,16 +3243,39 @@ fn leaves_switch(body: &[Statement<'_>], throwing_counts: bool) -> bool {
 /// run that assignment, and recording it as effective refused a descent for a node nothing had
 /// moved. Reusing the dispatch predicate covered `return` and `throw` and left both transfers out.
 fn ends_the_statement_list(stmt: &Statement<'_>) -> bool {
+    ends_the_list_but_for(stmt, &mut Vec::new())
+}
+
+/// The same question, carrying the labels declared INSIDE the statement being asked about.
+///
+/// `local: { break local; }` lands at the end of its own labelled block and the list carries on:
+/// counting it as an exit marked the next statement unreachable, gave the write in it no effective
+/// position at all, and the descent was refused for a node that really had been moved. A `break`
+/// naming a label from OUTSIDE does leave, which is the whole reason the two cannot be told apart
+/// without carrying the set. [`contains_exit_where`] has scoped its labels this way since the
+/// round that fixed the dispatch chain; this predicate was written after it and did not.
+fn ends_the_list_but_for(stmt: &Statement<'_>, inside: &mut Vec<String>) -> bool {
     match stmt {
-        Statement::ReturnStatement(_)
-        | Statement::ThrowStatement(_)
-        | Statement::BreakStatement(_)
-        | Statement::ContinueStatement(_) => true,
-        Statement::BlockStatement(b) => b.body.iter().any(ends_the_statement_list),
-        Statement::LabeledStatement(l) => ends_the_statement_list(&l.body),
+        Statement::ReturnStatement(_) | Statement::ThrowStatement(_) => true,
+        // A labelled transfer to a label opened within this statement is consumed by it.
+        Statement::BreakStatement(b) => b
+            .label
+            .as_ref()
+            .is_none_or(|l| !inside.iter().any(|k| k == l.name.as_str())),
+        Statement::ContinueStatement(c) => c
+            .label
+            .as_ref()
+            .is_none_or(|l| !inside.iter().any(|k| k == l.name.as_str())),
+        Statement::BlockStatement(b) => b.body.iter().any(|st| ends_the_list_but_for(st, inside)),
+        Statement::LabeledStatement(l) => {
+            inside.push(l.label.name.as_str().to_string());
+            let ends = ends_the_list_but_for(&l.body, inside);
+            inside.pop();
+            ends
+        }
         // Both sides, or neither: a one-sided `if` falls through and the rest of the list runs.
         Statement::IfStatement(i) => i.alternate.as_ref().is_some_and(|alt| {
-            ends_the_statement_list(&i.consequent) && ends_the_statement_list(alt)
+            ends_the_list_but_for(&i.consequent, inside) && ends_the_list_but_for(alt, inside)
         }),
         // A loop or a switch CONSUMES an unlabelled transfer, so one inside it says nothing about
         // the list this statement sits in.
@@ -3655,6 +3678,14 @@ struct AllBindings {
     /// the transfer run. `try { throw Error(); current = other; } catch (_) {}` recorded that
     /// assignment as effective and refused the descent for a node nothing had moved.
     unreachable: u32,
+    /// Regions being walked whose writes take effect somewhere other than where they are
+    /// written, each recorded by the position they land at, outermost first.
+    ///
+    /// One of them so far: every argument of a call is evaluated before the callee's body is
+    /// entered, so `(function(){ current = other; })(parse(current))` hands `parse` the original
+    /// node. Ordering that write by its own span had it look already effective, and the descent
+    /// was refused for a node still standing.
+    effects_land_at: Vec<u32>,
     /// Function bodies that are immediately invoked, each with the position its synchronous
     /// part ends at: a write inside one and before that position has certainly run by the time
     /// anything after the call reads it.
@@ -3665,6 +3696,7 @@ struct AllBindings {
     /// other; })()` had a write the callback returns before recorded as one that already
     /// happened.
     iife: Vec<(Span, u32)>,
+
     /// How many enclosing constructs could have skipped the part being walked. A value assigned
     /// down such a path is not certainly the one a later read sees, however textually early it
     /// is: `var current; if (flag) current = e; parse(current)` hands `parse` the element only
@@ -3818,6 +3850,11 @@ impl AllBindings {
         }
         if self.dead > 0 && self.caught == 0 {
             return u32::MAX;
+        }
+        // The outermost deferred region wins: a phase nested inside another finishes no
+        // earlier than the one around it.
+        if let Some(lands_at) = self.effects_land_at.first() {
+            return *lands_at;
         }
         self.assign_end.unwrap_or(default_end)
     }
@@ -4039,25 +4076,43 @@ impl<'a> Visit<'a> for AllBindings {
             Expression::ParenthesizedExpression(p) => &p.expression,
             other => other,
         };
-        match callee {
+        let runs_now = match callee {
             // A generator call runs none of the body — it builds an iterator, and whether
             // anything ever draws from it is the call-graph question this scanner does not
             // answer. So it is not immediately invoked in the only sense that matters here,
             // and a write inside it belongs with the ones in a function nobody calls.
-            Expression::FunctionExpression(f) if f.generator => {}
+            Expression::FunctionExpression(f) if f.generator => false,
             Expression::FunctionExpression(f) => {
                 self.iife.push((
                     f.span,
                     synchronous_until(f.r#async, f.span, f.body.as_deref()),
                 ));
+                true
             }
             Expression::ArrowFunctionExpression(f) => {
                 self.iife
                     .push((f.span, synchronous_until(f.r#async, f.span, Some(&f.body))));
+                true
             }
-            _ => {}
+            _ => false,
+        };
+        if !runs_now {
+            walk::walk_call_expression(self, call);
+            return;
         }
-        walk::walk_call_expression(self, call);
+        // Every argument is evaluated before the body is entered, so what the body writes takes
+        // effect at the CALL. Ordering it by its position inside the callee had
+        // `(function(){ current = other; })(parse(current))` record the write before the
+        // argument that reads the node, and the descent was refused for a node still standing.
+        //
+        // Around the callee only: an argument that writes runs where it is written, and pinning
+        // that to the call would order it after a body it precedes.
+        self.effects_land_at.push(call.span.end);
+        self.visit_expression(&call.callee);
+        self.effects_land_at.pop();
+        for arg in &call.arguments {
+            self.visit_argument(arg);
+        }
     }
 
     fn visit_block_statement(&mut self, block: &oxc_ast::ast::BlockStatement<'a>) {
@@ -4325,6 +4380,11 @@ impl<'a> Visit<'a> for AllBindings {
         // writes nothing by existing, and recording it refused a descent for a node nothing had
         // moved. A computed key and a static initializer do run here, and a method body is a
         // function like any other — deferred, and confined by the extent rule above.
+        //
+        // In source order, which is not the order the two phases run in: every computed key is
+        // evaluated before any static initializer, so a key written after one reads what the
+        // initializer has not yet written. Saying that needs a clock this model does not have —
+        // see the note on the PR.
         for el in &class.body.body {
             match el {
                 oxc_ast::ast::ClassElement::PropertyDefinition(p) => {
@@ -4507,7 +4567,8 @@ impl Bindings {
         })
     }
 
-    /// Whether `name` is given a value exactly once in the scopes covering `at`.
+    /// Whether `name` holds one value in the scopes covering `at` — given once, or given the
+    /// SAME thing by every record that could have taken effect.
     fn given_once_in(&self, name: &str, at: Span) -> bool {
         // Only values that can already have taken effect at `at`. I made the parameter check
         // order-aware and left this one counting every assignment in the scope, so
@@ -4515,15 +4576,30 @@ impl Bindings {
         // refused to follow `current` — dropping the helper's fields for a write that cannot
         // reach the call. Same rule as `written_in_scope`: textual position, unless a loop
         // repeats it.
-        self.given
+        let live: Vec<&Given> = self
+            .given
             .iter()
             .filter(|g| {
                 g.name == name
                     && covers(g.scope, at)
                     && (g.effective <= at.start || g.repeats_in.is_some_and(|l| covers(l, at)))
             })
-            .count()
-            == 1
+            .collect();
+        match live.split_first() {
+            None => false,
+            Some((_, [])) => true,
+            // `if (flag) current = e; else current = e;` writes twice and means one thing, and
+            // counting records refused the alias and dropped the helper's fields with nothing
+            // recorded. Records that COPY A NAME are comparable that way; two that computed
+            // their values are two values however alike they look, which is the case this
+            // count exists for — `current = row; current = row.child("detail")`. Whether the
+            // paths are exhaustive is a separate question, and the answer is already carried:
+            // each record's own `conditional` travels to `names_for`, so a value only some
+            // path assigns still reaches the shape as an optional one.
+            Some((first, rest)) => {
+                first.from.is_some() && rest.iter().all(|g| g.from == first.from)
+            }
+        }
     }
 
     /// Whether `name` is bound by a scope strictly inside this source that contains `at` —
@@ -8972,6 +9048,43 @@ mod tests {
     }
 
     #[test]
+    fn an_iife_body_runs_after_the_arguments_it_is_passed() {
+        // JavaScript evaluates every argument before entering the callee, so
+        // `(function(){ current = other; })(parse(current))` hands `parse` the ORIGINAL node.
+        // The write was ordered by its position inside the callee — textually before the
+        // argument — so it looked already effective and the descent was refused for a node
+        // still standing, silently. The one place where source order and run order disagree
+        // within a single expression.
+        for body in [
+            "var current = e; (function(){ current = other; })(parse(current));",
+            "var current = e; (() => { current = other; })(parse(current));",
+            "var current = e; (function(){ (function(){ current = other; })(); })(parse(current));",
+        ] {
+            let id = helper_reached_via(body)
+                .into_iter()
+                .find(|f| f.name == "id")
+                .unwrap_or_else(|| panic!("`{body}` passes the untouched node"));
+            assert!(id.required, "`{body}` reads it on every execution");
+        }
+    }
+
+    #[test]
+    fn an_argument_that_writes_still_runs_where_it_is_written() {
+        // The bound: only the CALLEE's effects move to the call. An argument runs in its own
+        // place, before the ones after it and before the body — pinning every write inside the
+        // call expression to the call would order this one after a read it precedes, which is
+        // the same wrong-node mistake pointing the other way.
+        let fields = helper_reached_via(
+            "var current = e; (function(){})((current = other), parse(current));",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the earlier argument moved it: {:?}",
+            fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
     fn calling_a_function_is_not_always_running_its_body() {
         // Two spellings where the call returns before the body does the writing. A generator
         // call builds an iterator and runs nothing at all; an `async` body stops at its first
@@ -9096,6 +9209,44 @@ mod tests {
         for body in [
             "var current = e; do { break; current = other; } while (0); parse(current);",
             "var current = e; for (var i = 0; i < 2; i++) { continue; current = other; } parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "`{body}` never runs the write: {:?}",
+                fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn a_break_a_label_opens_inside_the_statement_does_not_end_the_list() {
+        // `local: { break local; }` lands at the end of its own labelled block, and the list
+        // carries on. Counting it as an exit marked the assignment after it unreachable, so the
+        // alias it makes was never recorded and the helper's fields were dropped silently. The
+        // dispatch predicate has scoped its labels since the round that fixed it; this one was
+        // written after that and asked without the set.
+        for body in [
+            "var current; local: { break local; } current = e; parse(current);",
+            "var current; local: { if (f) break local; } current = e; parse(current);",
+        ] {
+            let id = helper_reached_via(body)
+                .into_iter()
+                .find(|f| f.name == "id")
+                .unwrap_or_else(|| panic!("`{body}` runs the assignment after the label"));
+            assert!(id.required, "`{body}` assigns on every execution");
+        }
+    }
+
+    #[test]
+    fn a_break_naming_a_label_from_outside_still_ends_it() {
+        // The bounds, and why the labels have to be carried rather than labelled breaks simply
+        // excused: `break outer` from inside `local:` leaves both, so the assignment after
+        // `local:` really is unreachable. An unlabelled `break` belongs to the nearest loop or
+        // switch and ends the list it sits in, which is the case this predicate was added for.
+        for body in [
+            "var current = e; outer: { local: { break outer; } current = other; } parse(current);",
+            "var current = e; do { break; current = other; } while (0); parse(current);",
         ] {
             let fields = helper_reached_via(body);
             assert!(
@@ -11244,6 +11395,58 @@ mod tests {
             "and nothing was lost to report: {:?}",
             p.pending_drops
         );
+    }
+
+    #[test]
+    fn one_value_spelled_on_two_paths_is_still_one_value() {
+        // `if (flag) current = e; else current = e;` assigns twice and means one thing, and the
+        // count refused the alias for it — the helper's fields left the shape with nothing
+        // recorded, for a name that holds the same node however the branch went. Records that
+        // COPY A NAME are comparable that way, which is what makes this cheap: no path analysis,
+        // just the observation that two copies of `e` are one value.
+        //
+        // They come back OPTIONAL, not required. Every path here assigns, but saying so needs
+        // the branch intersection the requiredness side has and this collector does not — each
+        // record carries its own `conditional` and the weaker of the two answers wins, which is
+        // the direction that lets a shape accept what the parser demands.
+        for body in [
+            "var current; if (flag) current = e; else current = e; parse(current);",
+            "var current; switch (m) { case 1: current = e; break; default: current = e; } parse(current);",
+        ] {
+            let id = helper_reached_via(body)
+                .into_iter()
+                .find(|f| f.name == "id")
+                .unwrap_or_else(|| panic!("`{body}` names one node"));
+            assert!(!id.required, "`{body}` assigns down a branch: {id:?}");
+        }
+    }
+
+    #[test]
+    fn two_values_are_still_two_however_alike_they_look() {
+        // The bounds. Two records that name DIFFERENT sources are two values, and a copy set
+        // against a computed value is two as well — `if (flag) current = e; else current =
+        // e.child("detail")` names one node down one path and another down the other. Nor does
+        // this touch the case the count exists for: a later rebind is a second value, not a
+        // second spelling of the first.
+        //
+        // The all-computed case below is refused twice over, and only one of those is this
+        // predicate: `names_for` follows a record only when it copies a NAME, so a pair of
+        // computed values never reaches the count at all. Dropping the `from.is_some()` clause
+        // breaks no test for exactly that reason — it is there so the predicate answers its own
+        // question correctly, not because anything today would notice.
+        for body in [
+            "var current; if (flag) current = e; else current = other; parse(current);",
+            r#"var current; if (flag) current = e; else current = e.child("detail"); parse(current);"#,
+            r#"var current; if (flag) current = e.child("a"); else current = e.child("b"); parse(current);"#,
+            r#"var current = e; current = e.child("detail"); parse(current);"#,
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "`{body}` names no one node: {:?}",
+                fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+            );
+        }
     }
 
     #[test]
