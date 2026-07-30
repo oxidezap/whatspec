@@ -941,7 +941,11 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
         // `entry_paths_throw` already modelled the fallthrough for the test ordering and this
         // asked `throws_out` of the local consequent alone, so `case "a": default: throw` left
         // the empty `"a"` entry in the fold and the helper's fields optional.
-        let yields_a_value = |i: &usize| -> bool { !entry_throws[*i] };
+        // And over the entries an execution can actually START at. A case repeating an earlier
+        // case's literal is never matched — the first one wins — so its reads say nothing about
+        // any entry path, and including the empty duplicate emptied the intersection.
+        let entry_shadowed = shadowed_case_tests(&stmt.cases);
+        let yields_a_value = |i: &usize| -> bool { !entry_throws[*i] && !entry_shadowed[*i] };
         let established = if exhaustive {
             per_case
                 .into_iter()
@@ -3334,6 +3338,42 @@ fn throws_out(body: &[Statement<'_>]) -> bool {
     false
 }
 
+/// For each case, whether an EARLIER case tests the same literal, so nothing can enter here
+/// directly: a switch matches with strict equality and takes the first case that matches.
+///
+/// `case "a": parse(e); break; case "a": break;` can only ever run the first, so the empty
+/// second one is not an entry path — folding it into the intersection left the payload optional
+/// against a switch every reachable entry of which reads it. Reached by FALLTHROUGH it still
+/// runs, and that is already carried by the entry before it.
+fn shadowed_case_tests(cases: &oxc_allocator::Vec<'_, oxc_ast::ast::SwitchCase<'_>>) -> Vec<bool> {
+    let mut seen: Vec<String> = Vec::new();
+    cases
+        .iter()
+        .map(|c| {
+            let Some(key) = c.test.as_ref().and_then(literal_case_key) else {
+                return false;
+            };
+            let seen_before = seen.contains(&key);
+            seen.push(key);
+            seen_before
+        })
+        .collect()
+}
+
+/// The value a case test names, when reading it settles the question. Only the literal forms:
+/// anything computed — including a negated literal or a member lookup, which is what 4831 of
+/// this corpus's case tests are — is left unkeyed rather than guessed at, and an unkeyed test
+/// shadows nothing.
+fn literal_case_key(e: &Expression<'_>) -> Option<String> {
+    match e {
+        Expression::StringLiteral(l) => Some(format!("s{}", l.value)),
+        Expression::NumericLiteral(l) => Some(format!("n{}", l.value)),
+        Expression::BooleanLiteral(l) => Some(format!("b{}", l.value)),
+        Expression::NullLiteral(_) => Some("null".to_string()),
+        _ => None,
+    }
+}
+
 /// For each case, whether ENTERING there leaves the switch by throwing on every path — its
 /// own consequent throws, or it falls through into a chain that does.
 ///
@@ -3459,7 +3499,16 @@ fn ends_the_list_but_for(
             match &t.handler {
                 // With a handler, the block's exit is not the only outcome — a `catch` that
                 // completes normally carries on into the statements after the `try`.
-                Some(h) => block && ends(&h.body.body, inside),
+                //
+                // Unless the block leaves by something a handler cannot intercept. A `catch`
+                // takes exceptions and nothing else, so `try { break; } catch (_) {}` breaks
+                // and the handler is never entered — demanding that the handler leave too
+                // called that reachable and refused the descent. I had asserted the opposite
+                // in this file one round ago; the test that said so is corrected below.
+                Some(h) => {
+                    leaves_without_raising(&t.block.body, inside, continue_counts)
+                        || (block && ends(&h.body.body, inside))
+                }
                 None => block,
             }
         }
@@ -3467,6 +3516,98 @@ fn ends_the_list_but_for(
         // the list this statement sits in.
         _ => false,
     }
+}
+
+/// The parameter defaults this invocation's own arguments prevent from running.
+///
+/// A default is evaluated only when its argument is missing or `undefined`, so a call that
+/// supplies a value at that position never runs it. Reading a literal `1` as "definitely not
+/// undefined" is the whole judgement: anything whose value has to be computed could be
+/// `undefined`, and claiming otherwise would drop a write that really happens — which is the
+/// direction that files a helper's fields under a node the parser has already replaced.
+///
+/// A spread argument makes every position after it unknowable, so it ends the mapping.
+fn suppressed_defaults(callee: &Expression<'_>, arguments: &[Argument<'_>]) -> Vec<Span> {
+    let params = match callee {
+        Expression::FunctionExpression(f) => &f.params,
+        Expression::ArrowFunctionExpression(f) => &f.params,
+        _ => return Vec::new(),
+    };
+    let mut out = Vec::new();
+    for (i, param) in params.items.iter().enumerate() {
+        let Some(init) = param.initializer.as_ref() else {
+            continue;
+        };
+        match arguments.get(i) {
+            Some(Argument::SpreadElement(_)) | None => break,
+            Some(arg) => {
+                let Some(e) = arg.as_expression() else { break };
+                if definitely_defined(e) {
+                    out.push(init.span());
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Whether reading `e` settles that it is not `undefined`. Deliberately only the forms that
+/// carry their value in the source — a call, a member lookup or a bare identifier can all be
+/// `undefined` at run time, and this answers `false` for every one of them.
+fn definitely_defined(e: &Expression<'_>) -> bool {
+    matches!(
+        e,
+        Expression::StringLiteral(_)
+            | Expression::NumericLiteral(_)
+            | Expression::BigIntLiteral(_)
+            | Expression::BooleanLiteral(_)
+            | Expression::NullLiteral(_)
+            | Expression::RegExpLiteral(_)
+            | Expression::TemplateLiteral(_)
+            | Expression::ObjectExpression(_)
+            | Expression::ArrayExpression(_)
+            | Expression::FunctionExpression(_)
+            | Expression::ArrowFunctionExpression(_)
+            | Expression::ClassExpression(_)
+            | Expression::NewExpression(_)
+    )
+}
+
+/// Whether `body` leaves its statement list by a transfer NO exception can be raised before,
+/// so a `catch` wrapped around it is bypassed rather than entered.
+///
+/// `try { break; } catch (_) {}` breaks. `try { f(); break; } catch (_) {}` does not answer
+/// yes, because `f()` can throw and the handler then completes normally — and this walk stops
+/// at the first statement that could raise rather than looking past it. Everything is assumed
+/// able to raise except the few forms that evaluate nothing, which is the same conservative
+/// reading `is_quiet` makes for the hang question.
+fn leaves_without_raising(
+    body: &[Statement<'_>],
+    inside: &mut Vec<String>,
+    continue_counts: bool,
+) -> bool {
+    for st in body {
+        match st {
+            // The transfers themselves evaluate nothing. A bare `return` is one too; `return
+            // expr` runs `expr`, which can raise, and falls to the catch-all below.
+            Statement::BreakStatement(_) | Statement::ContinueStatement(_) => {
+                return ends_the_list_but_for(st, inside, continue_counts);
+            }
+            Statement::ReturnStatement(r) if r.argument.is_none() => return true,
+            Statement::BlockStatement(b) => {
+                if leaves_without_raising(&b.body, inside, continue_counts) {
+                    return true;
+                }
+                // A block that neither left nor is quiet could have raised inside it.
+                if !is_quiet(st) {
+                    return false;
+                }
+            }
+            _ if is_quiet(st) => {}
+            _ => return false,
+        }
+    }
+    false
 }
 
 /// Whether `stmt` ends the body on every path it can take. A bare `return`/`throw`, or a
@@ -4025,6 +4166,13 @@ struct AllBindings {
     /// callbacks, which are analysed over their own sources and never share a collection — a
     /// nested plain function does.
     given: Vec<Given>,
+    /// Parameter defaults an immediate invocation's own arguments prevent from running.
+    ///
+    /// `(function(x = (current = other)){})(1)` never evaluates that initializer, because a
+    /// default runs only for a missing or `undefined` argument. Walking the callee wholesale
+    /// recorded the write anyway, so the node looked moved and the helper's fields were
+    /// dropped from a shape the parser does read them in.
+    suppressed_defaults: Vec<Span>,
 }
 
 impl AllBindings {
@@ -4194,7 +4342,11 @@ impl AllBindings {
         // Around the callee only: an argument that writes runs where it is written, and pinning
         // that to the call would order it after a body it precedes.
         self.effects_land_at.push((callee.span(), span.end));
+        let suppressed = suppressed_defaults(callee, arguments);
+        let restore = self.suppressed_defaults.len();
+        self.suppressed_defaults.extend(suppressed);
         self.visit_expression(callee);
+        self.suppressed_defaults.truncate(restore);
         self.effects_land_at.pop();
         // Whatever a comma callee evaluates on the way to that function runs before the
         // arguments and before the body, so it keeps its own position.
@@ -4307,6 +4459,23 @@ impl AllBindings {
 impl<'a> Visit<'a> for AllBindings {
     fn visit_binding_identifier(&mut self, id: &oxc_ast::ast::BindingIdentifier<'a>) {
         self.bind(id.name.as_str(), self.hoists);
+    }
+
+    /// A parameter default whose argument was supplied never runs, so the name it binds is
+    /// still bound and whatever the initializer would have written is not.
+    fn visit_formal_parameter(&mut self, param: &oxc_ast::ast::FormalParameter<'a>) {
+        let Some(init) = param.initializer.as_ref() else {
+            walk::walk_formal_parameter(self, param);
+            return;
+        };
+        if !self.suppressed_defaults.contains(&init.span()) {
+            walk::walk_formal_parameter(self, param);
+            return;
+        }
+        self.visit_binding_pattern(&param.pattern);
+        self.unreachable += 1;
+        self.visit_expression(init);
+        self.unreachable -= 1;
     }
 
     fn visit_simple_assignment_target(
@@ -14810,6 +14979,9 @@ mod tests {
             "var current = e; do { try { g(); } finally { break; } current = other; } while (0); parse(current);",
             // Block and handler both leave, so no path reaches the statement after the `try`.
             "var current = e; do { try { break; } catch (x) { break; } current = other; } while (0); parse(current);",
+            // A `catch` intercepts exceptions and nothing else, so a `break` bypasses it. I
+            // asserted the opposite one round ago, in the negative below; review was right.
+            "var current = e; do { try { break; } catch (x) {} current = other; } while (0); parse(current);",
         ] {
             let fields = helper_reached_via(body);
             assert!(
@@ -14827,13 +14999,88 @@ mod tests {
         for body in [
             // Nothing leaves, so the following write is plainly effective.
             "var current = e; do { try { g(); } finally {} current = other; } while (0); parse(current);",
-            // A `catch` that completes normally carries on past the `try`.
-            "var current = e; do { try { break; } catch (x) {} current = other; } while (0); parse(current);",
+            // A `catch` that completes normally carries on past the `try` — when it can be
+            // entered at all. `f()` can raise before the `break` is reached, and the handler
+            // then finishes and falls into the statements after the `try`.
+            "var current = e; do { try { f(); break; } catch (x) {} current = other; } while (0); parse(current);",
+            // `return expr` is not a transfer that evaluates nothing — `f()` runs first and can
+            // raise, so the handler is reachable and completes. Only a BARE `return` bypasses.
+            "var current = e; do { try { return f(); } catch (x) {} current = other; } while (0); parse(current);",
         ] {
             let fields = helper_reached_via(body);
             assert!(
                 !fields.iter().any(|f| f.name == "id"),
                 "a path reaches the reassignment, so the descent is refused: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_case_repeating_an_earlier_literal_is_not_an_entry_path() {
+        // A switch matches with strict equality and takes the first case that matches, so the
+        // second `case "a"` can never be entered directly. Folding its empty reads into the
+        // intersection left the payload optional against a switch every reachable entry of
+        // which calls `parse`.
+        let fields = helper_reached_via(
+            r#"switch (mode) { case "a": parse(e); break; case "a": break;
+                              default: parse(e); break; }"#,
+        );
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(id.required, "nothing can enter the duplicate: {id:?}");
+    }
+
+    #[test]
+    fn a_distinct_case_still_dilutes_the_intersection() {
+        // The paired bound, three ways: a different literal is a real entry path; the FIRST of
+        // two duplicates is the one that matches, so an empty one there still dilutes; and a
+        // computed test is not decidable by reading it, so it shadows nothing.
+        for body in [
+            r#"switch (mode) { case "a": parse(e); break; case "b": break;
+                               default: parse(e); break; }"#,
+            r#"switch (mode) { case "a": break; case "a": parse(e); break;
+                               default: parse(e); break; }"#,
+            r#"switch (mode) { case k.A: parse(e); break; case k.A: break;
+                               default: parse(e); break; }"#,
+        ] {
+            let fields = helper_reached_via(body);
+            let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+            assert!(!id.required, "an entry path returns without it: {body}");
+        }
+    }
+
+    #[test]
+    fn a_default_its_argument_supplies_does_not_run() {
+        // A parameter default is evaluated only for a missing or `undefined` argument, so
+        // `(function (x = (current = other)) {})(1)` never performs that write and `parse` is
+        // handed the original node. Walking the callee wholesale recorded it and the helper's
+        // fields were dropped from a shape that really does read them.
+        let fields = helper_reached_via(
+            "var current = e; (function (x = (current = other)) {})(1); parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the supplied argument prevents the default: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn a_default_the_call_does_not_supply_still_runs() {
+        // The paired bound. Only a value that can be read off the source settles the question:
+        // no argument at all runs the default, and an argument whose value has to be computed
+        // could be `undefined`, so it settles nothing and the write stands.
+        for body in [
+            "var current = e; (function (x = (current = other)) {})(); parse(current);",
+            "var current = e; (function (x = (current = other)) {})(maybe); parse(current);",
+            "var current = e; (function (x = (current = other)) {})(void 0); parse(current);",
+            "var current = e; (function (x = (current = other)) {})(...args); parse(current);",
+            // The mapping is positional: an argument for the FIRST parameter says nothing
+            // about the second's default.
+            "var current = e; (function (a, x = (current = other)) {})(1); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "the default can still run, so the node moved: {body}"
             );
         }
     }
