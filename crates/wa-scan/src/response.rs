@@ -948,7 +948,13 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
         // true: … case false: … }` runs one of them on every execution — so the intersection
         // belongs exactly as much as it does under a `default`. The default-only gate skipped
         // it and left the fields optional.
+        // …and a discriminant this can READ covers every value on its own: there is exactly one
+        // value, so the entry it selects is the one every execution takes. The listed-booleans
+        // rule beside it is the same idea for a discriminant whose value is unknown but whose
+        // TYPE has only two inhabitants.
+        let selected = statically_selected_case(&stmt.discriminant, &stmt.cases);
         let exhaustive = stmt.cases.iter().any(|c| c.test.is_none())
+            || selected.is_some()
             || (statically_boolean(&stmt.discriminant) && both_booleans_listed(&stmt.cases));
         // Entering at case `i` runs its consequent and then falls through, so whether that
         // ENTRY can produce a value is what decides whether it belongs in the intersection.
@@ -959,7 +965,13 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
         // case's literal is never matched — the first one wins — so its reads say nothing about
         // any entry path, and including the empty duplicate emptied the intersection.
         let entry_shadowed = shadowed_case_tests(&stmt.cases);
-        let yields_a_value = |i: &usize| -> bool { !entry_throws[*i] && !entry_shadowed[*i] };
+        // And when the source names which entry runs, no other one is an entry path — the same
+        // cut a repeated literal makes, drawn from the discriminant instead of from an earlier
+        // case. Without it the intersection over "every entry" folded in arms this switch can
+        // never take.
+        let yields_a_value = |i: &usize| -> bool {
+            !entry_throws[*i] && !entry_shadowed[*i] && selected.is_none_or(|s| s == *i)
+        };
         let established = if exhaustive {
             per_case
                 .into_iter()
@@ -1076,6 +1088,14 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
     fn visit_for_in_statement(&mut self, stmt: &oxc_ast::ast::ForInStatement<'a>) {
         // The object is evaluated to be enumerated, however few keys it turns out to have.
         self.visit_expression(&stmt.right);
+        // …unless it plainly has one. A literal with an own enumerable property runs the body
+        // at least once, which is the guaranteed-pass asymmetry the `for-of` beside it has had
+        // since round twenty-five and this loop never got.
+        if enumerates_at_least_once(&stmt.right) {
+            self.visit_for_statement_left(&stmt.left);
+            self.walk_guaranteed_pass(&stmt.body);
+            return;
+        }
         // The binding is bound once per key, so a default in it — `for (const [v = read(e)]
         // …)` — runs only when there is a key. Writing these visitors by hand and walking
         // only the iterable and the body dropped such a read with nothing recorded.
@@ -3972,6 +3992,38 @@ fn literal_case_key(e: &Expression<'_>) -> Option<String> {
     }
 }
 
+/// Which case a `switch` on a readable literal actually enters, when the source settles it.
+///
+/// The minifier writes `switch ("a") { case "a": … case "b": … }` where a constant folded into
+/// the discriminant; a switch is strict equality taken in source order, so exactly one entry
+/// runs and the rest are dead. Both halves matter: the switch is EXHAUSTIVE — some entry runs
+/// on every execution, `default` or no — and the entries that are not selected are not entry
+/// paths at all, so folding their empty consequents into the intersection left the payload
+/// optional against a switch whose only live arm reads it.
+///
+/// Every test up to the match has to be readable: one this cannot key might match first, and
+/// selecting past it would name an arm that never runs. `default` is not tested — the switch
+/// reaches it only after every case has been compared and missed — so it is the answer only
+/// once the whole list has been read.
+fn statically_selected_case(
+    discriminant: &Expression<'_>,
+    cases: &oxc_allocator::Vec<'_, oxc_ast::ast::SwitchCase<'_>>,
+) -> Option<usize> {
+    let want = literal_case_key(peel(discriminant))?;
+    let mut fallback = None;
+    for (i, c) in cases.iter().enumerate() {
+        match c.test.as_ref() {
+            None => fallback = Some(i),
+            Some(test) => {
+                if literal_case_key(peel(test))? == want {
+                    return Some(i);
+                }
+            }
+        }
+    }
+    fallback
+}
+
 /// For each case, whether ENTERING there leaves the switch by throwing on every path — its
 /// own consequent throws, or it falls through into a chain that does.
 ///
@@ -4128,6 +4180,10 @@ struct ClassPhases<'s> {
     /// Where the static phase stops, when a static block before this element throws: nothing
     /// static written past that point is evaluated at all.
     static_phase_ends: Option<u32>,
+    /// The same for the INSTANCE phase this `new` performs: where it stops, when an instance
+    /// initializer before this element throws. `None` when nothing throws — or when the fields
+    /// do not initialize at all, in which case there is no phase to stop.
+    instance_phase_ends: Option<u32>,
     /// A derived constructor's prefix up to and including its `super()` call. Its INSTANCE
     /// fields initialize only once that call returns, so a read anywhere in here precedes
     /// every one of them.
@@ -4680,6 +4736,43 @@ fn pattern_binding_throws(
     }
 }
 
+/// The function a class's own STATIC method of this name holds, when it has one.
+///
+/// A static method is a property of the class object itself, so `(class { static m(){ … } }).m`
+/// names it. An instance method is on the prototype and a construction away; a getter is
+/// invoked rather than called, which the leading-effects reader handles instead.
+fn static_method<'b, 'a>(
+    class: &'b oxc_ast::ast::Class<'a>,
+    name: &str,
+) -> Option<&'b oxc_ast::ast::Function<'a>> {
+    class.body.body.iter().rev().find_map(|el| match el {
+        oxc_ast::ast::ClassElement::MethodDefinition(m)
+            if m.r#static
+                && m.kind == oxc_ast::ast::MethodDefinitionKind::Method
+                && m.key.static_name().as_deref() == Some(name) =>
+        {
+            Some(&*m.value)
+        }
+        _ => None,
+    })
+}
+
+/// Whether `e` plainly has an own enumerable property, so `for-in` over it runs its body.
+///
+/// Only an object literal, and only a property that really creates one: `{ __proto__: null }`
+/// sets the prototype and enumerates nothing, and a spread contributes an unknown number of
+/// keys. Reading a literal as nonempty when it can be empty would require reads the parser can
+/// skip, which is why nothing else answers `true` here.
+fn enumerates_at_least_once(e: &Expression<'_>) -> bool {
+    let Expression::ObjectExpression(o) = peel(e) else {
+        return false;
+    };
+    o.properties.iter().any(|p| match p {
+        oxc_ast::ast::ObjectPropertyKind::SpreadProperty(_) => false,
+        oxc_ast::ast::ObjectPropertyKind::ObjectProperty(op) => !sets_the_prototype(op),
+    })
+}
+
 /// Whether `e` is certainly not iterable, so an array pattern taking it apart must throw.
 ///
 /// Only the spellings that settle it. A string, an array and a nullish value all have their own
@@ -5001,9 +5094,13 @@ fn suppress_in_strings(
 /// `undefined` at run time, and this answers `false` for every one of them.
 fn definitely_defined(e: &Expression<'_>) -> bool {
     // Parentheses change nothing about the value, and reading only the bare spelling called
-    // `(-1)` unreadable.
-    if let Expression::ParenthesizedExpression(p) = e {
-        return definitely_defined(&p.expression);
+    // `(-1)` unreadable. Nor does a comma expression, whose value is its LAST element: `(0, 1)`
+    // supplies a parameter as plainly as `1` does, and falling through on the node kind
+    // recorded a default the call always prevents. `peel` answers both, and is what every other
+    // value question here already reads.
+    let peeled = peel(e);
+    if !std::ptr::eq(peeled, e) {
+        return definitely_defined(peeled);
     }
     // Every unary operator but one produces a value: `-1` and `+x` a number, `!0` a boolean,
     // `~x` a number, `typeof x` a string, `delete x` a boolean. `void` is the exception, and
@@ -5872,6 +5969,34 @@ impl AllBindings {
         if apply_list_throws(callee_expr, arguments) {
             return false;
         }
+        // `({ get m(){ … } }).m()` invokes that GETTER to obtain the callee, so its body runs
+        // here — before the arguments, and before whatever it returned is called. The callee
+        // unwrapper stops at a getter and is right to: what the getter hands back is unreadable,
+        // so the invoked function stays unknown. Its body is not unknown, and leaving it to the
+        // ordinary walk confined the write to a function nobody was known to call.
+        //
+        // Answered before every question below about whether the callee is callable or
+        // constructible: the getter has already run by the time any of those throw, so `new ({
+        // get m(){ … } }).m()` performs it too. Only the arguments and the getter are walked —
+        // the result is never entered, which is the whole reason this shape needs its own branch.
+        if let Some((name, object)) = named_member(peel(callee_expr))
+            && let Expression::ObjectExpression(o) = peel(object)
+            && let Some(op) = owned_property(o, name.as_ref())
+            && op.kind == oxc_ast::ast::PropertyKind::Get
+            && let Expression::FunctionExpression(f) = &op.value
+        {
+            let restore = self.binding_getters.len();
+            self.binding_getters.push((f.span, span.end));
+            self.visit_expression(callee_expr);
+            self.binding_getters.truncate(restore);
+            for arg in arguments {
+                self.visit_argument(arg);
+            }
+            if let Some(q) = template {
+                self.visit_template_literal(q);
+            }
+            return true;
+        }
         // `new (f).call(null)` constructs `Function.prototype.call`, which has no [[Construct]]
         // — a `TypeError` before `f` is ever reached. The callee unwrapper looks through
         // `.call`/`.apply` because an ordinary call there really does run the receiver's body;
@@ -5901,6 +6026,34 @@ impl AllBindings {
             return false;
         }
 
+        // `(class { static m(){ … } }).m()` selects that method and runs it here exactly as an
+        // object literal's does — a static method is a property of the class OBJECT, so the call
+        // reaches it without constructing anything. The callee unwrapper cannot hand it back
+        // (it returns an `Expression` and a method's value is a `Function`), so it is recognized
+        // here alongside the shapes below. A getter is a different question, answered by the
+        // leading-effects reader.
+        if !constructs
+            && let Some((name, object)) = named_member(peel(callee_expr))
+            && let Expression::ClassExpression(c) = peel(object)
+            && let Some(f) = static_method(c, name.as_ref())
+        {
+            self.effects_land_at.push((vec![f.span], f.span, span.end));
+            self.iife.push((
+                f.span,
+                synchronous_until(f.r#async, f.span, f.body.as_deref()),
+            ));
+            let mut leading = Vec::new();
+            leading_parts(callee_expr, &mut leading);
+            for part in leading {
+                self.visit_expression(part);
+            }
+            for arg in arguments {
+                self.visit_argument(arg);
+            }
+            self.visit_expression(callee_expr);
+            self.effects_land_at.pop();
+            return true;
+        }
         let runs_now = match callee {
             // A generator call runs none of the BODY — it builds an iterator, and whether
             // anything ever draws from it is the call-graph question this scanner does not
@@ -6153,10 +6306,18 @@ impl AllBindings {
         // happens on no path, which publishes a helper's reads under a node nothing had moved.
         // Its computed KEY still runs — every key is evaluated in the first phase, before any
         // initializer or block — which is why this gates the value alone.
-        let skipped = is_static
-            && phases
+        // …and the instance phase stops the same way, for the fields that belong to it. Its
+        // computed key still runs: keys are evaluated in the first phase, when the class is
+        // defined, long before any `new` reaches an initializer that throws.
+        let skipped = if is_static {
+            phases
                 .static_phase_ends
-                .is_some_and(|end| key.span().start >= end);
+                .is_some_and(|end| key.span().start >= end)
+        } else {
+            phases
+                .instance_phase_ends
+                .is_some_and(|end| key.span().start >= end)
+        };
         if skipped {
             self.unreachable += 1;
         }
@@ -7046,6 +7207,19 @@ impl<'a> Visit<'a> for AllBindings {
             }
             _ => None,
         });
+        // A class whose static phase ends abruptly is never DEFINED: the class expression itself
+        // throws, so the `new` around it is never reached and nothing it would have performed
+        // happens — no instance initializer, no constructor body. `new (class { static y =
+        // (function(){ throw 0 })(); constructor(){ current = other; } })()` was still recording
+        // that write as certainly effective. The same rule `heritage_throws` states above, at
+        // the other point where defining the class can leave abruptly; there nothing in the body
+        // runs at all, here the static phase up to the throw does, which is why this cancels the
+        // CONSTRUCTION rather than the walk.
+        //
+        // Every use of `constructed` below is a question about what `new` performs, so shadowing
+        // it here is the whole answer. Found by a bound written for the instance-phase rule
+        // beside it — the near-miss case, not the motivating one.
+        let constructed = constructed && static_phase_ends.is_none();
         // Constructing it does not, on its own, run its instance field initializers. A DERIVED
         // constructor installs them when `super()` returns, and one that leaves before calling
         // it — `constructor(){ return {}; }`, which is legal and completes construction — runs
@@ -7053,6 +7227,33 @@ impl<'a> Visit<'a> for AllBindings {
         // happens, and the descent was refused for a node still standing. The constructor body
         // itself does run either way, so only the field gate moves.
         let instance_fields = constructed && instance_fields_initialize(class);
+        // Instance initializers run in source order, and construction stops at the first one
+        // that completes abruptly — exactly the rule `static_phase_ends` states for the static
+        // phase, on the other half of the clock. `new (class { x = (function(){ throw 0 })();
+        // constructor(){ current = other; } })()` never enters that constructor, and recording
+        // its write as certainly effective refused a descent for a node still standing.
+        //
+        // SOURCE order among the fields, but the constructor is not in that order at all: every
+        // instance field initializes before a base class's constructor body whichever way round
+        // they are written, so a field below the constructor stops it just as surely. That is
+        // why the constructor consults the flag rather than its own position.
+        let instance_phase_ends: Option<u32> = instance_fields
+            .then(|| {
+                class.body.body.iter().find_map(|el| match el {
+                    oxc_ast::ast::ClassElement::PropertyDefinition(p)
+                        if !p.r#static && p.value.as_ref().is_some_and(expression_throws) =>
+                    {
+                        Some(p.span.end)
+                    }
+                    oxc_ast::ast::ClassElement::AccessorProperty(p)
+                        if !p.r#static && p.value.as_ref().is_some_and(expression_throws) =>
+                    {
+                        Some(p.span.end)
+                    }
+                    _ => None,
+                })
+            })
+            .flatten();
         let ctor_last = constructed && class.super_class.is_none();
         // Reordering the WALK is not enough on its own: effectiveness is decided by position,
         // and a field written after the constructor is textually after the read inside it. So
@@ -7114,7 +7315,19 @@ impl<'a> Visit<'a> for AllBindings {
                 oxc_ast::ast::ClassElement::MethodDefinition(m)
                     if constructed && m.kind == oxc_ast::ast::MethodDefinitionKind::Constructor =>
                 {
-                    self.iife.push((m.value.span, vec![m.value.span]));
+                    // …unless an instance initializer throws first. A BASE class runs them all
+                    // before the constructor body, so none of it is entered; a DERIVED one runs
+                    // them when `super()` returns, so the part above that call runs and nothing
+                    // below it does. The same prefix shape `synchronous_until` gives an `async`
+                    // body, for the same reason: the region is a decidable head of the body
+                    // rather than all of it. With no readable `super()` the head cannot be
+                    // named, so nothing is claimed — that loses a write instead of inventing
+                    // one.
+                    let region = match instance_phase_ends {
+                        None => vec![m.value.span],
+                        Some(_) => pre_super.into_iter().collect(),
+                    };
+                    self.iife.push((m.value.span, region));
                     if ctor_last {
                         held_ctor = Some(el);
                     } else {
@@ -7143,6 +7356,7 @@ impl<'a> Visit<'a> for AllBindings {
                             statics: &static_spans,
                             pre_super,
                             static_phase_ends,
+                            instance_phase_ends,
                         },
                     );
                 }
@@ -7165,6 +7379,7 @@ impl<'a> Visit<'a> for AllBindings {
                             statics: &static_spans,
                             pre_super,
                             static_phase_ends,
+                            instance_phase_ends,
                         },
                     );
                 }
@@ -12556,12 +12771,17 @@ mod tests {
             !fields.iter().any(|f| f.name == "id"),
             "that method already ran: {fields:?}"
         );
-        // The bounds. A GETTER of that name is not this shape — reading `m` invokes the getter
-        // and calls whatever it returned, which this cannot follow. A method the literal does
-        // not end up with is not selected either, and neither is one on an object this cannot
-        // read.
+        // The bounds. A method the literal does not end up with is not selected, and neither is
+        // one on an object this cannot read.
+        //
+        // A GETTER of that name used to be listed here too, on the reasoning that reading `m`
+        // invokes it and calls whatever it returned, which this cannot follow. The second half
+        // is true and the first half is the point: the getter's BODY runs whether or not its
+        // result can be followed, so `({get m(){ current = other }}).m()` does perform that
+        // write. The seventh claim of mine review has had to reverse, and the second where I
+        // wrote down a bound for a rule that in fact reaches further than the rule I was
+        // bounding. `a_getter_supplying_a_callee_runs_before_the_call` holds it now.
         for body in [
-            "var current = e; ({get m(){ current = other }}).m(); parse(current);",
             "var current = e; ({m(){ current = other }, ...{m: f}}).m(); parse(current);",
             "var current = e; obj.m(); parse(current);",
         ] {
@@ -13017,6 +13237,192 @@ mod tests {
             !fields.iter().any(|f| f.name == "id"),
             "the first argument ran before the raise: {fields:?}"
         );
+    }
+
+    #[test]
+    fn a_sequence_supplies_the_parameter_its_last_element_is() {
+        // `(0, 1)` is an expression whose VALUE is `1`, so it supplies a parameter exactly as
+        // `1` does and the default beside it never runs. `definitely_defined` read the comma
+        // expression itself, which is none of the spellings it settles on, so the default was
+        // left running and a write it performs was recorded for a call that prevents it.
+        let fields = helper_reached_via(
+            "var current = e; (function (x = (current = other)) {})((0, 1)); parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "that default never runs: {fields:?}"
+        );
+        // The bounds, both halves of the same peel. A sequence ending in `void 0` supplies
+        // `undefined`, so the default DOES run — and one ending in anything this cannot read
+        // settles nothing, which is not the same as settling it the other way.
+        for body in [
+            "var current = e; (function (x = (current = other)) {})((0, void 0)); parse(current);",
+            "var current = e; (function (x = (current = other)) {})((0, f())); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that default runs: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_static_method_of_a_class_expression_runs_where_it_is_called() {
+        // `(class { static m(){ … } }).m()` selects that method and calls it here, exactly as an
+        // object literal's method does — a static method is a property of the class OBJECT, so
+        // nothing is constructed on the way. The callee unwrapper cannot hand it back, a
+        // method's value being a `Function` rather than an `Expression`, so it was walked as a
+        // body nobody reaches and its write stayed confined.
+        let fields = helper_reached_via(
+            "var current = e; (class { static m(){ current = other; } }).m(); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "that method already ran: {fields:?}"
+        );
+        // The bound: an INSTANCE method is not a property of the class object. `(class { m(){ …
+        // } }).m()` throws before any body is entered, so nothing it would have written happens.
+        let fields = helper_reached_via(
+            "var current = e; (class { m(){ current = other; } }).m(); parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "nothing calls that method: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn a_getter_supplying_a_callee_runs_before_the_call() {
+        // Reading `.m` off `{ get m(){ … } }` INVOKES that getter, then calls whatever it
+        // returned. The callee unwrapper stops at a getter and is right to — the returned
+        // function is unreadable — but the getter's own body runs whatever it hands back, and
+        // leaving it to the ordinary walk confined the write to a function nobody was known to
+        // call.
+        for body in [
+            "var current = e; ({ get m(){ current = other; return function(){} } }).m(); parse(current);",
+            // …and just as much when the result is not callable at all: the call throws, but
+            // only AFTER the getter has already run.
+            "var current = e; ({ get m(){ current = other; } }).m(); parse(current);",
+            // …and under `new`, where the same throw is a different one and lands just as late.
+            "var current = e; try { new ({ get m(){ current = other; } }).m(); } catch (_) {} parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that getter already ran: {body}"
+            );
+        }
+        // The bounds. Only the getter this call actually READS: another name reaches a different
+        // property, a SETTER of that name supplies no getter at all — reading `m` yields
+        // `undefined` — and a spread that may replace the property leaves it unclaimed.
+        for body in [
+            "var current = e; ({ get m(){ current = other; }, n: function(){} }).n(); parse(current);",
+            "var current = e; ({ set m(v){ current = other; } }).m(); parse(current);",
+            "var current = e; ({ get m(){ current = other; }, ...o }).m(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "nothing here runs that getter: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_throwing_instance_initializer_stops_the_construction() {
+        // Instance initializers run in source order and construction stops at the first one that
+        // completes abruptly, so the constructor below it is never entered — the instance-phase
+        // half of the rule `static_phase_ends` already stated for the other phase.
+        for body in [
+            "var current = e; try { new (class { x = (function(){throw 0})(); constructor(){ current = other; } })(); } catch (_) {} parse(current);",
+            // …and whichever way round they are written: every instance field of a base class
+            // initializes before its constructor body, so one written BELOW the constructor
+            // stops it just as surely. Source position answers the fields' order among
+            // themselves and says nothing about the constructor's place in it.
+            "var current = e; try { new (class { constructor(){ current = other; } x = (function(){throw 0})(); })(); } catch (_) {} parse(current);",
+            // A DERIVED class installs them when `super()` returns, so what follows that call is
+            // not reached either.
+            "var current = e; try { new (class extends Object { x = (function(){throw 0})(); constructor(){ super(); current = other; } })(); } catch (_) {} parse(current);",
+            // And a class whose STATIC phase throws is never defined at all, so the `new` around
+            // it is never reached: not one instance initializer runs and the constructor is not
+            // entered either.
+            "var current = e; try { new (class { static y = (function(){throw 0})(); constructor(){ current = other; } })(); } catch (_) {} parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that constructor is never entered: {body}"
+            );
+        }
+        // The bounds. An initializer that completes leaves the constructor running — and in a
+        // derived class the part ABOVE `super()` runs before the fields are installed at all,
+        // so a throwing field cannot reach back and cancel it.
+        for body in [
+            "var current = e; new (class { x = 1; constructor(){ current = other; } })(); parse(current);",
+            "var current = e; try { new (class extends Object { x = (function(){throw 0})(); constructor(){ current = other; super(); } })(); } catch (_) {} parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that constructor does run: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_switch_on_a_literal_enters_the_case_that_matches() {
+        // The minifier folds a constant into the discriminant and leaves the whole switch
+        // standing. Strict equality taken in source order settles which entry runs, so the
+        // switch is exhaustive — some entry runs on every execution, `default` or no — and the
+        // arms it cannot take are not entry paths. Intersecting over every arm folded in those
+        // empty ones and left the payload optional.
+        for body in [
+            r#"switch ("a") { case "a": parse(e); break; case "b": break; }"#,
+            // The fallthrough chain from the selected entry is part of it.
+            r#"switch ("a") { case "a": case "b": parse(e); break; }"#,
+            // `default` is not tested where it is written: the switch reaches it only after
+            // every case has been compared and missed, so a case BELOW it still wins…
+            r#"switch ("a") { default: break; case "a": parse(e); break; }"#,
+            // …and it is the answer when nothing matches.
+            r#"switch ("z") { case "a": break; default: parse(e); break; }"#,
+        ] {
+            let (required, _) = guards_and_field(body);
+            assert!(required, "that entry is the only one: {body}");
+        }
+        // The bounds. Nothing matching and no `default` runs no arm at all; a discriminant this
+        // cannot read selects nothing; a test this cannot read might match first, so nothing
+        // past it can be selected either; the comparison is STRICT, so `"1"` does not reach
+        // `case 1`; and a selected entry that throws yields no value, which promotes nothing.
+        for body in [
+            r#"switch ("z") { case "a": parse(e); break; case "b": break; }"#,
+            r#"switch (k) { case "a": parse(e); break; case "b": break; }"#,
+            r#"switch ("a") { case f(): break; case "a": parse(e); break; }"#,
+            r#"switch ("1") { case 1: parse(e); break; case "z": break; }"#,
+            r#"switch ("a") { case "a": throw 0; case "b": parse(e); break; }"#,
+        ] {
+            let (required, _) = guards_and_field(body);
+            assert!(!required, "no entry is settled here: {body}");
+        }
+    }
+
+    #[test]
+    fn a_for_in_over_a_literal_with_a_property_runs_its_body() {
+        // An object literal with an own enumerable property has at least one key, so the body
+        // runs at least once — the guaranteed-pass asymmetry `for-of` over a literal array
+        // already had. Wrapping every `for-in` in a skipped path relaxed reads every successful
+        // execution performs.
+        let (required, _) = guards_and_field("for (const k in { a: 1 }) { parse(e); }");
+        assert!(required, "that body runs at least once");
+        // The bounds. An empty literal enumerates nothing, and an object this cannot read may
+        // have no keys at all.
+        for body in [
+            "for (const k in {}) { parse(e); }",
+            "for (const k in o) { parse(e); }",
+        ] {
+            let (required, _) = guards_and_field(body);
+            assert!(!required, "that body may not run: {body}");
+        }
     }
 
     fn helper_reached_via(body: &str) -> Vec<ParsedField> {
