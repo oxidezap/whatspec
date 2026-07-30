@@ -3535,20 +3535,118 @@ fn suppressed_defaults(callee: &Expression<'_>, arguments: &[Argument<'_>]) -> V
     };
     let mut out = Vec::new();
     for (i, param) in params.items.iter().enumerate() {
-        let Some(init) = param.initializer.as_ref() else {
-            continue;
-        };
-        match arguments.get(i) {
+        let supplied = match arguments.get(i) {
+            // A spread makes every position after it unknowable, so it ends the mapping.
             Some(Argument::SpreadElement(_)) | None => break,
-            Some(arg) => {
-                let Some(e) = arg.as_expression() else { break };
-                if definitely_defined(e) {
-                    out.push(init.span());
+            Some(arg) => arg.as_expression(),
+        };
+        let Some(supplied) = supplied else { break };
+        // The parameter's OWN default, then whatever the pattern it binds destructures. When
+        // the default runs, the pattern takes the default's value apart, not the argument's —
+        // so the recursion carries `None` on that side rather than the argument.
+        let reached = match param.initializer.as_ref() {
+            Some(init) if definitely_defined(supplied) => {
+                out.push(init.span());
+                Some(supplied)
+            }
+            // Indistinguishable from carrying `supplied` through, as it happens: any value the
+            // pattern walk can read off the source is one `definitely_defined` accepts, so this
+            // arm is only reached with an argument that suppresses nothing anyway. Kept as
+            // `None` because it states the rule — when the default runs, the pattern takes THAT
+            // apart — rather than relying on the coincidence. No test separates the two, and
+            // saying so is better than implying one does.
+            Some(_) => None,
+            None => Some(supplied),
+        };
+        suppress_in_pattern(&param.pattern, reached, &mut out);
+    }
+    out
+}
+
+/// The defaults inside `pat` that the value it destructures already supplies.
+///
+/// A default nested in a pattern is the same rule one level in: `function ({x = (current =
+/// other)}) {}` called with `{x: 1}` never evaluates that initializer. Checking only
+/// `FormalParameter::initializer` left every destructured spelling of it recording a write the
+/// call prevents — the direction that files a helper's fields under a node still standing.
+///
+/// `value` is what this pattern takes apart, when reading the source settles what that is. It
+/// is `None` wherever it does not — an argument that is not a literal object or array, a
+/// property this call does not name, a spread, a computed key. Every one of those leaves the
+/// default running, which is the conservative side.
+fn suppress_in_pattern(
+    pat: &oxc_ast::ast::BindingPattern<'_>,
+    value: Option<&Expression<'_>>,
+    out: &mut Vec<Span>,
+) {
+    use oxc_ast::ast::BindingPattern as BP;
+    match pat {
+        BP::BindingIdentifier(_) => {}
+        BP::AssignmentPattern(p) => {
+            let supplied = value.is_some_and(definitely_defined);
+            if supplied {
+                out.push(p.right.span());
+            }
+            // Bound to the argument when the default did not run, and to the default's own
+            // value when it did — which this does not read, so the inner side gets nothing.
+            suppress_in_pattern(&p.left, if supplied { value } else { None }, out);
+        }
+        BP::ObjectPattern(o) => {
+            // Only a literal object with no spread: a spread can supply or shadow any property
+            // and nothing here can say which.
+            let props = match value {
+                Some(Expression::ObjectExpression(obj))
+                    if !obj.properties.iter().any(|p| {
+                        matches!(p, oxc_ast::ast::ObjectPropertyKind::SpreadProperty(_))
+                    }) =>
+                {
+                    Some(obj)
                 }
+                _ => None,
+            };
+            for prop in &o.properties {
+                // `static_name` is the predicate, on both sides. Testing `!computed` as well
+                // excluded `{["x"]: v}` — a computed key whose name IS readable — while adding
+                // nothing, because `static_name` already answers `None` for a key that is not:
+                // an inert gate that only cost precision. Removed rather than documented.
+                let named = prop.key.static_name().and_then(|name| {
+                    // The LAST property of that name, which is the one the object ends up with.
+                    // Taking the first had `{x: 1, ["x"]: undefined}` read as supplying `x`,
+                    // suppressing a default the effective `undefined` really does run.
+                    props?.properties.iter().rev().find_map(|p| match p {
+                        oxc_ast::ast::ObjectPropertyKind::ObjectProperty(op)
+                            if op.key.static_name().as_deref() == Some(name.as_ref()) =>
+                        {
+                            Some(&op.value)
+                        }
+                        _ => None,
+                    })
+                });
+                suppress_in_pattern(&prop.value, named, out);
+            }
+        }
+        BP::ArrayPattern(a) => {
+            // By position, and only for a literal array with no holes or spreads before the
+            // element being asked about.
+            let items = match value {
+                Some(Expression::ArrayExpression(arr))
+                    if !arr.elements.iter().any(|el| {
+                        matches!(el, oxc_ast::ast::ArrayExpressionElement::SpreadElement(_))
+                    }) =>
+                {
+                    Some(arr)
+                }
+                _ => None,
+            };
+            for (i, el) in a.elements.iter().enumerate() {
+                let Some(el) = el.as_ref() else { continue };
+                let at = items
+                    .and_then(|arr| arr.elements.get(i))
+                    .and_then(|e| e.as_expression());
+                suppress_in_pattern(el, at, out);
             }
         }
     }
-    out
 }
 
 /// Whether reading `e` settles that it is not `undefined`. Deliberately only the forms that
@@ -4166,6 +4264,12 @@ struct AllBindings {
     /// callbacks, which are analysed over their own sources and never share a collection — a
     /// nested plain function does.
     given: Vec<Given>,
+    /// Class expressions being constructed in place, by span. `new (class { constructor(){ … }
+    /// })()` runs that constructor and every instance field initializer synchronously, which is
+    /// the same decidable-from-syntax case an IIFE is — and the fallback treated both as a
+    /// method body nobody calls, so a write there stayed confined and the helper's fields were
+    /// published on the node the constructor had moved away from.
+    constructing: Vec<Span>,
     /// Parameter defaults an immediate invocation's own arguments prevent from running.
     ///
     /// `(function(x = (current = other)){})(1)` never evaluates that initializer, because a
@@ -4306,6 +4410,7 @@ impl AllBindings {
         callee_expr: &Expression<'a>,
         arguments: &oxc_allocator::Vec<'a, oxc_ast::ast::Argument<'a>>,
         span: Span,
+        constructs: bool,
     ) -> bool {
         // An immediately invoked function has certainly run by the time anything after it reads
         // what it wrote — the one case where "does this nested function execute" is decidable
@@ -4327,6 +4432,12 @@ impl AllBindings {
             Expression::ArrowFunctionExpression(f) => {
                 self.iife
                     .push((f.span, synchronous_until(f.r#async, f.span, Some(&f.body))));
+                true
+            }
+            // `new (class { constructor(){ … } })()` runs user code now, exactly as an IIFE
+            // does. Only under `new`: calling a class throws, so the body runs on no path.
+            Expression::ClassExpression(c) if constructs => {
+                self.constructing.push(c.span);
                 true
             }
             _ => false,
@@ -4406,11 +4517,17 @@ impl AllBindings {
         is_static: bool,
         key: &oxc_ast::ast::PropertyKey<'a>,
         value: Option<&Expression<'a>>,
+        constructed: bool,
     ) {
         if computed {
             self.visit_property_key(key);
         }
-        if is_static && let Some(v) = value {
+        // A static initializer runs when the class is defined. An INSTANCE one runs per `new`,
+        // of which there may be none — unless this very class is being constructed in place,
+        // where there is exactly one and it happens now.
+        if (is_static || constructed)
+            && let Some(v) = value
+        {
             self.visit_expression(v);
         }
     }
@@ -4459,6 +4576,20 @@ impl AllBindings {
 impl<'a> Visit<'a> for AllBindings {
     fn visit_binding_identifier(&mut self, id: &oxc_ast::ast::BindingIdentifier<'a>) {
         self.bind(id.name.as_str(), self.hoists);
+    }
+
+    /// The same for a default nested inside a destructuring pattern, which is a real
+    /// `AssignmentPattern` node — a formal parameter's own default is not, and reaching only
+    /// that one left `function ({x = …})` recording a write its call prevents.
+    fn visit_assignment_pattern(&mut self, pat: &oxc_ast::ast::AssignmentPattern<'a>) {
+        if !self.suppressed_defaults.contains(&pat.right.span()) {
+            walk::walk_assignment_pattern(self, pat);
+            return;
+        }
+        self.visit_binding_pattern(&pat.left);
+        self.unreachable += 1;
+        self.visit_expression(&pat.right);
+        self.unreachable -= 1;
     }
 
     /// A parameter default whose argument was supplied never runs, so the name it binds is
@@ -4624,7 +4755,7 @@ impl<'a> Visit<'a> for AllBindings {
     }
 
     fn visit_call_expression(&mut self, call: &CallExpression<'a>) {
-        if !self.walk_invocation(&call.callee, &call.arguments, call.span) {
+        if !self.walk_invocation(&call.callee, &call.arguments, call.span, false) {
             walk::walk_call_expression(self, call);
         }
     }
@@ -4634,7 +4765,7 @@ impl<'a> Visit<'a> for AllBindings {
     /// helper's fields were published on the node it had moved away from. One method answers
     /// for both spellings rather than the second learning it a round later.
     fn visit_new_expression(&mut self, new: &oxc_ast::ast::NewExpression<'a>) {
-        if !self.walk_invocation(&new.callee, &new.arguments, new.span) {
+        if !self.walk_invocation(&new.callee, &new.arguments, new.span, true) {
             walk::walk_new_expression(self, new);
         }
     }
@@ -4914,14 +5045,33 @@ impl<'a> Visit<'a> for AllBindings {
         // evaluated before any static initializer, so a key written after one reads what the
         // initializer has not yet written. Saying that needs a clock this model does not have —
         // see the note on the PR.
+        // Whether THIS class is the one being constructed in place. Taken out of the list, so
+        // the walk of its own body cannot see it again and a class nested inside it is judged
+        // on its own span.
+        let constructed = if let Some(i) = self.constructing.iter().position(|s| *s == class.span) {
+            self.constructing.remove(i);
+            true
+        } else {
+            false
+        };
         for el in &class.body.body {
             match el {
+                // A constructor invoked by `new` right here runs as certainly as an IIFE body,
+                // so a write in it escapes to everything after the construction rather than
+                // staying confined to a method nobody was known to call.
+                oxc_ast::ast::ClassElement::MethodDefinition(m)
+                    if constructed && m.kind == oxc_ast::ast::MethodDefinitionKind::Constructor =>
+                {
+                    self.iife.push((m.value.span, m.value.span.end));
+                    self.visit_class_element(el);
+                }
                 oxc_ast::ast::ClassElement::PropertyDefinition(p) => {
                     self.visit_field_at_definition(
                         p.computed,
                         p.r#static,
                         &p.key,
                         p.value.as_ref(),
+                        constructed,
                     );
                 }
                 // `accessor value = …` is a field with a getter and a setter generated for it,
@@ -4937,6 +5087,7 @@ impl<'a> Visit<'a> for AllBindings {
                         p.r#static,
                         &p.key,
                         p.value.as_ref(),
+                        constructed,
                     );
                 }
                 // Its braces are a scope: `static { let current = other; }` binds a NEW
@@ -15081,6 +15232,103 @@ mod tests {
             assert!(
                 !fields.iter().any(|f| f.name == "id"),
                 "the default can still run, so the node moved: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_nested_default_the_argument_supplies_does_not_run() {
+        // The same rule one level in. `function ({x = (current = other)})` called with `{x: 1}`
+        // never evaluates that initializer, and checking only `FormalParameter::initializer`
+        // left every destructured spelling of it recording a write the call prevents.
+        for body in [
+            "var current = e; (function ({x = (current = other)}) {})({x: 1}); parse(current);",
+            "var current = e; (function ([x = (current = other)]) {})([1]); parse(current);",
+            // Through a level of nesting, and past a sibling the argument does not name.
+            "var current = e; (function ({a: {x = (current = other)}}) {})({a: {x: 1}}); parse(current);",
+            // A computed key whose name is readable is readable, and the LAST property of a
+            // name is the one the object carries.
+            r#"var current = e; (function ({x = (current = other)}) {})({["x"]: 1}); parse(current);"#,
+            r#"var current = e; (function ({x = (current = other)}) {})({["x"]: undefined, x: 1}); parse(current);"#,
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "the supplied value prevents the nested default: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_nested_default_the_argument_leaves_open_still_runs() {
+        // The paired bound. Only what reading the source settles counts as supplied: a property
+        // the literal does not name, a missing element, an argument that is not a literal at
+        // all, a spread that could supply or shadow anything, and a computed key.
+        for body in [
+            "var current = e; (function ({x = (current = other)}) {})({}); parse(current);",
+            "var current = e; (function ([x = (current = other)]) {})([]); parse(current);",
+            "var current = e; (function ({x = (current = other)}) {})(obj); parse(current);",
+            "var current = e; (function ({x = (current = other)}) {})({...rest}); parse(current);",
+            // A spread can SHADOW a property the literal names, with `undefined` among other
+            // things, so naming `x` alongside one settles nothing either.
+            "var current = e; (function ({x = (current = other)}) {})({x: 1, ...rest}); parse(current);",
+            // And a later property of the same name wins, so the effective `x` is `undefined`
+            // and the default runs after all.
+            r#"var current = e; (function ({x = (current = other)}) {})({x: 1, ["x"]: undefined}); parse(current);"#,
+            "var current = e; (function ({x = (current = other)}) {})({x: undefined}); parse(current);",
+            // The parameter's own default runs, so the pattern takes THAT apart and the
+            // argument says nothing about what is inside it.
+            "var current = e; (function ({x = (current = other)} = {}) {})(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "the default can still run, so the node moved: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_class_constructed_in_place_runs_its_body_now() {
+        // `new (class { constructor(){ current = other; } })()` runs that constructor as
+        // certainly as an IIFE body runs. Treating it as a method nobody calls confined the
+        // write, so the alias `current = e` still looked live and the helper's fields were
+        // published on a node the constructor had replaced — the wrong-node direction, which
+        // is why this stopped being a decline. An instance field initializer runs on the same
+        // construction and is the same answer.
+        for body in [
+            "var current = e; new (class { constructor() { current = other; } })(); parse(current);",
+            "var current = e; new (class { value = (current = other); })(); parse(current);",
+            "var current = e; new (class { accessor value = (current = other); })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "the construction moved the node: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_class_nobody_constructs_still_defers_its_bodies() {
+        // The paired bound, and it is the whole reason this is not simply "a class runs its
+        // methods". Defining one runs neither its constructor nor its instance initializers;
+        // CALLING a class throws, so its body runs on no path; a method that is not the
+        // constructor is not invoked by `new`; and `new Thing()` reaches no body this scanner
+        // can see at all.
+        for body in [
+            "var current = e; var C = class { constructor() { current = other; } }; parse(current);",
+            "var current = e; var C = class { value = (current = other); }; parse(current);",
+            "var current = e; new (class { run() { current = other; } })(); parse(current);",
+            "var current = e; new Thing(); parse(current);",
+            // CALLING a class throws before any body runs, so the write happens on no path —
+            // which is why the arm is guarded on `new` rather than on the callee being a class.
+            "var current = e; (class { constructor() { current = other; } })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "nothing ran that body, so the node still stands: {body}"
             );
         }
     }
