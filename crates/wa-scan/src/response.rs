@@ -4396,14 +4396,28 @@ fn bound_getters<'b, 'a>(
                 continue;
             };
             let getter = objects.iter().rev().find_map(|supplied| {
-                supplied.properties.iter().rev().find_map(|p| match p {
-                    oxc_ast::ast::ObjectPropertyKind::ObjectProperty(op)
-                        if op.key.static_name().as_deref() == Some(name.as_ref()) =>
-                    {
-                        Some(op)
-                    }
-                    _ => None,
-                })
+                // Only the properties written after the LAST spread, which is the rule
+                // `suppress_in_pattern` has had since round twenty-nine and this lookup did
+                // not. A spread can overwrite a name, so a getter above one no longer owns the
+                // property and never runs: `{ get x(){ … }, ...{x: 1} }` binds `x` to the data
+                // property and the getter body is dead. Marking it immediate recorded a write
+                // that happens on no path.
+                let after_spreads = supplied
+                    .properties
+                    .iter()
+                    .rposition(|p| matches!(p, oxc_ast::ast::ObjectPropertyKind::SpreadProperty(_)))
+                    .map_or(0, |i| i + 1);
+                supplied.properties[after_spreads..]
+                    .iter()
+                    .rev()
+                    .find_map(|p| match p {
+                        oxc_ast::ast::ObjectPropertyKind::ObjectProperty(op)
+                            if op.key.static_name().as_deref() == Some(name.as_ref()) =>
+                        {
+                            Some(op)
+                        }
+                        _ => None,
+                    })
             });
             if let Some(op) = getter
                 && op.kind == oxc_ast::ast::PropertyKind::Get
@@ -6426,6 +6440,22 @@ impl<'a> Visit<'a> for AllBindings {
             {
                 Some(b.span.end)
             }
+            // …and an INITIALIZER that certainly raises ends the phase exactly as much. Round
+            // forty-eight left this half out because asking whether an arbitrary expression
+            // throws was a question this pass could not answer; round fifty gave it
+            // `expression_throws` for the ternary, and the same predicate closes it here. Still
+            // only the spelling that settles it — a body invoked on the spot whose statements
+            // all leave by throwing.
+            oxc_ast::ast::ClassElement::PropertyDefinition(p)
+                if p.r#static && p.value.as_ref().is_some_and(expression_throws) =>
+            {
+                Some(p.span.end)
+            }
+            oxc_ast::ast::ClassElement::AccessorProperty(p)
+                if p.r#static && p.value.as_ref().is_some_and(expression_throws) =>
+            {
+                Some(p.span.end)
+            }
             _ => None,
         });
         // Constructing it does not, on its own, run its instance field initializers. A DERIVED
@@ -6668,7 +6698,7 @@ impl Bindings {
                     // copy of anything in particular — `current = row; current =
                     // row.child("detail")` names the detail node by the time the helper is
                     // called, and following it to `row` would file the reads under the wrong
-                    // node. `given_once_in` counts only what is in scope, which is also what
+                    // node. `settled_given_in` reads only what is in scope, which is also what
                     // keeps a nested function's copy from answering out here; checking the
                     // extent again alongside it said the same thing twice.
                     g.from.as_deref().is_some_and(|f| out.contains(f))
@@ -6681,7 +6711,15 @@ impl Bindings {
                         // `row` at a call where `current` still holds `other`. Same rule the
                         // count uses: textual position, unless a loop repeats it.
                         && in_effect_at(g.effective, g.repeats_in, &g.runs_before, &g.runs_after, g.lands_at, at)
-                        && self.given_once_in(&g.name, at)
+                        // …and it must be the record that HOLDS the name there, not merely one
+                        // of several the count admits. Asking only "is this settled" would let
+                        // an earlier record win once a later one superseded it — `var current =
+                        // e; current = other; parse(current)` has `other` in effect and `e` in
+                        // the set, and the first record would have filed the reads under the
+                        // node the second replaced.
+                        && self
+                            .settled_given_in(&g.name, at)
+                            .is_some_and(|d| std::ptr::eq(d, *g))
                         && !self.written_without_a_value(&g.name, at)
                 })
                 .map(|g| {
@@ -6753,15 +6791,55 @@ impl Bindings {
         })
     }
 
-    /// Whether `name` holds one value in the scopes covering `at` — given once, or given the
-    /// SAME thing by every record that could have taken effect.
-    fn given_once_in(&self, name: &str, at: Span) -> bool {
-        // Only values that can already have taken effect at `at`. I made the parameter check
-        // order-aware and left this one counting every assignment in the scope, so
-        // `var current = row; parse(current); current = row.child("detail")` saw two values and
-        // refused to follow `current` — dropping the helper's fields for a write that cannot
-        // reach the call. Same rule as `written_in_scope`: textual position, unless a loop
-        // repeats it.
+    /// WHICH record holds `name` at a call, among those that can already have taken effect.
+    ///
+    /// One record, or several that copy the same name — and otherwise the LAST one, when it
+    /// certainly overwrites the rest. `var current = other; current = e; parse(current)` hands
+    /// `parse` nothing but `e`, and reading every in-scope value as simultaneously live refused
+    /// the alias and dropped the helper's fields with nothing recorded. That refusal was on the
+    /// open list for eleven rounds as "nothing supersedes"; this is it.
+    ///
+    /// Dominating means all three: the last write is not one a branch can skip, no live record
+    /// repeats in a loop that could bring it back afterwards, and every other live record has
+    /// already taken effect where that last one is WRITTEN — which is the same `in_effect_at`
+    /// the liveness filter uses, asked at a different position. A record this cannot order
+    /// against the others leaves the answer `None` and the alias refused, exactly as before.
+    fn settled_value<'g>(live: &[&'g Given]) -> Option<&'g Given> {
+        let (first, rest) = live.split_first()?;
+        if rest.is_empty() {
+            return Some(first);
+        }
+        // `if (flag) current = e; else current = e;` writes twice and means one thing, and
+        // counting records refused the alias and dropped the helper's fields with nothing
+        // recorded. Records that COPY A NAME are comparable that way; two that computed their
+        // values are two values however alike they look — `current = row; current =
+        // row.child("detail")` — and those fall through to the ordering test below. Whether the
+        // paths are exhaustive is a separate question, and the answer is already carried: each
+        // record's own `conditional` travels to `names_for`, so a value only some path assigns
+        // still reaches the shape as an optional one.
+        if first.from.is_some() && rest.iter().all(|g| g.from == first.from) {
+            return Some(first);
+        }
+        let last = live.iter().copied().max_by_key(|g| g.effective)?;
+        let dominates = !last.conditional
+            && live.iter().all(|g| g.repeats_in.is_none())
+            && live.iter().all(|g| {
+                std::ptr::eq(*g, last)
+                    || in_effect_at(
+                        g.effective,
+                        g.repeats_in,
+                        &g.runs_before,
+                        &g.runs_after,
+                        g.lands_at,
+                        last.at,
+                    )
+            });
+        dominates.then_some(last)
+    }
+
+    /// The record [`Self::settled_value`] selects for `name` at `at`, or `None` when the name
+    /// holds no value this can settle on.
+    fn settled_given_in(&self, name: &str, at: Span) -> Option<&Given> {
         let live: Vec<&Given> = self
             .given
             .iter()
@@ -6778,21 +6856,7 @@ impl Bindings {
                     )
             })
             .collect();
-        match live.split_first() {
-            None => false,
-            Some((_, [])) => true,
-            // `if (flag) current = e; else current = e;` writes twice and means one thing, and
-            // counting records refused the alias and dropped the helper's fields with nothing
-            // recorded. Records that COPY A NAME are comparable that way; two that computed
-            // their values are two values however alike they look, which is the case this
-            // count exists for — `current = row; current = row.child("detail")`. Whether the
-            // paths are exhaustive is a separate question, and the answer is already carried:
-            // each record's own `conditional` travels to `names_for`, so a value only some
-            // path assigns still reaches the shape as an optional one.
-            Some((first, rest)) => {
-                first.from.is_some() && rest.iter().all(|g| g.from == first.from)
-            }
-        }
+        Self::settled_value(&live)
     }
 
     /// Whether `name` is bound by a scope strictly inside this source that contains `at` —
@@ -11585,6 +11649,128 @@ mod tests {
                 "`{body}` leaves a value uncovered"
             );
         }
+    }
+
+    #[test]
+    fn an_unconditional_reassignment_supersedes_what_it_replaces() {
+        // `var current = other; current = e; parse(current)` hands `parse` nothing but `e`.
+        // Reading every in-scope value as simultaneously live refused the alias and dropped the
+        // helper's fields with nothing recorded — the refusal that sat on the open list for
+        // eleven rounds as "nothing supersedes". The last write wins when it certainly
+        // overwrites the rest.
+        let fields = helper_reached_via("var current = other; current = e; parse(current);");
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the second assignment replaced the first: {fields:?}"
+        );
+        // …and in the direction that matters most: a later write to something ELSE must still
+        // move the node away, or the fix would file reads under a node the parser replaced.
+        let fields = helper_reached_via("var current = e; current = other; parse(current);");
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the node moved on: {fields:?}"
+        );
+        // The bounds. A last write a branch can skip settles nothing, because both values are
+        // still live; a write BELOW the call has not happened yet; and a write inside a loop
+        // can come round again after the one that looked final.
+        for body in [
+            "var current = other; if (flag) { current = e; } parse(current);",
+            "var current = other; parse(current); current = e;",
+            "var current = other; while (flag) { current = e; parse(current); current = other; }",
+            // A write BELOW the call that comes round again is in effect there on the second
+            // pass and not the first, so two values reach it. The `do` body's first pass is
+            // guaranteed, which is what keeps this from being answered by the conditional test
+            // instead — the loop guard is the only thing that holds it.
+            "var current = other; do { parse(current); current = e; } while (flag);",
+            // And a write nested INSIDE the one that looks last. `current = (current = e, row)`
+            // ends with `row`, and the outer record's own span covers the inner one — so the
+            // greatest `effective` belongs to a record the inner write has not preceded. The
+            // ordering test is the only thing that refuses here; without it the inner `e` is
+            // read as settled and the helper's fields are filed under a node the outer
+            // assignment replaced.
+            "var current = other; current = (current = e, row); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "nothing settles that name: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_static_initializer_that_throws_ends_the_phase_too() {
+        // Round forty-eight stopped class definition at a static BLOCK that certainly throws
+        // and left the initializer half open, because asking whether an arbitrary expression
+        // raises was a question this pass could not answer. Round fifty's `expression_throws`
+        // answers exactly the decidable part of it, and the same predicate closes this.
+        let fields = helper_reached_via(
+            "var current = e; try { class C { static x = (function () { throw 0 })(); static y = (current = other) } } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the phase stopped above that initializer: {fields:?}"
+        );
+        // The bounds: an initializer that completes stops nothing, and one this pass cannot see
+        // inside is not a raise it may claim.
+        for body in [
+            "var current = e; try { class C { static x = 1; static y = (current = other) } } catch (_) {} parse(current);",
+            "var current = e; try { class C { static x = raise(); static y = (current = other) } } catch (_) {} parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that initializer still runs: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_getter_a_later_spread_overwrites_does_not_run() {
+        // A spread can overwrite a name, so a getter written above one no longer owns the
+        // property and its body is dead: `{ get x(){ … }, ...{x: 1} }` binds `x` to the data
+        // property. Marking it immediate recorded a write that happens on no path. The rule is
+        // `suppress_in_pattern`'s, which has had it since round twenty-nine — one rule, two
+        // places, one copy missing it.
+        let fields = helper_reached_via(
+            "var current = e; (function ({x}) {})({get x(){ current = other }, ...{x: 1}}); parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the spread replaced that getter: {fields:?}"
+        );
+        // The bound: a getter written AFTER every spread is the one the object ends up with,
+        // and it still runs.
+        let fields = helper_reached_via(
+            "var current = e; (function ({x}) {})({...{x: 1}, get x(){ current = other }}); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the getter is what the object ends up with: {fields:?}"
+        );
+        // Between two spreads: the getter is found only if the lookup starts after the LAST
+        // one, and a later spread really does overwrite it here — so starting after the FIRST
+        // spread claims a getter that never runs, which is the over-broad mutation.
+        let fields = helper_reached_via(
+            "var current = e; (function ({x}) {})({...{a: 1}, get x(){ current = other }, ...{x: 1}}); parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the last spread overwrote it: {fields:?}"
+        );
+        // And a stated LOSS rather than a bound. A spread of any shape stops the lookup, so a
+        // getter above `...{y: 1}` — which cannot touch `x` — goes unclaimed and its write is
+        // not recorded. That loses a write rather than inventing one, it is exactly what
+        // `suppress_in_pattern` does with the same shape, and reading the spread's own keys to
+        // narrow it is a separate change to both. Recorded here so the next reader does not
+        // mistake this answer for the right one.
+        let fields = helper_reached_via(
+            "var current = e; (function ({x}) {})({get x(){ current = other }, ...{y: 1}}); parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "a spread of another name stops the lookup too, which is a loss: {fields:?}"
+        );
     }
 
     fn helper_reached_via(body: &str) -> Vec<ParsedField> {
