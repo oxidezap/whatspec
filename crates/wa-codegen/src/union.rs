@@ -703,10 +703,32 @@ fn emit_content(
         ));
     }
     match fallback {
-        Some(fb) => lines.push(format!(
-            "{indent}        _ => Some({}),",
-            value_payload(enum_name, &fb.variant, &fb.fields, "n")
-        )),
+        // The fallback carries leaves and assertions of its own, and constructing it for every
+        // unmatched value read neither: a fallback pinned to an extra attribute took a node
+        // without it, and one carrying a required `contentBytes(32)` took a payload of any
+        // length, because `value_payload` copies or defaults whatever it finds. The source
+        // fallback parser rejects both. `same_node_guard` is the check the same-node shape
+        // already applies to exactly this data, so it is asked here rather than spelled again —
+        // and an unmatched value that fails it decodes to `None`, which is what an unrecognized
+        // one already did.
+        Some(fb) => match same_node_guard(fb, "n") {
+            Some(guard) => {
+                lines.push(format!("{indent}        _ => {{"));
+                lines.push(format!("{indent}            if {guard} {{"));
+                lines.push(format!(
+                    "{indent}                Some({})",
+                    value_payload(enum_name, &fb.variant, &fb.fields, "n")
+                ));
+                lines.push(format!("{indent}            }} else {{"));
+                lines.push(format!("{indent}                None"));
+                lines.push(format!("{indent}            }}"));
+                lines.push(format!("{indent}        }}"));
+            }
+            None => lines.push(format!(
+                "{indent}        _ => Some({}),",
+                value_payload(enum_name, &fb.variant, &fb.fields, "n")
+            )),
+        },
         None => lines.push(format!("{indent}        _ => None,")),
     }
     lines.push(format!("{indent}    }}"));
@@ -836,6 +858,15 @@ fn same_node_guard(arm: &ValueArm, node_var: &str) -> Option<String> {
     let mut conds: Vec<String> = Vec::new();
     let mut pinned: BTreeSet<&str> = BTreeSet::new();
     for a in &arm.assertions {
+        // Attribute assertions only. `name` is not always an attribute's: an `AssertionKind::Tag`
+        // carries the ELEMENT's name, and rendering it as `get_attr(tag)` asks for an attribute
+        // named after the tag — a test nothing satisfies. Harmless while only the same-node
+        // shape asked, whose arms carry attribute pins; the moment a content fallback was routed
+        // through here it turned every unmatched value into `None`. Reading `kind` is what the
+        // field is for.
+        if a.kind != AssertionKind::Attr {
+            continue;
+        }
         let Some(name) = a.name.as_deref() else {
             continue;
         };
@@ -853,10 +884,17 @@ fn same_node_guard(arm: &ValueArm, node_var: &str) -> Option<String> {
     // selected `blocklistIds`' `PnJid` arm on a malformed `pn_jid`, and `field_expr` then
     // handed back the JID default for a node the source parser rejects. `leaf_guard` is
     // the same check the attr-discriminated shape applies, so the two agree.
+    //
+    // Optional leaves included. `leaf_guard` already spells an optional one as "absent, or a
+    // value the accessor takes", and a plain untyped optional string yields no guard at all —
+    // so the only thing the `required` filter excluded was an optional leaf that IS there and
+    // is NOT acceptable. An arm reading `maybeAttrEnum("mode", …)` beside a required
+    // discriminator was selected on `mode="invalid"` and copied that string into the variant,
+    // where the source accessor rejects it.
     conds.extend(
         arm.fields
             .iter()
-            .filter(|f| f.required && wap::is_attr_method(&f.method))
+            .filter(|f| wap::is_attr_method(&f.method))
             .filter(|f| !pinned.contains(f.wire_name.as_deref().unwrap_or(&f.name)))
             .filter_map(|f| leaf_guard(f, node_var)),
     );
@@ -2138,6 +2176,95 @@ mod tests {
         assert!(
             emit_union_read(&f, "node", "Spec", "").is_none(),
             "a pin no u64 can hold declines the shape"
+        );
+    }
+
+    /// A same-node arm identified by a required attr, carrying an OPTIONAL enum leaf.
+    fn optional_enum_arm_union() -> ParsedField {
+        union_field(serde_json::json!({
+            "method": "", "name": "namedSubjectOrUnnamedSubjectFallbackMixinGroup",
+            "type": "union", "required": true,
+            "unionVariants": [
+                {"name": "NamedSubject",
+                 "fields": [{"method": "attrString", "name": "subject",
+                             "wireName": "subject", "type": "string", "required": true},
+                            {"method": "maybeAttrEnum", "name": "mode", "wireName": "mode",
+                             "type": "string", "required": false,
+                             "enumKeys": ["fast", "slow"]}]},
+                {"name": "UnnamedSubjectFallback",
+                 "fields": [{"method": "maybeAttrString", "name": "subject",
+                             "wireName": "subject", "type": "string", "required": false}]}
+            ]
+        }))
+    }
+
+    #[test]
+    fn an_optional_leaf_that_is_present_must_still_decode() {
+        // The filter validated required leaves only, so an optional one that IS there and is
+        // NOT acceptable did not stop its arm being selected: a node with `a` present and
+        // `mode="invalid"` constructed the variant and copied that string, where the source
+        // optional accessor rejects it. `leaf_guard` already spells an optional leaf as
+        // "absent, or a value the accessor takes", so the `required` test was excluding exactly
+        // the case that needed checking.
+        let (lines, _) = emit_union_read(&optional_enum_arm_union(), "n", "Spec", "").unwrap();
+        let code = lines.join("\n");
+        assert!(
+            code.contains(r#"matches!(n.get_attr("mode").map(|x| x.as_str()).as_deref(), None | Some("fast") | Some("slow"))"#),
+            "absent, or one of the accessor's values — and nothing else: {code}"
+        );
+    }
+
+    #[test]
+    fn a_content_fallback_checks_its_own_leaves_before_it_is_built() {
+        // The fallback was constructed for every unmatched value without reading its
+        // assertions or its leaves, so one carrying a required `contentBytes(32)` took a
+        // payload of any length — `value_payload` copies or defaults whatever it finds.
+        let f = union_field(serde_json::json!({
+            "method": "", "name": "blobModes", "type": "union",
+            "required": true, "sourcePath": ["blob"],
+            "unionVariants": [
+                {"name": "Known", "fields": [],
+                 "assertions": [{"kind": "tag", "name": "blob"},
+                                {"kind": "content", "value": "known"}]},
+                {"name": "Other",
+                 "fields": [{"method": "attrString", "name": "kind", "wireName": "kind",
+                             "type": "string", "required": true}],
+                 "assertions": [{"kind": "tag", "name": "blob"},
+                                {"kind": "attr", "name": "extra", "value": "yes"}]}
+            ]
+        }));
+        let (lines, _) = emit_union_read(&f, "n", "Spec", "").unwrap();
+        let code = lines.join("\n");
+        assert!(
+            code.contains(r#"n.get_attr("extra").map(|x| x.as_str()) == Some("yes")"#),
+            "the fallback's own pin is enforced: {code}"
+        );
+        assert!(
+            code.contains(r#"n.get_attr("kind").is_some()"#),
+            "and its required leaf: {code}"
+        );
+        assert!(
+            code.contains("} else {") && code.contains("None"),
+            "or None: {code}"
+        );
+    }
+
+    #[test]
+    fn a_tag_assertion_is_not_an_attribute_test() {
+        // `name` is not always an attribute's: an `AssertionKind::Tag` carries the ELEMENT's
+        // name, and rendering it as `get_attr(tag)` asks for an attribute named after the tag —
+        // a test nothing satisfies. Invisible while only the same-node shape asked, whose arms
+        // carry attribute pins; it turned every unmatched value into `None` the moment a content
+        // fallback was routed through the same guard.
+        let (lines, _) = emit_union_read(&member_mode_union(), "group", "Spec", "").unwrap();
+        let code = lines.join("\n");
+        assert!(
+            !code.contains(r#"get_attr("member_add_mode")"#),
+            "the tag is not an attribute: {code}"
+        );
+        assert!(
+            code.contains("_ => Some(SpecMemberAddModeMemberAddModes::UnknownAddMode"),
+            "so the fallback is still unconditional: {code}"
         );
     }
 }

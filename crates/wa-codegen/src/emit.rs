@@ -412,8 +412,28 @@ fn emit_struct_reads(
             // the third site for one rule — the attribute read, the ordinary content read, and
             // here — so it is `int_band` again rather than a third spelling, and it is asked of
             // the LEAF, which is also where `collect_response_fields` took the width from.
-            let band = leaf.and_then(|c| super::fields::int_band(c, &id));
             let fmsg = rust_lit_inner(tag);
+            // The leaf's declared band, and its declared LENGTH — this path was given the
+            // integer one and the byte one reached the two other content paths without reaching
+            // here, so `child("blob")` over a `contentBytes(32)` leaf stored a vector of any
+            // length. The length is gated on the decoded value being bytes, so a `contentUint`
+            // fold into a `u64` is not asked for its `len()`. Each keeps its own message,
+            // because a value out of range and a payload of the wrong length are not the same
+            // report and the value they name is not the same expression.
+            let band = leaf.and_then(|c| {
+                if let Some(test) = super::fields::int_band(c, &id) {
+                    return Some(format!(
+                        "anyhow::ensure!({test}, \"{fmsg} out of range: {{}}\", {id});"
+                    ));
+                }
+                if wap::method_field_type(&c.method) != ParsedFieldType::Bytes {
+                    return None;
+                }
+                let test = super::fields::byte_band(c, &id)?;
+                Some(format!(
+                    "anyhow::ensure!({test}, \"{fmsg} wrong length: {{}}\", {id}.len());"
+                ))
+            });
             // Same two sources as the declared type, or the initializer will not match it.
             if f.method == "maybeChild" || !f.required {
                 match &band {
@@ -421,15 +441,13 @@ fn emit_struct_reads(
                     // accessor THROWS on a value outside its range, so folding it to `None`
                     // would take a response the parser rejects and leave the field simply
                     // missing.
-                    Some(test) => {
+                    Some(check) => {
                         lines.push(format!(
                             "{indent}let {id} = match {base}.get_optional_child({lit})"
                         ));
                         lines.push(format!("{indent}    .and_then(|n| n.{opt_read}) {{"));
                         lines.push(format!("{indent}    Some({id}) => {{"));
-                        lines.push(format!(
-                            "{indent}        anyhow::ensure!({test}, \"{fmsg} out of range: {{}}\", {id});"
-                        ));
+                        lines.push(format!("{indent}        {check}"));
                         lines.push(format!("{indent}        Some({id})"));
                         lines.push(format!("{indent}    }}"));
                         lines.push(format!("{indent}    None => None,"));
@@ -451,10 +469,8 @@ fn emit_struct_reads(
                     rust_lit_inner(tag)
                 ));
                 lines.push(format!("{indent}let {id} = {id}_node.{req_read};"));
-                if let Some(test) = &band {
-                    lines.push(format!(
-                        "{indent}anyhow::ensure!({test}, \"{fmsg} out of range: {{}}\", {id});"
-                    ));
+                if let Some(check) = &band {
+                    lines.push(format!("{indent}{check}"));
                 }
             }
             inits.push(format!("{indent}    {id},"));
@@ -1893,6 +1909,42 @@ mod tests {
                 ..Default::default()
             };
             let src = emit_field_parse(&f, "n", "").join("\n");
+            assert!(
+                !src.contains("wrong length"),
+                "no length check here ({method}): {src}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_flattened_child_content_read_enforces_its_length() {
+        // The third site for the byte band, and the last: this path was given the INTEGER band
+        // five rounds ago and the byte one reached the attribute read and the ordinary content
+        // read without reaching here, so `child("blob")` over a `contentBytes(32)` leaf stored
+        // a vector of any length in both shapes.
+        for required in [true, false] {
+            let mut leaf = ranged("blob", None, None, true);
+            leaf.method = "contentBytes".into();
+            leaf.byte_length = Some(32);
+            let src =
+                emit_struct_parser(&[child_over(leaf, required)], "n", "R", "", "P").join("\n");
+            assert!(
+                src.contains(r#"anyhow::ensure!(weight.len() == 32, "weight wrong length"#),
+                "the leaf's length is enforced (required={required}): {src}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_flattened_child_content_read_asks_the_classifier_for_its_length() {
+        // The bound, and it is the one that stops this emitting code that does not compile:
+        // `contentUint(N)` records a byte length too and folds those bytes into a `u64`, which
+        // has no `len()`. Nothing declared is nothing enforced, as before.
+        for (method, len) in [("contentUint", Some(8)), ("contentBytes", None)] {
+            let mut leaf = ranged("blob", None, None, true);
+            leaf.method = method.into();
+            leaf.byte_length = len;
+            let src = emit_struct_parser(&[child_over(leaf, true)], "n", "R", "", "P").join("\n");
             assert!(
                 !src.contains("wrong length"),
                 "no length check here ({method}): {src}"

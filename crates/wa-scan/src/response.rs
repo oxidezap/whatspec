@@ -1192,7 +1192,9 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
         if let Some(taken) =
             statically_selected(&stmt.test, &stmt.consequent, stmt.alternate.as_ref())
         {
-            self.visit_statement(taken.0);
+            if let Some(t) = taken.0 {
+                self.visit_statement(t);
+            }
             if let Some(dead) = taken.1 {
                 self.in_skipped_path(|s| s.visit_statement(dead));
             }
@@ -1293,7 +1295,9 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
         if let Some((taken, dead)) =
             statically_selected(&expr.test, &expr.consequent, Some(&expr.alternate))
         {
-            self.visit_expression(taken);
+            if let Some(taken) = taken {
+                self.visit_expression(taken);
+            }
             if let Some(dead) = dead {
                 self.in_skipped_path(|s| s.visit_expression(dead));
             }
@@ -3226,6 +3230,26 @@ fn synchronous_until(
             }
             walk::walk_for_of_statement(self, st);
         }
+        // An `await` under a test no value can change is one control never reaches, so it
+        // suspends nothing: `if (0) await x;` leaves the statements after it as synchronous as
+        // they look. Taking the first TEXTUAL await confined a write the caller does see, and
+        // the helper's fields were published on the node it had moved away from.
+        fn visit_if_statement(&mut self, st: &oxc_ast::ast::IfStatement<'a>) {
+            self.visit_expression(&st.test);
+            match statically_selected(&st.test, &st.consequent, st.alternate.as_ref()) {
+                Some((taken, _dead)) => {
+                    if let Some(taken) = taken {
+                        self.visit_statement(taken);
+                    }
+                }
+                None => {
+                    self.visit_statement(&st.consequent);
+                    if let Some(alt) = &st.alternate {
+                        self.visit_statement(alt);
+                    }
+                }
+            }
+        }
         // An `await` inside a nested function is that function's suspension, not this one's.
         fn visit_function(&mut self, f: &Function<'a>, flags: ScopeFlags) {
             self.nested += 1;
@@ -3706,22 +3730,29 @@ fn suppress_in_pattern(
             }
         }
         BP::ArrayPattern(a) => {
-            // By position, and only for a literal array with no holes or spreads before the
-            // element being asked about.
-            let items = match value {
-                Some(Expression::ArrayExpression(arr))
-                    if !arr.elements.iter().any(|el| {
-                        matches!(el, oxc_ast::ast::ArrayExpressionElement::SpreadElement(_))
-                    }) =>
-                {
-                    Some(arr)
+            // By position, and only for a literal array — up to its FIRST spread. A spread
+            // contributes an unknown number of elements, so every position from there on
+            // shifts by an amount nothing here can read; the positions BEFORE it are exactly
+            // where they are written. Discarding the whole literal the moment one appeared
+            // threw those away too. The mirror of the object rule, which keeps what comes
+            // after the last spread because there names shift and positions do not.
+            let items: Option<&[oxc_ast::ast::ArrayExpressionElement<'_>]> = match value {
+                Some(Expression::ArrayExpression(arr)) => {
+                    let until = arr
+                        .elements
+                        .iter()
+                        .position(|el| {
+                            matches!(el, oxc_ast::ast::ArrayExpressionElement::SpreadElement(_))
+                        })
+                        .unwrap_or(arr.elements.len());
+                    Some(&arr.elements[..until])
                 }
                 _ => None,
             };
             for (i, el) in a.elements.iter().enumerate() {
                 let Some(el) = el.as_ref() else { continue };
                 let at = items
-                    .and_then(|arr| arr.elements.get(i))
+                    .and_then(|arr| arr.get(i))
                     .and_then(|e| e.as_expression());
                 suppress_in_pattern(el, at, out);
             }
@@ -3733,6 +3764,18 @@ fn suppress_in_pattern(
 /// carry their value in the source — a call, a member lookup or a bare identifier can all be
 /// `undefined` at run time, and this answers `false` for every one of them.
 fn definitely_defined(e: &Expression<'_>) -> bool {
+    // Parentheses change nothing about the value, and reading only the bare spelling called
+    // `(-1)` unreadable.
+    if let Expression::ParenthesizedExpression(p) = e {
+        return definitely_defined(&p.expression);
+    }
+    // Every unary operator but one produces a value: `-1` and `+x` a number, `!0` a boolean,
+    // `~x` a number, `typeof x` a string, `delete x` a boolean. `void` is the exception, and
+    // it is the spelling minifiers use FOR `undefined` — so excluding the whole node kind
+    // turned the minifier's own `-1` into a value this could not read.
+    if let Expression::UnaryExpression(u) = e {
+        return u.operator != oxc_syntax::operator::UnaryOperator::Void;
+    }
     matches!(
         e,
         Expression::StringLiteral(_)
@@ -4932,9 +4975,18 @@ impl<'a> Visit<'a> for AllBindings {
         if let Some((taken, dead)) =
             statically_selected(&stmt.test, &stmt.consequent, stmt.alternate.as_ref())
         {
-            self.visit_statement(taken);
+            if let Some(taken) = taken {
+                self.visit_statement(taken);
+            }
+            // Unreachable, not skippable: a write on the side a decided test never selects
+            // cannot happen at all, and calling it merely conditional made it a second live
+            // value for the name — so the alias was refused and the helper's fields left the
+            // shape with nothing said. `if (0) { … }` with no `else` is the same answer, which
+            // is why the selector now reports that nothing is taken rather than declining.
             if let Some(dead) = dead {
-                self.maybe_skipped(|s| s.visit_statement(dead));
+                self.unreachable += 1;
+                self.visit_statement(dead);
+                self.unreachable -= 1;
             }
             return;
         }
@@ -4962,9 +5014,13 @@ impl<'a> Visit<'a> for AllBindings {
         if let Some((taken, dead)) =
             statically_selected(&expr.test, &expr.consequent, Some(&expr.alternate))
         {
-            self.visit_expression(taken);
+            if let Some(taken) = taken {
+                self.visit_expression(taken);
+            }
             if let Some(dead) = dead {
-                self.maybe_skipped(|s| s.visit_expression(dead));
+                self.unreachable += 1;
+                self.visit_expression(dead);
+                self.unreachable -= 1;
             }
             return;
         }
@@ -6567,12 +6623,15 @@ fn statically_selected<'s, T>(
     test: &Expression<'_>,
     consequent: &'s T,
     alternate: Option<&'s T>,
-) -> Option<(&'s T, Option<&'s T>)> {
+) -> Option<(Option<&'s T>, Option<&'s T>)> {
     if always_true(test) {
-        return Some((consequent, alternate));
+        return Some((Some(consequent), alternate));
     }
+    // The taken side is optional because `if (0) { … }` with no `else` takes NOTHING — and
+    // answering `None` for it, as though the test were undecided, left the dead consequent
+    // walked as merely skippable. A write there is not skippable; it cannot happen.
     if always_false(test) {
-        return alternate.map(|alt| (alt, Some(consequent)));
+        return Some((alternate, Some(consequent)));
     }
     None
 }
@@ -15669,6 +15728,136 @@ mod tests {
             assert!(
                 !fields.iter().any(|f| f.name == "id"),
                 "a later spread can shadow it, so the default may run: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_array_position_before_a_spread_is_still_fixed() {
+        // A spread contributes an unknown number of elements, so positions from there on shift
+        // by an amount nothing here can read — but the ones BEFORE it are exactly where they
+        // are written. Discarding the whole literal on sight of a spread threw those away too.
+        // The mirror of the object rule, which keeps what comes AFTER the last spread: there
+        // names shift and positions do not.
+        let fields = helper_reached_via(
+            "var current = e; (function ([x = (current = other)]) {})([1, ...rest]); parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "element zero is always 1: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn an_array_position_a_spread_can_shift_settles_nothing() {
+        // The paired bound: a position at or after the first spread is not the one it looks.
+        for body in [
+            "var current = e; (function ([a, x = (current = other)]) {})([...rest, 1]); parse(current);",
+            "var current = e; (function ([a, x = (current = other)]) {})([1, ...rest]); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "the spread shifts that position: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_unary_argument_other_than_void_is_supplied() {
+        // Every unary operator but one produces a value: `-1` and `+x` a number, `!0` a
+        // boolean, `~x` a number, `typeof x` a string. Excluding the whole node kind turned
+        // the minifier's own `-1` and `!0` into values this could not read, so a default their
+        // call prevents was recorded as a write.
+        for body in [
+            "var current = e; (function (x = (current = other)) {})(-1); parse(current);",
+            "var current = e; (function (x = (current = other)) {})(!0); parse(current);",
+            // Parentheses change nothing about the value.
+            "var current = e; (function (x = (current = other)) {})((-1)); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "the argument is not undefined: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn void_is_still_undefined() {
+        // The one exception, and it is the spelling minifiers use FOR `undefined` — so this is
+        // the bound that stops the widening from swallowing the case it was written around.
+        let fields = helper_reached_via(
+            "var current = e; (function (x = (current = other)) {})(void 0); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "`void 0` supplies undefined, so the default runs: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn an_await_nothing_reaches_suspends_nothing() {
+        // The synchronous prefix ends at the first await CONTROL CAN REACH. `if (0) await x;`
+        // is not one, so the statements after it run before the call returns — taking the first
+        // textual await confined a write the caller does see, and the helper's fields were
+        // published on the node it had moved away from.
+        let fields = helper_reached_via(
+            "var current = e; (async function () { if (0) await 0; current = other; })(); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the write ran synchronously: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn an_await_that_can_run_still_ends_the_synchronous_part() {
+        // The paired bound, both ways: a plain `await` cuts the prefix, and one under an
+        // UNDECIDED test still might, so it cuts too. Only a test no value can change prunes.
+        for body in [
+            "var current = e; (async function () { await 0; current = other; })(); parse(current);",
+            "var current = e; (async function () { if (flag) await 0; current = other; })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "the caller does not wait for that write: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_statically_dead_branch_writes_nothing() {
+        // A write on the side a decided test never selects cannot happen at all. Walking it as
+        // merely skippable made it a second live value for the name, so the alias was refused
+        // and the helper's fields left the shape with nothing said. `if (0) { … }` with no
+        // `else` is the same answer, and the selector had been declining it outright because
+        // nothing is taken.
+        for body in [
+            "var current = e; if (0) { current = other; } else {} parse(current);",
+            "var current = e; if (0) { current = other; } parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that write cannot happen: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_branch_that_can_run_still_moves_the_node() {
+        // The paired bound: an undecided test leaves two live values, and a decided test that
+        // selects the write makes it certain. Neither is silenced by the dead-side rule.
+        for body in [
+            "var current = e; if (flag) { current = other; } parse(current);",
+            "var current = e; if (1) { current = other; } parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "the write can happen: {body}"
             );
         }
     }
