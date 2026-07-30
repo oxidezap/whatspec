@@ -3206,8 +3206,8 @@ fn invoked_callee<'b, 'a>(mut e: &'b Expression<'a>) -> &'b Expression<'a> {
 fn effective_arguments<'b, 'a>(
     callee_expr: &'b Expression<'a>,
     arguments: &'b [Argument<'a>],
-) -> Vec<Option<&'b Expression<'a>>> {
-    arguments_then(callee_expr, arguments, Vec::new())
+) -> (Vec<Option<&'b Expression<'a>>>, bool) {
+    arguments_then(callee_expr, arguments, (Vec::new(), true))
 }
 
 /// The KEY of a computed member, when there is one — the expression evaluated between the
@@ -3253,12 +3253,16 @@ fn mapped<'b, 'a>(args: &'b [Argument<'a>]) -> (Vec<Option<&'b Expression<'a>>>,
 
 fn append<'b, 'a>(
     (mut out, complete): (Vec<Option<&'b Expression<'a>>>, bool),
-    trailing: Vec<Option<&'b Expression<'a>>>,
-) -> Vec<Option<&'b Expression<'a>>> {
+    (trailing, trailing_complete): (Vec<Option<&'b Expression<'a>>>, bool),
+) -> (Vec<Option<&'b Expression<'a>>>, bool) {
+    // Nothing may be appended after a stop: where the next value lands is then unknown, and so
+    // is every position from there on — which is what the completeness flag carries out.
     if complete {
         out.extend(trailing);
+        (out, trailing_complete)
+    } else {
+        (out, false)
     }
-    out
 }
 
 /// [`effective_arguments`], with a suffix that lands after whatever this callee contributes.
@@ -3271,8 +3275,8 @@ fn append<'b, 'a>(
 fn arguments_then<'b, 'a>(
     callee_expr: &'b Expression<'a>,
     arguments: &'b [Argument<'a>],
-    trailing: Vec<Option<&'b Expression<'a>>>,
-) -> Vec<Option<&'b Expression<'a>>> {
+    trailing: (Vec<Option<&'b Expression<'a>>>, bool),
+) -> (Vec<Option<&'b Expression<'a>>>, bool) {
     let mut e = callee_expr;
     loop {
         e = match e {
@@ -3287,12 +3291,12 @@ fn arguments_then<'b, 'a>(
             // first parameter as plainly as `(1)` does.
             Expression::CallExpression(c) => {
                 let Some(receiver) = bind_member(&c.callee) else {
-                    return Vec::new();
+                    return (Vec::new(), false);
                 };
                 // A spread in the RECEIVER slot moves every position after it, so which
                 // argument is the `thisArg` is not decidable — same reading `.call` takes.
                 if matches!(c.arguments.first(), Some(Argument::SpreadElement(_))) {
-                    return Vec::new();
+                    return (Vec::new(), false);
                 }
                 // This bind's own group, then the outer call's, then whatever already followed:
                 // all of it lands after any group an INNER bind contributed, which is what the
@@ -3310,7 +3314,9 @@ fn arguments_then<'b, 'a>(
                 // itself — asking it here reported a nested bind as the function underneath and
                 // the inner group was dropped, which is the bug this recursion exists to fix.
                 return match named_member(peel(receiver)) {
-                    Some((name, _)) if matches!(name.as_ref(), "call" | "apply") => Vec::new(),
+                    Some((name, _)) if matches!(name.as_ref(), "call" | "apply") => {
+                        (Vec::new(), false)
+                    }
                     _ => arguments_then(receiver, &[], tail),
                 };
             }
@@ -3323,7 +3329,7 @@ fn arguments_then<'b, 'a>(
                 if matches!(name.as_ref(), "call" | "apply")
                     && matches!(arguments.first(), Some(Argument::SpreadElement(_)))
                 {
-                    return Vec::new();
+                    return (Vec::new(), false);
                 }
                 return match name.as_ref() {
                     "call" => append(mapped(arguments.get(1..).unwrap_or_default()), trailing),
@@ -3331,7 +3337,7 @@ fn arguments_then<'b, 'a>(
                         let Some(Expression::ArrayExpression(arr)) =
                             arguments.get(1).and_then(Argument::as_expression)
                         else {
-                            return Vec::new();
+                            return (Vec::new(), false);
                         };
                         let mut out = Vec::new();
                         let mut complete = true;
@@ -4190,6 +4196,9 @@ fn heritage_throws(super_class: &Expression<'_>) -> bool {
         | Expression::StringLiteral(_)
         | Expression::TemplateLiteral(_)
         | Expression::ObjectExpression(_)
+        // An object, and never a constructor — the one literal of that kind, which is why the
+        // list of "certainly not constructible" spellings had it missing.
+        | Expression::RegExpLiteral(_)
         | Expression::ArrayExpression(_) => true,
         _ => false,
     }
@@ -4586,17 +4595,23 @@ fn pattern_binding_throws(
 ) -> bool {
     use oxc_ast::ast::BindingPattern as BP;
     match pat {
-        // A default here catches `undefined` only, exactly as a parameter's does.
-        BP::AssignmentPattern(p) => match value {
-            None => false,
-            Some(v) => {
-                if is_undefined_spelling(v, undefined_is_the_global) {
-                    false
-                } else {
-                    pattern_binding_throws(&p.left, value, undefined_is_the_global)
-                }
+        // A default here catches `undefined` only, exactly as a parameter's does — and what the
+        // left pattern then takes apart is the DEFAULT's value, which can throw on its own:
+        // `([{x} = null])([void 0])` supplies `null` to `{x}` and raises there. Answering
+        // `false` the moment a default appeared read every one of those as a binding that
+        // succeeds, which is the same over-broad exemption the parameter level had two rounds
+        // ago, one level in.
+        BP::AssignmentPattern(p) => {
+            let bound = match value {
+                None => Some(&p.right),
+                Some(v) if is_undefined_spelling(v, undefined_is_the_global) => Some(&p.right),
+                Some(_) => None,
+            };
+            match bound {
+                Some(init) => pattern_binding_throws(&p.left, Some(init), undefined_is_the_global),
+                None => pattern_binding_throws(&p.left, value, undefined_is_the_global),
             }
-        },
+        }
         BP::BindingIdentifier(_) => false,
         BP::ObjectPattern(o) => {
             match value {
@@ -4633,7 +4648,11 @@ fn pattern_binding_throws(
         BP::ArrayPattern(a) => {
             match value {
                 None => return true,
-                Some(v) if certainly_nullish(v) => return true,
+                // Not merely nullish: an array pattern needs an ITERABLE, and a number, a
+                // boolean or a plain object is none. `([x])(0)` throws exactly as `([x])(null)`
+                // does, and only the nullish half was recognized. A string IS iterable, which
+                // is the bound this must not cross.
+                Some(v) if certainly_not_iterable(v) => return true,
                 Some(_) => {}
             }
             // …and one level in, which the object arm has done since it was written and this
@@ -4658,6 +4677,28 @@ fn pattern_binding_throws(
                 pattern_binding_throws(el, at, undefined_is_the_global)
             })
         }
+    }
+}
+
+/// Whether `e` is certainly not iterable, so an array pattern taking it apart must throw.
+///
+/// Only the spellings that settle it. A string, an array and a nullish value all have their own
+/// answers — a string iterates by code point and an array by element, so neither belongs here —
+/// and anything this cannot read may hold an iterator.
+fn certainly_not_iterable(e: &Expression<'_>) -> bool {
+    if certainly_nullish(e) {
+        return true;
+    }
+    match peel(e) {
+        Expression::NumericLiteral(_)
+        | Expression::BooleanLiteral(_)
+        | Expression::BigIntLiteral(_)
+        | Expression::ObjectExpression(_)
+        | Expression::RegExpLiteral(_) => true,
+        // A function and a class are objects with no `Symbol.iterator` either, and a class
+        // expression is the one of the two a minifier writes in argument position.
+        Expression::FunctionExpression(_) | Expression::ClassExpression(_) => true,
+        _ => false,
     }
 }
 
@@ -5904,13 +5945,19 @@ impl AllBindings {
         //
         // Around the callee only: an argument that writes runs where it is written, and pinning
         // that to the call would order it after a body it precedes.
-        let (effective, implicit_leading) = match template {
+        let (effective, implicit_leading, mapped_complete) = match template {
             Some(q) => (
                 q.expressions.iter().map(Some).collect::<Vec<_>>(),
                 // The strings object, and only it: the substitutions follow it one for one.
                 1,
+                // A template's list is the strings object and the substitutions, all of them
+                // written out: nothing can shift a position.
+                true,
             ),
-            None => (effective_arguments(callee_expr, arguments), 0),
+            None => {
+                let (list, complete) = effective_arguments(callee_expr, arguments);
+                (list, 0, complete)
+            }
         };
         // Destructuring `null` or `undefined` throws while the parameters are bound, before the
         // body is entered — `(function ({x}) { … })(null)` runs none of it. The invocation was
@@ -5921,23 +5968,40 @@ impl AllBindings {
         // Asked of the EFFECTIVE list, so a tagged template's strings object counts as the
         // value it supplies at position 0 — my first draft asked it of the written arguments
         // alone and read every tagged template as a binding failure.
-        let complete = template.is_some() || mapped(arguments).1;
+        // From the EFFECTIVE list, not the written one. `.apply(null, [1, ...xs])` is a
+        // two-argument call with no spread in it, so asking the outer arguments said "complete"
+        // while the list the callee really receives stops at the spread inside the array — and
+        // every parameter past it was read as absent, which made a binding that succeeds look
+        // certain to throw and marked a running body unreachable.
+        let complete = mapped_complete;
         // `undefined` is an ordinary identifier and a source may bind it, so its spelling alone
         // does not settle that a position is missing. Where it is bound, the shortcut that
         // substitutes a parameter's default for it is unsound in BOTH directions — with
         // `(function (undefined) { (function ({x} = null) { … })(undefined) })({})` it declined
         // an invocation whose body really runs. `void 0` is an operator and cannot be rebound.
         let undefined_is_the_global = !self.binds_here("undefined", span);
-        if binding_certainly_throws(
-            callee,
-            &effective,
-            implicit_leading,
-            complete,
-            undefined_is_the_global,
-            constructs,
-        ) {
-            // The arguments are evaluated BEFORE the binding, so their own writes happen and
-            // are walked here. The body is entered on no path, so it is walked as unreachable
+        // An ARGUMENT that certainly raises stops the call before the callee is entered:
+        // `(function(){ … })((function(){ throw 0; })())` runs none of the outer body. The
+        // invocation was approved on the callee and the binding alone, so the body's writes
+        // were recorded for a call that performs them on no path. The arguments up to and
+        // including the throwing one still run, and the walk below records them.
+        let argument_raises = arguments
+            .iter()
+            .filter_map(oxc_ast::ast::Argument::as_expression)
+            .any(expression_throws);
+        if argument_raises
+            || binding_certainly_throws(
+                callee,
+                &effective,
+                implicit_leading,
+                complete,
+                undefined_is_the_global,
+                constructs,
+            )
+        {
+            // The arguments are evaluated BEFORE the binding — and before an argument that
+            // raises — so their own writes happen and are walked here. The body is entered on
+            // no path, so it is walked as unreachable
             // — declining the invocation and leaving it to the ordinary walk was not enough:
             // a deferred body's writes are still recorded, and one of them counted as a live
             // value for the name, which refused the alias just as surely.
@@ -12841,6 +12905,117 @@ mod tests {
         assert!(
             !fields.iter().any(|f| f.name == "id"),
             "the method body still runs: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn an_array_pattern_needs_something_iterable() {
+        // Not merely non-nullish: an array pattern needs an ITERABLE, and a number, a boolean,
+        // a plain object or a function is none of them. `([x])(0)` throws exactly as
+        // `([x])(null)` does, and only the nullish half was recognized.
+        for body in [
+            "var current = e; try { (function ([x]) { current = other; })(0); } catch (_) {} parse(current);",
+            "var current = e; try { (function ([x]) { current = other; })({}); } catch (_) {} parse(current);",
+            "var current = e; try { (function ([x]) { current = other; })(/re/); } catch (_) {} parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that value is not iterable: {body}"
+            );
+        }
+        // The bounds, and the string is the one this must not cross: it iterates by code point.
+        for body in [
+            "var current = e; (function ([x]) { current = other; })(\"ab\"); parse(current);",
+            "var current = e; (function ([x]) { current = other; })([1]); parse(current);",
+            "var current = e; (function ([x]) { current = other; })(xs); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that value may well iterate: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_nested_default_is_destructured_in_its_turn() {
+        // A default inside a pattern catches `undefined` and hands its OWN value to the left
+        // side, which can throw there: `([{x} = null])([void 0])` supplies `null` to `{x}`.
+        // Answering "binds fine" the moment a default appeared is the same over-broad exemption
+        // the parameter level had two rounds ago, one level in.
+        let fields = helper_reached_via(
+            "var current = e; try { (function ([{x} = null]) { current = other; })([void 0]); } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the default itself throws: {fields:?}"
+        );
+        // The bounds: a default that destructures fine, and a position the default does not
+        // catch at all — an element that is present and non-nullish binds against ITS value.
+        for body in [
+            "var current = e; (function ([{x} = {}]) { current = other; })([void 0]); parse(current);",
+            "var current = e; (function ([{x} = null]) { current = other; })([{}]); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that binding succeeds: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_apply_list_stops_being_complete_at_its_own_spread() {
+        // `.apply(null, [1, ...xs])` is a two-argument call with no spread in it, so asking the
+        // WRITTEN arguments said "complete" while the list the callee receives stops at the
+        // spread inside the array. Every parameter past it was read as absent, which made a
+        // binding that succeeds look certain to throw and marked a running body unreachable.
+        let fields = helper_reached_via(
+            "var current = e; (function (x, {a}) { current = other; }).apply(null, [1, ...[{}]]); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "that body does run: {fields:?}"
+        );
+        // The bound: with no spread the list really is complete, so a parameter past its end is
+        // absent and its pattern throws.
+        let fields = helper_reached_via(
+            "var current = e; try { (function (x, {a}) { current = other; }).apply(null, [1]); } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the second parameter is absent: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn an_argument_that_raises_stops_the_call() {
+        // Arguments are evaluated before the callee is entered, so one that certainly raises
+        // runs none of the body. The invocation was approved on the callee and the binding
+        // alone.
+        let fields = helper_reached_via(
+            "var current = e; try { (function () { current = other; })((function(){ throw 0; })()); } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the argument raised first: {fields:?}"
+        );
+        // The bounds: an argument that completes leaves the body running, and the arguments
+        // evaluated BEFORE the raise still perform their own writes.
+        let fields = helper_reached_via(
+            "var current = e; (function () { current = other; })((function(){ return 1; })()); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "that argument completes: {fields:?}"
+        );
+        let fields = helper_reached_via(
+            "var current = e; try { (function () {})(current = other, (function(){ throw 0; })()); } catch (_) {} parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the first argument ran before the raise: {fields:?}"
         );
     }
 
@@ -20414,6 +20589,9 @@ mod tests {
             "var current = e; try { class C extends (() => {}) { static x = (current = other); } } catch (_) {} parse(current);",
             "var current = e; try { class C extends (async function () {}) { static x = (current = other); } } catch (_) {} parse(current);",
             "var current = e; try { class C extends 1 { static x = (current = other); } } catch (_) {} parse(current);",
+            // A regular expression is an object and never a constructor — the one literal of
+            // that kind, which is why the list of certainly-invalid spellings had it missing.
+            "var current = e; try { class C extends /x/ { static x = (current = other); } } catch (_) {} parse(current);",
         ] {
             let fields = helper_reached_via(body);
             assert!(
