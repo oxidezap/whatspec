@@ -72,6 +72,12 @@ pub(crate) fn emit_field_parse(f: &ParsedField, node_var: &str, indent: &str) ->
                 "{indent}anyhow::ensure!({test}, \"{fmsg} wrong length: {{}}\", {name}.len());"
             ));
         }
+        // `contentEnum(TABLE)` records its vocabulary exactly as an attribute enum does, and
+        // this branch returned after the numeric and byte constraints without ever asking for
+        // it — the enum check added one round ago reached the attribute path and stopped there.
+        // A content decoder never yields an `Option`, so the value is always present.
+        out.extend(enum_membership(f, &name, &fmsg, indent, false));
+        out.extend(literal_pin(f, &name, &fmsg, indent, false));
         return out;
     }
     if !wap::is_attr_method(method) {
@@ -146,6 +152,7 @@ pub(crate) fn emit_field_parse(f: &ParsedField, node_var: &str, indent: &str) ->
                 "{indent}let {name} = {node_var}.get_attr({flit}).map(|v| v.as_str().to_string());"
             )];
             out.extend(enum_membership(f, &name, &fmsg, indent, true));
+            out.extend(literal_pin(f, &name, &fmsg, indent, true));
             out
         }
         _ => {
@@ -156,9 +163,45 @@ pub(crate) fn emit_field_parse(f: &ParsedField, node_var: &str, indent: &str) ->
                 format!("{indent}    .to_string();"),
             ];
             out.extend(enum_membership(f, &name, &fmsg, indent, false));
+            out.extend(literal_pin(f, &name, &fmsg, indent, false));
             out
         }
     }
+}
+
+/// The value a `literal(...)` accessor pins the field to, as a check on the decoded read.
+///
+/// `literal(attrString, node, "type", "result")` rejects `type="error"` at the source. The union
+/// arm's `leaf_guard` has compared that pin since the round it was added — it is how an arm is
+/// told apart from its siblings — while the ordinary read took any string and stored it. The same
+/// asymmetry as the vocabulary, one constraint over.
+///
+/// Only the string spelling. The IR records the pin as text, and comparing a decoded number or a
+/// byte payload against it needs the same care `leaf_guard` takes over an integer pin that does
+/// not fit the field's width; those keep the reading they have until there is a case to measure.
+fn literal_pin(
+    f: &ParsedField,
+    name: &str,
+    fmsg: &str,
+    indent: &str,
+    optional: bool,
+) -> Vec<String> {
+    let Some(lit) = f.literal_value.as_deref() else {
+        return Vec::new();
+    };
+    if wap::method_field_type(&f.method) != ParsedFieldType::String {
+        return Vec::new();
+    }
+    let pin = rust_lit(lit);
+    let test = if optional {
+        format!("matches!({name}.as_deref(), None | Some({pin}))")
+    } else {
+        format!("{name}.as_str() == {pin}")
+    };
+    vec![format!(
+        "{indent}anyhow::ensure!({test}, \"{fmsg} is pinned to {}: {{:?}}\", {name});",
+        rust_lit_inner(lit)
+    )]
 }
 
 /// The membership check an enum accessor enforces, for a field this path decoded as a plain
@@ -2039,5 +2082,60 @@ mod tests {
         f.field_type = ParsedFieldType::String;
         let src = emit_field_parse(&f, "n", "").join("\n");
         assert!(!src.contains("not accepted"), "nothing declared: {src}");
+    }
+
+    #[test]
+    fn a_content_enum_enforces_its_vocabulary_too() {
+        // `contentEnum(TABLE)` records its values exactly as an attribute enum does, and the
+        // content branch returned after the numeric and byte constraints without asking.
+        let mut f = ranged("state", None, None, true);
+        f.method = "contentEnum".into();
+        f.enum_keys = Some(vec!["on".into(), "off".into()]);
+        let src = emit_field_parse(&f, "n", "").join("\n");
+        assert!(
+            src.contains(r#"matches!(state.as_str(), "on" | "off")"#),
+            "a content decoder always yields a value, so it is tested as one: {src}"
+        );
+    }
+
+    #[test]
+    fn a_pinned_field_enforces_its_pin() {
+        // `literal(attrString, node, "type", "result")` rejects `type="error"` at the source.
+        // The union arm's guard has compared that pin all along — it is how an arm is told
+        // apart from its siblings — while the ordinary read took any string and stored it.
+        let mut f = ranged("type", None, None, true);
+        f.method = "attrString".into();
+        f.literal_value = Some("result".into());
+        let src = emit_field_parse(&f, "n", "").join("\n");
+        assert!(
+            src.contains(r#"r#type.as_str() == "result""#),
+            "the pin is compared: {src}"
+        );
+
+        f.method = "maybeAttrString".into();
+        f.required = false;
+        let src = emit_field_parse(&f, "n", "").join("\n");
+        assert!(
+            src.contains(r#"matches!(r#type.as_deref(), None | Some("result"))"#),
+            "and absence is still allowed for an optional accessor: {src}"
+        );
+    }
+
+    #[test]
+    fn a_pin_this_cannot_compare_is_left_alone() {
+        // The bound: the IR records a pin as TEXT, and comparing it against a decoded number or
+        // a byte payload needs the care `leaf_guard` takes over a pin that does not fit the
+        // field's width. Those keep the reading they have until there is a case to measure.
+        let mut f = ranged("count", None, None, true);
+        f.method = "attrInt".into();
+        f.literal_value = Some("7".into());
+        let src = emit_field_parse(&f, "n", "").join("\n");
+        assert!(!src.contains("is pinned to"), "not compared here: {src}");
+
+        // The content path reaches the pin directly, so this is where dropping the type test
+        // would emit `.as_str()` on a `u64` — code that does not compile.
+        f.method = "contentInt".into();
+        let src = emit_field_parse(&f, "n", "").join("\n");
+        assert!(!src.contains("is pinned to"), "nor here: {src}");
     }
 }

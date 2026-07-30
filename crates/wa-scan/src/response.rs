@@ -3067,7 +3067,46 @@ fn invoked_callee<'b, 'a>(mut e: &'b Expression<'a>) -> &'b Expression<'a> {
             Expression::SequenceExpression(s) if !s.expressions.is_empty() => {
                 s.expressions.last().expect("checked non-empty")
             }
+            // `(function(){ … }).call(null)` runs that body as immediately as `()` does; the
+            // callee is a member expression, so the matcher fell through to the deferred walk
+            // and the write stayed confined.
+            //
+            // Unwrapped unconditionally, not only for an inline receiver: `thing.call(…)`
+            // unwraps to `thing`, which the caller's own test then rejects as something it has
+            // never seen the body of. Guarding it here as well was an inert second copy of that
+            // test, and no mutation could tell the two versions apart.
+            Expression::StaticMemberExpression(m)
+                if matches!(m.property.name.as_str(), "call" | "apply") =>
+            {
+                &m.object
+            }
             other => return other,
+        };
+    }
+}
+
+/// Which of this call's arguments reach the invoked function's parameters, as an index to start
+/// from — and `None` where reading them settles nothing.
+///
+/// `f.call(thisArg, a, b)` hands `a, b` to the parameters, so the mapping starts at one.
+/// `f.apply(thisArg, list)` hands whatever `list` holds, which is not a positional argument list
+/// at all, so no default can be said to be prevented.
+fn parameters_start_at(callee_expr: &Expression<'_>) -> Option<usize> {
+    let mut e = callee_expr;
+    loop {
+        e = match e {
+            Expression::ParenthesizedExpression(p) => &p.expression,
+            Expression::SequenceExpression(s) if !s.expressions.is_empty() => {
+                s.expressions.last().expect("checked non-empty")
+            }
+            Expression::StaticMemberExpression(m) => {
+                return match m.property.name.as_str() {
+                    "call" => Some(1),
+                    "apply" => None,
+                    _ => Some(0),
+                };
+            }
+            _ => return Some(0),
         };
     }
 }
@@ -4212,6 +4251,7 @@ struct Write {
     effective: u32,
     repeats_in: Option<Span>,
     runs_before: Vec<Span>,
+    runs_after: Vec<Span>,
     lands_at: Option<(Span, u32)>,
 }
 
@@ -4232,11 +4272,20 @@ fn in_effect_at(
     effective: u32,
     repeats_in: Option<Span>,
     runs_before: &[Span],
+    runs_after: &[Span],
     lands_at: Option<(Span, u32)>,
     at: Span,
 ) -> bool {
     // A path that cannot produce a result never made this record effective for anything.
     if effective == u32::MAX {
+        return false;
+    }
+    // A region this record FOLLOWS however early it is written — the mirror of `runs_before`,
+    // and the thing the class two-phase note on the PR said this model had no place for. Every
+    // computed key of a class is evaluated before any static initializer, so a read in a key
+    // does not see a write in an initializer written above it. Position alone answered that
+    // with the source order.
+    if runs_after.iter().any(|r| covers(*r, at)) {
         return false;
     }
     // Written inside an invoked body: it happened where it is written for anything in that
@@ -4339,6 +4388,7 @@ struct Given {
     /// no static one — three regions inside one class, of which a single span can name at most
     /// the wrong union.
     runs_before: Vec<Span>,
+    runs_after: Vec<Span>,
 }
 
 #[derive(Default)]
@@ -4376,6 +4426,8 @@ struct AllBindings {
     /// argument is written — and for a constructed class the region is several spans, because
     /// the arguments precede the construction without preceding the definition.
     runs_before: Vec<Vec<Span>>,
+    /// Regions a record made here FOLLOWS, whatever its position — see [`in_effect_at`].
+    runs_after: Vec<Vec<Span>>,
     /// Invocations being walked, as `(the callee's span, the end of the call)`, outermost
     /// first. What the body writes lands at the call for anything OUTSIDE it — the arguments
     /// ran first and the statements after it run later — while inside that same body the write
@@ -4499,6 +4551,7 @@ impl AllBindings {
             at,
             effective: self.effect_position(at.end),
             runs_before: self.runs_before.last().cloned().unwrap_or_default(),
+            runs_after: self.runs_after.last().cloned().unwrap_or_default(),
             lands_at: self.effects_land_at.first().copied(),
             repeats_in: self.innermost_repeating(),
         });
@@ -4638,7 +4691,14 @@ impl AllBindings {
         // Around the callee only: an argument that writes runs where it is written, and pinning
         // that to the call would order it after a body it precedes.
         self.effects_land_at.push((callee.span(), span.end));
-        let suppressed = suppressed_defaults(callee, arguments, constructs);
+        // Through `.call`, the first argument is the receiver and the parameters start after
+        // it; through `.apply` there is no positional list to read at all.
+        let suppressed = match parameters_start_at(callee_expr) {
+            Some(from) if from <= arguments.len() => {
+                suppressed_defaults(callee, &arguments[from..], constructs)
+            }
+            _ => Vec::new(),
+        };
         let restore = self.suppressed_defaults.len();
         self.suppressed_defaults.extend(suppressed);
         self.visit_expression(callee);
@@ -4704,7 +4764,10 @@ impl AllBindings {
         key: &oxc_ast::ast::PropertyKey<'a>,
         value: Option<&Expression<'a>>,
         constructed: bool,
+        keys: &[Span],
     ) {
+        // The key first, and OUTSIDE the declaration below: keys run in their own source order
+        // among themselves, and only the initializers follow all of them.
         if computed {
             self.visit_property_key(key);
         }
@@ -4714,7 +4777,14 @@ impl AllBindings {
         if (is_static || constructed)
             && let Some(v) = value
         {
+            let declared = !keys.is_empty();
+            if declared {
+                self.runs_after.push(keys.to_vec());
+            }
             self.visit_expression(v);
+            if declared {
+                self.runs_after.pop();
+            }
         }
     }
 
@@ -4808,6 +4878,7 @@ impl<'a> Visit<'a> for AllBindings {
                 at: id.span,
                 effective: self.effect_position(id.span.end),
                 runs_before: self.runs_before.last().cloned().unwrap_or_default(),
+                runs_after: self.runs_after.last().cloned().unwrap_or_default(),
                 lands_at: self.effects_land_at.first().copied(),
                 // A loop whose body throws does not come round again, so a dead write must not
                 // claim repetition either — that is the other half of `effective`.
@@ -4879,6 +4950,7 @@ impl<'a> Visit<'a> for AllBindings {
                         at: id.span,
                         effective: self.effect_position(d.span.end),
                         runs_before: self.runs_before.last().cloned().unwrap_or_default(),
+                        runs_after: self.runs_after.last().cloned().unwrap_or_default(),
                         lands_at: self.effects_land_at.first().copied(),
                         repeats_in: (self.dead == 0 || self.caught > 0)
                             .then(|| self.innermost_repeating())
@@ -5262,6 +5334,28 @@ impl<'a> Visit<'a> for AllBindings {
         // A DERIVED class is not this: its instance fields initialize when `super()` returns,
         // which is somewhere inside the constructor body, and nothing here can say where. Source
         // order stays the answer there, as it was.
+        // Every computed key of a class is evaluated when the class is DEFINED, before any
+        // static initializer runs — whatever their source order. A key written below an
+        // initializer therefore reads what that initializer has not yet written, and walking
+        // the elements in order answered it with the initializer.
+        //
+        // Declared rather than reordered. Repositioning the writes was what I tried when this
+        // was first reported, and it broke two neighbours: pushing them past the keys pushes
+        // them past each other. Saying "this write follows the keys" leaves every other
+        // ordering, including between two initializers, exactly where it was.
+        let key_spans: Vec<Span> = class
+            .body
+            .body
+            .iter()
+            .filter_map(|el| match el {
+                oxc_ast::ast::ClassElement::MethodDefinition(m) if m.computed => Some(m.key.span()),
+                oxc_ast::ast::ClassElement::PropertyDefinition(p) if p.computed => {
+                    Some(p.key.span())
+                }
+                oxc_ast::ast::ClassElement::AccessorProperty(p) if p.computed => Some(p.key.span()),
+                _ => None,
+            })
+            .collect();
         let ctor_last = constructed && class.super_class.is_none();
         // Reordering the WALK is not enough on its own: effectiveness is decided by position,
         // and a field written after the constructor is textually after the read inside it. So
@@ -5327,6 +5421,7 @@ impl<'a> Visit<'a> for AllBindings {
                         &p.key,
                         p.value.as_ref(),
                         constructed,
+                        &key_spans,
                     );
                 }
                 // `accessor value = …` is a field with a getter and a setter generated for it,
@@ -5343,6 +5438,7 @@ impl<'a> Visit<'a> for AllBindings {
                         &p.key,
                         p.value.as_ref(),
                         constructed,
+                        &key_spans,
                     );
                 }
                 // Its braces are a scope: `static { let current = other; }` binds a NEW
@@ -5352,7 +5448,14 @@ impl<'a> Visit<'a> for AllBindings {
                 oxc_ast::ast::ClassElement::StaticBlock(b) => {
                     self.blocks.push(b.span);
                     self.block_depth += 1;
+                    let declared = !key_spans.is_empty();
+                    if declared {
+                        self.runs_after.push(key_spans.clone());
+                    }
                     self.walk_in_order(&b.body, false);
+                    if declared {
+                        self.runs_after.pop();
+                    }
                     self.block_depth -= 1;
                     self.blocks.pop();
                 }
@@ -5406,7 +5509,7 @@ impl Bindings {
                 // The part that is not textual is repetition — a write below the call runs
                 // before it on the next pass — so a write inside a loop that also contains
                 // the call still counts.
-                && in_effect_at(w.effective, w.repeats_in, &w.runs_before, w.lands_at, at)
+                && in_effect_at(w.effective, w.repeats_in, &w.runs_before, &w.runs_after, w.lands_at, at)
         })
     }
 
@@ -5459,7 +5562,7 @@ impl Bindings {
                         // its source was already in the set — filing the helper's fields under
                         // `row` at a call where `current` still holds `other`. Same rule the
                         // count uses: textual position, unless a loop repeats it.
-                        && in_effect_at(g.effective, g.repeats_in, &g.runs_before, g.lands_at, at)
+                        && in_effect_at(g.effective, g.repeats_in, &g.runs_before, &g.runs_after, g.lands_at, at)
                         && self.given_once_in(&g.name, at)
                         && !self.written_without_a_value(&g.name, at)
                 })
@@ -5497,7 +5600,14 @@ impl Bindings {
         self.writes.iter().any(|w| {
             w.name == name
                 && w.covers(at)
-                && in_effect_at(w.effective, w.repeats_in, &w.runs_before, w.lands_at, at)
+                && in_effect_at(
+                    w.effective,
+                    w.repeats_in,
+                    &w.runs_before,
+                    &w.runs_after,
+                    w.lands_at,
+                    at,
+                )
                 && !self.given.iter().any(|g| g.name == name && g.at == w.at)
         })
     }
@@ -5514,7 +5624,14 @@ impl Bindings {
         self.given.iter().any(|g| {
             g.name == name
                 && covers(g.scope, at)
-                && in_effect_at(g.effective, g.repeats_in, &g.runs_before, g.lands_at, at)
+                && in_effect_at(
+                    g.effective,
+                    g.repeats_in,
+                    &g.runs_before,
+                    &g.runs_after,
+                    g.lands_at,
+                    at,
+                )
         })
     }
 
@@ -5533,7 +5650,14 @@ impl Bindings {
             .filter(|g| {
                 g.name == name
                     && covers(g.scope, at)
-                    && in_effect_at(g.effective, g.repeats_in, &g.runs_before, g.lands_at, at)
+                    && in_effect_at(
+                        g.effective,
+                        g.repeats_in,
+                        &g.runs_before,
+                        &g.runs_after,
+                        g.lands_at,
+                        at,
+                    )
             })
             .collect();
         match live.split_first() {
@@ -15946,6 +16070,97 @@ mod tests {
             assert!(
                 fields.iter().any(|f| f.name == "id"),
                 "the caller does not wait for that write: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_function_invoked_through_call_runs_now() {
+        // `(function(){ … }).call(null)` runs that body as immediately as `()` does. The callee
+        // is a member expression, so the matcher fell through to the deferred walk, the write
+        // stayed confined, and the helper's fields were published on a node it had replaced.
+        for body in [
+            "var current = e; (function () { current = other; }).call(null); parse(current);",
+            "var current = e; (function () { current = other; }).apply(null); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "the body ran, so the node moved: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn call_on_anything_but_an_inline_function_is_not_an_invocation() {
+        // The bound: `thing.call(null)` is a call this scanner cannot follow, and reading every
+        // `.call` as immediate would claim a body it has never seen.
+        let fields = helper_reached_via("var current = e; thing.call(null); parse(current);");
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "nothing inline was invoked: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn call_shifts_the_parameters_past_the_receiver() {
+        // `.call(thisArg, a)` hands `a` to the first parameter, so a default it supplies does
+        // not run — and `.apply(thisArg, list)` hands whatever the list holds, which is not a
+        // positional argument list at all, so nothing can be said to be prevented.
+        let supplied = helper_reached_via(
+            "var current = e; (function (x = (current = other)) {}).call(null, 1); parse(current);",
+        );
+        assert!(
+            supplied.iter().any(|f| f.name == "id"),
+            "the argument past the receiver supplies it: {supplied:?}"
+        );
+        for body in [
+            "var current = e; (function (x = (current = other)) {}).call(null); parse(current);",
+            "var current = e; (function (x = (current = other)) {}).apply(null, [1]); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "nothing readable reaches that parameter: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_computed_key_runs_before_every_static_initializer() {
+        // Every computed key is evaluated when the class is DEFINED, before any static
+        // initializer runs, whatever their source order — so a key written BELOW an initializer
+        // still reads what that initializer has not yet written. This is the two-phase clock
+        // the PR declined for several rounds: repositioning the writes broke two neighbours,
+        // because pushing them past the keys pushes them past each other. Declaring that they
+        // FOLLOW the keys leaves every other ordering where it was.
+        for body in [
+            "var current = e; class C { static x = (current = other); [parse(current)]() {} }",
+            "var current = e; class C { [parse(current)]() {} static x = (current = other); }",
+            // A static block is the same phase as an initializer.
+            "var current = e; class C { static { current = other; } [parse(current)]() {} }",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "the key ran before the initializer: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_read_after_the_class_still_sees_its_static_initializer() {
+        // The bound, and the reason this is a declaration and not a reordering: the write is
+        // still effective everywhere outside the keys, so a read after the class sees it, and
+        // one key does not stop seeing what an EARLIER key wrote.
+        for body in [
+            "var current = e; class C { static x = (current = other); } parse(current);",
+            "var current = e; class C { static [(current = other, 0)] = 1; static [parse(current)] = 2; }",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that write is effective here: {body}"
             );
         }
     }
