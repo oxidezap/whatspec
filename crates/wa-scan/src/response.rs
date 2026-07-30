@@ -850,7 +850,15 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
     fn visit_while_statement(&mut self, stmt: &oxc_ast::ast::WhileStatement<'a>) {
         // The test is evaluated before the first pass, so it runs even when the body does not.
         self.visit_expression(&stmt.test);
-        self.in_skipped_path(|s| s.visit_statement(&stmt.body));
+        // But a test that cannot be false has no zero-iteration path: `while (!0) { parse(e);
+        // break; }` is `for (;;)` spelled differently, and the corpus writes it that way 74
+        // times. Wrapping the body in a skipped path regardless relaxed reads every successful
+        // execution performs.
+        if always_true(&stmt.test) {
+            self.walk_guaranteed_pass(&stmt.body);
+        } else {
+            self.in_skipped_path(|s| s.visit_statement(&stmt.body));
+        }
     }
 
     fn visit_do_while_statement(&mut self, stmt: &oxc_ast::ast::DoWhileStatement<'a>) {
@@ -859,30 +867,17 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
         // still runs `parse` every time, and weakening the whole body called its reads
         // optional. So the body is walked in order and the counter goes up at the first
         // statement that something before it could have jumped past.
-        match &stmt.body {
-            Statement::BlockStatement(b) => {
-                let mut skipped = false;
-                for st in &b.body {
-                    if skipped {
-                        self.in_skipped_path(|s| s.visit_statement(st));
-                    } else {
-                        self.visit_statement(st);
-                        // Only an exit that hands back a result: a statement that can merely
-                        // THROW past what follows it does not put a later read on a path some
-                        // successful parse skipped.
-                        skipped = exits_with_a_value(st);
-                    }
-                }
-            }
-            // A single statement: nothing precedes it, so the guaranteed pass reaches it.
-            other => self.visit_statement(other),
-        }
+        self.walk_guaranteed_pass(&stmt.body);
         // And the test is only reached if the pass did not leave the loop first:
         // `do { break; } while (parse(e))` never evaluates `parse` at all, so recovering its
         // reads as required rejects nodes the parser never looks at. A body that can only
         // THROW past the test is different — `do { if (bad) throw Error(); } while (parse(e))`
         // evaluates `parse` on every execution that yields anything.
-        if exits_with_a_value(&stmt.body) {
+        // `continue` is not one of those ways out: in a `do`/`while` it transfers control TO
+        // the test, so `do { continue; } while (parse(e))` evaluates `parse` on every execution
+        // that can leave the loop at all. Counting it with `break` relaxed a read every
+        // successful parse performs.
+        if leaves_before_the_test(&stmt.body) {
             self.in_skipped_path(|s| s.visit_expression(&stmt.test));
         } else {
             self.visit_expression(&stmt.test);
@@ -909,29 +904,13 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
         // With no test there is no zero-iteration path: `for (;;) { … }` necessarily starts
         // its body, so what the body reads before it can leave is read every time — the same
         // asymmetry `do`/`while` has, which is why the body is walked in order here too.
-        let guaranteed = stmt.test.is_none();
+        // No test, or one that cannot be false: either way the body necessarily starts. The
+        // braced and unbraced arms said the same thing twice and only one of them had the
+        // in-order walk, which is why they are one arm now.
+        let guaranteed = stmt.test.as_ref().is_none_or(always_true);
         match (&stmt.body, guaranteed) {
-            (Statement::BlockStatement(b), true) => {
-                let mut skipped = false;
-                for st in &b.body {
-                    if skipped {
-                        self.in_skipped_path(|s| s.visit_statement(st));
-                    } else {
-                        self.visit_statement(st);
-                        // As in `do`/`while`: a statement that can only throw past the rest
-                        // leaves no successful path that skipped what follows it.
-                        skipped = exits_with_a_value(st);
-                    }
-                }
-                if let Some(update) = &stmt.update {
-                    self.in_skipped_path(|s| s.visit_expression(update));
-                }
-            }
-            // Nothing precedes a single statement, so the guaranteed pass reaches it. The
-            // braced case was handled and the unbraced one fell through to the skipped path,
-            // which is the same over-relaxation, one syntactic form over.
-            (other, true) => {
-                self.visit_statement(other);
+            (body, true) => {
+                self.walk_guaranteed_pass(body);
                 if let Some(update) = &stmt.update {
                     self.in_skipped_path(|s| s.visit_expression(update));
                 }
@@ -1280,6 +1259,33 @@ impl ParserAnalyzer<'_, '_> {
     /// weakening them called reads optional that the parser always performs. WHICH PART of a
     /// statement is skippable differs per construct, so each says so itself and this only
     /// carries the counter.
+    /// Walk a loop body whose first pass is guaranteed, in source order: everything up to the
+    /// first statement that something before it could have jumped past runs whatever happens,
+    /// and only what follows that is a skipped path.
+    ///
+    /// `do`/`while`, a testless `for` and a `while` whose test cannot be false all have this
+    /// same asymmetry. It was written out three times, once without the unbraced case and once
+    /// not at all, which is how `while (!0)` kept relaxing a read the parser always performs.
+    fn walk_guaranteed_pass<'a>(&mut self, body: &Statement<'a>) {
+        let Statement::BlockStatement(b) = body else {
+            // Nothing precedes a single statement, so the guaranteed pass reaches it.
+            self.visit_statement(body);
+            return;
+        };
+        let mut skipped = false;
+        for st in &b.body {
+            if skipped {
+                self.in_skipped_path(|s| s.visit_statement(st));
+            } else {
+                self.visit_statement(st);
+                // Only an exit that hands back a result: a statement that can merely THROW
+                // past what follows it does not put a later read on a path some successful
+                // parse skipped.
+                skipped = exits_with_a_value(st);
+            }
+        }
+    }
+
     fn in_skipped_path(&mut self, f: impl FnOnce(&mut Self)) {
         self.conditional_depth += 1;
         f(self);
@@ -4668,7 +4674,7 @@ fn returned_candidates(e: &Expression<'_>, out: &mut Vec<String>) {
 /// break; t.value = second; } while (…)` runs its body once, but not all of it, so the
 /// write is no more certain than one behind an `if`.
 fn contains_exit(stmt: &Statement<'_>) -> bool {
-    contains_exit_where(stmt, true)
+    contains_exit_where(stmt, true, true)
 }
 
 /// Whether `stmt` can end the construct being asked about *and hand back a result* — so a
@@ -4680,16 +4686,60 @@ fn contains_exit(stmt: &Statement<'_>) -> bool {
 /// `parse`'s reads optional where every successful parse performs them. Same for what follows
 /// a possible throw inside a `do` body or a testless `for`.
 fn exits_with_a_value(stmt: &Statement<'_>) -> bool {
-    contains_exit_where(stmt, false)
+    contains_exit_where(stmt, false, true)
 }
 
-fn contains_exit_where(stmt: &Statement<'_>, throw_counts: bool) -> bool {
+/// Whether `stmt` can leave the loop *without reaching its test*, carrying a result.
+///
+/// The `do`/`while` test question, and the one place where `continue` differs from `break`: it
+/// transfers control to the test rather than past it, so `do { continue; } while (parse(e))`
+/// evaluates `parse` on every execution that leaves the loop. A LABELLED continue is counted
+/// as leaving even when it names this loop — recovering that would need the loop's own label
+/// threaded in from the `LabeledStatement` above it, and over-weakening is the safe direction.
+fn leaves_before_the_test(stmt: &Statement<'_>) -> bool {
+    contains_exit_where(stmt, false, false)
+}
+
+/// Whether `t` is a test no value of it can make false, so the loop it controls necessarily
+/// runs its body. Deliberately narrow: only the spellings a minifier emits, because reading a
+/// test as always-true when it is not would require reads the parser can skip.
+fn always_true(t: &Expression<'_>) -> bool {
+    match t {
+        Expression::BooleanLiteral(b) => b.value,
+        Expression::NumericLiteral(n) => n.value != 0.0,
+        Expression::ParenthesizedExpression(p) => always_true(&p.expression),
+        // `while (!0)`, which is how this corpus spells it 74 times over.
+        Expression::UnaryExpression(u)
+            if u.operator == oxc_syntax::operator::UnaryOperator::LogicalNot =>
+        {
+            always_false(&u.argument)
+        }
+        _ => false,
+    }
+}
+
+/// The negation of [`always_true`] for the literals `!` is applied to — not its complement,
+/// since neither answer is available for an arbitrary expression.
+fn always_false(t: &Expression<'_>) -> bool {
+    match t {
+        Expression::BooleanLiteral(b) => !b.value,
+        Expression::NumericLiteral(n) => n.value == 0.0,
+        Expression::NullLiteral(_) => true,
+        Expression::ParenthesizedExpression(p) => always_false(&p.expression),
+        _ => false,
+    }
+}
+
+fn contains_exit_where(stmt: &Statement<'_>, throw_counts: bool, continue_counts: bool) -> bool {
     struct Probe {
         found: bool,
         /// Whether a `throw` is one of the ways out being counted. It leaves the construct
         /// either way; whether that matters depends on whether the caller is asking about
         /// control flow or about paths that can yield a result.
         throw_counts: bool,
+        /// Whether an unlabelled `continue` counts. It skips the rest of the body but arrives
+        /// at a `do`/`while`'s test, so the two questions want different answers.
+        continue_counts: bool,
         /// Nested loops open around the statement being looked at. A `break` inside one of
         /// them leaves THAT loop, not the one being asked about — `do { while (f) { break; } }
         /// while (…)` completes its guaranteed pass, and counting the inner break weakened a
@@ -4719,7 +4769,7 @@ fn contains_exit_where(stmt: &Statement<'_>, throw_counts: bool) -> bool {
             }
         }
         fn visit_continue_statement(&mut self, c: &oxc_ast::ast::ContinueStatement<'a>) {
-            if c.label.is_some() || self.loops == 0 {
+            if c.label.is_some() || (self.loops == 0 && self.continue_counts) {
                 self.found = true;
             }
         }
@@ -4757,6 +4807,7 @@ fn contains_exit_where(stmt: &Statement<'_>, throw_counts: bool) -> bool {
     let mut p = Probe {
         found: false,
         throw_counts,
+        continue_counts,
         loops: 0,
         switches: 0,
     };
@@ -8031,6 +8082,31 @@ mod tests {
     }
 
     #[test]
+    fn a_do_while_test_after_a_continue_is_still_required() {
+        // `continue` in a `do`/`while` transfers control TO the test, not past it, so
+        // `do { continue; } while (parse(e))` evaluates `parse` on every execution that can
+        // leave the loop at all. Counting it alongside `break` relaxed a read every successful
+        // parse performs.
+        for body in [
+            "do { continue; } while (parse(e));",
+            "do { if (f) continue; } while (parse(e));",
+        ] {
+            let guards = guards_and_field(body);
+            assert_eq!(guards, (true, true), "`{body}` reaches the test");
+        }
+    }
+
+    #[test]
+    fn a_read_after_a_continue_in_a_do_while_is_not_required() {
+        // And the other question, which wants the opposite answer about the same statement: a
+        // `continue` DOES skip the rest of the body, so what follows it is on a path some
+        // successful pass took without it. Two questions, two answers, one keyword.
+        let fields = helper_reached_via("do { if (f) continue; parse(e); } while (m);");
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(!id.required, "the continue skips it: {id:?}");
+    }
+
+    #[test]
     fn a_do_while_test_behind_only_a_throw_is_still_required() {
         // `do { if (bad) throw Error(); } while (parse(e))` — the only path that skips the test
         // throws, so every execution producing a value evaluated `parse`. Treating every exit
@@ -8098,6 +8174,35 @@ mod tests {
             "the body bound it before the update read it: {:?}",
             detail.children
         );
+    }
+
+    #[test]
+    fn a_while_whose_test_cannot_be_false_still_runs_its_body_once() {
+        // `while (!0)` is `for (;;)` spelled differently — and it is how this corpus spells it,
+        // 74 times. Wrapping the body in a skipped path regardless of the test relaxed reads
+        // every successful execution performs. All three spellings, braced and bare, plus the
+        // same test in a `for` header, since one predicate now answers for both loops.
+        for body in [
+            "while (true) { parse(e); break; }",
+            "while (!0) { parse(e); break; }",
+            "while (1) { parse(e); break; }",
+            "while (!0) parse(e);",
+            "for (; !0 ;) { parse(e); break; }",
+        ] {
+            let fields = helper_reached_via(body);
+            let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+            assert!(id.required, "`{body}` necessarily starts its body: {id:?}");
+        }
+    }
+
+    #[test]
+    fn a_while_with_a_real_test_keeps_its_zero_iteration_path() {
+        // The bound, and the reason `always_true` is deliberately narrow: a test that can be
+        // false means the body may never run, so requiring its reads would reject nodes the
+        // parser accepts.
+        let fields = helper_reached_via("while (more) { parse(e); break; }");
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(!id.required, "the loop may run zero times: {id:?}");
     }
 
     #[test]
