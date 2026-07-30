@@ -816,18 +816,8 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
             if leaves_switch(&case.consequent, true) || i + 1 >= stmt.cases.len() {
                 continue;
             }
-            for name in case
-                .consequent
-                .iter()
-                .filter_map(|st| match st {
-                    Statement::VariableDeclaration(d) => Some(&**d),
-                    _ => None,
-                })
-                .flat_map(|d| d.declarations.iter())
-                .flat_map(|d| d.id.get_binding_identifiers())
-                .map(|b| b.name.as_str())
-            {
-                if tracked_before.iter().any(|t| t == name) {
+            for name in hoisted_names(&case.consequent) {
+                if tracked_before.iter().any(|t| t == &name) {
                     self.unresolved.push(format!("{SWITCH_ARM_SHADOW}@{name}"));
                 }
             }
@@ -3394,7 +3384,18 @@ fn leaves_switch(body: &[Statement<'_>], throwing_counts: bool) -> bool {
 /// run that assignment, and recording it as effective refused a descent for a node nothing had
 /// moved. Reusing the dispatch predicate covered `return` and `throw` and left both transfers out.
 fn ends_the_statement_list(stmt: &Statement<'_>) -> bool {
-    ends_the_list_but_for(stmt, &mut Vec::new())
+    ends_the_list_but_for(stmt, &mut Vec::new(), true)
+}
+
+/// Whether a loop with this body can start another pass at all.
+///
+/// `do { parse(current); current = other; break; } while (flag)` cannot: the `break` is reached
+/// on every path, so no next iteration sees that write and `parse` is handed the original node
+/// every time. Treating the write as loop-carried anyway refused a valid alias and dropped the
+/// helper's fields. A `continue` is the one transfer that does start another pass, which is why
+/// it does not count as leaving here.
+fn can_come_round_again(body: &Statement<'_>) -> bool {
+    !ends_the_list_but_for(body, &mut Vec::new(), false)
 }
 
 /// The same question, carrying the labels declared INSIDE the statement being asked about.
@@ -3405,7 +3406,11 @@ fn ends_the_statement_list(stmt: &Statement<'_>) -> bool {
 /// naming a label from OUTSIDE does leave, which is the whole reason the two cannot be told apart
 /// without carrying the set. [`contains_exit_where`] has scoped its labels this way since the
 /// round that fixed the dispatch chain; this predicate was written after it and did not.
-fn ends_the_list_but_for(stmt: &Statement<'_>, inside: &mut Vec<String>) -> bool {
+fn ends_the_list_but_for(
+    stmt: &Statement<'_>,
+    inside: &mut Vec<String>,
+    continue_counts: bool,
+) -> bool {
     match stmt {
         Statement::ReturnStatement(_) | Statement::ThrowStatement(_) => true,
         // A labelled transfer to a label opened within this statement is consumed by it.
@@ -3413,20 +3418,28 @@ fn ends_the_list_but_for(stmt: &Statement<'_>, inside: &mut Vec<String>) -> bool
             .label
             .as_ref()
             .is_none_or(|l| !inside.iter().any(|k| k == l.name.as_str())),
-        Statement::ContinueStatement(c) => c
-            .label
-            .as_ref()
-            .is_none_or(|l| !inside.iter().any(|k| k == l.name.as_str())),
-        Statement::BlockStatement(b) => b.body.iter().any(|st| ends_the_list_but_for(st, inside)),
+        // `continue` ends the list it sits in, but it does not leave the LOOP — it starts the
+        // next pass. Which of those two questions is being asked is the flag.
+        Statement::ContinueStatement(c) => {
+            continue_counts
+                && c.label
+                    .as_ref()
+                    .is_none_or(|l| !inside.iter().any(|k| k == l.name.as_str()))
+        }
+        Statement::BlockStatement(b) => b
+            .body
+            .iter()
+            .any(|st| ends_the_list_but_for(st, inside, continue_counts)),
         Statement::LabeledStatement(l) => {
             inside.push(l.label.name.as_str().to_string());
-            let ends = ends_the_list_but_for(&l.body, inside);
+            let ends = ends_the_list_but_for(&l.body, inside, continue_counts);
             inside.pop();
             ends
         }
         // Both sides, or neither: a one-sided `if` falls through and the rest of the list runs.
         Statement::IfStatement(i) => i.alternate.as_ref().is_some_and(|alt| {
-            ends_the_list_but_for(&i.consequent, inside) && ends_the_list_but_for(alt, inside)
+            ends_the_list_but_for(&i.consequent, inside, continue_counts)
+                && ends_the_list_but_for(alt, inside, continue_counts)
         }),
         // A loop or a switch CONSUMES an unlabelled transfer, so one inside it says nothing about
         // the list this statement sits in.
@@ -3770,6 +3783,7 @@ struct Write {
     effective: u32,
     repeats_in: Option<Span>,
     runs_before: Option<Span>,
+    lands_at: Option<(Span, u32)>,
 }
 
 impl Write {
@@ -3789,11 +3803,72 @@ fn in_effect_at(
     effective: u32,
     repeats_in: Option<Span>,
     runs_before: Option<Span>,
+    lands_at: Option<(Span, u32)>,
     at: Span,
 ) -> bool {
+    // A path that cannot produce a result never made this record effective for anything.
+    if effective == u32::MAX {
+        return false;
+    }
+    // Written inside an invoked body: it happened where it is written for anything in that
+    // same body, and at the call for everything else — which is what puts it after the
+    // arguments, that being the whole reason the invocation is recorded at all.
+    if let Some((body, call_end)) = lands_at {
+        return if covers(body, at) {
+            effective <= at.start
+        } else {
+            call_end <= at.start
+        };
+    }
     effective <= at.start
         || repeats_in.is_some_and(|l| covers(l, at))
         || runs_before.is_some_and(|r| covers(r, at))
+}
+
+/// The names a statement list declares with `var`, at any depth inside it.
+///
+/// Function-scoped, so `case "a": { var t = e.child("inner"); }` rebinds `t` for everything
+/// after it exactly as the unbraced form does — and reading only the top level of each
+/// consequent missed it, so the arm-shadow diagnostic stayed silent about an ambiguity it
+/// exists to report. Not into a nested function, whose own `var`s are its business.
+fn hoisted_names<'a>(body: &[Statement<'a>]) -> Vec<String> {
+    struct Hoisted {
+        names: Vec<String>,
+        nested: u32,
+    }
+    impl<'a> Visit<'a> for Hoisted {
+        fn visit_variable_declaration(&mut self, d: &VariableDeclaration<'a>) {
+            if self.nested == 0 && !d.kind.is_lexical() {
+                for decl in &d.declarations {
+                    for id in decl.id.get_binding_identifiers() {
+                        self.names.push(id.name.as_str().to_string());
+                    }
+                }
+            }
+            walk::walk_variable_declaration(self, d);
+        }
+        fn visit_function(&mut self, f: &Function<'a>, flags: ScopeFlags) {
+            self.nested += 1;
+            walk::walk_function(self, f, flags);
+            self.nested -= 1;
+        }
+        fn visit_arrow_function_expression(
+            &mut self,
+            f: &oxc_ast::ast::ArrowFunctionExpression<'a>,
+        ) {
+            self.nested += 1;
+            walk::walk_arrow_function_expression(self, f);
+            self.nested -= 1;
+        }
+    }
+    let mut probe = Hoisted {
+        names: Vec::new(),
+        nested: 0,
+    };
+    for st in body {
+        probe.visit_statement(st);
+    }
+    probe.names
 }
 
 /// Whether `outer` contains `inner`.
@@ -3816,6 +3891,9 @@ struct Given {
     /// the two records of one assignment must not disagree about when it happened.
     effective: u32,
     repeats_in: Option<Span>,
+    /// The invoked body this record sits in, with the end of its call — it happened where it
+    /// is written for anything in that body, and at the call for everything outside it.
+    lands_at: Option<(Span, u32)>,
     /// A region this record precedes however late it is written. Every argument of a call runs
     /// before the callee's body is entered, so `(function(){ parse(current); })(current = e)`
     /// hands `parse` what the ARGUMENT assigned — and the argument is textually after the body
@@ -3834,8 +3912,9 @@ struct AllBindings {
     scoped: Vec<(Span, String)>,
     fns: Vec<Span>,
     blocks: Vec<Span>,
-    /// Loop bodies currently open, so a write can say whether it repeats.
-    loops: Vec<Span>,
+    /// Loop bodies currently open, each with whether that loop can start another pass. A write
+    /// inside one that cannot is not loop-carried, however far below the call it sits.
+    loops: Vec<(Span, bool)>,
     /// How many blocks deep the walk is, so the outermost one can be told apart from a
     /// genuinely nested scope.
     block_depth: u32,
@@ -3856,14 +3935,19 @@ struct AllBindings {
     /// The callee bodies whose call is having its ARGUMENTS walked. A write here precedes
     /// everything in that body, however far after it the argument is written.
     runs_before: Vec<Span>,
-    /// Regions being walked whose writes take effect somewhere other than where they are
-    /// written, each recorded by the position they land at, outermost first.
+    /// Invocations being walked, as `(the callee's span, the end of the call)`, outermost
+    /// first. What the body writes lands at the call for anything OUTSIDE it — the arguments
+    /// ran first and the statements after it run later — while inside that same body the write
+    /// happened where it is written. Pinning it for every observer alike was the mistake:
+    /// `(function(){ current = other; parse(current); })()` hands `parse` the new node, and
+    /// reading the write as not-yet-effective there published the helper's fields on the old
+    /// one.
     ///
     /// One of them so far: every argument of a call is evaluated before the callee's body is
     /// entered, so `(function(){ current = other; })(parse(current))` hands `parse` the original
     /// node. Ordering that write by its own span had it look already effective, and the descent
     /// was refused for a node still standing.
-    effects_land_at: Vec<u32>,
+    effects_land_at: Vec<(Span, u32)>,
     /// Function bodies that are immediately invoked, each with the position its synchronous
     /// part ends at: a write inside one and before that position has certainly run by the time
     /// anything after the call reads it.
@@ -3956,7 +4040,8 @@ impl AllBindings {
             at,
             effective: self.effect_position(at.end),
             runs_before: self.runs_before.last().copied(),
-            repeats_in: self.loops.last().copied(),
+            lands_at: self.effects_land_at.first().copied(),
+            repeats_in: self.innermost_repeating(),
         });
     }
 
@@ -4030,12 +4115,17 @@ impl AllBindings {
         if self.dead > 0 && self.caught == 0 {
             return u32::MAX;
         }
-        // The outermost deferred region wins: a phase nested inside another finishes no
-        // earlier than the one around it.
-        if let Some(lands_at) = self.effects_land_at.first() {
-            return *lands_at;
-        }
         self.assign_end.unwrap_or(default_end)
+    }
+
+    /// The innermost enclosing loop that can actually come round again — a write inside one
+    /// that cannot is carried by whichever loop outside it can.
+    fn innermost_repeating(&self) -> Option<Span> {
+        self.loops
+            .iter()
+            .rev()
+            .find(|(_, repeats)| *repeats)
+            .map(|(span, _)| *span)
     }
 
     /// Walk an invocation whose callee is a function written in place, returning whether it
@@ -4081,7 +4171,7 @@ impl AllBindings {
         //
         // Around the callee only: an argument that writes runs where it is written, and pinning
         // that to the call would order it after a body it precedes.
-        self.effects_land_at.push(span.end);
+        self.effects_land_at.push((callee.span(), span.end));
         self.visit_expression(callee);
         self.effects_land_at.pop();
         // Whatever a comma callee evaluates on the way to that function runs before the
@@ -4210,10 +4300,11 @@ impl<'a> Visit<'a> for AllBindings {
                 at: id.span,
                 effective: self.effect_position(id.span.end),
                 runs_before: self.runs_before.last().copied(),
+                lands_at: self.effects_land_at.first().copied(),
                 // A loop whose body throws does not come round again, so a dead write must not
                 // claim repetition either — that is the other half of `effective`.
                 repeats_in: (self.dead == 0 || self.caught > 0)
-                    .then(|| self.loops.last().copied())
+                    .then(|| self.innermost_repeating())
                     .flatten(),
             };
             self.writes.push(w);
@@ -4280,8 +4371,9 @@ impl<'a> Visit<'a> for AllBindings {
                         at: id.span,
                         effective: self.effect_position(d.span.end),
                         runs_before: self.runs_before.last().copied(),
+                        lands_at: self.effects_land_at.first().copied(),
                         repeats_in: (self.dead == 0 || self.caught > 0)
-                            .then(|| self.loops.last().copied())
+                            .then(|| self.innermost_repeating())
                             .flatten(),
                     };
                     self.writes.push(w);
@@ -4378,7 +4470,8 @@ impl<'a> Visit<'a> for AllBindings {
     }
 
     fn visit_while_statement(&mut self, stmt: &oxc_ast::ast::WhileStatement<'a>) {
-        self.loops.push(stmt.span);
+        self.loops
+            .push((stmt.span, can_come_round_again(&stmt.body)));
         // The test runs before the first pass, so it runs even when the body does not.
         self.visit_expression(&stmt.test);
         // Unless it cannot be false, in which case the pass happens: `while (!0)` is how this
@@ -4392,7 +4485,8 @@ impl<'a> Visit<'a> for AllBindings {
     }
 
     fn visit_do_while_statement(&mut self, stmt: &oxc_ast::ast::DoWhileStatement<'a>) {
-        self.loops.push(stmt.span);
+        self.loops
+            .push((stmt.span, can_come_round_again(&stmt.body)));
         // The first pass is guaranteed, so a write at the top of the body really does run. That
         // was declined here as "which part of the body" being the whole `walk_guaranteed_pass`
         // question — but it is the same question with the same answer, and leaving it unasked
@@ -4532,7 +4626,8 @@ impl<'a> Visit<'a> for AllBindings {
     }
 
     fn visit_for_statement(&mut self, stmt: &oxc_ast::ast::ForStatement<'a>) {
-        self.loops.push(stmt.span);
+        self.loops
+            .push((stmt.span, can_come_round_again(&stmt.body)));
         self.blocks.push(stmt.span);
         // Initializer and test run before the first pass; body and update only after one that
         // happened.
@@ -4563,7 +4658,8 @@ impl<'a> Visit<'a> for AllBindings {
     }
 
     fn visit_for_in_statement(&mut self, stmt: &oxc_ast::ast::ForInStatement<'a>) {
-        self.loops.push(stmt.span);
+        self.loops
+            .push((stmt.span, can_come_round_again(&stmt.body)));
         self.blocks.push(stmt.span);
         // The object is evaluated to be enumerated, however few keys it turns out to have; the
         // binding and body run once per key, of which there may be none.
@@ -4577,7 +4673,8 @@ impl<'a> Visit<'a> for AllBindings {
     }
 
     fn visit_for_of_statement(&mut self, stmt: &oxc_ast::ast::ForOfStatement<'a>) {
-        self.loops.push(stmt.span);
+        self.loops
+            .push((stmt.span, can_come_round_again(&stmt.body)));
         self.blocks.push(stmt.span);
         self.visit_expression(&stmt.right);
         // One iterable whose length is decidable here: `for (const x of [a, b])` runs its body,
@@ -4706,7 +4803,7 @@ impl Bindings {
                 // The part that is not textual is repetition — a write below the call runs
                 // before it on the next pass — so a write inside a loop that also contains
                 // the call still counts.
-                && in_effect_at(w.effective, w.repeats_in, w.runs_before, at)
+                && in_effect_at(w.effective, w.repeats_in, w.runs_before, w.lands_at, at)
         })
     }
 
@@ -4759,7 +4856,7 @@ impl Bindings {
                         // its source was already in the set — filing the helper's fields under
                         // `row` at a call where `current` still holds `other`. Same rule the
                         // count uses: textual position, unless a loop repeats it.
-                        && in_effect_at(g.effective, g.repeats_in, g.runs_before, at)
+                        && in_effect_at(g.effective, g.repeats_in, g.runs_before, g.lands_at, at)
                         && self.given_once_in(&g.name, at)
                         && !self.written_without_a_value(&g.name, at)
                 })
@@ -4797,7 +4894,7 @@ impl Bindings {
         self.writes.iter().any(|w| {
             w.name == name
                 && w.covers(at)
-                && in_effect_at(w.effective, w.repeats_in, w.runs_before, at)
+                && in_effect_at(w.effective, w.repeats_in, w.runs_before, w.lands_at, at)
                 && !self.given.iter().any(|g| g.name == name && g.at == w.at)
         })
     }
@@ -4814,7 +4911,7 @@ impl Bindings {
         self.given.iter().any(|g| {
             g.name == name
                 && covers(g.scope, at)
-                && in_effect_at(g.effective, g.repeats_in, g.runs_before, at)
+                && in_effect_at(g.effective, g.repeats_in, g.runs_before, g.lands_at, at)
         })
     }
 
@@ -4833,7 +4930,7 @@ impl Bindings {
             .filter(|g| {
                 g.name == name
                     && covers(g.scope, at)
-                    && in_effect_at(g.effective, g.repeats_in, g.runs_before, at)
+                    && in_effect_at(g.effective, g.repeats_in, g.runs_before, g.lands_at, at)
             })
             .collect();
         match live.split_first() {
@@ -8663,6 +8760,59 @@ mod tests {
     }
 
     #[test]
+    fn a_var_nested_inside_a_falling_through_arm_is_still_a_shadow() {
+        // `var` is function-scoped, so `case "a": { var t = e.child("inner"); }` rebinds `t` for
+        // every arm after it exactly as the unbraced form does. The shadow scan read only the
+        // top level of each consequent, so the ambiguity it exists to report went unrecorded —
+        // the tree still filed the next arm's read under `<inner>`, now silently, which is the
+        // one thing the counted half of this decline is supposed to prevent.
+        for arm in [
+            r#"{ var t = e.child("inner"); }"#,
+            r#"if (f) { var t = e.child("inner"); }"#,
+            r#"for (;;) { var t = e.child("inner"); break; }"#,
+        ] {
+            let r = analyze_parser_ast(
+                &format!(
+                    r#"{{ var t = e.child("outer");
+                         switch (mode) {{ case "a": {arm} case "b": t.attrString("id"); }} }}"#
+                ),
+                "e",
+            );
+            assert!(
+                r.unresolved.iter().any(|u| u == "arm-shadowed node@t"),
+                "`{arm}` rebinds `t` for the arms after it: {:?}",
+                r.unresolved
+            );
+        }
+    }
+
+    #[test]
+    fn a_binding_that_dies_with_its_block_is_not_a_shadow() {
+        // The bounds, and both are why this asks for `var` specifically rather than for every
+        // declaration it can find: a `let` inside a nested block ends with that block, and a
+        // `var` inside a nested FUNCTION belongs to that function. Neither reaches the arms
+        // after it, and reporting them would make the counter fire where nothing is ambiguous.
+        for arm in [
+            "{ let t = 1; }",
+            "(function(){ var t = 1; });",
+            "(() => { var t = 1; });",
+        ] {
+            let r = analyze_parser_ast(
+                &format!(
+                    r#"{{ var t = e.child("outer");
+                         switch (mode) {{ case "a": {arm} case "b": t.attrString("id"); }} }}"#
+                ),
+                "e",
+            );
+            assert!(
+                r.unresolved.is_empty(),
+                "`{arm}` rebinds nothing the next arm sees: {:?}",
+                r.unresolved
+            );
+        }
+    }
+
+    #[test]
     fn an_arm_that_falls_through_does_hand_its_bindings_on() {
         // The bound. Fallthrough is the one way the next arm runs with what this one bound, so
         // the read really is off `<inner>` — restoring at every arm boundary would lose it and
@@ -9348,6 +9498,95 @@ mod tests {
             assert!(
                 !fields.iter().any(|f| f.name == "id"),
                 "`{body}` reads a node this scan cannot place: {:?}",
+                fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn a_write_inside_an_invoked_body_is_effective_inside_it() {
+        // The other side of moving an invoked body's effects to the call, and a regression I
+        // introduced doing it: `(function(){ current = other; parse(current); })()` hands
+        // `parse` the NEW node, and pinning the write to the call end made it look not-yet-
+        // effective at a read in that same body — so the helper's fields were published on the
+        // node the write had moved away from.
+        //
+        // Where an effect lands depends on who is observing. Inside the body it happened where
+        // it is written; outside — an argument, or anything after the call — it happened at the
+        // invocation. One position could not say both, which is the same shape as the class
+        // two-phase clock declined earlier in this PR, and the reason that one is declined is
+        // that its observers cannot be told apart this cleanly.
+        let fields = helper_reached_via(
+            "var current = e; (function(){ current = other; parse(current); })();",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the write precedes the read in its own body: {:?}",
+            fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn an_invoked_body_still_lands_at_the_call_for_everyone_else() {
+        // The bounds, and all three are cases earlier rounds established. A read EARLIER in the
+        // same body still precedes the write; an argument still runs before the whole body; and
+        // a read after the call still sees what the body did.
+        let id = helper_reached_via(
+            "var current = e; (function(){ parse(current); current = other; })();",
+        )
+        .into_iter()
+        .find(|f| f.name == "id")
+        .expect("the read precedes the write");
+        assert!(id.required, "and it reads the original node");
+        for body in [
+            "var current = e; (function(){ current = other; })(); parse(current);",
+            "var current = e; (function(){ parse(current); })(current = other);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "`{body}` reads the node the write moved to: {:?}",
+                fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn a_loop_that_cannot_come_round_again_carries_no_write() {
+        // `do { parse(current); current = other; break; } while (flag)` hands `parse` the
+        // original node every time, because the `break` is reached on every path and no next
+        // iteration exists to see that write. The repetition shortcut — a write below the call
+        // runs before it on the next pass — applied to every write inside a loop span, so this
+        // alias was refused and the helper's fields dropped.
+        for body in [
+            "var current = e; do { parse(current); current = other; break; } while (flag);",
+            "var current = e; while (!0) { parse(current); current = other; break; }",
+            "var current = e; do { parse(current); current = other; return t; } while (flag);",
+        ] {
+            let id = helper_reached_via(body)
+                .into_iter()
+                .find(|f| f.name == "id")
+                .unwrap_or_else(|| panic!("`{body}` never repeats"));
+            assert!(id.required, "`{body}` reads the original node");
+        }
+    }
+
+    #[test]
+    fn a_loop_that_does_repeat_still_carries_it() {
+        // The bounds. A body that can come round again really does run the write before the
+        // call on the next pass, so the alias stays refused — that is what the shortcut exists
+        // for. A `continue` is not a way out: it starts the next pass, which is precisely when
+        // the write is seen. And a non-repeating loop inside one that repeats is carried by the
+        // outer one.
+        for body in [
+            "var current = e; do { parse(current); current = other; } while (flag);",
+            "var current = e; do { parse(current); current = other; continue; } while (flag);",
+            "var current = e; while (flag) { do { parse(current); current = other; break; } while (0); }",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "`{body}` sees the write on a later pass: {:?}",
                 fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
             );
         }
