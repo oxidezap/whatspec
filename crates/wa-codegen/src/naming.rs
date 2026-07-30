@@ -69,9 +69,27 @@ pub(crate) fn rust_lit(s: &str) -> String {
 
 /// The escaped *inner* content of [`rust_lit`] (no surrounding quotes), for
 /// embedding inside a larger literal such as an error message.
+///
+/// Not for embedding into a FORMAT string — see [`fmt_lit_inner`], which is what every
+/// `anyhow!`/`ensure!`/`bail!` message in the emitted module needs.
 pub(crate) fn rust_lit_inner(s: &str) -> String {
     let lit = rust_lit(s);
     lit[1..lit.len() - 1].to_string()
+}
+
+/// The same, with braces doubled, for text that lands inside a `format!`-family string.
+///
+/// Every diagnostic the emitter writes is the first argument of `anyhow!`, `ensure!` or
+/// `bail!`, which is a format string whether or not it takes arguments. A wire name, a child
+/// tag or a pinned VALUE holding `{` or `}` therefore became a placeholder in the generated
+/// Rust: a pin of `"{}"` produced a message with two placeholders and one argument, and the
+/// emitted module stopped compiling. Nothing in CI compiles that module, so an otherwise valid
+/// IR would have shipped a broken consumer — the second defect on this branch of that kind.
+///
+/// `rust_lit` escaping first, so a quote or a backslash is still handled once; the doubling is
+/// on top of it and neither can produce the other's input.
+pub(crate) fn fmt_lit_inner(s: &str) -> String {
+    rust_lit_inner(s).replace('{', "{{").replace('}', "}}")
 }
 
 /// Make `base` a unique, ident-safe name: non-empty, not starting with a digit,

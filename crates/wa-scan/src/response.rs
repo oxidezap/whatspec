@@ -4557,8 +4557,15 @@ fn suppress_in_strings(
         }
         BP::ArrayPattern(a) => {
             for (i, el) in a.elements.iter().enumerate() {
-                if quasi.quasis.get(i).is_none_or(|q| q.value.cooked.is_none()) {
-                    break;
+                // Past the end of the array: every remaining element is `undefined` and its
+                // default runs. That is the only reason to stop.
+                let Some(q) = quasi.quasis.get(i) else { break };
+                // An invalid escape makes THIS slot `undefined` — and only this one. The
+                // positions do not shift, so the elements after it are still supplied and
+                // their defaults still run for nobody. Stopping here read one bad escape as
+                // the end of the array and recorded every later default as a write.
+                if q.value.cooked.is_none() {
+                    continue;
                 }
                 if let Some(BP::AssignmentPattern(p)) = el.as_ref() {
                     out.push(p.right.span());
@@ -11306,6 +11313,51 @@ mod tests {
             let (required, _) = guards_and_field(body);
             assert!(!required, "that handler is still skippable: {body}");
         }
+    }
+
+    #[test]
+    fn one_invalid_quasi_does_not_end_the_strings_array() {
+        // An invalid escape leaves THAT slot of the strings array `undefined` and nothing else:
+        // the positions do not shift, so every element after it is still supplied and its
+        // default still runs for nobody. Round forty-eight read a cooked-`None` as the end of
+        // the array and recorded every later default as a write that happens.
+        //
+        // ``\u`` is an invalid unicode escape, so quasi 0 is `undefined` while quasi 1 is `ok`
+        // — the tag receives `[undefined, "ok"]` and `y` is bound to `"ok"`.
+        let fields = helper_reached_via(
+            "var current = e; (function ([x, y = (current = other)]) {})`\\u${1}ok`; parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the slot after the bad escape still supplies its element: {fields:?}"
+        );
+        // The bounds. Past the END of the array an element really is `undefined`, so its
+        // default runs — that is the only reason to stop; and a template with no invalid escape
+        // at all answers exactly as it did before.
+        let fields = helper_reached_via(
+            "var current = e; (function ([x, y, z = (current = other)]) {})`a${1}b`; parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "there is no third string: {fields:?}"
+        );
+        let fields = helper_reached_via(
+            "var current = e; (function ([x, y = (current = other)]) {})`a${1}b`; parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "both elements are supplied: {fields:?}"
+        );
+        // And the element AT the bad escape is `undefined`, so ITS default does run — skipping
+        // that slot is not the same as supplying it, and reading the two as one is the
+        // over-broad mutation this holds.
+        let fields = helper_reached_via(
+            "var current = e; (function ([x = (current = other), y]) {})`\\u${1}ok`; parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "that slot is undefined and its default runs: {fields:?}"
+        );
     }
 
     fn helper_reached_via(body: &str) -> Vec<ParsedField> {

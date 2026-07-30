@@ -210,11 +210,26 @@ fn variant_signature(v: &UnionVariant) -> BTreeSet<String> {
             _ => {}
         }
     }
-    fn walk(fields: &[ParsedField], s: &mut BTreeSet<String>) {
+    // Keyed by what the arm parser READS, not by the struct field it writes — the same
+    // correction the outcome-union gate took in round forty-six, which this copy did not.
+    // Two variants can bind one wire read under different result names, and by output name
+    // those signatures look disjoint: the classifier then emits a union whose arms test the
+    // very same attribute, so the first accepts every node the second could and the second is
+    // unreachable. The `attr`/`child` marker keeps the two spellings apart and the descent path
+    // keeps a nested `code` from standing in for a top-level one.
+    fn walk(fields: &[ParsedField], base: &[String], s: &mut BTreeSet<String>) {
         for f in fields {
+            let mut path = base.to_vec();
+            path.extend(f.source_path.iter().flatten().cloned());
             if f.field_type == ParsedFieldType::Union {
                 if f.required {
-                    s.insert(format!("NESTED:{}", f.name));
+                    // A nested union has no wire read of its own to name; its TAG is what the
+                    // arm descends to, and failing that is what discriminates.
+                    s.insert(format!(
+                        "NESTED:{}/{}",
+                        path.join("/"),
+                        f.tag.as_deref().unwrap_or(&f.name)
+                    ));
                 }
                 continue;
             }
@@ -228,14 +243,23 @@ fn variant_signature(v: &UnionVariant) -> BTreeSet<String> {
                 continue;
             }
             if f.required && (f.method == "child" || f.method.starts_with("attr")) {
-                s.insert(format!("REQ:{}", f.name));
+                let (kind, wire) = if f.method == "child" {
+                    ("child", f.tag.as_deref().unwrap_or(&f.name))
+                } else {
+                    ("attr", f.wire_name.as_deref().unwrap_or(&f.name))
+                };
+                s.insert(format!("REQ:{}/{kind}:{wire}", path.join("/")));
             }
             if let Some(kids) = &f.children {
-                walk(kids, s);
+                let mut inner = path;
+                if f.method == "child" || f.method == "maybeChild" {
+                    inner.push(f.tag.as_deref().unwrap_or(&f.name).to_string());
+                }
+                walk(kids, &inner, s);
             }
         }
     }
-    walk(&v.fields, &mut s);
+    walk(&v.fields, &[], &mut s);
     s
 }
 
@@ -1702,6 +1726,72 @@ mod tests {
         assert!(
             !code.contains("else { None }"),
             "the empty-required arm is the catch-all, not None:\n{code}"
+        );
+    }
+
+    #[test]
+    fn two_arms_reading_one_wire_attribute_are_not_separable() {
+        // The separability gate asks whether two arms' required reads differ, and it asked that
+        // of the OUTPUT field names. Two arms can bind one wire read under different result
+        // names — `successCode` and `errorCode`, both reading `code` — and by output name the
+        // signatures look disjoint, so the union was emitted with two arms testing the same
+        // attribute: the first accepts every node the second could and the second is
+        // unreachable. Round forty-six made this correction in the OUTCOME-union gate and left
+        // this copy alone, which is the one-rule-two-places shape again.
+        let f = union_field(serde_json::json!({
+            "method": "", "name": "coded", "type": "union", "required": true,
+            "unionVariants": [
+                {"name": "Alpha", "fields": [
+                    {"method": "attrString", "name": "successCode", "wireName": "code",
+                     "type": "string", "required": true}
+                ], "assertions": [{"kind": "tag", "name": "item"}]},
+                {"name": "Beta", "fields": [
+                    {"method": "attrString", "name": "errorCode", "wireName": "code",
+                     "type": "string", "required": true}
+                ], "assertions": [{"kind": "tag", "name": "item"}]}
+            ]
+        }));
+        assert!(
+            emit_union_read(&f, "item", "Spec", "").is_none(),
+            "one wire read cannot separate two arms"
+        );
+        // The bounds, both things the key must not conflate. Two arms reading DIFFERENT wire
+        // attributes are separable exactly as before…
+        let f = union_field(serde_json::json!({
+            "method": "", "name": "coded", "type": "union", "required": true,
+            "unionVariants": [
+                {"name": "Alpha", "fields": [
+                    {"method": "attrString", "name": "successCode", "wireName": "code",
+                     "type": "string", "required": true}
+                ], "assertions": [{"kind": "tag", "name": "item"}]},
+                {"name": "Beta", "fields": [
+                    {"method": "attrString", "name": "errorCode", "wireName": "reason",
+                     "type": "string", "required": true}
+                ], "assertions": [{"kind": "tag", "name": "item"}]}
+            ]
+        }));
+        assert!(
+            emit_union_read(&f, "item", "Spec", "").is_some(),
+            "different wire reads still separate them"
+        );
+        // …and so is the same name read at a different DESCENT, which is told apart by whether
+        // the wrapper exists.
+        let f = union_field(serde_json::json!({
+            "method": "", "name": "coded", "type": "union", "required": true,
+            "unionVariants": [
+                {"name": "Alpha", "fields": [
+                    {"method": "attrString", "name": "successCode", "wireName": "code",
+                     "type": "string", "required": true}
+                ], "assertions": [{"kind": "tag", "name": "item"}]},
+                {"name": "Beta", "fields": [
+                    {"method": "attrString", "name": "errorCode", "wireName": "code",
+                     "type": "string", "required": true, "sourcePath": ["error"]}
+                ], "assertions": [{"kind": "tag", "name": "item"}]}
+            ]
+        }));
+        assert!(
+            emit_union_read(&f, "item", "Spec", "").is_some(),
+            "the same name at a different descent is a different read"
         );
     }
 

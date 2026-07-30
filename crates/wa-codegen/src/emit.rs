@@ -8,7 +8,7 @@ use wa_ir::{ParsedField, ParsedFieldType, WapAttrKind, WapChildNode, WapContentK
 use crate::fields::{
     child_content_type, flatten_same_node, is_attr_field, is_child_field, is_jid_kind,
 };
-use crate::naming::{pascal_case, rust_ident, rust_lit, rust_lit_inner, snake_case};
+use crate::naming::{fmt_lit_inner, pascal_case, rust_ident, rust_lit, snake_case};
 
 fn tag_or_name(f: &ParsedField) -> &str {
     f.tag.as_deref().unwrap_or(&f.name)
@@ -35,7 +35,7 @@ pub(crate) fn emit_field_parse(f: &ParsedField, node_var: &str, indent: &str) ->
     // struct field name; smax responses name the field by the makeResult key.
     let wire = f.wire_name.as_deref().unwrap_or(&f.name);
     let flit = rust_lit(wire);
-    let fmsg = rust_lit_inner(wire);
+    let fmsg = fmt_lit_inner(wire);
     let method = f.method.as_str();
 
     // Every remaining content spelling reads the node body and is typed by the canonical
@@ -236,7 +236,7 @@ fn literal_pin(
     };
     vec![format!(
         "{indent}anyhow::ensure!({test}, \"{fmsg} is pinned to {}: {{:?}}\", {name});",
-        rust_lit_inner(lit)
+        fmt_lit_inner(lit)
     )]
 }
 
@@ -457,7 +457,7 @@ fn descend_from(
         ));
         lines.push(format!(
             "{indent}    .ok_or_else(|| anyhow::anyhow!(\"missing <{}>\"))?;",
-            rust_lit_inner(seg)
+            fmt_lit_inner(seg)
         ));
         vars.insert(key, var.clone());
         parent = var;
@@ -581,7 +581,7 @@ fn emit_struct_reads(
             // the third site for one rule — the attribute read, the ordinary content read, and
             // here — so it is `int_band` again rather than a third spelling, and it is asked of
             // the LEAF, which is also where `collect_response_fields` took the width from.
-            let fmsg = rust_lit_inner(tag);
+            let fmsg = fmt_lit_inner(tag);
             // The leaf's declared band, and its declared LENGTH — this path was given the
             // integer one and the byte one reached the two other content paths without reaching
             // here, so `child("blob")` over a `contentBytes(32)` leaf stored a vector of any
@@ -663,7 +663,7 @@ fn emit_struct_reads(
                 ));
                 lines.push(format!(
                     "{indent}    .ok_or_else(|| anyhow::anyhow!(\"missing <{}>\"))?;",
-                    rust_lit_inner(tag)
+                    fmt_lit_inner(tag)
                 ));
                 lines.extend(raw_length_check(
                     leaf,
@@ -828,7 +828,7 @@ fn emit_struct_reads(
                 ));
                 lines.push(format!(
                     "{indent}    .ok_or_else(|| anyhow::anyhow!(\"missing <{}>\"))?;",
-                    rust_lit_inner(tag)
+                    fmt_lit_inner(tag)
                 ));
                 emit_struct_reads(
                     kids,
@@ -2298,6 +2298,65 @@ mod tests {
         assert!(
             src.contains(r#"matches!(r#type.as_deref(), None | Some("result"))"#),
             "and absence is still allowed for an optional accessor: {src}"
+        );
+    }
+
+    #[test]
+    fn a_diagnostic_never_borrows_a_brace_from_the_wire() {
+        // Every message the emitter writes is the first argument of `anyhow!`, `ensure!` or
+        // `bail!` — a FORMAT string whether or not it takes arguments. A pinned value, a wire
+        // attribute name or a child tag holding `{` or `}` therefore became a placeholder in
+        // the generated Rust: this pin produced a message with two extra placeholders and one
+        // argument, and the emitted module stopped compiling. Nothing in CI compiles that
+        // module, so an otherwise valid IR would have shipped a broken consumer.
+        let mut f = ranged("type", None, None, true);
+        f.method = "attrString".into();
+        f.literal_value = Some("{}".into());
+        let src = emit_field_parse(&f, "n", "").join("\n");
+        assert!(
+            src.contains(r#"is pinned to {{}}: {:?}"#),
+            "the pin's braces are doubled, not left as placeholders: {src}"
+        );
+        // Exactly the one placeholder the message passes an argument for.
+        let msg = src
+            .lines()
+            .find(|l| l.contains("is pinned to"))
+            .expect("the ensure line");
+        // From the message literal's own opening quote — the line also carries the COMPARISON,
+        // whose `"{}"` is the pin itself and not part of the format string. My first draft of
+        // this bound took the first quote on the line and counted that one too.
+        let start = msg
+            .find("\"type is pinned to")
+            .expect("the message literal")
+            + 1;
+        let body = &msg[start..start + msg[start..].find('"').expect("close quote")];
+        assert_eq!(
+            body.replace("{{", "")
+                .replace("}}", "")
+                .matches('{')
+                .count(),
+            1,
+            "one placeholder, one argument: {msg}"
+        );
+
+        // The same for the WIRE name, which reaches the message by a different route.
+        let mut f = ranged("od{d}", None, None, true);
+        f.method = "attrString".into();
+        f.wire_name = Some("od{d}".into());
+        let src = emit_field_parse(&f, "n", "").join("\n");
+        assert!(
+            src.contains("missing od{{d}}"),
+            "the wire name's braces are doubled too: {src}"
+        );
+
+        // The bound: a name with no braces is embedded exactly as before, so the escaping
+        // narrows nothing it should not.
+        let mut f = ranged("plain", None, None, true);
+        f.method = "attrString".into();
+        let src = emit_field_parse(&f, "n", "").join("\n");
+        assert!(
+            src.contains(r#"missing plain"#) && !src.contains("{{"),
+            "an ordinary name is untouched: {src}"
         );
     }
 

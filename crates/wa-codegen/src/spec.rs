@@ -32,7 +32,7 @@ pub(crate) fn assertions_conflict(a: &ResponseVariant, b: &ResponseVariant) -> b
 
 use crate::emit::{VariantCtx, emit_child_builder, emit_response_parser};
 use crate::fields::{collect_response_fields, rust_attr_type};
-use crate::naming::{pascal_case, rust_ident, rust_lit, rust_lit_inner};
+use crate::naming::{fmt_lit_inner, pascal_case, rust_ident, rust_lit};
 
 /// Length of the common prefix shared by the variant tags, backed up to a word
 /// boundary (next ASCII-uppercase char). Lets `GetBlockListResponseSuccessWithMatch`
@@ -427,8 +427,8 @@ fn emit_success_guards(op: &IqStanzaDef, indent: &str) -> Vec<String> {
                         "{indent}if response.get_attr({}).map(|x| x.as_str()).as_deref() != Some({}) {{ anyhow::bail!(\"not a success response: {} != {}\"); }}",
                         rust_lit(name),
                         rust_lit(value),
-                        rust_lit_inner(name),
-                        rust_lit_inner(value),
+                        fmt_lit_inner(name),
+                        fmt_lit_inner(value),
                     ));
                 }
             }
@@ -437,7 +437,7 @@ fn emit_success_guards(op: &IqStanzaDef, indent: &str) -> Vec<String> {
                     lines.push(format!(
                         "{indent}if response.content_str() != Some({}) {{ anyhow::bail!(\"not a success response: content != {}\"); }}",
                         rust_lit(value),
-                        rust_lit_inner(value),
+                        fmt_lit_inner(value),
                     ));
                 }
             }
