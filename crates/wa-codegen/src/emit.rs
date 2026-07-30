@@ -42,10 +42,18 @@ pub(crate) fn emit_field_parse(f: &ParsedField, node_var: &str, indent: &str) ->
     // classifier, so a newly-recognized one (`contentUint`, `contentEnum`,
     // `contentBytesRange`, `contentLiteralBytes`) is parsed rather than silently skipped.
     if wap::is_content_method(method) {
-        let mut out = vec![format!(
+        // The byte count a `contentUint(N)` leaf pins, checked on the RAW payload and BEFORE the
+        // decode, because folding N big-endian bytes into a `u64` loses it. The flattened
+        // child-content path has asked this since the round it was added and the ordinary read
+        // did not — the committed corpus has a repeated `mapChildren` item with
+        // `contentUint(3)`, whose one-, two- and four-byte payloads this accepted and the source
+        // accessor turns away. One rule, two places, one copy missing it, on the third kind of
+        // constraint this branch has needed it for.
+        let mut out = raw_length_check(Some(f), &name, &fmsg, indent, node_var, f.required);
+        out.push(format!(
             "{indent}let {name} = {node_var}.{};",
             content_decoder(method)
-        )];
+        ));
         // The same band the attribute path enforces. A content leaf declaring `intMin: -10`
         // decoded the number and checked nothing, and the moment its width could be signed a
         // `-20` materialized where the unsigned parse had been refusing every negative value by
@@ -2092,11 +2100,8 @@ mod tests {
 
     #[test]
     fn a_content_read_with_no_pinned_length_checks_nothing_extra() {
-        // The paired bound, both ways it matters. Nothing declared means nothing enforced — and
-        // `contentUint(N)` declares a byte length but folds those bytes into a `u64`, which has
-        // no `len()`, so asking the classifier rather than the metadata is what keeps the two
-        // apart instead of emitting code that does not compile.
-        for (method, len) in [("contentBytes", None), ("contentUint", Some(8))] {
+        // The paired bound: nothing declared means nothing enforced, whichever spelling asks.
+        for (method, len) in [("contentBytes", None), ("contentUint", None)] {
             let f = ParsedField {
                 method: method.into(),
                 name: "elementValue".into(),
@@ -2111,6 +2116,36 @@ mod tests {
                 "no length check here ({method}): {src}"
             );
         }
+    }
+
+    #[test]
+    fn an_ordinary_content_uint_measures_the_raw_payload() {
+        // `contentUint(N)` pins a byte count, and folding N big-endian bytes into a `u64` loses
+        // it — so the check is on the RAW payload, before the decode. I had this test asserting
+        // that no check belongs here at all, on the grounds that a `u64` has no `len()`. That is
+        // true of the decoded value and beside the point: the flattened child path has measured
+        // the payload since the round that added it, and review was right that this one had
+        // never been given the same rule. The corpus has a repeated `mapChildren` item with
+        // `contentUint(3)`, whose one-, two- and four-byte payloads this accepted.
+        let f = ParsedField {
+            method: "contentUint".into(),
+            name: "elementValue".into(),
+            wire_name: Some("elementValue".into()),
+            required: true,
+            byte_length: Some(8),
+            ..Default::default()
+        };
+        let src = emit_field_parse(&f, "n", "").join("\n");
+        assert!(
+            src.contains(r#"n.content_bytes().is_some_and(|b| b.len() == 8)"#),
+            "the payload is measured: {src}"
+        );
+        // And before the fold, not after: the decoded value is a number and has no length to
+        // take. Ordering it the other way round emits code that does not compile.
+        assert!(
+            src.find("wrong length").unwrap() < src.find("let element_value").unwrap(),
+            "the check precedes the decode: {src}"
+        );
     }
 
     #[test]

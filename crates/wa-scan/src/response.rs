@@ -3111,8 +3111,10 @@ fn invoked_callee<'b, 'a>(mut e: &'b Expression<'a>) -> &'b Expression<'a> {
 /// literal one is as readable as an argument list, and answering "unknowable" for every `.apply`
 /// walked a default the call really does prevent.
 ///
-/// `None` in a slot is "nothing readable here", and a spread ends the mapping outright, because
-/// it moves every position after it by an amount nothing here knows.
+/// `None` in a slot is an array ELISION — a position that certainly holds `undefined`, so it
+/// supplies nothing while the positions after it stay where they are. A spread is the other
+/// answer and ends the mapping outright, because it moves every position after it by an amount
+/// nothing here knows.
 fn effective_arguments<'b, 'a>(
     callee_expr: &'b Expression<'a>,
     arguments: &'b [Argument<'a>],
@@ -3504,6 +3506,22 @@ fn synchronous_until(
                 self.visit_statement(side);
             }
         }
+        // A ternary is the decided branch the `if` arm already prunes, one syntactic level over.
+        // `1 ? 0 : await 0` never evaluates that await, so the statements after it are as
+        // synchronous as they look — and the generic walk took it as the cutoff.
+        fn visit_conditional_expression(&mut self, e: &oxc_ast::ast::ConditionalExpression<'a>) {
+            self.visit_expression(&e.test);
+            if let Some((taken, _dead)) =
+                statically_selected(&e.test, &e.consequent, Some(&e.alternate))
+            {
+                if let Some(taken) = taken {
+                    self.visit_expression(taken);
+                }
+                return;
+            }
+            self.visit_expression(&e.consequent);
+            self.visit_expression(&e.alternate);
+        }
         // A short-circuit operator is the same decided branch in expression form. `0 && await 0`
         // never evaluates its right side, so the await in it suspends nothing and the statements
         // after it are as synchronous as they look — the pruning was written for `if` and left
@@ -3839,6 +3857,17 @@ struct ClassPhases<'s> {
     pre_super: Option<Span>,
 }
 
+/// Whether `new` can call this callee at all. A class and a plain function can be constructed;
+/// an arrow, an async function and a generator cannot, and `new` on one throws before its
+/// parameters or body are evaluated.
+fn is_constructible(callee: &Expression<'_>) -> bool {
+    match callee {
+        Expression::ClassExpression(_) => true,
+        Expression::FunctionExpression(f) => !f.generator && !f.r#async,
+        _ => false,
+    }
+}
+
 /// Whether constructing this class runs its instance field initializers at all.
 ///
 /// A DERIVED class installs them the moment `super()` returns, so a constructor that leaves
@@ -3968,10 +3997,18 @@ fn suppressed_defaults(
     };
     let mut out = Vec::new();
     for (i, param) in params.items.iter().enumerate() {
-        // `None` at a position — a spread, or anything the caller could not read — ends the
-        // mapping, because everything after it has moved by an amount nothing here knows.
-        let Some(Some(supplied)) = arguments.get(i).copied() else {
+        // Past the end of what the call supplies: every remaining default runs.
+        let Some(slot) = arguments.get(i).copied() else {
             break;
+        };
+        // An array ELISION in an `.apply` list — `f.apply(null, [, 1])` — is a position that
+        // certainly holds `undefined`. It supplies nothing, so this parameter's default runs;
+        // but the positions after it have NOT moved, so the mapping goes on. Ending it here
+        // dropped the `1` that really does reach the next parameter, and its default was
+        // recorded as a write the call prevents. A spread is the other answer and never
+        // reaches this loop: `mapped` stops the list at one.
+        let Some(supplied) = slot else {
+            continue;
         };
         // The parameter's OWN default, then whatever the pattern it binds destructures. When
         // the default runs, the pattern takes the default's value apart, not the argument's —
@@ -4939,6 +4976,14 @@ impl AllBindings {
         // what it wrote — the one case where "does this nested function execute" is decidable
         // from the syntax alone.
         let callee = invoked_callee(callee_expr);
+        // `new` needs a CONSTRUCTOR. An arrow, an async function and a generator are none of
+        // them, so `new (() => { … })()` throws a TypeError with the body never entered — and
+        // recording its writes published a helper's reads under a node nothing had moved. The
+        // arguments are evaluated before the throw and still run, which declining here leaves
+        // to the ordinary walk.
+        if constructs && !is_constructible(callee) {
+            return false;
+        }
         let runs_now = match callee {
             // A generator call runs none of the BODY — it builds an iterator, and whether
             // anything ever draws from it is the call-graph question this scanner does not
@@ -5740,10 +5785,13 @@ impl<'a> Visit<'a> for AllBindings {
                 // below it. Only an unconditional call at the top of the body is decidable;
                 // one under an `if` runs somewhere this cannot name, so that declines.
                 let body = ctor.value.body.as_ref()?;
+                // Through the parentheses that change nothing: `(super());` calls it exactly
+                // as `super();` does, and matching the bare spelling alone left the fields
+                // ordered by source position against a read that follows them.
                 let super_call = body.statements.iter().find_map(|st| match st {
-                    Statement::ExpressionStatement(e) => match &e.expression {
+                    Statement::ExpressionStatement(e) => match peel(&e.expression) {
                         Expression::CallExpression(c)
-                            if matches!(c.callee, Expression::Super(_)) =>
+                            if matches!(peel(&c.callee), Expression::Super(_)) =>
                         {
                             Some(c.span)
                         }
@@ -7157,12 +7205,28 @@ fn leaves_the_loop_with_a_value(stmt: &Statement<'_>) -> bool {
 /// Whether a logical operator's right side runs whatever its left side evaluated to: `!0 && x`
 /// and `0 || x` both reach `x` always.
 ///
-/// `??` is not included — no literal this narrow establishes nullishness. Read by the requiredness
-/// walk and by the binding collector, which have to agree about the same expression.
+/// `??` reaches its right side when the left one IS nullish, which `null` and `void …` both
+/// are. Read by the requiredness walk and by the binding collector, which have to agree about
+/// the same expression — so a read there came out optional against a parser that always
+/// performs it, and the shape accepted responses the source rejects.
 fn logical_right_is_certain(expr: &oxc_ast::ast::LogicalExpression<'_>) -> bool {
     match expr.operator {
         oxc_syntax::operator::LogicalOperator::And => always_true(&expr.left),
         oxc_syntax::operator::LogicalOperator::Or => always_false(&expr.left),
+        oxc_syntax::operator::LogicalOperator::Coalesce => certainly_nullish(&expr.left),
+    }
+}
+
+/// Whether `t` is certainly `null` or `undefined` — the complement [`never_nullish`] declines
+/// to answer, and no more available for an arbitrary expression than its opposite is.
+///
+/// `void <anything>` is `undefined` whatever it evaluates, side effects included. A bare
+/// `undefined` is an identifier nothing here resolves, so it declines with everything else.
+fn certainly_nullish(t: &Expression<'_>) -> bool {
+    match t {
+        Expression::NullLiteral(_) => true,
+        Expression::ParenthesizedExpression(p) => certainly_nullish(&p.expression),
+        Expression::UnaryExpression(u) => u.operator == oxc_syntax::operator::UnaryOperator::Void,
         _ => false,
     }
 }
@@ -17092,5 +17156,148 @@ mod tests {
                 "nothing the call ran moved it: {body}"
             );
         }
+    }
+    #[test]
+    fn a_dead_ternary_branch_holds_no_await() {
+        // The decided branch the `if` arm already prunes, one syntactic level over: `1 ? 0 :
+        // await 0` never evaluates that await, so the write after it is synchronous and the
+        // generic walk took it as the cutoff.
+        for body in [
+            "var current = e; (async function () { 1 ? 0 : await 0; current = other; })(); parse(current);",
+            "var current = e; (async function () { 0 ? await 0 : 0; current = other; })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that await is unreachable: {body}"
+            );
+        }
+        // The bound: an undecided test reaches both sides, and the await in either of them is
+        // a real cutoff.
+        let fields = helper_reached_via(
+            "var current = e; (async function () { c ? 0 : await 0; current = other; })(); parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "that await still runs: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn an_apply_elision_supplies_undefined_and_moves_nothing() {
+        // `f.apply(null, [, 1])` gives the first parameter `undefined` and the second the `1`,
+        // so the second default never runs. The elision was read as an unreadable position and
+        // ended the mapping, which dropped the `1` that really does reach the parameter after
+        // it — and its default was recorded as a write the call prevents.
+        let fields = helper_reached_via(
+            "var current = e; (function (x, y = (current = other)) {}).apply(null, [, 1]); parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the second position was still supplied: {fields:?}"
+        );
+        // The bound, on both sides of it. The elision supplies NOTHING to the parameter it
+        // lands on, so that one's default still runs; and a SPREAD really does end the mapping,
+        // because it moves the positions after it by an amount nothing here counts.
+        for body in [
+            "var current = e; (function (x = (current = other)) {}).apply(null, [, 1]); parse(current);",
+            "var current = e; (function (x, y = (current = other)) {}).apply(null, [...a, 1]); parse(current);",
+            "var current = e; (function (x, y = (current = other)) {}).apply(null, [1]); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that default still runs: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_parenthesized_super_is_still_the_super_call() {
+        // `(super());` calls it exactly as `super();` does, and matching the bare spelling alone
+        // left a derived class's fields ordered by source position against a read that follows
+        // them.
+        let fields = helper_reached_via(
+            "var current = e; new (class extends Base { constructor(){ (super()); parse(current); } x = (current = other) })();",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the field had initialized by then: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn new_on_something_that_is_not_a_constructor_runs_nothing() {
+        // `new` needs a CONSTRUCTOR. An arrow, an async function and a generator are none of
+        // them, so this throws a `TypeError` with the body never entered — and recording its
+        // writes published a helper's reads under a node nothing had moved.
+        for body in [
+            "var current = e; try { new (() => { current = other; })(); } catch (_) {} parse(current);",
+            "var current = e; try { new (async function () { current = other; })(); } catch (_) {} parse(current);",
+            "var current = e; try { new (function* () { current = other; })(); } catch (_) {} parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "nothing in there ran: {body}"
+            );
+        }
+        // The bound: a plain function and a class are both constructible, and calling either
+        // without `new` is unaffected by any of this.
+        for body in [
+            "var current = e; new (function () { current = other; })(); parse(current);",
+            "var current = e; new (class { constructor(){ current = other; } })(); parse(current);",
+            "var current = e; (() => { current = other; })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that body did run: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_nullish_left_side_makes_the_coalesce_certain() {
+        // `null ?? parse(e)` performs that call on every path, so what it reads is required.
+        // The fallback made every `??` right side conditional, and a read the parser always
+        // performs came out optional — a shape that accepts responses the source rejects.
+        for body in ["null ?? parse(e);", "void 0 ?? parse(e);"] {
+            assert!(
+                helper_field_required(body),
+                "the right side always runs: {body}"
+            );
+        }
+        // The bound: an arbitrary left side is a real branch, and so is a bare `undefined`,
+        // which is an identifier nothing here resolves.
+        for body in ["c ?? parse(e);", "undefined ?? parse(e);"] {
+            assert!(
+                !helper_field_required(body),
+                "that call is conditional: {body}"
+            );
+        }
+    }
+
+    /// Whether the field a module helper reads comes out required, for a callback body that
+    /// reaches `parse`.
+    fn helper_field_required(body: &str) -> bool {
+        let module = format!(
+            r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){{
+            function parse(p){{ p.attrString("id"); }}
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){{
+                e.assertTag("receipt");
+                {body}
+            }});
+        }}),1);"#
+        );
+        parse_module_wap_parsers(&module)
+            .into_iter()
+            .find(|r| r.parser_name == "p")
+            .expect("parser")
+            .fields
+            .iter()
+            .find(|f| f.name == "id")
+            .expect("recovered")
+            .required
     }
 }
