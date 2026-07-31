@@ -750,7 +750,24 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
             Vec::new()
         };
         self.block_depth += 1;
-        walk::walk_block_statement(self, block);
+        // Nothing after an unconditional exit runs: `{ throw 0; parse(e); }` never reaches
+        // that read, and walking the list flat recorded it as one every successful execution
+        // performs. `AllBindings::walk_in_order` has drawn this cut on the collector side all
+        // along — one rule in two places with one copy missing it, again — and it stayed
+        // hidden here only because the one construct that could expose it, a `try` block that
+        // throws out, used to have its whole claim set discarded.
+        //
+        // A skipped path rather than silence: an unreachable read says nothing about what the
+        // parser requires, and recording it as optional says exactly that.
+        let mut past_the_exit = false;
+        for st in &block.body {
+            if past_the_exit {
+                self.in_skipped_path(|s| s.visit_statement(st));
+            } else {
+                self.visit_statement(st);
+                past_the_exit = ends_the_statement_list(st);
+            }
+        }
         self.block_depth -= 1;
         self.restore_children(shadowed);
     }
@@ -1165,6 +1182,18 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
             // itself runs only when the block failed. But a helper BOTH call, so every
             // successful execution passed through it, which is the two-sided intersection
             // `if` already does and this had no equivalent of.
+            // …but a block that leaves by THROWING is not one of those shapes: there is no
+            // path where it completes, so the handler is a continuation of the same execution
+            // rather than an alternative to it. `try { parse(e); throw 0; } catch (_) {}` calls
+            // `parse` on every execution that reaches the try, and raising the counter over the
+            // pair intersected the block against a handler that establishes nothing — leaving
+            // optional a read the parser always performs. A straight line, walked at the depth
+            // it is written at; a conditional INSIDE the block still relaxes its own reads,
+            // which is what keeps `try { if (k) parse(e); throw 0; }` optional.
+            Some(h) if throws_out(&stmt.block.body) => {
+                self.visit_block_statement(&stmt.block);
+                self.visit_catch_clause(h);
+            }
             Some(h) => {
                 let parked = self.conditional_assertions.len();
                 let before = (self.guard_claims.len(), self.relaxed_by_branch.len());
@@ -1184,14 +1213,11 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
                 // get. `catch (_) { throw Error(); }` hands nothing back, so every execution
                 // that yielded a result completed the block — intersecting against the empty
                 // handler left the block's reads optional where every successful parse
-                // performs them. Both throwing means no path yields anything and nothing is
-                // established, which `unwrap_or_default` already says.
-                let mut weak_sides = Vec::new();
-                let mut guard_sides = Vec::new();
-                if !throws_out(&stmt.block.body) {
-                    weak_sides.push(tried.1);
-                    guard_sides.push(tried.0);
-                }
+                // performs them. The block's own half of that filter is the arm above, which
+                // does not reach here: a block that throws out has no alternative to intersect
+                // against at all.
+                let mut weak_sides = vec![tried.1];
+                let mut guard_sides = vec![tried.0];
                 if !throws_out(&h.body.body) {
                     weak_sides.push(caught.1);
                     guard_sides.push(caught.0);
@@ -4451,17 +4477,20 @@ fn construction_regions(callee: &Expression<'_>, constructs: bool) -> Vec<Span> 
 /// defaults are prevented exactly as a written argument prevents one, and the pattern they bind
 /// is taken apart from a value this cannot read, so nothing nested is claimed.
 fn suppressed_defaults(
-    callee: &Expression<'_>,
+    params: Option<&oxc_ast::ast::FormalParameters<'_>>,
     arguments: &[Option<&Expression<'_>>],
     implicit: Option<&oxc_ast::ast::TemplateLiteral<'_>>,
-    constructs: bool,
 ) -> Vec<Span> {
     let implicit_leading = usize::from(implicit.is_some());
     // `new (class { constructor(x = (current = other)) {} })(1)` passes its arguments to that
     // constructor exactly as a call passes them to a function, so the same defaults are
     // prevented — which is why `callee_params` answers for the class shape too, and why the
     // getter walk beside it reads the very same list rather than a second copy of this match.
-    let Some(params) = callee_params(callee, constructs) else {
+    //
+    // The list is resolved by the CALLER now: a static method's parameters are a `Function`'s,
+    // which `callee_params` cannot reach through an `Expression`, and every check on this page
+    // has to see the same list or the invocation is judged on parameters it does not have.
+    let Some(params) = params else {
         return Vec::new();
     };
     let mut out = Vec::new();
@@ -4530,12 +4559,11 @@ fn suppressed_defaults(
 /// expression to read holds no getter this can name, and it is not the parameter's default that
 /// the binding takes apart either.
 fn bound_getters<'b, 'a>(
-    callee: &'b Expression<'a>,
+    params: Option<&'b oxc_ast::ast::FormalParameters<'a>>,
     arguments: &[Option<&'b Expression<'a>>],
     implicit_leading: usize,
-    constructs: bool,
 ) -> Vec<Span> {
-    let Some(params) = callee_params(callee, constructs) else {
+    let Some(params) = params else {
         return Vec::new();
     };
     let mut out = Vec::new();
@@ -4591,14 +4619,13 @@ fn bound_getters<'b, 'a>(
 /// A missing argument is `undefined` too, so `(function ({x}) {})()` throws as surely as
 /// passing it: the position past the end of the list counts.
 fn binding_certainly_throws(
-    callee: &Expression<'_>,
+    params: Option<&oxc_ast::ast::FormalParameters<'_>>,
     effective: &[Option<&Expression<'_>>],
     implicit_leading: usize,
     complete: bool,
     undefined_is_the_global: bool,
-    constructs: bool,
 ) -> bool {
-    let Some(params) = callee_params(callee, constructs) else {
+    let Some(params) = params else {
         return false;
     };
     params.items.iter().enumerate().any(|(i, param)| {
@@ -4682,21 +4709,37 @@ fn pattern_binding_throws(
                 prop.key.static_name().is_some_and(|name| {
                     let owned = owned_property(obj, name.as_ref());
                     // A property this cannot resolve says nothing; one it can carries its own
-                    // value down. No `PropertyKind::Init` test beside it: an accessor's value
-                    // is a FUNCTION, which is neither nullish nor a literal object, so
-                    // descending through one answers exactly what refusing to would — the
-                    // mutation dropping the guard changed nothing and it is gone.
+                    // value down. An ACCESSOR's own text is not that value — it is a function,
+                    // which is neither nullish nor a literal object, so descending through one
+                    // used to answer exactly what refusing to would and the kind test beside it
+                    // was removed as inert. Inert is not the same as unnecessary: a property
+                    // the object ends up holding with a SETTER and no getter reads back
+                    // `undefined`, whatever the setter stores, so a nested pattern over it
+                    // throws. That decline is what the missing test cost, stated on the line
+                    // last round and claimed here.
                     //
-                    // What that costs is stated rather than hidden: reading a SETTER-only
-                    // property yields `undefined`, so a nested pattern over one really does
-                    // throw, and this loses that decline. Claiming it needs the accessor kinds
-                    // read as a pair, which is a wider change than the shape reported here.
-                    owned.is_some_and(|op| {
-                        pattern_binding_throws(
+                    // `undefined` is exactly what `None` means one level down, so the existing
+                    // no-value path answers it — including its own bound, that a plain
+                    // identifier binds `undefined` perfectly well.
+                    owned.is_some_and(|op| match op.kind {
+                        oxc_ast::ast::PropertyKind::Init => pattern_binding_throws(
                             &prop.value,
                             Some(&op.value),
                             undefined_is_the_global,
-                        )
+                        ),
+                        // A getter supplies the value by RUNNING, and what it hands back is
+                        // unreadable — the pair matters, because `{ get x(){…}, set x(v){} }`
+                        // ends up with both and reading it calls the getter. `owned_property`
+                        // hands back the LAST property of the name, which for that literal is
+                        // the setter, so the question cannot be asked of it alone.
+                        _ => {
+                            setter_without_getter(obj, name.as_ref())
+                                && pattern_binding_throws(
+                                    &prop.value,
+                                    None,
+                                    undefined_is_the_global,
+                                )
+                        }
                     })
                 })
             })
@@ -4771,6 +4814,54 @@ fn enumerates_at_least_once(e: &Expression<'_>) -> bool {
         oxc_ast::ast::ObjectPropertyKind::SpreadProperty(_) => false,
         oxc_ast::ast::ObjectPropertyKind::ObjectProperty(op) => !sets_the_prototype(op),
     })
+}
+
+/// Whether reading `name` off this literal yields `undefined` because the object ends up with a
+/// SETTER for it and no getter.
+///
+/// The descriptor is built by every property of that name in order, not just the last one: a
+/// plain value replaces the accessor pair outright, while `get`/`set` each fill their own half
+/// and leave the other standing. So `{ get x(){…}, set x(v){} }` reads through the GETTER even
+/// though the setter is written last, and only a literal that names a setter with no getter
+/// after the last data property reads back `undefined`.
+///
+/// A spread that could contribute the name settles nothing, the same cut `owned_property` makes.
+fn setter_without_getter(obj: &oxc_ast::ast::ObjectExpression<'_>, name: &str) -> bool {
+    let mut saw_setter = false;
+    for p in obj.properties.iter().rev() {
+        match p {
+            oxc_ast::ast::ObjectPropertyKind::SpreadProperty(s) => {
+                if spread_may_define(&s.argument, name) {
+                    return false;
+                }
+            }
+            oxc_ast::ast::ObjectPropertyKind::ObjectProperty(op) => {
+                if op.key.static_name().as_deref() != Some(name) || sets_the_prototype(op) {
+                    continue;
+                }
+                match op.kind {
+                    // A data property — a concise method included — replaces the whole
+                    // accessor pair, so nothing written ABOVE it is part of what the object
+                    // holds and the scan stops. It does not answer the question, though: an
+                    // accessor written BELOW it replaces the data property right back, so
+                    // `{ x: 1, set x(v){} }` reads `undefined` too. Returning a flat `false`
+                    // here said the opposite, and the mutation that changed this arm to fall
+                    // through is what turned the case up.
+                    //
+                    // `saw_setter` is always true where this arm is reached from the one caller
+                    // — it asks only when the LAST property of the name is an accessor, and a
+                    // getter would have returned above — so `true` would pass every test here.
+                    // Kept anyway, and said rather than hidden: the flag is what makes this
+                    // function state its own rule, and `true` would make it correct only by the
+                    // caller's precondition. No mutation of mine can tell them apart.
+                    oxc_ast::ast::PropertyKind::Init => return saw_setter,
+                    oxc_ast::ast::PropertyKind::Get => return false,
+                    oxc_ast::ast::PropertyKind::Set => saw_setter = true,
+                }
+            }
+        }
+    }
+    saw_setter
 }
 
 /// Whether `e` is certainly not iterable, so an array pattern taking it apart must throw.
@@ -6056,65 +6147,79 @@ impl AllBindings {
 
         // `(class { static m(){ … } }).m()` selects that method and runs it here exactly as an
         // object literal's does — a static method is a property of the class OBJECT, so the call
-        // reaches it without constructing anything. The callee unwrapper cannot hand it back
-        // (it returns an `Expression` and a method's value is a `Function`), so it is recognized
-        // here alongside the shapes below. A getter is a different question, answered by the
-        // leading-effects reader.
-        if !constructs
-            && let Some((name, object)) = named_member(peel(callee_expr))
-            && let Expression::ClassExpression(c) = peel(object)
-            && let Some(f) = static_method(c, name.as_ref())
-        {
-            self.effects_land_at.push((vec![f.span], f.span, span.end));
+        // reaches it without constructing anything. The callee unwrapper cannot hand it back (it
+        // returns an `Expression` and a method's value is a `Function`), so it is resolved here
+        // instead. A getter is a different question, answered by the leading-effects reader.
+        //
+        // Resolved, and then routed through everything below rather than walked on the spot.
+        // Round fifty-nine gave this shape its own miniature walk, and the walk skipped the
+        // parameter mapping with it: a supplied argument no longer prevented a default, and a
+        // binding certain to throw no longer stopped the body, nor did an argument that raises.
+        // One shape recognized in two places is the split this branch keeps paying for — so the
+        // second place is a resolution now and there is only one walk.
+        // No `!constructs` test beside it. `new (class { static m(){ … } }).m()` never reaches
+        // here: the callee is the member expression, which `is_constructible` refuses, and the
+        // decline above returns first. The gate was inert — the mutation removing it changed
+        // nothing — so it is gone rather than kept as a claim nothing checks.
+        let static_called =
+            named_member(peel(callee_expr)).and_then(|(name, object)| match peel(object) {
+                Expression::ClassExpression(c) => static_method(c, name.as_ref()),
+                _ => None,
+            });
+        // What this invocation binds, from whichever of the two the callee turned out to be.
+        // Every check below reads this one list, or the call is judged against parameters it
+        // does not have.
+        let params = match static_called {
+            Some(f) => Some(&*f.params),
+            None => callee_params(callee, constructs),
+        };
+        // The regions whose writes land at the call, and the invoked body they land from.
+        let (regions, body_span) = match static_called {
+            Some(f) => (vec![f.span], f.span),
+            None => (construction_regions(callee, constructs), callee.span()),
+        };
+        let runs_now = if let Some(f) = static_called {
             self.iife.push((
                 f.span,
                 synchronous_until(f.r#async, f.span, f.body.as_deref()),
             ));
-            let mut leading = Vec::new();
-            leading_parts(callee_expr, &mut leading);
-            for part in leading {
-                self.visit_expression(part);
+            true
+        } else {
+            match callee {
+                // A generator call runs none of the BODY — it builds an iterator, and whether
+                // anything ever draws from it is the call-graph question this scanner does not
+                // answer. Its PARAMETERS are another matter: binding them is part of the call,
+                // so a default runs before the iterator is handed back and the caller does see
+                // it. Declining the whole callee confined that write with the body's.
+                //
+                // Exactly the same shape as `async`, which runs synchronously as far as its
+                // first `await` — a synchronous region that is a prefix of the callee rather
+                // than all of it, which is what this list is for.
+                Expression::FunctionExpression(f) if f.generator => {
+                    self.iife.push((f.span, vec![f.params.span]));
+                    true
+                }
+                Expression::FunctionExpression(f) => {
+                    self.iife.push((
+                        f.span,
+                        synchronous_until(f.r#async, f.span, f.body.as_deref()),
+                    ));
+                    true
+                }
+                Expression::ArrowFunctionExpression(f) => {
+                    self.iife
+                        .push((f.span, synchronous_until(f.r#async, f.span, Some(&f.body))));
+                    true
+                }
+                // `new (class { constructor(){ … } })()` runs user code now, exactly as an
+                // IIFE does. Only under `new`: calling a class throws, so the body runs on no
+                // path.
+                Expression::ClassExpression(c) if constructs => {
+                    self.constructing.push(c.span);
+                    true
+                }
+                _ => false,
             }
-            for arg in arguments {
-                self.visit_argument(arg);
-            }
-            self.visit_expression(callee_expr);
-            self.effects_land_at.pop();
-            return true;
-        }
-        let runs_now = match callee {
-            // A generator call runs none of the BODY — it builds an iterator, and whether
-            // anything ever draws from it is the call-graph question this scanner does not
-            // answer. Its PARAMETERS are another matter: binding them is part of the call, so a
-            // default runs before the iterator is handed back and the caller does see it.
-            // Declining the whole callee confined that write with the body's.
-            //
-            // Exactly the same shape as `async`, which runs synchronously as far as its first
-            // `await` — a synchronous region that is a prefix of the callee rather than all of
-            // it, which is what this list is for.
-            Expression::FunctionExpression(f) if f.generator => {
-                self.iife.push((f.span, vec![f.params.span]));
-                true
-            }
-            Expression::FunctionExpression(f) => {
-                self.iife.push((
-                    f.span,
-                    synchronous_until(f.r#async, f.span, f.body.as_deref()),
-                ));
-                true
-            }
-            Expression::ArrowFunctionExpression(f) => {
-                self.iife
-                    .push((f.span, synchronous_until(f.r#async, f.span, Some(&f.body))));
-                true
-            }
-            // `new (class { constructor(){ … } })()` runs user code now, exactly as an IIFE
-            // does. Only under `new`: calling a class throws, so the body runs on no path.
-            Expression::ClassExpression(c) if constructs => {
-                self.constructing.push(c.span);
-                true
-            }
-            _ => false,
         };
         if !runs_now {
             return false;
@@ -6166,18 +6271,25 @@ impl AllBindings {
         // invocation was approved on the callee and the binding alone, so the body's writes
         // were recorded for a call that performs them on no path. The arguments up to and
         // including the throwing one still run, and the walk below records them.
+        // A tagged template's SUBSTITUTIONS are arguments in every sense that matters here:
+        // each is evaluated before the tag is called, so one that certainly raises stops the
+        // call exactly as an ordinary argument does. Round sixty read this list alone and left
+        // the template out, so ``(function(){ current = other; })`${(function(){throw 0})()}` ``
+        // recorded a write for a tag that is never invoked. I named that gap when I drew the
+        // rule and shipped without it; it came back as the next round's finding, which is the
+        // argument against leaving a half-stated rule for later.
         let argument_raises = arguments
             .iter()
             .filter_map(oxc_ast::ast::Argument::as_expression)
-            .any(expression_throws);
+            .any(expression_throws)
+            || template.is_some_and(|q| q.expressions.iter().any(expression_throws));
         if argument_raises
             || binding_certainly_throws(
-                callee,
+                params,
                 &effective,
                 implicit_leading,
                 complete,
                 undefined_is_the_global,
-                constructs,
             )
         {
             // The arguments are evaluated BEFORE the binding — and before an argument that
@@ -6205,19 +6317,28 @@ impl AllBindings {
                 self.visit_argument(arg);
                 raised = arg.as_expression().is_some_and(expression_throws);
             }
+            // …and the substitutions continue that same left-to-right list, after the strings
+            // object the tag is handed first. A quasi is text and evaluates nothing, so walking
+            // the expressions is the whole of what `visit_template_literal` would have done.
             if let Some(q) = template {
-                self.visit_template_literal(q);
+                for sub in &q.expressions {
+                    if raised {
+                        self.unreachable += 1;
+                        self.visit_expression(sub);
+                        self.unreachable -= 1;
+                        continue;
+                    }
+                    self.visit_expression(sub);
+                    raised = expression_throws(sub);
+                }
             }
             self.unreachable += 1;
             self.visit_expression(callee_expr);
             self.unreachable -= 1;
             return true;
         }
-        self.effects_land_at.push((
-            construction_regions(callee, constructs),
-            callee.span(),
-            span.end,
-        ));
+        self.effects_land_at
+            .push((regions.clone(), body_span, span.end));
         // A tagged template hands its tag the strings object and then the substitutions, so the
         // mapping is the substitutions shifted one place — and position 0 is supplied by a value
         // that is certainly not `undefined`, whatever the template says. Handing this an empty
@@ -6230,11 +6351,11 @@ impl AllBindings {
         // nothing else.
         let restore_getters = self.binding_getters.len();
         self.binding_getters.extend(
-            bound_getters(callee, &effective, implicit_leading, constructs)
+            bound_getters(params, &effective, implicit_leading)
                 .into_iter()
                 .map(|g| (g, span.end)),
         );
-        let suppressed = suppressed_defaults(callee, &effective, template, constructs);
+        let suppressed = suppressed_defaults(params, &effective, template);
         let restore = self.suppressed_defaults.len();
         self.suppressed_defaults.extend(suppressed);
         self.visit_expression(callee);
@@ -6250,8 +6371,7 @@ impl AllBindings {
         let mut leading = Vec::new();
         leading_parts(callee_expr, &mut leading);
         if !leading.is_empty() {
-            self.runs_before
-                .push(construction_regions(callee, constructs));
+            self.runs_before.push(regions.clone());
             for part in leading {
                 self.visit_expression(part);
             }
@@ -6268,8 +6388,7 @@ impl AllBindings {
         // its write at the getter's own offset, above a later argument that precedes it. So the
         // registration is carried and applied around the getter's own body alone, where it also
         // declares that its effects land at the CALL.
-        self.runs_before
-            .push(construction_regions(callee, constructs));
+        self.runs_before.push(regions);
         for arg in arguments {
             self.visit_argument(arg);
         }
@@ -13538,6 +13657,161 @@ mod tests {
                 !fields.iter().any(|f| f.name == "id"),
                 "that assignment does run: {body}"
             );
+        }
+    }
+
+    #[test]
+    fn a_static_method_call_binds_its_parameters_like_any_other() {
+        // The round that taught this reader `(class { static m(){ … } }).m()` gave the shape its
+        // own miniature walk, and the walk skipped the parameter mapping with it: an argument
+        // that supplies a parameter no longer prevented its default. It is a resolution now,
+        // routed through the one invocation path, so every check that path performs applies.
+        let fields = helper_reached_via(
+            "var current = e; (class { static m(x = (current = other)) {} }).m(1); parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the argument supplies x and that default never runs: {fields:?}"
+        );
+        // And the rest of that path with it — a binding certain to throw stops the body, and so
+        // does an argument that raises before the call is made.
+        for body in [
+            "var current = e; try { (class { static m({x}){ current = other; } }).m(null); } catch (_) {} parse(current);",
+            "var current = e; try { (class { static m(){ current = other; } }).m((function(){throw 0})()); } catch (_) {} parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that body is entered on no path: {body}"
+            );
+        }
+        // The bounds. An unsupplied parameter still runs its default, and the method's own body
+        // still runs where it is called — which is the rule the resolution must not lose.
+        for body in [
+            "var current = e; (class { static m(x = (current = other)) {} }).m(); parse(current);",
+            "var current = e; (class { static m(){ current = other; } }).m(1); parse(current);",
+            // …and only the METHOD's writes are the ones the call relocates. A static
+            // initializer runs when the class is DEFINED, which is before the arguments, so a
+            // read in an argument sees what it wrote; widening the region to the whole callee
+            // moved that write to the call and put the read back in front of it.
+            "var current = e; (class { static y = (current = other); static m(){} }).m(parse(current));",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that write does happen: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_throwing_substitution_stops_the_tag() {
+        // A tagged template's substitutions are evaluated before the tag is called, so one that
+        // certainly raises stops the call exactly as an ordinary argument does. The round that
+        // drew the argument rule read the argument list alone and left the template out — a gap
+        // I named on the line and shipped anyway, which came back as the next round's finding.
+        for body in [
+            "var current = e; try { (function(){ current = other; })`${(function(){throw 0})()}`; } catch (_) {} parse(current);",
+            // …and a substitution written past the raising one is not evaluated either, which
+            // is the same left-to-right prefix the argument list gets.
+            "var current = e; try { (function(){})`${(function(){throw 0})()}${current = other}`; } catch (_) {} parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that tag is never invoked: {body}"
+            );
+        }
+        // The bounds, the same three the argument list has. A substitution written BEFORE the
+        // raising one is evaluated; the raising one's own writes happen before it leaves; and a
+        // template with nothing raising in it is untouched.
+        for body in [
+            "var current = e; try { (function(){})`${current = other}${(function(){throw 0})()}`; } catch (_) {} parse(current);",
+            "var current = e; try { (function(){})`${(function(){ current = other; throw 0 })()}`; } catch (_) {} parse(current);",
+            "var current = e; (function(){ current = other; })`${1}`; parse(current);",
+            // …and a substitution past one that does NOT raise is evaluated like any other.
+            // The raising one has to come third: this loop is only reached when something in
+            // the list raises, so a template with no throw in it never enters it at all.
+            "var current = e; try { (function(){})`${1}${current = other}${(function(){throw 0})()}`; } catch (_) {} parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that write does happen: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_setter_only_property_reads_back_undefined() {
+        // Whatever a setter stores, reading the property yields `undefined` — so a nested
+        // pattern over one throws while the parameters are bound and the body is entered on no
+        // path. The accessor kind test beside this lookup was removed a round ago as inert,
+        // because an accessor's own text is a function and descending through it answered what
+        // refusing to would; inert is not unnecessary, and this decline is what it cost.
+        let fields = helper_reached_via(
+            "var current = e; try { (function({x:{y}}){ current = other; })({ set x(v){} }); } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "that binding throws: {fields:?}"
+        );
+        // …and a setter written BELOW a data property replaces it, so that reads back
+        // `undefined` too. The last property of the name is the setter here and the data one
+        // above it is not what the object ends up holding — the mirror of the bound below.
+        let fields = helper_reached_via(
+            "var current = e; try { (function({x:{y}}){ current = other; })({ x: { y: 1 }, set x(v){} }); } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the setter replaced that value: {fields:?}"
+        );
+        // The bounds. A GETTER supplies the property by running, and what it returns is
+        // unreadable — including when a setter is written beside it, which is why the last
+        // property of the name cannot answer this alone. A plain value carries itself down. And
+        // a plain identifier binds `undefined` perfectly well, so the pattern has to be one that
+        // really takes the value apart.
+        for body in [
+            "var current = e; (function({x:{y}}){ current = other; })({ get x(){ return {y:1} } }); parse(current);",
+            "var current = e; (function({x:{y}}){ current = other; })({ get x(){ return {y:1} }, set x(v){} }); parse(current);",
+            "var current = e; (function({x:{y}}){ current = other; })({ x: { y: 1 } }); parse(current);",
+            "var current = e; (function({x:{y}}){ current = other; })({ set x(v){}, x: { y: 1 } }); parse(current);",
+            "var current = e; (function({x}){ current = other; })({ set x(v){} }); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that binding succeeds: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_read_before_a_caught_throw_is_still_required() {
+        // A block that leaves by THROWING has no path where it completes, so the handler
+        // continues the same execution rather than offering an alternative to it. `try {
+        // parse(e); throw 0; } catch (_) {}` calls `parse` on every execution that reaches the
+        // try, and intersecting the block against a handler that establishes nothing left
+        // optional a read the parser always performs.
+        for body in [
+            "try { parse(e); throw 0; } catch (_) {}",
+            // …and a handler that throws too changes nothing about the block's own prefix.
+            "try { parse(e); throw 0; } catch (_) { throw 0; }",
+        ] {
+            let (required, _) = guards_and_field(body);
+            assert!(required, "that read happens on every execution: {body}");
+        }
+        // The bounds. Nothing past the throw is reached — which needed the statement walk to
+        // stop at an unconditional exit, a cut the collector side has drawn all along and this
+        // one had not; a conditional INSIDE the block still relaxes its own reads; and a block
+        // that can complete is the two-sided intersection this arm does not touch.
+        for body in [
+            "try { throw 0; parse(e); } catch (_) {}",
+            "try { if (k) { parse(e); } throw 0; } catch (_) {}",
+            "try { parse(e); } catch (_) {}",
+        ] {
+            let (required, _) = guards_and_field(body);
+            assert!(!required, "that read is not on every path: {body}");
         }
     }
 
