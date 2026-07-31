@@ -138,7 +138,16 @@ fn fail_required_fields(fields: &[wa_ir::ParsedField]) -> std::collections::BTre
             if reached && f.required && wa_ir::wap::is_content_method(&f.method) {
                 out.insert(format!("{}/content", path.join("/")));
             }
-            if reached && f.required && (f.method == "child" || f.method.starts_with("attr")) {
+            // …and a REPEATED child fails on nothing. Its parser iterates `get_children_by_tag`
+            // and succeeds with an empty vector where the child is absent, so recording it as
+            // fail-on-absent gave two variants a difference their parsers do not have — and the
+            // gate then admitted a union whose first arm accepts the later arm's response.
+            let repeated = f.repeats == Some(true);
+            if reached
+                && f.required
+                && !repeated
+                && (f.method == "child" || f.method.starts_with("attr"))
+            {
                 let (kind, wire) = if f.method == "child" {
                     ("child", f.tag.as_deref().unwrap_or(&f.name))
                 } else {
@@ -1053,6 +1062,34 @@ mod tests {
             fail_required_fields(&content_inside),
             fail_required_fields(&content_outside),
             "content under a child is a different requirement from content at the root",
+        );
+        // A REPEATED child fails on nothing: its parser iterates and succeeds with an empty
+        // vector where the child is absent, so it cannot tell one variant from another.
+        let repeated = field(serde_json::json!({
+            "method": "child", "name": "item", "tag": "item", "type": "string",
+            "required": true, "repeats": true,
+            "children": [{"method": "attrString", "name": "v", "wireName": "v",
+                          "type": "string", "required": true}]
+        }));
+        assert!(
+            !fail_required_fields(std::slice::from_ref(&repeated))
+                .iter()
+                .any(|k| k.contains("child:item")),
+            "a repeated child is not fail-on-absent",
+        );
+        // …and a child that does NOT repeat still is, which is what makes the exclusion about
+        // repetition rather than about children.
+        let single = field(serde_json::json!({
+            "method": "child", "name": "item", "tag": "item", "type": "string",
+            "required": true,
+            "children": [{"method": "attrString", "name": "v", "wireName": "v",
+                          "type": "string", "required": true}]
+        }));
+        assert!(
+            fail_required_fields(std::slice::from_ref(&single))
+                .iter()
+                .any(|k| k.contains("child:item")),
+            "a single required child bails on absence",
         );
         // The bound: an OPTIONAL content read still fails on nothing, because the emitter hands
         // back a `None` the field holds rather than an error.

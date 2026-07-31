@@ -61,9 +61,14 @@ pub(crate) fn emit_field_parse(f: &ParsedField, node_var: &str, indent: &str) ->
         let optional_leaf = !f.required;
         let mut out = raw_length_check(Some(f), &name, &fmsg, indent, node_var);
         out.push(if optional_leaf {
+            // …and it must DECODE what is there. `content_decoder_opt` ends its integer spelling
+            // in `parse().ok()`, so a relaxed `contentInt` holding `invalid` was filed as absent
+            // — a value the accessor rejects whenever its path runs. The flattened-child read
+            // was given the fallible relaxed decoder four rounds ago and this one, the direct
+            // read of the same kind of leaf, was not.
             format!(
-                "{indent}let {name} = {node_var}.{};",
-                content_decoder_opt(method)
+                "{indent}let {name} = {};",
+                content_read_relaxed(f, node_var, &fmsg)
             )
         } else {
             format!(
@@ -1588,8 +1593,7 @@ fn emit_variant_groups(
             // payload was built from half of it — so choosing the `<config>` variant whose
             // shape is a repeated `<item>` list emitted a `<config>` with no items, a request
             // the source cannot produce and the caller has no way to complete.
-            for c in &v.children {
-                let (member, ty, def) = variant_child_member(&enum_name, vname, c, &v.attrs);
+            for (member, ty, def) in variant_child_members(&enum_name, vname, v) {
                 payload.push(format!("{member}: {ty}"));
                 ctx.enum_defs.extend(def);
             }
@@ -1866,9 +1870,9 @@ fn variant_arm(
         .map(|a| rust_ident(&a.name))
         .collect();
     binds.extend(
-        v.children
-            .iter()
-            .map(|c| variant_child_member(enum_name, vname, c, &v.attrs).0),
+        variant_child_members(enum_name, vname, v)
+            .into_iter()
+            .map(|(member, _, _)| member),
     );
     let pat = if binds.is_empty() {
         format!("{enum_name}::{vname}")
@@ -1905,8 +1909,11 @@ fn variant_arm(
         }
     }
     // …and the children the variant contributes, built from the payload the enum now carries.
-    for c in &v.children {
-        let (member, _, _) = variant_child_member(enum_name, vname, c, &v.attrs);
+    for (c, (member, _, _)) in v
+        .children
+        .iter()
+        .zip(variant_child_members(enum_name, vname, v))
+    {
         lines.extend(variant_child_build(c, &member, var_name, &body_indent));
     }
     lines.push(format!("{indent}}}"));
@@ -1924,28 +1931,56 @@ fn variant_arm(
 /// an ideal shape, and better than the two alternatives: emitting a node with the children
 /// silently missing produces a request the source cannot send, and skipping the variant group
 /// drops the attrs with them. Whatever this cannot describe, the caller can still supply.
+/// Every child's payload member for one variant, allocated against a shared used-name set.
+///
+/// Two tags can normalize to one identifier — `foo-bar` and `foo_bar` both become `foo_bar` —
+/// and each child answered independently, so the enum declared the member twice and its match
+/// pattern bound the same name twice. Nothing that resolves per child can see the collision;
+/// the whole variant has to be named at once, and the three readers below take the same list
+/// rather than each re-deriving it.
+fn variant_child_members(
+    enum_name: &str,
+    vname: &str,
+    v: &wa_ir::WapVariant,
+) -> Vec<(String, String, Vec<String>)> {
+    let mut used: std::collections::HashSet<String> = v
+        .attrs
+        .iter()
+        .filter(|a| !matches!(a.kind, WapAttrKind::Const))
+        .map(|a| rust_ident(&a.name))
+        .collect();
+    v.children
+        .iter()
+        .map(|c| {
+            let (plain, ty, def) = variant_child_member(enum_name, vname, c);
+            // One suffixing rule for both collisions — a sibling child's name and the variant's
+            // own attribute bindings, which share the pattern. The attribute case had its own
+            // check inside `variant_child_member`, which could see neither a sibling nor its own
+            // suffix colliding: two copies of one policy, and the seeded set here made the inner
+            // copy unobservable.
+            //
+            // The suffix goes on the PLAIN spelling and the escape comes last, for the reason
+            // round seventy-six found: `r#type_2` is no more an identifier than `r#type` was.
+            let mut candidate = plain.clone();
+            let mut n = 2;
+            while !used.insert(rust_ident(&candidate)) {
+                candidate = format!("{plain}_{n}");
+                n += 1;
+            }
+            (rust_ident(&candidate), ty, def)
+        })
+        .collect()
+}
+
 fn variant_child_member(
     enum_name: &str,
     vname: &str,
     c: &WapChildNode,
-    siblings: &[wa_ir::WapAttrDef],
 ) -> (String, String, Vec<String>) {
-    // The binding lives in the same pattern as the variant's attrs, so a child tag that spells
-    // one of them would shadow it. Rare enough to have no example here and cheap to rule out.
-    //
-    // Sanitized LAST, and through `rust_ident` like every other name this file emits: a tag is
-    // wire text, and `snake_case` alone leaves `type` and `2fa` as they are — neither of which
-    // is a Rust identifier, so the generated module would not compile. Suffixing after the
-    // escape would be no better, since `r#type_children` is not one either; the collision test
-    // therefore compares escaped forms and the suffix goes on the plain one.
-    let mut member = snake_case(&c.tag);
-    if siblings
-        .iter()
-        .any(|a| rust_ident(&a.name) == rust_ident(&member))
-    {
-        member.push_str("_children");
-    }
-    let member = rust_ident(&member);
+    // The PLAIN spelling, which the caller disambiguates and then escapes: a tag is wire text
+    // and `snake_case` alone leaves `type` and `2fa` as they are, neither of which is a Rust
+    // identifier. Escaping here would put any suffix the caller adds after the `r#`.
+    let member = snake_case(&c.tag);
     // …and cardinality survives the fallback. A child that does not repeat is exactly one node,
     // and declaring `Vec<Node>` for it let a caller supply none or several — a request the
     // source cannot send, from the very branch that exists so no request is silently wrong.
@@ -1961,15 +1996,22 @@ fn variant_child_member(
     if !c.children.is_empty() || c.content.is_some() || !c.variant_groups.is_empty() {
         return opaque;
     }
+    // A GENERATED id is an input the caller supplies, exactly as it is on an ordinary child —
+    // filtering it out here left a selected variant emitting the child without the attribute it
+    // requires, which is the defect the ordinary path had until a round ago. Only a `Const` is
+    // written from the IR and needs nothing asked for.
     let fields: Vec<String> = c
         .attrs
         .iter()
-        .filter(|a| !matches!(a.kind, WapAttrKind::Const | WapAttrKind::GeneratedId))
+        .filter(|a| !matches!(a.kind, WapAttrKind::Const))
         .map(|a| {
             format!(
                 "    pub {}: {},",
                 rust_ident(&a.name),
-                crate::fields::rust_attr_type(&a.kind)
+                match a.kind {
+                    WapAttrKind::GeneratedId => "String",
+                    ref k => crate::fields::rust_attr_type(k),
+                }
             )
         })
         .collect();
@@ -2030,7 +2072,9 @@ fn variant_child_build(
                     k if crate::fields::is_jid_kind(k) => {
                         format!("{ind}{node} = {node}.attr({alit}, {src}.{ident}.clone());")
                     }
-                    WapAttrKind::String | WapAttrKind::Dynamic => {
+                    WapAttrKind::String
+                    | WapAttrKind::Dynamic
+                    | WapAttrKind::GeneratedId => {
                         format!("{ind}{node} = {node}.attr({alit}, {src}.{ident}.as_str());")
                     }
                     _ => return None,
@@ -2092,7 +2136,9 @@ mod tests {
             (
                 "contentInt",
                 "integer",
-                "n.content_str().and_then(|s| s.parse().ok());",
+                // Still an `Option`, and a payload it cannot read is a rejection rather than an
+                // absence — the fallible relaxed decoder, as on the flattened-child path.
+                r#"n.content_str().map(|s| s.parse::<u64>().map_err(|_| anyhow::anyhow!("elementValue not a number"))).transpose()?;"#,
             ),
             (
                 "contentBytes",
@@ -2210,8 +2256,8 @@ mod tests {
         .expect("field");
         let opt = emit_field_parse(&f, "n", "").join("\n");
         assert!(
-            opt.contains("n.content_str().and_then(|s| s.parse().ok());"),
-            "an optional leaf is untouched: {opt}"
+            opt.contains(".transpose()?;") && !opt.contains("ok_or_else"),
+            "an optional leaf hands back an Option and still demands a readable payload: {opt}"
         );
     }
 
@@ -3024,8 +3070,8 @@ mod tests {
         let (_, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx, &[]);
         let defs = enums.join("\n");
         assert!(
-            defs.contains("type_children: Vec<") && !defs.contains("r#type_children"),
-            "the suffix goes on the plain spelling: {defs}"
+            defs.contains(" type_2: Vec<") && !defs.contains("r_type_2"),
+            "the suffix goes on the plain spelling, and survives the escape: {defs}"
         );
         // …and the collision is judged on the ESCAPED spellings, because that is what the
         // pattern binds. `myTag` and `my-tag` are different wire names and one identifier, so
@@ -3057,8 +3103,145 @@ mod tests {
         let (_, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx, &[]);
         let defs = enums.join("\n");
         assert!(
-            defs.contains("my_tag: String") && defs.contains("my_tag_children: Vec<"),
+            defs.contains("my_tag: String") && defs.contains("my_tag_2: Vec<"),
             "two wire names, one identifier, two members: {defs}"
+        );
+    }
+
+    /// Two wire tags can normalize to one identifier, so the member names for a variant's
+    /// children have to be allocated together — each answering alone declared the field twice
+    /// and bound the same name twice in the match.
+    #[test]
+    fn sibling_variant_children_get_distinct_member_names() {
+        use wa_ir::{WapVariant, WapVariantGroup};
+        let kid = |tag: &str| WapChildNode {
+            tag: tag.into(),
+            attrs: vec![attr("v", WapAttrKind::String, None)],
+            children: vec![],
+            content: None,
+            repeats: true,
+            variant_groups: vec![],
+        };
+        let node = WapChildNode {
+            tag: "config".into(),
+            attrs: vec![],
+            children: vec![],
+            content: None,
+            repeats: false,
+            variant_groups: vec![WapVariantGroup {
+                optional: false,
+                variants: vec![WapVariant {
+                    attrs: vec![attr("platform", WapAttrKind::String, None)],
+                    children: vec![kid("foo-bar"), kid("foo_bar")],
+                }],
+            }],
+        };
+        let (mut enums, mut fields) = (Vec::new(), Vec::new());
+        let reserved = std::collections::HashSet::new();
+        let attr_fields = crate::spec::AttrFieldMap::new();
+        let mut ctx = VariantCtx {
+            spec_base: "T",
+            enum_defs: &mut enums,
+            fields: &mut fields,
+            reserved: &reserved,
+            attr_fields: &attr_fields,
+        };
+        let (lines, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx, &[]);
+        let defs = enums.join("\n");
+        assert!(
+            defs.contains("foo_bar: Vec<") && defs.contains("foo_bar_2: Vec<"),
+            "two members, two names: {defs}"
+        );
+        // …and the arm binds and builds both, or the payload would name a field nothing reads.
+        let src = lines.join("\n");
+        assert!(
+            src.contains("for item in foo_bar {") && src.contains("for item in foo_bar_2 {"),
+            "both are built: {src}"
+        );
+        // The bound: a tag that collides with one of the variant's own ATTRS is still suffixed,
+        // which is the case that already worked and shares the same used-name set.
+        let node = WapChildNode {
+            tag: "config".into(),
+            attrs: vec![],
+            children: vec![],
+            content: None,
+            repeats: false,
+            variant_groups: vec![WapVariantGroup {
+                optional: false,
+                variants: vec![WapVariant {
+                    attrs: vec![attr("item", WapAttrKind::String, None)],
+                    children: vec![kid("item")],
+                }],
+            }],
+        };
+        let (mut enums, mut fields) = (Vec::new(), Vec::new());
+        let mut ctx = VariantCtx {
+            spec_base: "T",
+            enum_defs: &mut enums,
+            fields: &mut fields,
+            reserved: &reserved,
+            attr_fields: &attr_fields,
+        };
+        emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx, &[]);
+        assert!(
+            enums.join("\n").contains("item_2: Vec<"),
+            "the attribute keeps the plain name: {}",
+            enums.join("\n")
+        );
+    }
+
+    /// A generated id on a variant-contributed child is an input the caller supplies, exactly as
+    /// it is on an ordinary child — filtering it out emitted the child without it.
+    #[test]
+    fn a_variant_child_carries_its_generated_id() {
+        use wa_ir::{WapVariant, WapVariantGroup};
+        let item = WapChildNode {
+            tag: "item".into(),
+            attrs: vec![
+                attr("id", WapAttrKind::GeneratedId, None),
+                attr("v", WapAttrKind::String, None),
+            ],
+            children: vec![],
+            content: None,
+            repeats: true,
+            variant_groups: vec![],
+        };
+        let node = WapChildNode {
+            tag: "config".into(),
+            attrs: vec![],
+            children: vec![],
+            content: None,
+            repeats: false,
+            variant_groups: vec![WapVariantGroup {
+                optional: false,
+                variants: vec![WapVariant {
+                    attrs: vec![attr("platform", WapAttrKind::String, None)],
+                    children: vec![item],
+                }],
+            }],
+        };
+        let (mut enums, mut fields) = (Vec::new(), Vec::new());
+        let reserved = std::collections::HashSet::new();
+        let attr_fields = crate::spec::AttrFieldMap::new();
+        let mut ctx = VariantCtx {
+            spec_base: "T",
+            enum_defs: &mut enums,
+            fields: &mut fields,
+            reserved: &reserved,
+            attr_fields: &attr_fields,
+        };
+        let (lines, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx, &[]);
+        assert!(
+            enums.join("\n").contains("pub id: String,"),
+            "the id is asked for: {}",
+            enums.join("\n")
+        );
+        assert!(
+            lines
+                .join("\n")
+                .contains(r#"item_node = item_node.attr("id", item.id.as_str());"#),
+            "and written: {}",
+            lines.join("\n")
         );
     }
 
