@@ -4918,7 +4918,14 @@ fn enumerates_at_least_once(e: &Expression<'_>) -> bool {
     builds
         && o.properties.iter().any(|p| match p {
             oxc_ast::ast::ObjectPropertyKind::SpreadProperty(_) => false,
-            oxc_ast::ast::ObjectPropertyKind::ObjectProperty(op) => !sets_the_prototype(op),
+            // …and the key has to become an enumerable STRING. `for-in` never enumerates a
+            // symbol, so `{ [Symbol.iterator]: 1 }` has an own property and iterates zero
+            // times — and a computed key this cannot read might be one, which is the same
+            // answer for a different reason. A key written plainly is a string or a number,
+            // and a number is a string here; only a computed one raises the question at all.
+            oxc_ast::ast::ObjectPropertyKind::ObjectProperty(op) => {
+                !sets_the_prototype(op) && (!op.computed || op.key.static_name().is_some())
+            }
         })
 }
 
@@ -5017,6 +5024,15 @@ fn certainly_not_iterable(e: &Expression<'_>) -> bool {
         // spread does too, since it copies own symbol-keyed properties along with the rest.
         Expression::ObjectExpression(o) => !o.properties.iter().any(|p| match p {
             oxc_ast::ast::ObjectPropertyKind::SpreadProperty(_) => true,
+            // The `__proto__:` spelling installs a PROTOTYPE, and `Symbol.iterator` is found
+            // through one as readily as on the object itself: `{__proto__: {*[Symbol
+            // .iterator](){ … }}}` destructures by array pattern perfectly well. Reading only
+            // the literal's own keys called it non-iterable and marked a body that runs
+            // unreachable. `{__proto__: null}` is the one spelling that settles it the other
+            // way — a prototype-less object inherits nothing at all.
+            oxc_ast::ast::ObjectPropertyKind::ObjectProperty(op) if sets_the_prototype(op) => {
+                !certainly_nullish(&op.value)
+            }
             oxc_ast::ast::ObjectPropertyKind::ObjectProperty(op) => {
                 op.computed && op.key.static_name().is_none()
             }
@@ -7805,12 +7821,17 @@ impl Bindings {
     ) {
         let mut out: std::collections::HashSet<String> = std::collections::HashSet::new();
         let mut uncertain: std::collections::HashSet<String> = std::collections::HashSet::new();
+        // The records the walk has accepted, by identity. A NAME is not enough to seed a copy:
+        // the copy took what its source held at its own position, and the same name can hold
+        // two values at two points. The `given` list is not touched while this runs, so the
+        // addresses stay valid for the length of the fixed point.
+        let mut admitted: std::collections::HashSet<usize> = std::collections::HashSet::new();
         out.insert(node.to_string());
         // To a fixed point, not a fixed count. Each pass adds at least one name or stops, and
         // a name is never added twice, so `a = b; b = a` terminates on the set alone — the
         // cap it was paired with only made a chain of nine copies lose the helper silently.
         loop {
-            let more: Vec<(String, bool)> = self
+            let more: Vec<(String, bool, usize)> = self
                 .given
                 .iter()
                 .filter(|g| {
@@ -7822,8 +7843,33 @@ impl Bindings {
                     // node. `settled_given_in` reads only what is in scope, which is also what
                     // keeps a nested function's copy from answering out here; checking the
                     // extent again alongside it said the same thing twice.
-                    g.from.as_deref().is_some_and(|f| out.contains(f))
-                        && !out.contains(g.name.as_str())
+                    !out.contains(g.name.as_str())
+                        // …and the source must still name the SAME value at the call as it did
+                        // when the copy ran. `out` is what the names stand for at the call, and
+                        // a copy took whatever its source held at its own position: with `var
+                        // source = e; source = other; var current = source; source = e;` the
+                        // set reaches `source` through the last write and then admits `current`,
+                        // which in fact holds `other`. The reads were filed under `e` and the
+                        // shape rejected roots that carry only what `other` supplies.
+                        //
+                        // Asked at the COPY's position, which is the whole of the correction:
+                        // `var original = row; row = row.child("detail"); parse(original)` has
+                        // `original` still naming the row precisely because the source moved
+                        // afterwards. My first draft required the source to name the same value
+                        // at both points and threw that case away — the two questions are "what
+                        // did this copy take" and "what does the source hold now", and only the
+                        // first belongs to a copy.
+                        //
+                        // Nothing in effect there means the name is still whatever its scope
+                        // gave it, which is how the callback's own parameter reads; a record in
+                        // effect there has to be one this walk already admitted, so a value
+                        // reached through a write that no longer stands cannot seed the set.
+                        && g.from.as_deref().is_some_and(|f| {
+                            match self.settled_given_in(f, g.at) {
+                                None => out.contains(f),
+                                Some(then) => admitted.contains(&std::ptr::from_ref(then).addr()),
+                            }
+                        })
                         // And THIS record is one that can already have taken effect. The count
                         // below is about the name; it says nothing about which value was
                         // selected, so `var current = other; parse(current); current = row`
@@ -7849,17 +7895,22 @@ impl Bindings {
                     // a; parse(b)` passes `b`, whose own assignment is unconditional, and asking
                     // only about the last link would have called it certain.
                     let via = g.from.as_deref().unwrap_or_default();
-                    (g.name.clone(), g.conditional || uncertain.contains(via))
+                    (
+                        g.name.clone(),
+                        g.conditional || uncertain.contains(via),
+                        std::ptr::from_ref::<Given>(g).addr(),
+                    )
                 })
                 .collect();
             if more.is_empty() {
                 return (out, uncertain);
             }
-            for (name, cond) in more {
+            for (name, cond, id) in more {
                 if cond {
                     uncertain.insert(name.clone());
                 }
                 out.insert(name);
+                admitted.insert(id);
             }
         }
     }
@@ -14196,6 +14247,96 @@ mod tests {
         ] {
             let (required, _) = guards_and_field(body);
             assert!(required, "that body runs at least once: {body}");
+        }
+    }
+
+    #[test]
+    fn a_copy_takes_what_its_source_held_where_the_copy_ran() {
+        // The set of names standing for the node is read at the CALL, and a copy took whatever
+        // its source held at its own position. With `var source = e; source = other; var
+        // current = source; source = e;` the set reached `source` through the last write and
+        // then admitted `current`, which in fact holds `other` — the reads were filed under `e`
+        // and the shape rejected roots carrying only what `other` supplies.
+        let fields = helper_reached_via(
+            "var source = e; source = other; var current = source; source = e; parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "that copy does not name the node: {fields:?}"
+        );
+        // The bounds — and the first is why the question is asked at the COPY's position rather
+        // than at both. A source that moves AFTERWARDS leaves the copy naming what it took:
+        // `var original = row; row = row.child("detail"); parse(original)` is the committed
+        // shape this whole rule exists for, and requiring the source to agree at both points
+        // threw it away.
+        for body in [
+            "var source = e; var current = source; parse(current);",
+            "var source = e; var current = source; parse(current); source = other;",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that copy still names the node: {body}"
+            );
+        }
+        // …and a copy of something that was never the node names nothing here either way.
+        let fields =
+            helper_reached_via("var source = other; var current = source; parse(current);");
+        assert!(!fields.iter().any(|f| f.name == "id"));
+    }
+
+    #[test]
+    fn a_for_in_enumerates_string_keys_only() {
+        // `for-in` never enumerates a symbol, so `{ [Symbol.iterator]: 1 }` has an own property
+        // and iterates zero times — and a computed key this cannot read might be one, which is
+        // the same answer for a different reason. Claiming the pass required of every response
+        // reads the parser performs on no path.
+        for body in [
+            "for (const k in { [Symbol.iterator]: 1 }) { parse(e); }",
+            "for (const k in { [k2]: 1 }) { parse(e); }",
+        ] {
+            let (required, _) = guards_and_field(body);
+            assert!(!required, "that key may not enumerate: {body}");
+        }
+        // The bounds. A key written plainly is a string, a number is a string here, and a
+        // computed key this CAN read is a string too.
+        for body in [
+            "for (const k in { x: 1 }) { parse(e); }",
+            "for (const k in { 1: 2 }) { parse(e); }",
+            "for (const k in { [\"x\"]: 1 }) { parse(e); }",
+        ] {
+            let (required, _) = guards_and_field(body);
+            assert!(required, "that key enumerates: {body}");
+        }
+    }
+
+    #[test]
+    fn a_literal_can_inherit_an_iterator_from_its_prototype() {
+        // `Symbol.iterator` is found through a PROTOTYPE as readily as on the object itself, and
+        // `__proto__:` is how a literal installs one. Reading only the literal's own keys called
+        // it non-iterable, so an array-pattern binding that succeeds was read as one that
+        // throws and the body it enters was marked unreachable.
+        let fields = helper_reached_via(
+            "var current = e; (function([x]) { current = other; })({ __proto__: { [Symbol.iterator]: function*(){ yield 1; } } }); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "that binding succeeds and the body runs: {fields:?}"
+        );
+        // The bounds. `{__proto__: null}` inherits nothing at all, so it settles the question
+        // the other way; a literal with no prototype property is unchanged; and the COMPUTED
+        // spelling creates an own property named `__proto__` rather than installing one, which
+        // leaves an ordinary non-iterable object.
+        for body in [
+            "var current = e; try { (function([x]) { current = other; })({ __proto__: null }); } catch (_) {} parse(current);",
+            "var current = e; try { (function([x]) { current = other; })({ a: 1 }); } catch (_) {} parse(current);",
+            "var current = e; try { (function([x]) { current = other; })({ [\"__proto__\"]: {} }); } catch (_) {} parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that binding throws: {body}"
+            );
         }
     }
 
