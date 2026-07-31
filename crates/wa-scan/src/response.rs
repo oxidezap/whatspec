@@ -3885,6 +3885,19 @@ fn synchronous_until(
             self.note(e.span.start);
             walk::walk_await_expression(self, e);
         }
+        /// An optional call that certainly short-circuits evaluates no argument, so an `await`
+        /// written there suspends nothing: `null?.(await 0); current = other;` completes the
+        /// assignment synchronously. Noting the skipped await as the cutoff confined a write
+        /// the caller really sees.
+        ///
+        /// The callee is evaluated and may suspend on its own, so it is still walked.
+        fn visit_call_expression(&mut self, c: &CallExpression<'a>) {
+            if c.optional && certainly_nullish(&c.callee) {
+                self.visit_expression(&c.callee);
+                return;
+            }
+            walk::walk_call_expression(self, c);
+        }
         // `for await (const x of xs)` suspends on every pass, and it is not an await EXPRESSION.
         //
         // The ITERABLE is not part of that: it is evaluated synchronously, and only drawing the
@@ -5575,6 +5588,21 @@ fn binding_step_raises(
     }
 }
 
+/// Whether a call inside an optional chain certainly raises.
+///
+/// The short circuit is the whole difference: a link that certainly declines builds no argument
+/// list and enters no body, so it yields `undefined` however its arguments are spelled. Anything
+/// else is an ordinary call and answers as one.
+fn chain_call_throws(c: &CallExpression<'_>) -> bool {
+    if expression_throws(&c.callee) {
+        return true;
+    }
+    if c.optional && certainly_nullish(&c.callee) {
+        return false;
+    }
+    c.arguments.iter().any(argument_raises)
+}
+
 /// The object of the first optional link in a chain that certainly SHORT-CIRCUITS.
 ///
 /// `null?.[e.attrString("late")]()` evaluates the `null` and nothing else: the optional flag sits
@@ -6743,6 +6771,9 @@ struct AllBindings {
     /// the transfer run. `try { throw Error(); current = other; } catch (_) {}` recorded that
     /// assignment as effective and refused the descent for a node nothing had moved.
     unreachable: u32,
+    /// Parameter lists already taken in binding order by an invocation, so the callee walk that
+    /// follows does not record their effects a second time.
+    walked_params: Vec<Span>,
     /// The regions whose evaluation a record made here precedes, innermost last. A write in a
     /// call's arguments precedes everything in the callee's body, however far after it the
     /// argument is written — and for a constructed class the region is several spans, because
@@ -7401,12 +7432,12 @@ impl AllBindings {
         let leading_raises = leading_before_the_call
             .iter()
             .any(|part| expression_throws(part));
-        let prelude_raises = leading_raises
-            || params.is_some_and(|p| {
-                p.items.iter().any(|param| {
-                    default_raises(&param.pattern, param.initializer.as_deref(), &suppressed)
-                })
-            });
+        let defaults_raise = params.is_some_and(|p| {
+            p.items.iter().any(|param| {
+                default_raises(&param.pattern, param.initializer.as_deref(), &suppressed)
+            })
+        });
+        let prelude_raises = leading_raises || defaults_raise;
         //
         // Read from `argument_raises`, the one predicate that also knows a spread of something
         // non-iterable raises while the list is BUILT. Asking `argument_expression` here looked
@@ -7479,9 +7510,37 @@ impl AllBindings {
                 return true;
             }
             self.walk_arguments_to_the_throw(arguments, template);
+            // Binding happens in ORDER, and stops at the default that raises — the ones before
+            // it have already run. `(function(x = (current = other), y = (throws)()){})()`
+            // performs that assignment and then leaves, and walking the whole callee as
+            // unreachable discarded it. The same left-to-right prefix the argument list and the
+            // callee's leading parts each get, on the third phase that has one.
+            //
+            // The parameters are walked here and the callee is then walked with them SUPPRESSED,
+            // so nothing is recorded twice: `binding_getters` is not the mechanism for that, a
+            // span is. Only where a default really raises — every other call reaches this line
+            // with nothing to order and is emitted exactly as before.
+            if let Some(p) = params.filter(|_| defaults_raise) {
+                let mut raised = false;
+                for param in &p.items {
+                    self.unreachable += u32::from(raised);
+                    self.visit_formal_parameter(param);
+                    self.unreachable -= u32::from(raised);
+                    raised = raised
+                        || default_raises(
+                            &param.pattern,
+                            param.initializer.as_deref(),
+                            &suppressed,
+                        );
+                }
+                self.walked_params.push(p.span);
+            }
             self.unreachable += 1;
             self.visit_expression(callee_expr);
             self.unreachable -= 1;
+            if defaults_raise && params.is_some() {
+                self.walked_params.pop();
+            }
             return true;
         }
         self.effects_land_at
@@ -7727,6 +7786,15 @@ impl<'a> Visit<'a> for AllBindings {
 
     /// A parameter default whose argument was supplied never runs, so the name it binds is
     /// still bound and whatever the initializer would have written is not.
+    fn visit_formal_parameters(&mut self, params: &oxc_ast::ast::FormalParameters<'a>) {
+        // Already taken in binding order by the invocation that walks up to the default which
+        // raises. Walking them again from inside the callee would record every effect twice.
+        if self.walked_params.contains(&params.span) {
+            return;
+        }
+        walk::walk_formal_parameters(self, params);
+    }
+
     fn visit_formal_parameter(&mut self, param: &oxc_ast::ast::FormalParameter<'a>) {
         let Some(init) = param.initializer.as_ref() else {
             walk::walk_formal_parameter(self, param);
@@ -7889,7 +7957,28 @@ impl<'a> Visit<'a> for AllBindings {
                 self.binding_getters
                     .extend(found.into_iter().map(|g| (g, d.span.end)));
             }
-            self.visit_variable_declarator(d);
+            // The INITIALIZER first, then the pattern. `var [x = (current = other)] =
+            // [(parse(current), undefined)]` evaluates the whole right side — the `parse` call
+            // included — before binding initialization runs `x`'s default, and the generic
+            // declarator walk takes the pattern first. The default's write was then recorded at
+            // its earlier source position and read as already in effect at `parse`, which filed
+            // the helper's fields under a node the parser had not yet moved to.
+            //
+            // Only for a DESTRUCTURING declarator: a plain `var x = …` has no pattern effects to
+            // order against, and its emission is untouched.
+            if matches!(
+                &d.id,
+                oxc_ast::ast::BindingPattern::ArrayPattern(_)
+                    | oxc_ast::ast::BindingPattern::ObjectPattern(_)
+            ) && d.init.is_some()
+            {
+                self.effects_land_at
+                    .push((vec![d.id.span()], d.id.span(), d.span.end));
+                self.visit_variable_declarator(d);
+                self.effects_land_at.pop();
+            } else {
+                self.visit_variable_declarator(d);
+            }
             self.binding_getters.truncate(restore_getters);
             // A destructuring declarator ASSIGNS what it takes apart: `var [e] = [other]`
             // rebinds the parser's own parameter, and `for (var [e] of xs)` does it per pass.
@@ -8025,8 +8114,15 @@ impl<'a> Visit<'a> for AllBindings {
         // they open stay recorded and their writes do not — which is the shape every other
         // never-evaluated region in this visitor takes.
         if call.optional && certainly_nullish(&call.callee) {
+            // The CALLEE is evaluated before the short circuit — `(void (current = other))?.()`
+            // performs that assignment and then declines to call. Only the arguments and the
+            // invocation are skipped, and walking the whole call as unreachable discarded a
+            // write that really happens.
+            self.visit_expression(&call.callee);
             self.unreachable += 1;
-            walk::walk_call_expression(self, call);
+            for arg in &call.arguments {
+                self.visit_argument(arg);
+            }
             self.unreachable -= 1;
             return;
         }
@@ -10556,6 +10652,19 @@ fn expression_throws(e: &Expression<'_>) -> bool {
     if a_part_raises {
         return true;
     }
+    // An optional chain is a `ChainExpression` wrapping the call, so asking for a bare
+    // `CallExpression` answered "raises on no path" for every `a?.b(…)` — including one whose
+    // argument certainly does. Unwrapped here rather than in `peel`, which answers what an
+    // expression EVALUATES and would then have to say what a short circuit evaluates to.
+    let peeled = match peeled {
+        Expression::ChainExpression(ch) => match &ch.expression {
+            oxc_ast::ast::ChainElement::CallExpression(inner) => {
+                return chain_call_throws(inner);
+            }
+            _ => return false,
+        },
+        other => other,
+    };
     let Expression::CallExpression(c) = peeled else {
         return false;
     };
@@ -10564,7 +10673,17 @@ fn expression_throws(e: &Expression<'_>) -> bool {
     // Only the inline body was read, which had `f(g((throws)()))` report the intermediate
     // call as a value that arrives. `new` was given exactly this a round ago and the ordinary
     // call spelling beside it was not: one rule, two places, one copy missing it, again.
-    if expression_throws(&c.callee) || c.arguments.iter().any(argument_raises) {
+    if expression_throws(&c.callee) {
+        return true;
+    }
+    // …and an optional call that certainly short-circuits builds no argument list and enters no
+    // body, so it yields `undefined` however its arguments are spelled. Reading them anyway made
+    // `flag ? null?.((throws)()) : parse(e)` a throwing arm, and the intersection then ignored
+    // the side that really produces a value.
+    if c.optional && certainly_nullish(&c.callee) {
+        return false;
+    }
+    if c.arguments.iter().any(argument_raises) {
         return true;
     }
     match invoked_callee(&c.callee) {
@@ -16967,6 +17086,87 @@ mod tests {
                 .iter()
                 .any(|f| f.name == "late"),
             "an unreadable base settles nothing",
+        );
+    }
+
+    /// A short-circuiting optional call still EVALUATES its callee, and the arm it sits in
+    /// still produces a value — `undefined` — however its skipped arguments are spelled.
+    #[test]
+    fn a_short_circuiting_optional_call_keeps_what_it_evaluates() {
+        let reaches = |body: &str| helper_reached_via(body).iter().any(|f| f.name == "id");
+        assert!(
+            !reaches("var current = e; (void (current = other))?.(); parse(current);"),
+            "the callee runs before the short circuit, so its write stands",
+        );
+        // …and an optional chain whose base is NOT nullish is an ordinary call, so an argument
+        // that raises really does make the arm raise. Without this the clause above answers a
+        // question `expression_throws` never reached — every `a?.b(…)` read as non-throwing.
+        assert_eq!(
+            helper_reached_via("flag ? thing?.m((function(){ throw 0; })()) : parse(e);")
+                .iter()
+                .find(|f| f.name == "id")
+                .map(|f| f.required),
+            Some(true),
+            "an unreadable base leaves the raise standing, so the other arm is the only one",
+        );
+        // …and the call yields a value, so the arm is not a throwing one: the intersection must
+        // still see the side that reads.
+        assert_eq!(
+            helper_reached_via("flag ? null?.((function(){ throw 0; })()) : parse(e);")
+                .iter()
+                .find(|f| f.name == "id")
+                .map(|f| f.required),
+            Some(false),
+            "an argument it never builds cannot make the arm raise",
+        );
+        // …and an `await` it never evaluates suspends nothing, so a write after it is still
+        // synchronous to the caller.
+        assert!(
+            !reaches(
+                "var current = e; (async function(){ null?.(await 0); current = other; })(); parse(current);"
+            ),
+            "a skipped await is no suspension point",
+        );
+    }
+
+    /// Parameter binding happens in ORDER and stops at the default that raises, so a default
+    /// before it has already run.
+    #[test]
+    fn a_default_before_the_raising_one_has_already_run() {
+        let reaches = |body: &str| helper_reached_via(body).iter().any(|f| f.name == "id");
+        assert!(
+            !reaches(
+                "var current = e; try { (function(x = (current = other), y = (function(){ throw 0; })()){})(); } catch (_) {} parse(current);"
+            ),
+            "the earlier default ran before the later one raised",
+        );
+        // The bound: a default AFTER the raising one never runs.
+        assert!(
+            reaches(
+                "var current = e; try { (function(x = (function(){ throw 0; })(), y = (current = other)){})(); } catch (_) {} parse(current);"
+            ),
+            "nothing past the raise is bound",
+        );
+    }
+
+    /// A destructuring declarator evaluates its INITIALIZER before binding initialization runs
+    /// the pattern's defaults, and the generic walk took the pattern first.
+    #[test]
+    fn a_destructuring_declarator_takes_its_initializer_first() {
+        assert!(
+            helper_reached_via(
+                "var current = e; var [x = (current = other)] = [(parse(current), undefined)];"
+            )
+            .iter()
+            .any(|f| f.name == "id"),
+            "the initializer reads the node the default has not yet moved",
+        );
+        // The bound: a plain declarator has no pattern effects to order and is untouched.
+        assert!(
+            helper_reached_via("var current = e; var x = (parse(current), 1);")
+                .iter()
+                .any(|f| f.name == "id"),
+            "a plain initializer still reads what it reads",
         );
     }
 
