@@ -5498,6 +5498,33 @@ fn binding_step_raises(
     }
 }
 
+/// Whether completing this assignment TARGET certainly raises, whatever the value stored.
+///
+/// Storing through a nullish base is the way: `null.x = 1` and `(void 0)[k] = 1` raise a
+/// `TypeError` when the write happens, and a call they are an argument to never runs. Reading
+/// only the right side had the assignment report the raise of the value and none of the write's,
+/// so an argument that certainly fails read as one that yields.
+///
+/// The object and a computed key are ordinary expressions evaluated on the way, so each carries
+/// its own answer. A plain identifier target is not this: assigning to an unbound name throws
+/// only under strict mode, which is a question about the enclosing source and not the syntax.
+fn assignment_target_raises(t: &oxc_ast::ast::AssignmentTarget<'_>) -> bool {
+    match t {
+        oxc_ast::ast::AssignmentTarget::ComputedMemberExpression(m) => {
+            expression_throws(&m.object)
+                || certainly_nullish(&m.object)
+                || expression_throws(&m.expression)
+        }
+        oxc_ast::ast::AssignmentTarget::StaticMemberExpression(m) => {
+            expression_throws(&m.object) || certainly_nullish(&m.object)
+        }
+        oxc_ast::ast::AssignmentTarget::PrivateFieldExpression(m) => {
+            expression_throws(&m.object) || certainly_nullish(&m.object)
+        }
+        _ => false,
+    }
+}
+
 /// Whether evaluating this ARGUMENT certainly raises, so nothing after it in the list runs.
 ///
 /// A spread raises two ways and the readers here only ever asked about one. `...f()` still CALLS
@@ -10310,7 +10337,7 @@ fn expression_throws(e: &Expression<'_>) -> bool {
         // `f(x = (throws)())` never reaches `f`. Not the logical spellings: `x ||= (throws)()`
         // evaluates the right on one path only, and which one is a question about `x`.
         Expression::AssignmentExpression(a) if !a.operator.is_logical() => {
-            expression_throws(&a.right)
+            expression_throws(&a.right) || assignment_target_raises(&a.left)
         }
         Expression::ArrayExpression(a) => a.elements.iter().any(|el| match el {
             // …and building the array from a spread needs the spread value to be ITERABLE.
@@ -10341,6 +10368,14 @@ fn expression_throws(e: &Expression<'_>) -> bool {
     let Expression::CallExpression(c) = peeled else {
         return false;
     };
+    // The callee is evaluated first and the arguments after it, both before any body is
+    // entered — so a raise in either settles the call whatever its callee turns out to be.
+    // Only the inline body was read, which had `f(g((throws)()))` report the intermediate
+    // call as a value that arrives. `new` was given exactly this a round ago and the ordinary
+    // call spelling beside it was not: one rule, two places, one copy missing it, again.
+    if expression_throws(&c.callee) || c.arguments.iter().any(argument_raises) {
+        return true;
+    }
     match invoked_callee(&c.callee) {
         Expression::FunctionExpression(f) if !f.generator && !f.r#async => {
             f.body.as_ref().is_some_and(|b| throws_out(&b.statements))
@@ -16402,6 +16437,48 @@ mod tests {
         assert!(
             !reaches("x = f()"),
             "an unreadable call on the right settles nothing",
+        );
+        // …and completing the WRITE is its own way to raise: storing through a nullish base
+        // fails whatever the value, so the right side alone was half the question.
+        assert!(
+            reaches("null.x = 1"),
+            "the store through `null` raises before the call it feeds",
+        );
+        assert!(
+            reaches("(void 0)[k] = 1"),
+            "and so does one through `undefined`",
+        );
+        assert!(
+            reaches("a[(function(){ throw 0; })()] = 1"),
+            "a computed key is evaluated on the way and carries its own raise",
+        );
+        assert!(
+            !reaches("a.x = 1"),
+            "an ordinary target settles nothing and the body runs",
+        );
+    }
+
+    /// A call is decided by its callee and its arguments before its body is ever reached.
+    #[test]
+    fn a_call_carries_the_raise_of_what_it_evaluates_first() {
+        let reaches = |arg: &str| {
+            helper_reached_via(&format!(
+                "var current = e; try {{ (function(){{ current = other; }})({arg}); }} catch (_) {{}} parse(current);"
+            ))
+            .iter()
+            .any(|f| f.name == "id")
+        };
+        assert!(
+            reaches("(function(){})((function(){ throw 0; })())"),
+            "the inner argument raises, so neither body runs",
+        );
+        assert!(
+            reaches("((function(){ throw 0; })())()"),
+            "and a callee that raises never yields something to call",
+        );
+        assert!(
+            !reaches("(function(){})(f())"),
+            "an unreadable argument settles nothing",
         );
     }
 

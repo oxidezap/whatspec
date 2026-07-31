@@ -97,8 +97,15 @@ pub(crate) fn parser_is_valid(
 /// The reads whose absence makes a generated variant parser return `Err`
 /// (so they discriminate which variant a response matches): required attrs
 /// (`attr…`, read with `?`) and required `child` nodes (read with `ok_or_else`).
-/// Excludes optionals (`maybe…`), content reads (defaulted, never fail), and
-/// untyped union/mixin placeholders (`method == ""`). Recursive.
+/// Excludes optionals (`maybe…`) and untyped union/mixin placeholders (`method == ""`).
+/// Recursive.
+///
+/// A REQUIRED content read belongs here too, and did not while every content decoder ended in
+/// `unwrap_or_default` — a read that cannot fail cannot discriminate. It fails now: an absent or
+/// undecodable payload is an error, so a variant that requires its node's content really does
+/// bail where a fallback variant would not. Leaving it out left two such outcomes looking like
+/// empty signatures, which the union gate reads as indistinguishable, so a discriminable pair
+/// was rejected and only the fallback shape emitted.
 ///
 /// Keyed by what the parser READS, not by the struct field it writes: the descent path,
 /// then the wire attribute name or the child tag. Two variants can name the same wire
@@ -125,6 +132,12 @@ fn fail_required_fields(fields: &[wa_ir::ParsedField]) -> std::collections::BTre
             // reads `maybeChild`. No well-formed IR separates the two conditions, and the
             // mutation dropping `f.required` changes no answer. Kept because the alternative is
             // code that depends on that invariant without saying so.
+            // Content has no NAME — it is the node's own payload — so the descent path is the
+            // whole of its identity, which is exactly what distinguishes one node's content
+            // from another's.
+            if reached && f.required && wa_ir::wap::is_content_method(&f.method) {
+                out.insert(format!("{}/content", path.join("/")));
+            }
             if reached && f.required && (f.method == "child" || f.method.starts_with("attr")) {
                 let (kind, wire) = if f.method == "child" {
                     ("child", f.tag.as_deref().unwrap_or(&f.name))
@@ -929,6 +942,56 @@ mod tests {
             value: Some(value.to_string()),
             reference_path: None,
         }
+    }
+
+    /// A required content read fails on an absent payload, so it separates outcomes exactly as
+    /// a required attribute does — and while every content decoder ended in `unwrap_or_default`
+    /// it could not, which is why the signature left it out. It fails now, and leaving it out
+    /// made two distinguishable outcomes look like a pair of empty signatures.
+    #[test]
+    fn a_required_content_read_counts_toward_a_variants_signature() {
+        let field = |json: serde_json::Value| -> wa_ir::ParsedField {
+            serde_json::from_value(json).expect("field")
+        };
+        let content = field(serde_json::json!({
+            "method": "contentString", "name": "elementValue", "type": "string",
+            "required": true
+        }));
+        assert!(
+            !fail_required_fields(std::slice::from_ref(&content)).is_empty(),
+            "a required content read is fail-on-absent",
+        );
+        // …and it is keyed by the DESCENT, since content has no name of its own: one node's
+        // content must not stand in for another's. Both shapes below require the same child, so
+        // the child entry cannot be what tells them apart — only where the content sits can.
+        let content_inside = vec![field(serde_json::json!({
+            "method": "child", "name": "detail", "type": "string", "required": true,
+            "children": [{
+                "method": "contentString", "name": "elementValue", "type": "string",
+                "required": true
+            }]
+        }))];
+        let content_outside = vec![
+            field(serde_json::json!({
+                "method": "child", "name": "detail", "type": "string", "required": true
+            })),
+            content.clone(),
+        ];
+        assert_ne!(
+            fail_required_fields(&content_inside),
+            fail_required_fields(&content_outside),
+            "content under a child is a different requirement from content at the root",
+        );
+        // The bound: an OPTIONAL content read still fails on nothing, because the emitter hands
+        // back a `None` the field holds rather than an error.
+        let optional = field(serde_json::json!({
+            "method": "contentString", "name": "elementValue", "type": "string",
+            "required": false
+        }));
+        assert!(
+            fail_required_fields(std::slice::from_ref(&optional)).is_empty(),
+            "an optional content read discriminates nothing",
+        );
     }
 
     #[test]

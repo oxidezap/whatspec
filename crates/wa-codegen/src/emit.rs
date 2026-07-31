@@ -1354,14 +1354,6 @@ fn emit_node_content(
             "{indent}{var_name} = {var_name}.bytes(self.{field}.clone());"
         )];
     }
-    // Opaque content the scan could not resolve to bytes or to a constant is still CONTENT: the
-    // node carries a value the caller supplies. Falling through to nothing turned three
-    // committed nodes — a business profile's `<website>` and its repeated `<area_description>`
-    // — into empty elements, discarding exactly the value the request exists to send.
-    //
-    // Threaded as a `String` and written through `.bytes`, which is the one content setter the
-    // emitted modules demonstrate. Node content on this wire is a node list or a byte buffer,
-    // and text is the latter, so the spelling costs nothing.
     // A fixed STRING is the const_bytes case in the other spelling: the value is known, so it is
     // written out rather than asked of the caller. Nothing in the committed corpus carries one,
     // and the branch fell through to no content beside the dynamic one — the same empty element,
@@ -1379,12 +1371,22 @@ fn emit_node_content(
             "{indent}{var_name} = {var_name}.bytes(vec![{lits}]);"
         )];
     }
+    // Opaque content the scan could not resolve to bytes or to a constant is still CONTENT: the
+    // node carries a value the caller supplies. Falling through to nothing turned three
+    // committed nodes — a business profile's `<website>` and its repeated `<area_description>`
+    // — into empty elements, discarding exactly the value the request exists to send.
+    //
+    // `Vec<u8>`, the same shape a declared `bytes` payload takes. `Dynamic` means the scan could
+    // not resolve the value, NOT that the value is text: `content_of_expr` records a member
+    // reference this way whether it holds a URL or a signature, and typing it `String` made the
+    // spec unable to express the bytes the source builder accepts. A caller holding text writes
+    // `.into_bytes()` and loses nothing; one holding bytes had no spelling at all.
     if content.kind == WapContentKind::Dynamic {
         let field = content_field_name(var_name);
         ctx.fields
-            .push((field.clone(), "String".to_string(), false));
+            .push((field.clone(), "Vec<u8>".to_string(), false));
         return vec![format!(
-            "{indent}{var_name} = {var_name}.bytes(self.{field}.clone().into_bytes());"
+            "{indent}{var_name} = {var_name}.bytes(self.{field}.clone());"
         )];
     }
     Vec::new()
@@ -1576,9 +1578,16 @@ fn variant_child_member(
     if siblings.iter().any(|a| rust_ident(&a.name) == member) {
         member = format!("{member}_children");
     }
+    // …and cardinality survives the fallback. A child that does not repeat is exactly one node,
+    // and declaring `Vec<Node>` for it let a caller supply none or several — a request the
+    // source cannot send, from the very branch that exists so no request is silently wrong.
     let opaque = (
         member.clone(),
-        "Vec<wacore_binary::node::Node>".to_string(),
+        if c.repeats {
+            "Vec<wacore_binary::node::Node>".to_string()
+        } else {
+            "wacore_binary::node::Node".to_string()
+        },
         Vec::new(),
     );
     if !c.children.is_empty() || c.content.is_some() || !c.variant_groups.is_empty() {
@@ -1623,11 +1632,14 @@ fn variant_child_build(
     var_name: &str,
     indent: &str,
 ) -> Vec<String> {
-    // The opaque fallback: the caller built the nodes, so they are taken as they are.
+    // The opaque fallback: the caller built the nodes, so they are taken as they are — one for
+    // a child that does not repeat, however many for one that does.
     if !c.children.is_empty() || c.content.is_some() || !c.variant_groups.is_empty() {
-        return vec![format!(
-            "{indent}{var_name}_children.extend({member}.iter().cloned());"
-        )];
+        return vec![if c.repeats {
+            format!("{indent}{var_name}_children.extend({member}.iter().cloned());")
+        } else {
+            format!("{indent}{var_name}_children.push({member}.clone());")
+        }];
     }
     let node = format!("{member}_node");
     let attrs = |src: &str, ind: &str| -> Vec<String> {
@@ -2109,18 +2121,59 @@ mod tests {
             fields: &mut fields,
         };
         let (lines, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
+        // A child that does not repeat is exactly ONE node, and its cardinality survives the
+        // fallback: `Vec<Node>` would let a caller supply none or several.
+        assert!(
+            enums
+                .join("\n")
+                .contains("wrapper: wacore_binary::node::Node"),
+            "one node for a child that does not repeat: {}",
+            enums.join("\n")
+        );
+        assert!(
+            lines
+                .join("\n")
+                .contains("config_node_children.push(wrapper.clone());"),
+            "and the arm attaches it once: {}",
+            lines.join("\n")
+        );
+        // …and a REPEATING one takes as many as the caller has.
+        let mut nested = leaf("wrapper");
+        nested.children = vec![leaf("inner")];
+        nested.repeats = true;
+        let node = WapChildNode {
+            tag: "config".into(),
+            attrs: vec![],
+            children: vec![],
+            content: None,
+            repeats: false,
+            variant_groups: vec![WapVariantGroup {
+                optional: false,
+                variants: vec![WapVariant {
+                    attrs: vec![attr("platform", WapAttrKind::String, None)],
+                    children: vec![nested],
+                }],
+            }],
+        };
+        let (mut enums, mut fields) = (Vec::new(), Vec::new());
+        let mut ctx = VariantCtx {
+            spec_base: "T",
+            enum_defs: &mut enums,
+            fields: &mut fields,
+        };
+        let (lines, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
         assert!(
             enums
                 .join("\n")
                 .contains("wrapper: Vec<wacore_binary::node::Node>"),
-            "the payload takes raw nodes: {}",
+            "a list for a child that repeats: {}",
             enums.join("\n")
         );
         assert!(
             lines
                 .join("\n")
                 .contains("config_node_children.extend(wrapper.iter().cloned());"),
-            "and the arm attaches them: {}",
+            "and the arm attaches all of them: {}",
             lines.join("\n")
         );
     }
@@ -2141,14 +2194,16 @@ mod tests {
             fields: &mut fields,
         };
         let (lines, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
+        // `Dynamic` says the scan could not resolve the value, not that the value is text —
+        // the same record covers a URL and a signature — so the payload has to preserve bytes.
         assert!(
-            fields.contains(&("website_content".to_string(), "String".to_string(), false)),
-            "the caller supplies the text: {fields:?}"
+            fields.contains(&("website_content".to_string(), "Vec<u8>".to_string(), false)),
+            "the caller supplies the payload, bytes and all: {fields:?}"
         );
         assert!(
-            lines.join("\n").contains(
-                "website_node = website_node.bytes(self.website_content.clone().into_bytes());"
-            ),
+            lines
+                .join("\n")
+                .contains("website_node = website_node.bytes(self.website_content.clone());"),
             "and it is written as the node's content: {}",
             lines.join("\n")
         );
