@@ -2990,6 +2990,33 @@ fn merge_or_push(into: &mut Vec<ParsedField>, f: ParsedField, lost: &mut Vec<Str
 /// only one side pins something the pin is taken; where both pin something different the
 /// merge cannot represent both, and says so rather than publishing whichever came first.
 fn take_constraints(into: &mut ParsedField, from: &ParsedField, lost: &mut Vec<String>) {
+    // A CONSTRAINT the two sides disagree about is dropped, not kept from whichever arrived
+    // first. `if (flag) attrIntRange("count", 1, 10); else attrIntRange("count", 20, 30);`
+    // enforces one band or the other and the field can carry only one, so publishing `1..=10`
+    // makes the generated parser REJECT a `count="25"` that the source accepts down its other
+    // path. An unconstrained field accepts more than the source does, which is the error this
+    // branch has been narrowing all along; rejecting what the source takes breaks the consumer
+    // outright, which is the one it must not make. The clash is still reported either way.
+    //
+    // The dispatch lifter reads that report and refuses the whole transformation, which is the
+    // stronger answer where it applies — it has somewhere to fall back to. Here there is no
+    // second shape to choose, so declining means declining the constraint.
+    macro_rules! constrain {
+        ($($field:ident),+ $(,)?) => {$(
+            match (&into.$field, &from.$field) {
+                (None, Some(v)) => into.$field = Some(v.clone()),
+                (Some(a), Some(b)) if a != b => {
+                    lost.push(format!("{MERGE_CONFLICT}@{}:{}", stringify!($field), into.name));
+                    into.$field = None;
+                }
+                _ => {}
+            }
+        )+};
+    }
+    // The STRUCTURAL facts are not constraints and clearing one would describe a different
+    // field rather than a less constrained one: where the value is read from, what it decodes
+    // as, whether it repeats. A disagreement there is reported and the first reading kept,
+    // because there is no "unconstrained" version of "which child this comes from".
     macro_rules! carry {
         ($($field:ident),+ $(,)?) => {$(
             match (&into.$field, &from.$field) {
@@ -3001,7 +3028,7 @@ fn take_constraints(into: &mut ParsedField, from: &ParsedField, lost: &mut Vec<S
             }
         )+};
     }
-    carry!(
+    constrain!(
         byte_length,
         byte_min,
         byte_max,
@@ -3011,11 +3038,8 @@ fn take_constraints(into: &mut ParsedField, from: &ParsedField, lost: &mut Vec<S
         enum_ref,
         pending_enum_ref,
         literal_value,
-        content_type,
-        reference_path,
-        source_path,
-        repeats,
     );
+    carry!(content_type, reference_path, source_path, repeats,);
 }
 
 /// Reads a dispatch chain where it actually sits, rather than looking for comparisons
@@ -3299,6 +3323,17 @@ fn computed_key<'b, 'a>(e: &'b Expression<'a>) -> Option<&'b Expression<'a>> {
         Expression::ComputedMemberExpression(m) => Some(&m.expression),
         _ => None,
     }
+}
+
+/// Through parentheses alone, leaving a sequence intact.
+///
+/// [`peel`] takes a sequence's value with it, which is what a reader asking "what IS this"
+/// wants and the opposite of what one asking "what does evaluating this DO" wants.
+fn peel_parens<'b, 'a>(mut e: &'b Expression<'a>) -> &'b Expression<'a> {
+    while let Expression::ParenthesizedExpression(p) = e {
+        e = &p.expression;
+    }
+    e
 }
 
 /// Through the wrappers that do not change which value an expression is — and no further.
@@ -5388,10 +5423,26 @@ fn getters_in_pattern<'a>(
     // claims those anyway, and the same span twice is the same claim. A condition no test can
     // hold is one to remove.
     if pat.rest.is_some() {
+        // The property the object ENDS UP with, name by name — a getter a later definition
+        // replaced is never read, so `{ get x(){ … }, x: 1 }` copies the data property and that
+        // body runs on no path. The named-property walk below has resolved through
+        // `owned_property` all along; this loop read every getter as written, which is the same
+        // rule with one of its two readers missing it.
+        let mut seen: Vec<String> = Vec::new();
         for p in &object.properties {
-            if let oxc_ast::ast::ObjectPropertyKind::ObjectProperty(op) = p
-                && op.kind == oxc_ast::ast::PropertyKind::Get
-                && let Expression::FunctionExpression(f) = &op.value
+            let oxc_ast::ast::ObjectPropertyKind::ObjectProperty(op) = p else {
+                continue;
+            };
+            let Some(name) = op.key.static_name() else {
+                continue;
+            };
+            if seen.iter().any(|k| k == name.as_ref()) {
+                continue;
+            }
+            seen.push(name.to_string());
+            if let Some(owned) = owned_property(object, name.as_ref())
+                && owned.kind == oxc_ast::ast::PropertyKind::Get
+                && let Expression::FunctionExpression(f) = &owned.value
             {
                 out.push(f.span);
             }
@@ -9827,6 +9878,13 @@ fn both_booleans_listed(cases: &[oxc_ast::ast::SwitchCase<'_>]) -> bool {
 /// this cannot see, is left alone: claiming a raise where none happens would drop the reads of
 /// an arm executions really do take.
 fn expression_throws(e: &Expression<'_>) -> bool {
+    // Before peeling, not after. `peel` hands back a sequence's VALUE — its last element — and
+    // an earlier operand that raises is dropped on the way: `((throws)(), 0)` completes
+    // abruptly and read as the `0`. Every element is evaluated, so the sequence raises when any
+    // of them does. Parentheses change nothing and are peeled either way.
+    if let Expression::SequenceExpression(seq) = peel_parens(e) {
+        return seq.expressions.iter().any(expression_throws);
+    }
     let peeled = peel(e);
     // `new (class { constructor(){ throw 0; } })()` completes abruptly as surely as an IIFE
     // whose body throws: the constructor IS the body, invoked right here. Only the direct call
@@ -10003,6 +10061,20 @@ fn contains_exit_where(stmt: &Statement<'_>, throw_counts: bool, continue_counts
         }
     }
     impl<'a> Visit<'a> for Probe {
+        // Nothing after an unconditional transfer is reached, so an exit written there is not
+        // one this construct can take: `for (;;) { continue; break; }` never breaks, and
+        // counting the dead `break` said the loop can finish — which made a branch that hangs
+        // forever an empty value-producing side and relaxed the reads of the only branch that
+        // yields anything. A generic walk visits every node; this one has to walk a statement
+        // LIST the way control does.
+        fn visit_statements(&mut self, stmts: &oxc_allocator::Vec<'a, Statement<'a>>) {
+            for st in stmts {
+                self.visit_statement(st);
+                if ends_the_statement_list(st) {
+                    break;
+                }
+            }
+        }
         fn visit_function(&mut self, _f: &Function<'a>, _flags: ScopeFlags) {}
         fn visit_arrow_function_expression(
             &mut self,
@@ -15431,6 +15503,125 @@ mod tests {
             assert!(
                 !fields.iter().any(|f| f.name == "id"),
                 "that initializer does run: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_sequence_raises_when_any_operand_does() {
+        // `peel` hands back a sequence's VALUE — its last element — and an earlier operand that
+        // raises is dropped on the way, so `((throws)(), 0)` read as the `0`. Every element is
+        // evaluated, so the sequence raises when any of them does; the round that taught this
+        // predicate about sequences peeled first and asked afterwards.
+        for body in [
+            "if (flag) { parse(e); } else { ((function(){ throw 0; })(), 0); }",
+            "if (flag) { parse(e); } else { (0, (function(){ throw 0; })()); }",
+        ] {
+            let (required, _) = guards_and_field(body);
+            assert!(required, "that branch yields nothing: {body}");
+        }
+        let (required, _) = guards_and_field("if (flag) { parse(e); } else { (0, 1); }");
+        assert!(
+            !required,
+            "a sequence that raises nothing is an alternative"
+        );
+    }
+
+    #[test]
+    fn an_exit_probe_stops_where_control_does() {
+        // `for (;;) { continue; break; }` never breaks, and counting the dead `break` said the
+        // loop can finish — which made a branch that hangs forever an empty value-producing
+        // side and relaxed the reads of the only branch that yields anything. A generic walk
+        // visits every node; this one has to walk a statement LIST the way control does.
+        let (required, _) =
+            guards_and_field("if (flag) { for (;;) { continue; break; } } else { parse(e); }");
+        assert!(required, "that loop cannot finish");
+        // The bounds. A `break` control DOES reach lets the loop finish, so the branch is a
+        // real alternative; and a loop with only a `continue` still cannot.
+        let (required, _) =
+            guards_and_field("if (flag) { for (;;) { break; } } else { parse(e); }");
+        assert!(!required);
+        let (required, _) =
+            guards_and_field("if (flag) { for (;;) { continue; } } else { parse(e); }");
+        assert!(required);
+    }
+
+    #[test]
+    fn a_constraint_two_paths_disagree_about_is_published_by_neither() {
+        // The field carries one band and the parser enforces one or the other, so publishing
+        // whichever arrived first makes the generated parser REJECT a `count="25"` the source
+        // accepts down its other path. An unconstrained field accepts more than the source
+        // does, which is the error this branch has been narrowing; rejecting what the source
+        // takes breaks the consumer outright, which is the one it must not make.
+        let r = analyze_parser_ast(
+            r#"{ if (flag) { e.attrIntRange("count", 1, 10); } else { e.attrIntRange("count", 20, 30); } }"#,
+            "e",
+        );
+        let f = r.fields.iter().find(|f| f.name == "count").expect("count");
+        assert_eq!(
+            (f.int_min, f.int_max),
+            (None, None),
+            "neither band is published"
+        );
+        assert!(
+            r.unresolved
+                .iter()
+                .any(|u| u.starts_with("incompatibleRepeatedRead")),
+            "and the clash is reported: {:?}",
+            r.unresolved
+        );
+        // The bounds. Two paths that agree carry the band, and a path that constrains nothing
+        // does not erase the one that does — only a DISAGREEMENT drops it.
+        for src in [
+            r#"{ if (flag) { e.attrIntRange("count", 1, 10); } else { e.attrIntRange("count", 1, 10); } }"#,
+            r#"{ if (flag) { e.attrIntRange("count", 1, 10); } else { e.attrInt("count"); } }"#,
+        ] {
+            let r = analyze_parser_ast(src, "e");
+            let f = r.fields.iter().find(|f| f.name == "count").expect("count");
+            assert_eq!((f.int_min, f.int_max), (Some(1), Some(10)), "kept: {src}");
+        }
+        // An asymmetry this rule does not settle, found while bounding it and recorded rather
+        // than quietly left: written the other way round — `attrInt` first, `attrIntRange`
+        // second — the band is not carried at all and no clash is reported. Neither order is
+        // obviously right. A constraint only ONE alternative enforces should not be published,
+        // by exactly the argument above; but `take_constraints` also merges reads that both
+        // happen in sequence, where the band really is enforced and dropping it would lose a
+        // check. Telling those apart is a fact about the paths, which this merge does not have.
+        let r = analyze_parser_ast(
+            r#"{ if (flag) { e.attrInt("count"); } else { e.attrIntRange("count", 1, 10); } }"#,
+            "e",
+        );
+        let f = r.fields.iter().find(|f| f.name == "count").expect("count");
+        assert_eq!(
+            (f.int_min, f.int_max),
+            (None, None),
+            "the reversed order drops it — see the note above"
+        );
+    }
+
+    #[test]
+    fn a_rest_binding_reads_the_property_the_object_ends_up_with() {
+        // A getter a later definition replaced is never read, so `{ get x(){ … }, x: 1 }` copies
+        // the data property and that body runs on no path. The named-property walk has resolved
+        // through `owned_property` all along; the rest loop read every getter as written, which
+        // is the same rule with one of its two readers missing it.
+        let fields = helper_reached_via(
+            "var current = e; (function({...rest}){})({ get x(){ current = other; }, x: 1 }); parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "that getter never runs: {fields:?}"
+        );
+        // The bounds: written the other way round the getter IS what the object holds, and a
+        // getter nothing replaces is read as before.
+        for body in [
+            "var current = e; (function({...rest}){})({ x: 1, get x(){ current = other; } }); parse(current);",
+            "var current = e; (function({...rest}){})({ get x(){ current = other; } }); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that getter runs: {body}"
             );
         }
     }
