@@ -9,25 +9,21 @@ use wa_ir::{
     WapAttrKind, WapChildNode,
 };
 
-/// Two outcome variants are separable by a discriminator when both pin the SAME attr
-/// to DIFFERENT literal values (`type:"result"` vs `type:"error"`): a response
-/// satisfying one fails the other's guard, so neither can shadow the other.
+/// Two outcome variants are separable by a discriminator when a response satisfying one fails
+/// the other's guard, so neither can shadow the other.
+///
+/// The exact complement of [`pins_can_coincide`], and it is spelled as one. This was a second
+/// copy of that relation restricted to attributes, so the round that taught the SELECTOR about
+/// content pins left the ADMISSION gate behind it: two outcomes separated by `literalContent`
+/// were still judged to shadow each other, the union was refused, and the guard emitted for
+/// them was never reached. A rule fixed at one end and not the other, which is the shape this
+/// branch keeps being caught for — so there is one end now.
+///
+/// A presence-only assertion (`value: None`) is not a pin and never conflicts: a parser that
+/// merely requires `type` to exist also accepts `type="result"`, so the variants are not
+/// disjoint. [`variant_pins`] drops it for that reason, and this inherits the answer.
 pub(crate) fn assertions_conflict(a: &ResponseVariant, b: &ResponseVariant) -> bool {
-    // BOTH sides must pin a literal, and to the same NAMED attribute. `Some("result")`
-    // against a presence-only assertion (`value: None`) is not a conflict: a parser that
-    // merely requires `type` to exist also accepts `type="result"`, so the variants are
-    // not disjoint and the earlier arm shadows the later one in a first-success cascade.
-    a.assertions.iter().any(|x| {
-        x.kind == AssertionKind::Attr
-            && x.name.is_some()
-            && x.value.is_some()
-            && b.assertions.iter().any(|y| {
-                y.kind == AssertionKind::Attr
-                    && y.name == x.name
-                    && y.value.is_some()
-                    && y.value != x.value
-            })
-    })
+    !pins_can_coincide(&variant_pins(a), &variant_pins(b))
 }
 
 use crate::emit::{VariantCtx, emit_child_builder, emit_response_parser};
@@ -973,6 +969,27 @@ mod tests {
             &variant_pins(&v),
             &variant_pins(&conflict_variant(vec![]))
         ));
+        // …and it has to reach the ADMISSION gate as well as the selector. `assertions_conflict`
+        // was a second copy of this relation restricted to attributes, so two outcomes separated
+        // by `literalContent` were judged to shadow each other, the union was refused, and the
+        // guard emitted for them was never reached — the rule fixed at one end and not the
+        // other. The two are one function now, so this cannot drift again.
+        assert!(
+            assertions_conflict(&v, &other),
+            "content pins separate the outcomes"
+        );
+        assert!(
+            !assertions_conflict(&v, &conflict_variant(vec![conflict_content("admin_add")])),
+            "the same value does not"
+        );
+        assert!(
+            !assertions_conflict(
+                &v,
+                &conflict_variant(vec![conflict_attr("type", Some("result"))])
+            ),
+            "and a pin on something else does not"
+        );
+
         // And an attribute pin still reads as one — the enum did not swallow the old shape.
         let a = conflict_variant(vec![conflict_attr("type", Some("result"))]);
         assert_eq!(

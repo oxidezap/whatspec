@@ -3182,9 +3182,32 @@ fn named_member<'b, 'a>(
 /// The `.bind` member a call's callee resolves to, if that is what it is — so `f.bind(…)` is
 /// told from `f.map(…)`, whose result is not `f`.
 fn bind_member<'b, 'a>(callee: &'b Expression<'a>) -> Option<&'b Expression<'a>> {
+    // …and only while the RECEIVER survives. `invoked_callee` refuses to unwrap `call`/`apply`
+    // through a comma for exactly this reason, and re-applying `named_member` to its result
+    // here threw that state away: `(0, f.bind)(null)` hands `Function.prototype.bind` an
+    // `undefined` receiver and throws before `f` is reached, and the body was walked as one the
+    // call certainly runs. The same rule the neighbouring wrappers have, asked where this
+    // reader can see it — the comma has to be at the TOP of the callee, because `(0, f).bind`
+    // takes the member AFTER the discard and is an ordinary reference.
+    if reference_discarded(callee) {
+        return None;
+    }
     match named_member(invoked_callee(callee)) {
         Some((name, object)) if name == "bind" => Some(object),
         _ => None,
+    }
+}
+
+/// Whether the value this expression names arrives with its REFERENCE discarded — which the
+/// comma operator does and parentheses do not.
+///
+/// `(0, f.bind)` is `Function.prototype.bind` with no receiver, so calling it throws; `(f.bind)`
+/// and `(0, f).bind` both keep one and do not.
+fn reference_discarded(e: &Expression<'_>) -> bool {
+    match e {
+        Expression::ParenthesizedExpression(p) => reference_discarded(&p.expression),
+        Expression::SequenceExpression(_) => true,
+        _ => false,
     }
 }
 
@@ -4799,18 +4822,49 @@ fn static_method<'b, 'a>(
     class: &'b oxc_ast::ast::Class<'a>,
     name: &str,
 ) -> Option<&'b oxc_ast::ast::Function<'a>> {
-    // A static FIELD of the same name overwrites the method, and not by source position: the
-    // two belong to different phases of class definition. Every method is installed on the class
-    // object first, and only then do the static initializers run — so `class { static m(){ … }
-    // static m = 0 }` and `class { static m = 0; static m(){ … } }` both end up with `m` set to
-    // `0`, and calling it throws without entering the method at all. Reading the last method of
-    // the name and skipping everything else recorded that body's writes for a call that never
-    // reaches it.
-    //
-    // A static BLOCK declines for the same reason one step further out: its `this` is the class,
-    // so `static { this.m = 0 }` replaces the property where nothing here can name it. An
-    // INSTANCE field is not this question — it belongs to the object `new` builds, and the class
-    // object never sees it.
+    static_definition(class, name)
+        .filter(|m| m.kind == oxc_ast::ast::MethodDefinitionKind::Method)
+        .map(|m| &*m.value)
+}
+
+/// The static getter a class expression names, when reading the property invokes one.
+///
+/// The class-object twin of the object-literal getter the invocation core recognizes: `(class {
+/// static get m(){ … } }).m()` runs that body to obtain the callee, before the arguments and
+/// before whatever it returned is called. `static_method` declines the shape — what the getter
+/// hands back is unreadable — and declining is not enough on its own, because a write the getter
+/// performs really does happen and leaving it deferred publishes a helper's reads under a node
+/// the parser has already replaced.
+///
+/// A getter only. A setter of the name supplies no value — reading it yields `undefined` — and
+/// its body does not run on a read at all.
+fn static_getter<'b, 'a>(
+    class: &'b oxc_ast::ast::Class<'a>,
+    name: &str,
+) -> Option<&'b oxc_ast::ast::Function<'a>> {
+    static_definition(class, name)
+        .filter(|m| m.kind == oxc_ast::ast::MethodDefinitionKind::Get)
+        .map(|m| &*m.value)
+}
+
+/// The method or accessor the class OBJECT ends up holding under `name`, or `None` when nothing
+/// here can say what it holds.
+///
+/// A static FIELD of the same name takes the property, and not by source position: the two
+/// belong to different phases of class definition. Every method is installed on the class object
+/// first, and only then do the static initializers run — so `class { static m(){ … } static m =
+/// 0 }` and `class { static m = 0; static m(){ … } }` both end up with `m` set to `0`. A static
+/// BLOCK declines for the same reason one step further out: its `this` is the class, so `static
+/// { this.m = 0 }` replaces the property where nothing here can name it. An INSTANCE field is
+/// not this question — it belongs to the object `new` builds, and the class object never sees it.
+///
+/// One resolver, because the two callers are one rule. `static_getter` was written as a mirror
+/// of `static_method` in the same commit that gave `static_method` the overwrite check, and did
+/// not carry it — the shape this branch keeps paying for, this time inside a single commit.
+fn static_definition<'b, 'a>(
+    class: &'b oxc_ast::ast::Class<'a>,
+    name: &str,
+) -> Option<&'b oxc_ast::ast::MethodDefinition<'a>> {
     let overwritten = class.body.body.iter().any(|el| match el {
         oxc_ast::ast::ClassElement::StaticBlock(_) => true,
         oxc_ast::ast::ClassElement::PropertyDefinition(p) => {
@@ -4824,62 +4878,16 @@ fn static_method<'b, 'a>(
     if overwritten {
         return None;
     }
-    // Among the methods themselves the LAST of the name wins, and a getter or setter of it is
-    // not a body this can call — reading the property would invoke the accessor and call
-    // whatever it returned, which is the leading-effects reader's question and not this one. So
-    // the search stops at the last static element naming the key either way.
-    // Found first, judged after — `find_map` answering `None` for the accessor would go on
-    // searching and hand back the method BELOW it, which is the property the class no longer
-    // has. The search names the last static definition of the key; whether that definition is
-    // callable is a separate question asked of it alone.
-    class
-        .body
-        .body
-        .iter()
-        .rev()
-        .find_map(|el| match el {
-            oxc_ast::ast::ClassElement::MethodDefinition(m)
-                if m.r#static && m.key.static_name().as_deref() == Some(name) =>
-            {
-                Some(&**m)
-            }
-            _ => None,
-        })
-        .filter(|m| m.kind == oxc_ast::ast::MethodDefinitionKind::Method)
-        .map(|m| &*m.value)
-}
-
-/// The static ACCESSOR a class expression names, when reading the property invokes one.
-///
-/// The class-object twin of the object-literal getter [`ParserAnalyzer`]'s invocation core
-/// recognizes: `(class { static get m(){ … } }).m()` runs that body to obtain the callee, before
-/// the arguments and before whatever it returned is called. `static_method` declines the shape —
-/// what the getter hands back is unreadable — and declining is not enough on its own, because a
-/// write the getter performs really does happen and leaving it deferred publishes a helper's
-/// reads under a node the parser has already replaced. Exactly the finding that was reported for
-/// the object literal, in the second place the same rule lives.
-///
-/// A getter only. A setter of the name supplies no value — reading it yields `undefined` — and
-/// its body does not run on a read at all.
-fn static_getter<'b, 'a>(
-    class: &'b oxc_ast::ast::Class<'a>,
-    name: &str,
-) -> Option<&'b oxc_ast::ast::Function<'a>> {
-    class
-        .body
-        .body
-        .iter()
-        .rev()
-        .find_map(|el| match el {
-            oxc_ast::ast::ClassElement::MethodDefinition(m)
-                if m.r#static && m.key.static_name().as_deref() == Some(name) =>
-            {
-                Some(&**m)
-            }
-            _ => None,
-        })
-        .filter(|m| m.kind == oxc_ast::ast::MethodDefinitionKind::Get)
-        .map(|m| &*m.value)
+    // Found first, judged after — answering `None` for the wrong KIND here would go on searching
+    // and hand back the definition below it, which is not the property the class has.
+    class.body.body.iter().rev().find_map(|el| match el {
+        oxc_ast::ast::ClassElement::MethodDefinition(m)
+            if m.r#static && m.key.static_name().as_deref() == Some(name) =>
+        {
+            Some(&**m)
+        }
+        _ => None,
+    })
 }
 
 /// Whether `e` plainly has an own enumerable property, so `for-in` over it runs its body.
@@ -4892,10 +4900,26 @@ fn enumerates_at_least_once(e: &Expression<'_>) -> bool {
     let Expression::ObjectExpression(o) = peel(e) else {
         return false;
     };
-    o.properties.iter().any(|p| match p {
-        oxc_ast::ast::ObjectPropertyKind::SpreadProperty(_) => false,
-        oxc_ast::ast::ObjectPropertyKind::ObjectProperty(op) => !sets_the_prototype(op),
-    })
+    // The object has to be BUILT before anything can enumerate it, and a literal completes
+    // abruptly if any part of it does: `{ x: (function(){ throw 0 })() }` never becomes an
+    // object at all, so the loop reaches its handler rather than its body. Anywhere in the
+    // literal, not only before the qualifying property — a throw written after one still
+    // stops the whole expression, so `{ x: 1, y: (throws)() }` is no more constructed than
+    // `{ y: (throws)(), x: 1 }`. Claiming a guaranteed pass over it required of every response
+    // reads the parser performs on no path.
+    let builds = !o.properties.iter().any(|p| match p {
+        oxc_ast::ast::ObjectPropertyKind::SpreadProperty(sp) => expression_throws(&sp.argument),
+        oxc_ast::ast::ObjectPropertyKind::ObjectProperty(op) => {
+            // A computed key is evaluated on the way to the property and can leave first.
+            (op.computed && expression_throws(op.key.as_expression().unwrap_or(&op.value)))
+                || expression_throws(&op.value)
+        }
+    });
+    builds
+        && o.properties.iter().any(|p| match p {
+            oxc_ast::ast::ObjectPropertyKind::SpreadProperty(_) => false,
+            oxc_ast::ast::ObjectPropertyKind::ObjectProperty(op) => !sets_the_prototype(op),
+        })
 }
 
 /// Whether reading `name` off this literal yields `undefined` because the object ends up with a
@@ -14084,6 +14108,94 @@ mod tests {
                 !fields.iter().any(|f| f.name == "id"),
                 "that method already ran: {body}"
             );
+        }
+    }
+
+    #[test]
+    fn a_bind_whose_receiver_was_discarded_is_not_one() {
+        // `(0, f.bind)` is `Function.prototype.bind` with no receiver, so calling it throws
+        // before `f` is reached. `invoked_callee` refuses to unwrap `call`/`apply` through a
+        // comma for exactly that reason, and the bind reader re-applied `named_member` to its
+        // result — throwing the state away and walking a body the call never enters.
+        let fields = helper_reached_via(
+            "var current = e; try { (0, (function(){ current = other; }).bind)(null)(); } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "that body is entered on no path: {fields:?}"
+        );
+        // The bounds. Parentheses keep the reference; a comma applied to the RECEIVER is taken
+        // before the member and leaves an ordinary one; and a plain bind is untouched.
+        for body in [
+            "var current = e; ((function(){ current = other; }).bind)(null)(); parse(current);",
+            "var current = e; (0, function(){ current = other; }).bind(null)(); parse(current);",
+            "var current = e; (function(){ current = other; }).bind(null)(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that body does run: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_static_field_takes_the_property_from_a_getter_too() {
+        // The overwrite rule belongs to the property, not to the kind of thing that defines it.
+        // `static_getter` was written as a mirror of `static_method` in the same commit that
+        // gave `static_method` this check, and did not carry it — one rule in two places with
+        // one copy missing it, inside a single commit. Both read one resolver now.
+        for body in [
+            "var current = e; try { (class { static get m(){ current = other; return function(){} } static m = 0; }).m(); } catch (_) {} parse(current);",
+            "var current = e; try { (class { static m = 0; static get m(){ current = other; return function(){} } }).m(); } catch (_) {} parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that getter never runs: {body}"
+            );
+        }
+        // The bounds. A getter nothing overwrites still runs on the read; a field of a DIFFERENT
+        // name touches nothing; and an instance field belongs to the object `new` builds.
+        for body in [
+            "var current = e; (class { static get m(){ current = other; return function(){} } }).m(); parse(current);",
+            "var current = e; (class { static get m(){ current = other; return function(){} } static n = 0; }).m(); parse(current);",
+            "var current = e; (class { static get m(){ current = other; return function(){} } m = 0; }).m(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that getter runs: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_for_in_needs_the_literal_to_be_built_first() {
+        // A literal with an own property guarantees a pass only if the literal is CONSTRUCTED.
+        // Any part of it completing abruptly stops the whole expression, so the loop reaches its
+        // handler rather than its body — and claiming a guaranteed pass required of every
+        // response reads the parser performs on no path.
+        for body in [
+            "for (const k in { x: (function(){ throw 0; })() }) { parse(e); }",
+            // Anywhere in the literal, not only before the qualifying property: a throw written
+            // after one still stops the expression.
+            "for (const k in { x: 1, y: (function(){ throw 0; })() }) { parse(e); }",
+            // A computed key is evaluated on the way to its property and can leave first…
+            "for (const k in { [(function(){ throw 0; })()]: 1 }) { parse(e); }",
+            // …and so can what a spread spreads.
+            "for (const k in { ...(function(){ throw 0; })(), x: 1 }) { parse(e); }",
+        ] {
+            let (required, _) = guards_and_field(body);
+            assert!(!required, "that body is never reached: {body}");
+        }
+        // The bounds: a literal that plainly builds still guarantees its pass, spread and all.
+        for body in [
+            "for (const k in { x: 1 }) { parse(e); }",
+            "for (const k in { x: 1, ...o }) { parse(e); }",
+        ] {
+            let (required, _) = guards_and_field(body);
+            assert!(required, "that body runs at least once: {body}");
         }
     }
 
