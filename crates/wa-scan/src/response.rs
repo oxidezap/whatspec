@@ -3568,7 +3568,10 @@ fn arguments_then<'b, 'a>(
                         if list.is_none_or(|l| certainly_nullish(l)) {
                             return append((Vec::new(), true), trailing);
                         }
-                        let Some(Expression::ArrayExpression(arr)) = list else {
+                        // Through the wrappers that do not change the value: `(([1]))` is the
+                        // same list `[1]` is, and matching the written node called it unreadable
+                        // — so a default the call really prevents was recorded as one that runs.
+                        let Some(Expression::ArrayExpression(arr)) = list.map(peel) else {
                             return (Vec::new(), false);
                         };
                         let mut out = Vec::new();
@@ -6102,7 +6105,9 @@ fn suppress_in_pattern(
             // object ends up with whatever the spreads held, so it settles the question exactly
             // as it would in an object with no spread at all. Discarding the whole literal the
             // moment one appeared threw those away too.
-            let obj = match value {
+            // Peeled, for the reason the `.apply` list is: `({x: 1})` is the object `{x: 1}`
+            // is, and matching the written node discarded properties that really are supplied.
+            let obj = match value.map(peel) {
                 Some(Expression::ObjectExpression(obj)) => Some(obj),
                 _ => None,
             };
@@ -17374,6 +17379,38 @@ mod tests {
             ),
             Some(false),
             "a spread may supply the parameter whose default raises",
+        );
+    }
+
+    /// Parentheses do not change what a value IS, so a supplied argument still suppresses the
+    /// default it supplies — whichever of the two readers is asking.
+    #[test]
+    fn a_wrapped_argument_still_prevents_the_default_it_supplies() {
+        let reaches = |body: &str| helper_reached_via(body).iter().any(|f| f.name == "id");
+        assert!(
+            reaches(
+                "var current = e; (function(x = (current = other)){}).apply(null, ([1])); parse(current);"
+            ),
+            "a parenthesised apply list is the list it wraps",
+        );
+        assert!(
+            reaches(
+                "var current = e; (function({x = (current = other)}){})(({x: 1})); parse(current);"
+            ),
+            "a parenthesised object is the object it wraps",
+        );
+        // The bound: a list this genuinely cannot read still leaves the default standing.
+        assert!(
+            !reaches(
+                "var current = e; (function(x = (current = other)){}).apply(null, xs); parse(current);"
+            ),
+            "an unreadable list settles nothing",
+        );
+        assert!(
+            !reaches(
+                "var current = e; (function({x = (current = other)}){})(obj); parse(current);"
+            ),
+            "and neither does an unreadable object",
         );
     }
 
