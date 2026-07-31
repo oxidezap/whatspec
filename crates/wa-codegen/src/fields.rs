@@ -115,6 +115,25 @@ pub(crate) fn admits_negative(f: &ParsedField) -> bool {
     }
 }
 
+/// Whether a declared integer band admits NOTHING at the width that is actually emitted.
+///
+/// Contradictory, not merely negative: a minimum above the maximum admits nothing at any width,
+/// and `int_max < 0` alone is an ordinary signed band — WHEN the field is signed. A width forced
+/// unsigned admits nothing below zero, so a ceiling there admits nothing at all; `contentUint`
+/// is a byte fold that [`admits_negative`] keeps `u64` whatever range it carries. Both halves
+/// are the same statement, asked of the width that is really emitted.
+///
+/// One spelling for the two readers that need it: the union's arm-degrading test, which has
+/// asked it all along, and [`int_band`], which was dropping the unsatisfiable bound as though it
+/// were a redundant one. The same one-rule-two-places asymmetry as the band itself, found the
+/// same way.
+pub(crate) fn contradictory_band(f: &ParsedField) -> bool {
+    f.int_min.zip(f.int_max).is_some_and(|(lo, hi)| lo > hi)
+        || (!admits_negative(f)
+            && wap::method_field_type(&f.method) == ParsedFieldType::Integer
+            && f.int_max.is_some_and(|hi| hi < 0))
+}
+
 /// The band a bounded integer accessor enforces, as a test on a decoded value named `var` —
 /// `attrIntRange(node, "count", 1, 10)` → `(1u64..=10u64).contains(&count)`.
 ///
@@ -130,6 +149,16 @@ pub(crate) fn admits_negative(f: &ParsedField) -> bool {
 pub(crate) fn int_band(f: &ParsedField, var: &str) -> Option<String> {
     if wap::method_field_type(&f.method) != ParsedFieldType::Integer {
         return None;
+    }
+    // A band that admits nothing is not a band with a bound to drop. The filters below remove a
+    // bound no value of the emitted width can FAIL; a negative ceiling under an unsigned width
+    // is the opposite — one no value can PASS — and removing it turned `intMin: 5, intMax: -1`
+    // into "at least five" and `0, -1` into no check at all. Both accept everything the source
+    // accessor rejects. `false` is the honest test, and it keeps every caller's shape: the
+    // check already sits where a present value is judged, so an absent optional field is
+    // untouched by it.
+    if contradictory_band(f) {
+        return Some("false".to_string());
     }
     let w = integer_width(f);
     let signed = admits_negative(f);

@@ -49,7 +49,7 @@ pub(crate) fn emit_field_parse(f: &ParsedField, node_var: &str, indent: &str) ->
         // `contentUint(3)`, whose one-, two- and four-byte payloads this accepted and the source
         // accessor turns away. One rule, two places, one copy missing it, on the third kind of
         // constraint this branch has needed it for.
-        let mut out = raw_length_check(Some(f), &name, &fmsg, indent, node_var, f.required);
+        let mut out = raw_length_check(Some(f), &name, &fmsg, indent, node_var);
         out.push(format!(
             "{indent}let {name} = {node_var}.{};",
             content_decoder(method)
@@ -252,7 +252,6 @@ fn raw_length_check(
     fmsg: &str,
     indent: &str,
     node: &str,
-    required: bool,
 ) -> Vec<String> {
     let Some(leaf) = leaf else { return Vec::new() };
     if leaf.method != "contentUint" {
@@ -267,7 +266,16 @@ fn raw_length_check(
     // check ends in `unwrap_or_default`, so letting absence through stores a fabricated zero
     // for a node the source accessor turns away. The optional shape is the other answer —
     // there absence is a value the field can hold, and the read yields `None` on its own.
-    let present = if required {
+    //
+    // The LEAF's requiredness, which is the only one this question is about. The flattened
+    // child path handed it the CHILD's optionality instead, and the two are different facts:
+    // `get_optional_child` has already answered whether the element is there, so every check
+    // below it judges a node that IS present. For `maybeChild("registration").contentUint(4)`
+    // an empty `<registration/>` was flattened to `None` where the source accessor turns that
+    // present node away for having no payload — the child's absence and the payload's absence
+    // read as one thing. Round twenty-five settled that a wrong length is not an absence; this
+    // is the same sentence about whose absence is being asked.
+    let present = if leaf.required {
         "is_some_and"
     } else {
         "is_none_or"
@@ -640,7 +648,7 @@ fn emit_struct_reads(
                         lines.push(format!(
                             "{indent}let {id} = {base}.get_optional_child({lit})"
                         ));
-                        let len = raw_length_check(leaf, &id, &fmsg, indent, "n", false);
+                        let len = raw_length_check(leaf, &id, &fmsg, indent, "n");
                         if len.is_empty() {
                             lines.push(format!("{indent}    .and_then(|n| n.{opt_read});"));
                         } else {
@@ -671,7 +679,6 @@ fn emit_struct_reads(
                     &fmsg,
                     indent,
                     &format!("{id}_node"),
-                    true,
                 ));
                 lines.push(format!("{indent}let {id} = {id}_node.{req_read};"));
                 if let Some(check) = &band {
@@ -2202,30 +2209,80 @@ mod tests {
         // gets no length check at all, which was right about the DECODED value (a `u64` has no
         // `len()`, and asking for one is code that does not compile) and wrong about the
         // payload. Review was right; the bound now says which of the two it is about.
-        let mut leaf = ranged("blob", None, None, true);
-        leaf.method = "contentUint".into();
-        leaf.byte_length = Some(3);
-        // And absence is judged per shape. A REQUIRED read has to turn an empty element away as
-        // firmly as a wrong-length one — the decoder behind it ends in `unwrap_or_default`, so
-        // letting absence through stores a fabricated zero. An OPTIONAL one is the other answer:
-        // absence is a value that field holds, and the read yields `None` on its own. I had
-        // written one spelling for both, and review was right that it is the wrong one for
-        // required.
-        for (required, expect) in [
+        let leaf = |required| {
+            let mut leaf = ranged("blob", None, None, required);
+            leaf.method = "contentUint".into();
+            leaf.byte_length = Some(3);
+            leaf
+        };
+        // And absence is judged per shape — the LEAF's shape. A required accessor has to turn
+        // an empty element away as firmly as a wrong-length one, because the decoder behind it
+        // ends in `unwrap_or_default` and letting absence through stores a fabricated zero. An
+        // optional one is the other answer: absence is a value that field holds.
+        //
+        // Asked of the leaf at every child optionality, because the child's is a different
+        // fact. `get_optional_child` has already decided whether the ELEMENT is there, so the
+        // check below it judges a node that is present either way; taking the child's answer
+        // had `maybeChild("registration").contentUint(4)` flatten a present, empty
+        // `<registration/>` to `None` where the source accessor turns it away. The eighth test
+        // of mine review has had to correct, and the second written to bound a rule that in
+        // fact says something else.
+        for (leaf_required, expect) in [
             (true, "content_bytes().is_some_and(|b| b.len() == 3)"),
             (false, "content_bytes().is_none_or(|b| b.len() == 3)"),
         ] {
-            let src = emit_struct_parser(&[child_over(leaf.clone(), required)], "n", "R", "", "P")
+            for child_required in [true, false] {
+                let src = emit_struct_parser(
+                    &[child_over(leaf(leaf_required), child_required)],
+                    "n",
+                    "R",
+                    "",
+                    "P",
+                )
                 .join("\n");
+                assert!(
+                    src.contains(expect),
+                    "the raw payload is measured (leaf={leaf_required} child={child_required}): {src}"
+                );
+                assert!(
+                    !src.contains("weight.len()"),
+                    "and never the folded number (leaf={leaf_required} child={child_required}): {src}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_band_that_admits_nothing_accepts_nothing() {
+        // Filtering the two bounds independently could turn an EMPTY range into a permissive
+        // one. A bound is dropped when no value of the emitted width can fail it — `>= 0` under
+        // a `u64`; a negative ceiling under that same width is the opposite, a bound no value
+        // can pass, and dropping it read `intMin: 5, intMax: -1` as "at least five" and `0, -1`
+        // as no check at all. Both accept every value the source accessor turns away.
+        for (lo, hi) in [(Some(5), Some(-1)), (Some(0), Some(-1)), (Some(5), Some(3))] {
+            let src = emit_field_parse(&ranged("weight", lo, hi, true), "n", "").join("\n");
             assert!(
-                src.contains(expect),
-                "the raw payload is measured (required={required}): {src}"
-            );
-            assert!(
-                !src.contains("weight.len()"),
-                "and never the folded number (required={required}): {src}"
+                src.contains(r#"anyhow::ensure!(false, "weight out of range"#),
+                "nothing satisfies {lo:?}..={hi:?}: {src}"
             );
         }
+        // The bounds. An ordinary band is still a band at either width, a ceiling alone still
+        // makes the field signed and is a real test there, a floor a `u64` cannot fail is still
+        // dropped, and no declared range still means no check.
+        for (lo, hi, expect) in [
+            (Some(5), Some(10), "(5u64..=10u64).contains(&weight)"),
+            (Some(-5), Some(10), "(-5i64..=10i64).contains(&weight)"),
+            (None, Some(-1), "weight <= -1i64"),
+            (Some(5), None, "weight >= 5u64"),
+        ] {
+            let src = emit_field_parse(&ranged("weight", lo, hi, true), "n", "").join("\n");
+            assert!(
+                src.contains(expect) && !src.contains("ensure!(false"),
+                "an ordinary band {lo:?}..={hi:?}: {src}"
+            );
+        }
+        let src = emit_field_parse(&ranged("weight", None, None, true), "n", "").join("\n");
+        assert!(!src.contains("ensure!"), "nothing declared: {src}");
     }
 
     #[test]

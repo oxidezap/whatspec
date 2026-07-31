@@ -4786,11 +4786,39 @@ fn certainly_not_iterable(e: &Expression<'_>) -> bool {
         Expression::NumericLiteral(_)
         | Expression::BooleanLiteral(_)
         | Expression::BigIntLiteral(_)
-        | Expression::ObjectExpression(_)
         | Expression::RegExpLiteral(_) => true,
-        // A function and a class are objects with no `Symbol.iterator` either, and a class
-        // expression is the one of the two a minifier writes in argument position.
-        Expression::FunctionExpression(_) | Expression::ClassExpression(_) => true,
+        // An object literal has no `Symbol.iterator` — unless it WRITES one. `{ *[Symbol
+        // .iterator]() { yield 1; } }` is a perfectly ordinary iterable, and calling the whole
+        // node kind non-iterable marked an invoked body unreachable and discarded the writes it
+        // really performs. A key this can read is not that symbol, whatever brackets it is
+        // spelled with, so only an unreadable computed key leaves the question open — and a
+        // spread does too, since it copies own symbol-keyed properties along with the rest.
+        Expression::ObjectExpression(o) => !o.properties.iter().any(|p| match p {
+            oxc_ast::ast::ObjectPropertyKind::SpreadProperty(_) => true,
+            oxc_ast::ast::ObjectPropertyKind::ObjectProperty(op) => {
+                op.computed && op.key.static_name().is_none()
+            }
+        }),
+        // A function is an object with no `Symbol.iterator` and no way to be given one in the
+        // expression that writes it. A CLASS is not: its own STATIC members are properties of
+        // the class object, so `class { static *[Symbol.iterator](){ … } }` iterates. An
+        // instance member is on the prototype and reaches the class object never, which is why
+        // only the static ones are asked — and a static block, whose `this` is the class, can
+        // install one where nothing here could name it.
+        Expression::FunctionExpression(_) => true,
+        Expression::ClassExpression(c) => !c.body.body.iter().any(|el| match el {
+            oxc_ast::ast::ClassElement::StaticBlock(_) => true,
+            oxc_ast::ast::ClassElement::MethodDefinition(m) => {
+                m.r#static && m.computed && m.key.static_name().is_none()
+            }
+            oxc_ast::ast::ClassElement::PropertyDefinition(p) => {
+                p.r#static && p.computed && p.key.static_name().is_none()
+            }
+            oxc_ast::ast::ClassElement::AccessorProperty(p) => {
+                p.r#static && p.computed && p.key.static_name().is_none()
+            }
+            oxc_ast::ast::ClassElement::TSIndexSignature(_) => false,
+        }),
         _ => false,
     }
 }
@@ -6158,8 +6186,24 @@ impl AllBindings {
             // — declining the invocation and leaving it to the ordinary walk was not enough:
             // a deferred body's writes are still recorded, and one of them counted as a live
             // value for the name, which refused the alias just as surely.
+            //
+            // Up to and INCLUDING the one that raises, and no further: arguments are evaluated
+            // left to right, so nothing written past a throw is evaluated at all. Recording the
+            // whole list gave the name a second live value that never exists, and the alias was
+            // refused as ambiguous — the same loss this branch was written to prevent, one
+            // position further along. The raising argument's own writes DO happen, before it
+            // leaves, so it is walked rather than skipped; what follows it is walked as
+            // unreachable, so the scopes it opens stay recorded and its writes do not.
+            let mut raised = false;
             for arg in arguments {
+                if raised {
+                    self.unreachable += 1;
+                    self.visit_argument(arg);
+                    self.unreachable -= 1;
+                    continue;
+                }
                 self.visit_argument(arg);
+                raised = arg.as_expression().is_some_and(expression_throws);
             }
             if let Some(q) = template {
                 self.visit_template_literal(q);
@@ -13422,6 +13466,78 @@ mod tests {
         ] {
             let (required, _) = guards_and_field(body);
             assert!(!required, "that body may not run: {body}");
+        }
+    }
+
+    #[test]
+    fn an_object_that_writes_an_iterator_destructures() {
+        // `{ *[Symbol.iterator]() { yield 1; } }` is an ordinary iterable, so an array pattern
+        // over it binds rather than throwing. Calling the whole node kind non-iterable marked
+        // the invoked body unreachable and discarded the writes it really performs, so the
+        // helper's fields were published under a node the parser had already replaced.
+        for body in [
+            "var current = e; (function([x]) { current = other; })({ *[Symbol.iterator]() { yield 1; } }); parse(current);",
+            // A CLASS's static members are properties of the class object, so a static
+            // iterator makes the class itself iterable.
+            "var current = e; (function([x]) { current = other; })(class { static *[Symbol.iterator]() { yield 1; } }); parse(current);",
+            // And a spread copies own symbol-keyed properties along with the rest, so a
+            // literal built from one this cannot read settles nothing either.
+            "var current = e; (function([x]) { current = other; })({ ...o }); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that binding succeeds and the body runs: {body}"
+            );
+        }
+        // The bounds. A literal whose keys this can all read has no `Symbol.iterator` — the
+        // symbol is not a name, whatever brackets a key is spelled with — and neither has a
+        // plain class, whose instance members live on the prototype and reach the class object
+        // never. A number has none either, and an OBJECT pattern does not iterate at all, so
+        // none of this is its question.
+        for body in [
+            "var current = e; (function([x]) { current = other; })({}); parse(current);",
+            "var current = e; (function([x]) { current = other; })({ a: 1 }); parse(current);",
+            "var current = e; (function([x]) { current = other; })({ [\"a\"]: 1 }); parse(current);",
+            "var current = e; (function([x]) { current = other; })(class {}); parse(current);",
+            "var current = e; (function([x]) { current = other; })(class { *[Symbol.iterator]() { yield 1; } }); parse(current);",
+            "var current = e; (function([x]) { current = other; })(1); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that binding throws and the body runs on no path: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn nothing_written_past_a_throwing_argument_is_evaluated() {
+        // Arguments are evaluated left to right, so an argument after one that certainly raises
+        // is never reached. Recording the whole list gave `current` a second live value that
+        // never exists, the alias was refused as ambiguous, and the fields really read off the
+        // original node were dropped — the same loss this branch prevents one position earlier.
+        let fields = helper_reached_via(
+            "var current = e; try { (function(){})((function(){throw 0})(), current = other); } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "that assignment is never evaluated: {fields:?}"
+        );
+        // The bounds. Everything BEFORE the throw runs, including the raising argument's own
+        // writes; a call with nothing raising is untouched; and a binding that throws stops the
+        // BODY, not the arguments, every one of which is evaluated before the binding starts.
+        for body in [
+            "var current = e; try { (function(){})(current = other, (function(){throw 0})()); } catch (_) {} parse(current);",
+            "var current = e; (function(){})(current = other); parse(current);",
+            "var current = e; try { (function({x}){})(null, current = other); } catch (_) {} parse(current);",
+            "var current = e; try { (function(){})((function(){ current = other; throw 0 })()); } catch (_) {} parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that assignment does run: {body}"
+            );
         }
     }
 

@@ -34,8 +34,8 @@ use wa_ir::{AssertionKind, ParsedField, ParsedFieldType, ResponseAssertion, Unio
 
 use crate::emit::emit_struct_parser;
 use crate::fields::{
-    RustChildStruct, RustEnum, RustEnumVariant, RustField, admits_negative, byte_band,
-    collect_response_fields, enum_values, int_band, integer_width, is_attr_field, rust_field_type,
+    RustChildStruct, RustEnum, RustEnumVariant, RustField, byte_band, collect_response_fields,
+    contradictory_band, enum_values, int_band, integer_width, is_attr_field, rust_field_type,
 };
 use crate::naming::{fmt_lit_inner, pascal_case, rust_ident, rust_lit};
 use crate::spec::parser_is_valid;
@@ -1078,19 +1078,10 @@ fn arm_payload_representable(fields: &[ParsedField]) -> bool {
     !fields.iter().any(|f| {
         let content_literal = wap::is_content_method(&f.method) && f.literal_value.is_some();
         let width = integer_width(f);
-        // Contradictory, not merely negative: a minimum above the maximum admits nothing at
-        // any width, and `int_max < 0` alone is an ordinary signed band — WHEN the field is
-        // signed. A width forced unsigned admits nothing below zero, so a ceiling there admits
-        // nothing at all: `contentUint` is a byte fold that `admits_negative` keeps `u64`
-        // whatever range it carries, and generalizing the old below-zero-ceiling test into a
-        // signedness question dropped that case. The arm could then be selected and
-        // materialized on a band no value satisfies. Both halves are the same statement — that
-        // nothing the accessor accepts falls inside the band — asked of the width that is
-        // actually emitted.
-        let unreachable_band = f.int_min.zip(f.int_max).is_some_and(|(lo, hi)| lo > hi)
-            || (!admits_negative(f)
-                && wap::method_field_type(&f.method) == ParsedFieldType::Integer
-                && f.int_max.is_some_and(|hi| hi < 0));
+        // An arm whose band admits nothing could be selected and materialized on a range no
+        // value satisfies. `contradictory_band` states the rule; `int_band` reads the same one
+        // now, which is where it had been dropping the unsatisfiable bound instead.
+        let unreachable_band = contradictory_band(f);
         let unrepresentable_pin = wap::method_field_type(&f.method) == ParsedFieldType::Integer
             && f.literal_value
                 .as_deref()
