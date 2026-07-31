@@ -9823,37 +9823,26 @@ fn expression_throws(e: &Expression<'_>) -> bool {
     // itself from its elements. Reading only the outermost node had `return `${(throws)()}``
     // taken for a value that arrives, and left two hand-rolled per-part scans elsewhere saying
     // the same thing in their own words.
-    match peeled {
-        Expression::TemplateLiteral(t) => {
-            if t.expressions.iter().any(expression_throws) {
-                return true;
+    let a_part_raises = match peeled {
+        Expression::TemplateLiteral(t) => t.expressions.iter().any(expression_throws),
+        Expression::ArrayExpression(a) => a.elements.iter().any(|el| match el {
+            oxc_ast::ast::ArrayExpressionElement::SpreadElement(sp) => {
+                expression_throws(&sp.argument)
             }
-        }
-        Expression::ArrayExpression(a) => {
-            if a.elements.iter().any(|el| match el {
-                oxc_ast::ast::ArrayExpressionElement::SpreadElement(sp) => {
-                    expression_throws(&sp.argument)
-                }
-                oxc_ast::ast::ArrayExpressionElement::Elision(_) => false,
-                other => other.as_expression().is_some_and(expression_throws),
-            }) {
-                return true;
+            oxc_ast::ast::ArrayExpressionElement::Elision(_) => false,
+            other => other.as_expression().is_some_and(expression_throws),
+        }),
+        Expression::ObjectExpression(o) => o.properties.iter().any(|p| match p {
+            oxc_ast::ast::ObjectPropertyKind::SpreadProperty(sp) => expression_throws(&sp.argument),
+            oxc_ast::ast::ObjectPropertyKind::ObjectProperty(op) => {
+                (op.computed && expression_throws(op.key.as_expression().unwrap_or(&op.value)))
+                    || expression_throws(&op.value)
             }
-        }
-        Expression::ObjectExpression(o) => {
-            if o.properties.iter().any(|p| match p {
-                oxc_ast::ast::ObjectPropertyKind::SpreadProperty(sp) => {
-                    expression_throws(&sp.argument)
-                }
-                oxc_ast::ast::ObjectPropertyKind::ObjectProperty(op) => {
-                    (op.computed && expression_throws(op.key.as_expression().unwrap_or(&op.value)))
-                        || expression_throws(&op.value)
-                }
-            }) {
-                return true;
-            }
-        }
-        _ => {}
+        }),
+        _ => false,
+    };
+    if a_part_raises {
+        return true;
     }
     let Expression::CallExpression(c) = peeled else {
         return false;
