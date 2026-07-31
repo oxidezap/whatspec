@@ -154,27 +154,57 @@ pub(crate) fn emit_field_parse(f: &ParsedField, node_var: &str, indent: &str) ->
     let band = super::fields::int_band(f, &name);
     match wap::method_field_type(method) {
         ParsedFieldType::Integer if optional => {
-            let read = format!(
-                "{node_var}.get_attr({flit}).and_then(|v| v.as_str().parse::<{}>().ok())",
-                super::fields::integer_width(f)
-            );
-            let mut out = match &band {
-                // Out of band is not the same as absent: the source accessor THROWS on a value
-                // outside its range, so mapping it to `None` would accept a response the parser
-                // rejects — quietly, and with the field simply missing. Whether an unparseable
-                // value is absent or an error is a separate question this leaves as it was.
-                Some(test) => vec![
-                    format!("{indent}let {name} = match {read} {{"),
+            let width = super::fields::integer_width(f);
+            // Which of the two sources the optionality came from decides what an UNPARSEABLE
+            // value means. A `maybeAttrInt` tolerates the attribute's absence by design, and
+            // what it does with a present non-number is a question about that accessor this
+            // cannot answer from here — so its reading is left exactly as it was.
+            //
+            // A relaxed `attrInt` is a different thing: the accessor is a required one that
+            // runs on some paths only, and when it runs it rejects a value it cannot parse.
+            // Folding the parse failure into `None` stored "absent" for `expiration="invalid"`
+            // — a response the source turns away, filed as one where the field simply is not
+            // there. Four attributes in the committed artifacts are relaxed this way.
+            let mut out = if wap::is_optional_method(method) {
+                let read = format!(
+                    "{node_var}.get_attr({flit}).and_then(|v| v.as_str().parse::<{width}>().ok())"
+                );
+                match &band {
+                    // Out of band is not the same as absent: the source accessor THROWS on a
+                    // value outside its range, so mapping it to `None` would accept a response
+                    // the parser rejects — quietly, and with the field simply missing.
+                    Some(test) => vec![
+                        format!("{indent}let {name} = match {read} {{"),
+                        format!("{indent}    Some({name}) => {{"),
+                        format!(
+                            "{indent}        anyhow::ensure!({test}, \"{fmsg} out of range: {{}}\", {name});"
+                        ),
+                        format!("{indent}        Some({name})"),
+                        format!("{indent}    }}"),
+                        format!("{indent}    None => None,"),
+                        format!("{indent}}};"),
+                    ],
+                    None => vec![format!("{indent}let {name} = {read};")],
+                }
+            } else {
+                let mut lines = vec![
+                    format!("{indent}let {name} = match {node_var}.get_attr({flit}) {{"),
                     format!("{indent}    Some({name}) => {{"),
+                    format!("{indent}        let {name}: {width} = {name}.as_str().parse()"),
                     format!(
-                        "{indent}        anyhow::ensure!({test}, \"{fmsg} out of range: {{}}\", {name});"
+                        "{indent}            .map_err(|_| anyhow::anyhow!(\"{fmsg} not a number\"))?;"
                     ),
-                    format!("{indent}        Some({name})"),
-                    format!("{indent}    }}"),
-                    format!("{indent}    None => None,"),
-                    format!("{indent}}};"),
-                ],
-                None => vec![format!("{indent}let {name} = {read};")],
+                ];
+                if let Some(test) = &band {
+                    lines.push(format!(
+                        "{indent}        anyhow::ensure!({test}, \"{fmsg} out of range: {{}}\", {name});"
+                    ));
+                }
+                lines.push(format!("{indent}        Some({name})"));
+                lines.push(format!("{indent}    }}"));
+                lines.push(format!("{indent}    None => None,"));
+                lines.push(format!("{indent}}};"));
+                lines
             };
             out.extend(literal_pin(f, &name, &fmsg, indent, true));
             out
@@ -200,14 +230,22 @@ pub(crate) fn emit_field_parse(f: &ParsedField, node_var: &str, indent: &str) ->
         // An OPTIONAL JID must come first: `rust_field_type` declares `Option<Jid>` for a
         // `maybeAttr…Jid`, and falling into the branch below both mis-typed the
         // initializer and rejected the absence the accessor exists to permit.
-        t if t.is_jid() && optional => vec![format!(
-            "{indent}let {name} = {node_var}.get_attr({flit}).and_then(|v| v.to_jid());"
-        )],
+        t if t.is_jid() && optional => {
+            let mut out = vec![format!(
+                "{indent}let {name} = {node_var}.get_attr({flit}).and_then(|v| v.to_jid());"
+            )];
+            out.extend(jid_literal_pin(f, node_var, &flit, &fmsg, indent, true));
+            out
+        }
         // Every JID flavor materializes as one `Jid`; switch on `is_jid()` so a newly
         // preserved flavor (UserJid/LidUserJid/…) is parsed as a JID, not a String.
-        t if t.is_jid() => vec![format!(
-            "{indent}let {name} = {node_var}.get_attr({flit}).and_then(|v| v.to_jid()).ok_or_else(|| anyhow::anyhow!(\"missing {fmsg}\"))?;"
-        )],
+        t if t.is_jid() => {
+            let mut out = vec![format!(
+                "{indent}let {name} = {node_var}.get_attr({flit}).and_then(|v| v.to_jid()).ok_or_else(|| anyhow::anyhow!(\"missing {fmsg}\"))?;"
+            )];
+            out.extend(jid_literal_pin(f, node_var, &flit, &fmsg, indent, false));
+            out
+        }
         _ if optional => {
             let mut out = vec![format!(
                 "{indent}let {name} = {node_var}.get_attr({flit}).map(|v| v.as_str().to_string());"
@@ -228,6 +266,44 @@ pub(crate) fn emit_field_parse(f: &ParsedField, node_var: &str, indent: &str) ->
             out
         }
     }
+}
+
+/// The pin on a JID attribute, compared on the RAW wire text.
+///
+/// `literal(attrDomainJid, node, "from", "s.whatsapp.net")` accepts one value and one only, and
+/// the two JID branches emitted no check at all — the generated parser took any JID that parses
+/// where the source takes exactly that one. The round that gave every other kind its pin did not
+/// reach these two, which return before [`literal_pin`] is ever called.
+///
+/// Compared BEFORE the conversion rather than after. The pin is wire text and `Jid` is what that
+/// text becomes, so the text is the thing the source actually names; it also keeps the check to
+/// accessors the emitted modules already demonstrate — `get_attr` and `as_str` — rather than
+/// assuming an equality `Jid` may or may not offer. Nothing in the committed artifacts carries a
+/// pinned JID today; the scan preserves both halves, so the shape is reachable and the branch
+/// silently accepting everything is the wrong thing to leave behind.
+fn jid_literal_pin(
+    f: &ParsedField,
+    node_var: &str,
+    flit: &str,
+    fmsg: &str,
+    indent: &str,
+    optional: bool,
+) -> Vec<String> {
+    let Some(lit) = f.literal_value.as_deref() else {
+        return Vec::new();
+    };
+    let pin = rust_lit(lit);
+    let raw = format!("{node_var}.get_attr({flit}).map(|v| v.as_str())");
+    // An ABSENT attribute is not a pin violation where the read admits absence: the field holds
+    // the absence, exactly as the optional string pin reads it.
+    let test = if optional {
+        format!("matches!({raw}, None | Some({pin}))")
+    } else {
+        format!("{raw} == Some({pin})")
+    };
+    vec![format!(
+        "{indent}anyhow::ensure!({test}, \"{fmsg} not accepted: {{:?}}\", {raw});"
+    )]
 }
 
 /// The value a `literal(...)` accessor pins the field to, as a check on the decoded read.
@@ -1909,6 +1985,91 @@ mod tests {
         assert!(
             src.contains(r#"anyhow::ensure!((-10i64..=10i64).contains(&weight)"#),
             "and the band is enforced after decoding: {src}"
+        );
+    }
+
+    /// A required accessor relaxed to `required: false` still rejects what it cannot parse when
+    /// its branch runs — folding that into `None` filed a response the source turns away as one
+    /// where the field is simply absent.
+    #[test]
+    fn a_relaxed_integer_attribute_still_rejects_what_it_cannot_parse() {
+        let read = |method: &str| {
+            let mut f = ranged("expiration", None, None, false);
+            f.method = method.into();
+            emit_field_parse(&f, "n", "").join("\n")
+        };
+        let strict = read("attrInt");
+        assert!(
+            strict.contains(r#".map_err(|_| anyhow::anyhow!("expiration not a number"))?;"#),
+            "a present value must parse: {strict}"
+        );
+        assert!(
+            strict.contains("None => None,"),
+            "and an absent one is still absent: {strict}"
+        );
+        assert!(
+            !strict.contains("parse::<u64>().ok()"),
+            "the lenient parse is gone from this spelling: {strict}"
+        );
+        // The bound: a `maybe…` accessor tolerates absence by design, and what it does with a
+        // present non-number is a question about that accessor — its reading is untouched.
+        let lenient = read("maybeAttrInt");
+        assert!(
+            lenient.contains(
+                r#"let expiration = n.get_attr("expiration").and_then(|v| v.as_str().parse::<u64>().ok());"#
+            ),
+            "the optional accessor is unchanged: {lenient}"
+        );
+        // …and a band on the relaxed spelling is still enforced, inside the arm that parsed.
+        let mut f = ranged("expiration", Some(1), Some(10), false);
+        f.method = "attrIntRange".into();
+        let banded = emit_field_parse(&f, "n", "").join("\n");
+        assert!(
+            banded.contains(r#".map_err(|_| anyhow::anyhow!("expiration not a number"))?;"#)
+                && banded.contains("(1u64..=10u64).contains(&expiration)"),
+            "parse then band: {banded}"
+        );
+    }
+
+    /// A `literal(...)` wrapping a JID accessor pins it to one value, and the two JID branches
+    /// emitted no check at all — so the parser took any JID that parses.
+    #[test]
+    fn a_pinned_jid_attribute_is_compared_to_its_pin() {
+        let src = |method: &str, required: bool| {
+            let f: ParsedField = serde_json::from_value(serde_json::json!({
+                "method": method, "name": "from", "wireName": "from", "type": "user_jid",
+                "required": required, "literalValue": "s.whatsapp.net"
+            }))
+            .expect("field");
+            emit_field_parse(&f, "n", "").join("\n")
+        };
+        // Compared on the RAW wire text, before the conversion: the pin is text, and `Jid` is
+        // what that text becomes.
+        let required = src("attrUserJid", true);
+        assert!(
+            required.contains(
+                r#"anyhow::ensure!(n.get_attr("from").map(|v| v.as_str()) == Some("s.whatsapp.net")"#
+            ),
+            "the required read is pinned: {required}"
+        );
+        // Absence is not a pin violation where the read admits absence.
+        let optional = src("maybeAttrUserJid", false);
+        assert!(
+            optional.contains(
+                r#"matches!(n.get_attr("from").map(|v| v.as_str()), None | Some("s.whatsapp.net"))"#
+            ),
+            "and the optional read admits absence: {optional}"
+        );
+        // The bound: an unpinned JID is read exactly as before.
+        let f: ParsedField = serde_json::from_value(serde_json::json!({
+            "method": "attrUserJid", "name": "from", "wireName": "from", "type": "user_jid",
+            "required": true
+        }))
+        .expect("field");
+        let unpinned = emit_field_parse(&f, "n", "").join("\n");
+        assert!(
+            !unpinned.contains("ensure!"),
+            "nothing pinned, nothing checked: {unpinned}"
         );
     }
 
