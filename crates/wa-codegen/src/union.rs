@@ -1029,26 +1029,20 @@ fn same_node_guard(arm: &ValueArm, node_var: &str) -> Option<String> {
                     || int_band(f, "n").is_some()
                     || byte_band(f, "b").is_some()
             })
-            // A content leaf that DECLARES something — a vocabulary, a pin, a numeric band, a
-            // byte length. Not one whose only guard is "the node has text at all": whether an
-            // empty element is a payload the source accessor takes or one it rejects is a
-            // question about WA's own `contentString`, not about this IR, and gating a live
-            // fallback on the answer I would have to guess is the wrong way to be wrong. The
-            // reported case is a declared 32-byte length, and that is what this covers.
-            .filter(|f| {
-                !wap::is_content_method(&f.method)
-                    || enum_values(f).is_some()
-                    || f.literal_value.is_some()
-                    || int_band(f, "n").is_some()
-                    || byte_band(f, "b").is_some()
-                    // …and a TYPED content accessor declares something by being typed:
-                    // `contentInt` has to parse, and the decoder behind it ends in
-                    // `unwrap_or_default`, so malformed text became `0` for an arm that
-                    // selected on nothing at all. The paragraph above is about unconstrained
-                    // plain STRING content, where "the node has text" really is the whole
-                    // guard and the answer is WA's rather than this IR's.
-                    || wap::method_field_type(&f.method) != ParsedFieldType::String
-            })
+            // No content filter beside `leaf_guard`. There was one, deciding which content
+            // leaves were worth a guard, and it was a second copy of a policy `leaf_guard`
+            // already holds: for every leaf it dropped — content, plain string, nothing
+            // declared, not required — `leaf_guard` returns `None` on its own. Two copies, and
+            // the one here had the requiredness rule missing, so a REQUIRED plain-string leaf
+            // was filtered out before the guard that would have demanded its content could be
+            // asked for one. The committed `UnknownAddMode`, `UnknownLinkMode` and
+            // `UnknownShareMode` fallbacks each took a `<mode/>` carrying nothing and produced
+            // an unknown-value variant from it.
+            //
+            // Adding the missing clause made the whole filter inert — no leaf reaches it that
+            // `leaf_guard` would not decide the same way — so it is gone rather than kept as a
+            // gate no mutation can distinguish. Which content leaves guard is one question with
+            // one answer, in the function that emits the guard.
             .filter_map(|f| leaf_guard(f, node_var)),
     );
     if conds.is_empty() {
@@ -1381,23 +1375,30 @@ mod tests {
             "the leaf still has to decode: {guard}"
         );
 
-        // The bound: unconstrained plain STRING content yields no guard, which is the case the
-        // comment there is about — whether an empty element is a payload WA's `contentString`
-        // takes is its question rather than this IR's.
-        let arm = ValueArm {
+        // A REQUIRED plain-string leaf declares the one thing that settles it whatever its
+        // type: the content has to be THERE. That is not the empty-text question the comment
+        // there is about — `is_some()` says nothing about emptiness — and while the leaf was
+        // filtered out the `<mode/>` carrying nothing selected the fallback.
+        let plain = |required: bool| ValueArm {
             variant: "PlainText".into(),
             fields: vec![
                 serde_json::from_value(serde_json::json!({
                     "method": "contentString", "name": "elementValue",
-                    "type": "string", "required": true
+                    "type": "string", "required": required
                 }))
                 .expect("field"),
             ],
             assertions: Vec::new(),
         };
+        assert_eq!(
+            same_node_guard(&plain(true), "n").as_deref(),
+            Some("n.content_str().is_some()"),
+            "a required leaf demands its content"
+        );
+        // The bound: an OPTIONAL one really may be absent, so it still guards nothing.
         assert!(
-            same_node_guard(&arm, "n").is_none(),
-            "plain text still guards nothing"
+            same_node_guard(&plain(false), "n").is_none(),
+            "an optional leaf guards nothing"
         );
     }
 
@@ -1780,9 +1781,15 @@ mod tests {
         );
         assert!(
             code.contains(
-                "_ => Some(SpecMemberAddModeMemberAddModes::UnknownAddMode { element_value: n.content_str().unwrap_or_default().to_string() })"
+                "Some(SpecMemberAddModeMemberAddModes::UnknownAddMode { element_value: n.content_str().unwrap_or_default().to_string() })"
             ),
             "fallback should capture raw content:\n{code}"
+        );
+        // …and it is guarded by the presence its required leaf demands: a `<mode/>` carrying
+        // nothing is a node the source accessor turns away, not an unknown value.
+        assert!(
+            code.contains("if n.content_str().is_some() {"),
+            "the fallback demands the content it captures:\n{code}"
         );
     }
 
@@ -2809,8 +2816,8 @@ mod tests {
             "the tag is not an attribute: {code}"
         );
         assert!(
-            code.contains("_ => Some(SpecMemberAddModeMemberAddModes::UnknownAddMode"),
-            "so the fallback is still unconditional: {code}"
+            code.contains("Some(SpecMemberAddModeMemberAddModes::UnknownAddMode"),
+            "so the fallback is still reachable: {code}"
         );
     }
 }

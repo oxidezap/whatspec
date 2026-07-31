@@ -165,7 +165,7 @@ pub(crate) fn emit_field_parse(f: &ParsedField, node_var: &str, indent: &str) ->
             // Folding the parse failure into `None` stored "absent" for `expiration="invalid"`
             // — a response the source turns away, filed as one where the field simply is not
             // there. Four attributes in the committed artifacts are relaxed this way.
-            let mut out = if wap::is_optional_method(method) {
+            let mut out = if tolerates_a_failed_decode(f) {
                 let read = format!(
                     "{node_var}.get_attr({flit}).and_then(|v| v.as_str().parse::<{width}>().ok())"
                 );
@@ -231,9 +231,25 @@ pub(crate) fn emit_field_parse(f: &ParsedField, node_var: &str, indent: &str) ->
         // `maybeAttr…Jid`, and falling into the branch below both mis-typed the
         // initializer and rejected the absence the accessor exists to permit.
         t if t.is_jid() && optional => {
-            let mut out = vec![format!(
-                "{indent}let {name} = {node_var}.get_attr({flit}).and_then(|v| v.to_jid());"
-            )];
+            // …and a JID that fails to CONVERT is not an absent attribute. `to_jid()` answers
+            // `None` for both, so a malformed `attrUserJid` relaxed to `required: false` was
+            // stored as though the attribute were not there — the same collapse the relaxed
+            // integer had, on the branch directly below it, missed in the very commit that
+            // taught the integer. Read from one predicate now.
+            let mut out = if tolerates_a_failed_decode(f) {
+                vec![format!(
+                    "{indent}let {name} = {node_var}.get_attr({flit}).and_then(|v| v.to_jid());"
+                )]
+            } else {
+                vec![
+                    format!("{indent}let {name} = match {node_var}.get_attr({flit}) {{"),
+                    format!(
+                        "{indent}    Some({name}) => Some({name}.to_jid().ok_or_else(|| anyhow::anyhow!(\"{fmsg} not a JID\"))?),"
+                    ),
+                    format!("{indent}    None => None,"),
+                    format!("{indent}}};"),
+                ]
+            };
             out.extend(jid_literal_pin(f, node_var, &flit, &fmsg, indent, true));
             out
         }
@@ -266,6 +282,23 @@ pub(crate) fn emit_field_parse(f: &ParsedField, node_var: &str, indent: &str) ->
             out
         }
     }
+}
+
+/// Whether a read that fails to DECODE may quietly become `None`.
+///
+/// Only where the accessor itself spells the optionality. A `maybeAttr…`/`maybeChild` tolerates
+/// absence by design, and what it does with a present value it cannot decode is a question about
+/// that accessor which this cannot answer from here. A required accessor relaxed by the IR's own
+/// `required` flag is a different thing: it runs on some paths only, and when it runs it rejects
+/// what it cannot decode — so folding the failure into `None` files a response the source turns
+/// away as one where the field is simply absent.
+///
+/// One predicate, because this is the third round the same question has been answered
+/// separately per branch and the third time a branch was missed. The integer read learned it,
+/// the JID read beside it did not; both read this now, and the next kind of value has one place
+/// to look.
+fn tolerates_a_failed_decode(f: &ParsedField) -> bool {
+    wap::is_optional_method(&f.method)
 }
 
 /// The pin on a JID attribute, compared on the RAW wire text.
@@ -831,75 +864,55 @@ fn emit_struct_reads(
             });
             // Same two sources as the declared type, or the initializer will not match it.
             if f.method == "maybeChild" || !f.required {
-                match band.is_empty() {
-                    // Out of band is not absent, exactly as on the attribute path: the source
-                    // accessor THROWS on a value outside its range, so folding it to `None`
-                    // would take a response the parser rejects and leave the field simply
-                    // missing.
-                    false => {
-                        // The child lookup and the leaf decode are two questions and this
-                        // chained them into one: `get_optional_child(…).and_then(|n| n.read())`
-                        // folds a PRESENT element with no payload into the same `None` as an
-                        // absent element, and the band was then skipped for a node the source
-                        // accessor rejects. The committed `erid` child is exactly that shape —
-                        // optional child, required `contentBytesRange(1, 100)` leaf — so an
-                        // empty `<erid/>` was accepted. Round sixty drew this distinction for
-                        // the raw-length check on the other arm of this same match and left
-                        // this one chained; the child is mapped first here now, and the leaf
-                        // judged inside that branch.
-                        lines.push(format!(
-                            "{indent}let {id} = match {base}.get_optional_child({lit}) {{"
-                        ));
-                        lines.push(format!("{indent}    Some({id}_node) => {{"));
-                        if leaf.is_some_and(|c| c.required) {
-                            // A required leaf makes an absent payload a REJECTION, not an
-                            // absence: the accessor throws, and folding it to `None` would
-                            // leave the field simply missing from a response the parser turns
-                            // away.
-                            lines.push(format!("{indent}        let {id} = {id}_node.{opt_read}"));
-                            lines.push(format!(
-                                "{indent}            .ok_or_else(|| anyhow::anyhow!(\"<{fmsg}> has no content\"))?;"
-                            ));
-                            lines.extend(band.iter().map(|c| format!("{indent}        {c}")));
-                            lines.push(format!("{indent}        Some({id})"));
-                        } else {
-                            // An optional leaf really may be absent, and only a value that IS
-                            // there has to satisfy the band.
-                            lines.push(format!("{indent}        match {id}_node.{opt_read} {{"));
-                            lines.push(format!("{indent}            Some({id}) => {{"));
-                            lines.extend(
-                                band.iter().map(|c| format!("{indent}                {c}")),
-                            );
-                            lines.push(format!("{indent}                Some({id})"));
-                            lines.push(format!("{indent}            }}"));
-                            lines.push(format!("{indent}            None => None,"));
-                            lines.push(format!("{indent}        }}"));
-                        }
-                        lines.push(format!("{indent}    }}"));
-                        lines.push(format!("{indent}    None => None,"));
-                        lines.push(format!("{indent}}};"));
-                    }
-                    true => {
-                        lines.push(format!(
-                            "{indent}let {id} = {base}.get_optional_child({lit})"
-                        ));
-                        let len = raw_length_check(leaf, &id, &fmsg, indent, "n");
-                        if len.is_empty() {
-                            lines.push(format!("{indent}    .and_then(|n| n.{opt_read});"));
-                        } else {
-                            // The length is a property of the RAW payload, so it cannot be
-                            // folded into the `and_then` chain without turning a wrong length
-                            // into an absence — which is the answer round twenty-five settled
-                            // is wrong for a band, and is no better for a length.
-                            lines.push(format!("{indent}    .map(|n| -> anyhow::Result<_> {{"));
-                            lines.extend(len.iter().map(|l| format!("    {l}")));
-                            lines.push(format!("{indent}        Ok(n.{opt_read})"));
-                            lines.push(format!("{indent}    }})"));
-                            lines.push(format!("{indent}    .transpose()?"));
-                            lines.push(format!("{indent}    .flatten();"));
-                        }
-                    }
+                // The child lookup and the leaf decode are two questions, and chaining them
+                // into `get_optional_child(…).and_then(|n| n.read())` folds a PRESENT element
+                // with no payload into the same `None` as an absent element. Round sixty drew
+                // that distinction for the raw-length check and round twenty-five for the band;
+                // both wrote it as a branch taken only when the leaf declared something, so an
+                // UNCONSTRAINED leaf kept the chain — and the committed optional
+                // `device-identity` and `verified_name` byte children, and the notification
+                // body strings, are exactly that shape. An empty `<device-identity/>` read as
+                // an absent one.
+                //
+                // One shape for all of them now, whatever the leaf declares. What a leaf
+                // declares decides which checks go INSIDE the arm, never whether the element's
+                // presence is distinguished from its payload's.
+                let inner = format!("{indent}        ");
+                lines.push(format!(
+                    "{indent}let {id} = match {base}.get_optional_child({lit}) {{"
+                ));
+                lines.push(format!("{indent}    Some({id}_node) => {{"));
+                lines.extend(raw_length_check(
+                    leaf,
+                    &id,
+                    &fmsg,
+                    &inner,
+                    &format!("{id}_node"),
+                ));
+                if leaf.is_some_and(|c| c.required) {
+                    // A required leaf makes an absent payload a REJECTION, not an absence: the
+                    // accessor throws, and folding it to `None` would leave the field simply
+                    // missing from a response the parser turns away.
+                    lines.push(format!("{inner}let {id} = {id}_node.{opt_read}"));
+                    lines.push(format!(
+                        "{inner}    .ok_or_else(|| anyhow::anyhow!(\"<{fmsg}> has no content\"))?;"
+                    ));
+                    lines.extend(band.iter().map(|c| format!("{inner}{c}")));
+                    lines.push(format!("{inner}Some({id})"));
+                } else {
+                    // An optional leaf really may be absent, and only a value that IS there has
+                    // to satisfy what the leaf declares.
+                    lines.push(format!("{inner}match {id}_node.{opt_read} {{"));
+                    lines.push(format!("{inner}    Some({id}) => {{"));
+                    lines.extend(band.iter().map(|c| format!("{inner}        {c}")));
+                    lines.push(format!("{inner}        Some({id})"));
+                    lines.push(format!("{inner}    }}"));
+                    lines.push(format!("{inner}    None => None,"));
+                    lines.push(format!("{inner}}}"));
                 }
+                lines.push(format!("{indent}    }}"));
+                lines.push(format!("{indent}    None => None,"));
+                lines.push(format!("{indent}}};"));
             } else {
                 lines.push(format!(
                     "{indent}let {id}_node = {base}.get_optional_child({lit})"
@@ -2060,6 +2073,31 @@ mod tests {
             ),
             "and the optional read admits absence: {optional}"
         );
+        // …and a JID that fails to CONVERT is not an absent attribute. `to_jid()` answers `None`
+        // for both, so a relaxed required accessor stored a malformed value as though the
+        // attribute were not there — the collapse the relaxed integer had, one branch over.
+        let f: ParsedField = serde_json::from_value(serde_json::json!({
+            "method": "attrUserJid", "name": "from", "wireName": "from", "type": "user_jid",
+            "required": false
+        }))
+        .expect("field");
+        let relaxed = emit_field_parse(&f, "n", "").join("\n");
+        assert!(
+            relaxed.contains(r#".to_jid().ok_or_else(|| anyhow::anyhow!("from not a JID"))?"#)
+                && relaxed.contains("None => None,"),
+            "a present value must convert, and an absent one stays absent: {relaxed}"
+        );
+        // The bound: a `maybe…` accessor tolerates absence by design and is untouched.
+        let f: ParsedField = serde_json::from_value(serde_json::json!({
+            "method": "maybeAttrUserJid", "name": "from", "wireName": "from",
+            "type": "user_jid", "required": false
+        }))
+        .expect("field");
+        let lenient = emit_field_parse(&f, "n", "").join("\n");
+        assert!(
+            lenient.contains(r#"let from = n.get_attr("from").and_then(|v| v.to_jid());"#),
+            "the optional accessor is unchanged: {lenient}"
+        );
         // The bound: an unpinned JID is read exactly as before.
         let f: ParsedField = serde_json::from_value(serde_json::json!({
             "method": "attrUserJid", "name": "from", "wireName": "from", "type": "user_jid",
@@ -3132,18 +3170,15 @@ mod tests {
         );
     }
 
+    /// What a leaf DECLARES decides which checks go inside the arm, never whether a present
+    /// element is told apart from an absent one.
+    ///
+    /// Splitting on that gave an unconstrained leaf a chained `and_then`, so an empty
+    /// `<weight/>` read as a missing one — the same collapse the declared-band branch beside it
+    /// existed to prevent, on the shape that declares nothing.
     #[test]
-    fn an_unbounded_flattened_child_content_read_is_emitted_exactly_as_before() {
-        // The paired bound: with nothing declared there is no band, and both shapes read as
-        // they always have — no `ensure!`, and the optional one is still the plain `and_then`
-        // rather than a `match` with one arm.
-        for (required, expected) in [
-            (true, "let weight = weight_node.content_str()"),
-            (
-                false,
-                "    .and_then(|n| n.content_str().and_then(|s| s.parse().ok()));",
-            ),
-        ] {
+    fn an_unconstrained_child_still_tells_an_empty_element_from_a_missing_one() {
+        for required in [true, false] {
             let src = emit_struct_parser(
                 &[child_over(bounded_leaf(None, None), required)],
                 "n",
@@ -3157,10 +3192,25 @@ mod tests {
                 "nothing declared, nothing enforced (required={required}): {src}"
             );
             assert!(
-                src.contains(expected),
-                "and the read is untouched (required={required}): {src}"
+                !src.contains(".and_then(|n| n."),
+                "the two questions stay apart (required={required}): {src}"
             );
         }
+        // The optional child descends first, and a REQUIRED leaf inside it then demands its
+        // payload — an element that is there with nothing in it is a rejection, not an absence.
+        let src = emit_struct_parser(
+            &[child_over(bounded_leaf(None, None), false)],
+            "n",
+            "R",
+            "",
+            "P",
+        )
+        .join("\n");
+        assert!(
+            src.contains(r#"match n.get_optional_child("weight") {"#)
+                && src.contains(r#".ok_or_else(|| anyhow::anyhow!("<weight> has no content"))?;"#),
+            "a present element must carry its required payload: {src}"
+        );
     }
 
     #[test]
