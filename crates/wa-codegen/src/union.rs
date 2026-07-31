@@ -1019,6 +1019,15 @@ fn same_node_guard(arm: &ValueArm, node_var: &str) -> Option<String> {
             .filter(|f| {
                 wap::is_content_method(&f.method)
                     || !pinned.contains(f.wire_name.as_deref().unwrap_or(&f.name))
+                    // …unless the leaf constrains more than the pin asserts. A raw attribute
+                    // pin says the text is PRESENT and EQUAL; a typed accessor also has to
+                    // decode, and a bounded one has to fall inside its band. An arm asserting
+                    // `count="99"` while reading `attrIntRange("count", 1, 10)` passed its own
+                    // assertion and selected on a value the source accessor turns away.
+                    || is_typed(f)
+                    || enum_values(f).is_some()
+                    || int_band(f, "n").is_some()
+                    || byte_band(f, "b").is_some()
             })
             // A content leaf that DECLARES something — a vocabulary, a pin, a numeric band, a
             // byte length. Not one whose only guard is "the node has text at all": whether an
@@ -1032,6 +1041,13 @@ fn same_node_guard(arm: &ValueArm, node_var: &str) -> Option<String> {
                     || f.literal_value.is_some()
                     || int_band(f, "n").is_some()
                     || byte_band(f, "b").is_some()
+                    // …and a TYPED content accessor declares something by being typed:
+                    // `contentInt` has to parse, and the decoder behind it ends in
+                    // `unwrap_or_default`, so malformed text became `0` for an arm that
+                    // selected on nothing at all. The paragraph above is about unconstrained
+                    // plain STRING content, where "the node has text" really is the whole
+                    // guard and the answer is WA's rather than this IR's.
+                    || wap::method_field_type(&f.method) != ParsedFieldType::String
             })
             .filter_map(|f| leaf_guard(f, node_var)),
     );
@@ -1313,6 +1329,76 @@ mod tests {
     /// Parse a single `type=union` field from JSON (the IR's on-wire shape).
     fn union_field(json: serde_json::Value) -> ParsedField {
         serde_json::from_value(json).expect("valid ParsedField")
+    }
+
+    #[test]
+    fn a_same_node_guard_keeps_typed_and_bounded_leaves() {
+        // Two ways a leaf was dropped from the guard while still constraining what the arm
+        // accepts. A raw attribute PIN asserts presence and equality and nothing else, so a
+        // typed or bounded accessor on the same name still has to decode and still has to fall
+        // in its band — an arm asserting `count="99"` while reading `attrIntRange("count", 1,
+        // 10)` passed its own assertion and selected on a value the source turns away.
+        let arm = ValueArm {
+            variant: "Bounded".into(),
+            fields: vec![
+                serde_json::from_value(serde_json::json!({
+                    "method": "attrIntRange", "name": "count", "wireName": "count",
+                    "type": "integer", "required": true, "intMin": 1, "intMax": 10
+                }))
+                .expect("field"),
+            ],
+            assertions: vec![wa_ir::ResponseAssertion {
+                kind: AssertionKind::Attr,
+                name: Some("count".into()),
+                value: Some("99".into()),
+                reference_path: None,
+            }],
+        };
+        let guard = same_node_guard(&arm, "n").expect("a guard");
+        assert!(
+            guard.contains("(1u64..=10u64).contains"),
+            "the band is still applied over the pin: {guard}"
+        );
+
+        // …and a TYPED content accessor declares something by being typed, even with no
+        // vocabulary, pin, band or byte length: `contentInt` has to parse, and the decoder
+        // behind it ends in `unwrap_or_default`, so malformed text became `0` for an arm that
+        // selected on nothing at all.
+        let arm = ValueArm {
+            variant: "Typed".into(),
+            fields: vec![
+                serde_json::from_value(serde_json::json!({
+                    "method": "contentInt", "name": "elementValue",
+                    "type": "integer", "required": true
+                }))
+                .expect("field"),
+            ],
+            assertions: Vec::new(),
+        };
+        let guard = same_node_guard(&arm, "n").expect("a guard");
+        assert!(
+            guard.contains("parse::<u64>()") || guard.contains("content_str()"),
+            "the leaf still has to decode: {guard}"
+        );
+
+        // The bound: unconstrained plain STRING content yields no guard, which is the case the
+        // comment there is about — whether an empty element is a payload WA's `contentString`
+        // takes is its question rather than this IR's.
+        let arm = ValueArm {
+            variant: "PlainText".into(),
+            fields: vec![
+                serde_json::from_value(serde_json::json!({
+                    "method": "contentString", "name": "elementValue",
+                    "type": "string", "required": true
+                }))
+                .expect("field"),
+            ],
+            assertions: Vec::new(),
+        };
+        assert!(
+            same_node_guard(&arm, "n").is_none(),
+            "plain text still guards nothing"
+        );
     }
 
     /// A content-discriminated union with a typed fallback (the group member-mode

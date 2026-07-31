@@ -3941,6 +3941,16 @@ fn throws_out(body: &[Statement<'_>]) -> bool {
     for st in body {
         let throws = match st {
             Statement::ThrowStatement(_) => true,
+            // …and a statement whose EXPRESSION certainly raises leaves the same way. This
+            // predicate read statement KINDS and never their expressions, so `else {
+            // (function(){ throw 0; })(); }` counted as a path that yields a value and diluted
+            // the intersection with an empty side. `expression_throws` peels a sequence, so
+            // `(0, (throws)())` is the same statement said another way.
+            //
+            // Round sixty-eight asked exactly this question inside `class_constructor_throws`,
+            // for its own statements. It reads this one now — the rule belongs to statements,
+            // not to constructors.
+            Statement::ExpressionStatement(x) => expression_throws(&x.expression),
             Statement::BlockStatement(b) => throws_out(&b.body),
             // Both ways out are still out: `if (flag) throw A(); else throw B();` produces no
             // result on any path it can take. Matching only the bare and braced forms let a
@@ -4161,6 +4171,9 @@ fn ends_the_list_but_for(
 ) -> bool {
     match stmt {
         Statement::ReturnStatement(_) | Statement::ThrowStatement(_) => true,
+        // Control does not continue past an expression that certainly raises, whatever the
+        // statement is spelled as — the other half of the same sentence `throws_out` states.
+        Statement::ExpressionStatement(x) => expression_throws(&x.expression),
         // A labelled transfer to a label opened within this statement is consumed by it.
         Statement::BreakStatement(b) => b
             .label
@@ -4300,6 +4313,11 @@ fn is_constructible(callee: &Expression<'_>) -> bool {
 fn heritage_throws(super_class: &Expression<'_>) -> bool {
     match peel(super_class) {
         // `extends null` is legal and makes a base-like class with no prototype parent.
+        //
+        // The fallback below answers this too, so no mutation can tell the arm from its absence
+        // — said rather than left implied. It stays because the list it sits above is a list of
+        // LITERALS that reject the class, and `null` is the one literal that must never join
+        // it; an arm is a cheaper guard against that edit than a comment alone.
         Expression::NullLiteral(_) => false,
         Expression::ClassExpression(_) => false,
         Expression::FunctionExpression(f) => f.generator || f.r#async,
@@ -4313,6 +4331,13 @@ fn heritage_throws(super_class: &Expression<'_>) -> bool {
         // An object, and never a constructor — the one literal of that kind, which is why the
         // list of "certainly not constructible" spellings had it missing.
         | Expression::RegExpLiteral(_)
+        // EVERY unary operator produces a primitive — `void x` `undefined`, `!x` and `delete x`
+        // a boolean, `-x`/`+x`/`~x` a number, `typeof x` a string — and none of them produces
+        // `null`, which is the one primitive a heritage accepts. So `extends void 0` rejects
+        // the class the moment it is defined and its static initializers write nothing.
+        // `certainly_a_primitive` states the same fact one round earlier for what a constructor
+        // returns; this list had the literal forms and not the operator that makes them.
+        | Expression::UnaryExpression(_)
         | Expression::ArrayExpression(_) => true,
         _ => false,
     }
@@ -4969,18 +4994,16 @@ fn class_constructor_throws(class: &oxc_ast::ast::Class<'_>) -> bool {
             if m.kind == oxc_ast::ast::MethodDefinitionKind::Constructor =>
         {
             m.value.body.as_ref().is_some_and(|b| {
+                // A `return` whose ARGUMENT raises never returns, which is the one half
+                // `throws_out` cannot state for itself: it reads a `return` as an exit and does
+                // not read what the exit computes. The expression-statement half was written
+                // here too and belongs to `throws_out`, which asks it in EXECUTION order — so
+                // an unreachable throw after `return;` stops counting for free.
                 throws_out(&b.statements)
-                    // …and a statement whose own EXPRESSION certainly raises ends the
-                    // constructor as surely as a `throw` does. `throws_out` reads the statement
-                    // KINDS that leave — a `return` is one of them and its argument is not read
-                    // — so `return `${(throws)()}`` was taken for a value that arrives. Only
-                    // the top level, and only the two spellings whose expression is the whole
-                    // statement, which is what stays decidable here.
                     || b.statements.iter().any(|st| match st {
                         Statement::ReturnStatement(r) => {
                             r.argument.as_ref().is_some_and(expression_throws)
                         }
-                        Statement::ExpressionStatement(x) => expression_throws(&x.expression),
                         _ => false,
                     })
             })
@@ -15335,6 +15358,83 @@ mod tests {
         assert!(!required);
     }
 
+    #[test]
+    fn a_statement_whose_expression_raises_leaves_the_list() {
+        // `throws_out` read statement KINDS and never their expressions, so an `else` branch
+        // that calls a throwing IIFE counted as a path yielding a value and diluted the
+        // intersection with an empty side. `expression_throws` peels a sequence, so
+        // `(0, (throws)())` is the same statement said another way.
+        for body in [
+            "if (flag) { parse(e); } else { (function(){ throw 0; })(); }",
+            "if (flag) { parse(e); } else { (0, (function(){ throw 0; })()); }",
+        ] {
+            let (required, _) = guards_and_field(body);
+            assert!(required, "that branch yields nothing: {body}");
+        }
+        // The bound: a sequence that raises nothing is an ordinary expression statement and the
+        // branch really is an alternative.
+        let (required, _) = guards_and_field("if (flag) { parse(e); } else { (0, 1); }");
+        assert!(!required);
+        // …and the same statement rule seen from the other side: control does not continue past
+        // it, so a read written after one is on no path. `throws_out` answers which branches
+        // yield a value; `ends_the_statement_list` answers what follows, and both halves of one
+        // sentence needed saying.
+        let (required, _) = guards_and_field("(function(){ throw 0; })(); parse(e);");
+        assert!(!required, "nothing after a throwing statement is reached");
+    }
+
+    #[test]
+    fn a_constructor_stops_counting_at_its_first_exit() {
+        // The same predicate, read in EXECUTION order. Round sixty-eight asked "does any
+        // statement raise" of the constructor's whole list, so a throw written after `return;`
+        // — which control never reaches — declined a method that always runs. `throws_out`
+        // walks in order and stops, so moving the question to it answers this for free.
+        let fields = helper_reached_via(
+            "var current = e; (new (class { constructor(){ return; (function(){throw 0})(); } m(){ current = other; } })).m(); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "that method already ran: {fields:?}"
+        );
+        // The bound: a throw control DOES reach still builds nothing.
+        let fields = helper_reached_via(
+            "var current = e; try { (new (class { constructor(){ (function(){throw 0})(); } m(){ current = other; } })).m(); } catch (_) {} parse(current);",
+        );
+        assert!(fields.iter().any(|f| f.name == "id"));
+    }
+
+    #[test]
+    fn a_unary_heritage_rejects_the_class_when_it_is_defined() {
+        // Every unary operator produces a primitive, and none of them produces `null` — the one
+        // primitive a heritage accepts. So `extends (void 0)` throws the moment the class is
+        // defined and its static initializers write nothing. `certainly_a_primitive` states the
+        // same fact one round earlier for what a constructor RETURNS; this list had the literal
+        // forms and not the operator that makes them.
+        //
+        // Parenthesized, because that is the spelling that parses: `extends` takes a
+        // LeftHandSideExpression and a bare unary is not one, so the reported `extends void 0`
+        // is a SyntaxError rather than a case this scanner ever sees.
+        let fields = helper_reached_via(
+            "var current = e; var C = class extends (void 0) { static x = (current = other); }; parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "that initializer never runs: {fields:?}"
+        );
+        // The bounds. A constructor heritage really is one, and `extends null` is legal — it
+        // makes a base-like class whose statics run.
+        for body in [
+            "var current = e; var C = class extends Object { static x = (current = other); }; parse(current);",
+            "var current = e; var C = class extends null { static x = (current = other); }; parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that initializer does run: {body}"
+            );
+        }
+    }
+
     fn helper_reached_via(body: &str) -> Vec<ParsedField> {
         let module = format!(
             r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){{
@@ -22918,7 +23018,7 @@ mod tests {
         // The bound: `extends null` is legal, a plain function and a class are constructors, an
         // identifier is left alone — and the heritage EXPRESSION is evaluated either way.
         for body in [
-            "var current = e; class C extends null { static x = (current = other); } parse(current);",
+            "var current = e; var C = class extends null { static x = (current = other); }; parse(current);",
             "var current = e; class C extends Base { static x = (current = other); } parse(current);",
             "var current = e; class C extends (function () {}) { static x = (current = other); } parse(current);",
             "var current = e; try { class C extends (current = other, () => {}) {} } catch (_) {} parse(current);",
