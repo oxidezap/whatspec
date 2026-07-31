@@ -4755,6 +4755,14 @@ fn pattern_binding_throws(
                     // `undefined` is exactly what `None` means one level down, so the existing
                     // no-value path answers it — including its own bound, that a plain
                     // identifier binds `undefined` perfectly well.
+                    // A property the object is PROVEN not to have reads as `undefined`, and
+                    // the no-value path already knows what a pattern does with that — including
+                    // its own bound, that a plain identifier binds it perfectly well.
+                    // `owned_property` answers `None` for "absent" and for "cannot say" alike,
+                    // which is right for every other caller and loses this decline.
+                    if owned.is_none() && property_certainly_absent(obj, name.as_ref()) {
+                        return pattern_binding_throws(&prop.value, None, undefined_is_the_global);
+                    }
                     owned.is_some_and(|op| match op.kind {
                         oxc_ast::ast::PropertyKind::Init => pattern_binding_throws(
                             &prop.value,
@@ -4867,11 +4875,16 @@ fn static_definition<'b, 'a>(
 ) -> Option<&'b oxc_ast::ast::MethodDefinition<'a>> {
     let overwritten = class.body.body.iter().any(|el| match el {
         oxc_ast::ast::ClassElement::StaticBlock(_) => true,
+        // …and a key this cannot READ might be that name. A computed static field is installed
+        // in the same phase whatever its key spells, so `class { static m(){ … } static [k] = 0 }`
+        // takes the property whenever `k` is `"m"` — and the scan cannot tell that it is not.
+        // The same three-way answer the property lookup beside it needed: absent, present, and
+        // unknowable are three, and treating the third as the first invents a body that runs.
         oxc_ast::ast::ClassElement::PropertyDefinition(p) => {
-            p.r#static && p.key.static_name().as_deref() == Some(name)
+            p.r#static && p.key.static_name().as_deref().is_none_or(|k| k == name)
         }
         oxc_ast::ast::ClassElement::AccessorProperty(p) => {
-            p.r#static && p.key.static_name().as_deref() == Some(name)
+            p.r#static && p.key.static_name().as_deref().is_none_or(|k| k == name)
         }
         _ => false,
     });
@@ -5043,7 +5056,24 @@ fn certainly_not_iterable(e: &Expression<'_>) -> bool {
         // instance member is on the prototype and reaches the class object never, which is why
         // only the static ones are asked — and a static block, whose `this` is the class, can
         // install one where nothing here could name it.
-        Expression::FunctionExpression(_) => true,
+        // An ARROW is an object with no `Symbol.iterator` and no way to be given one either.
+        // Only the `function` spelling was listed, so `([x]) => …` over an inline arrow read as
+        // a binding that succeeds and the body it never enters was walked as one that runs.
+        Expression::FunctionExpression(_) | Expression::ArrowFunctionExpression(_) => true,
+        // A DERIVED class inherits its base's static members through the constructor's own
+        // prototype chain, so `class extends (class { static *[Symbol.iterator](){ … } }) {}`
+        // iterates without naming an iterator anywhere in its own body. Reading only its own
+        // elements marked an invoked body unreachable and discarded the writes it performs.
+        //
+        // `extends null` is the exception and keeps its answer: the constructor's prototype is
+        // `Function.prototype`, which has no iterator, so nothing is inherited.
+        Expression::ClassExpression(c)
+            if c.super_class
+                .as_ref()
+                .is_some_and(|h| !certainly_nullish(h)) =>
+        {
+            false
+        }
         Expression::ClassExpression(c) => !c.body.body.iter().any(|el| match el {
             oxc_ast::ast::ClassElement::StaticBlock(_) => true,
             oxc_ast::ast::ClassElement::MethodDefinition(m) => {
@@ -5262,10 +5292,63 @@ fn owned_property<'b, 'a>(
                 if op.key.static_name().as_deref() == Some(name) && !sets_the_prototype(op) {
                     return Some(op);
                 }
+                // A computed key this cannot read might BE that name, and it is written past
+                // whatever the scan would otherwise hand back — `{x: 1, [k]: undefined}` ends
+                // up with `x` holding `undefined` when `k` is `"x"`, and answering the earlier
+                // `x: 1` suppressed a default the call really runs. A spread stopped the scan
+                // for exactly this reason and a computed key did not, which is the same rule
+                // with one of its two spellings missing.
+                if op.computed && op.key.static_name().is_none() {
+                    return None;
+                }
             }
         }
     }
     None
+}
+
+/// Whether reading `name` off this literal certainly yields `undefined` — a property the object
+/// is PROVEN not to have, as against one this pass merely cannot resolve.
+///
+/// `owned_property` answers `None` for both, which is right for every caller asking "may I read
+/// this value" and wrong for the one asking "does this binding throw": `(function ({x: {y}}) { …
+/// })({__proto__: null})` reads `x` as `undefined` and the nested pattern raises before the body,
+/// and reporting no failure recorded writes for a body entered on no path.
+///
+/// Only the prototype-less spelling settles it. An ordinary literal inherits from
+/// `Object.prototype`, where `toString` and `constructor` and the rest really are found, so
+/// "not written here" is not "absent" for it. Nothing may leave the key set open either — a
+/// spread or a computed key this cannot read could supply the very name.
+fn property_certainly_absent(obj: &oxc_ast::ast::ObjectExpression<'_>, name: &str) -> bool {
+    let prototype_less = obj.properties.iter().any(|p| match p {
+        oxc_ast::ast::ObjectPropertyKind::ObjectProperty(op) => {
+            sets_the_prototype(op) && certainly_nullish(&op.value)
+        }
+        oxc_ast::ast::ObjectPropertyKind::SpreadProperty(_) => false,
+    });
+    if !prototype_less {
+        return false;
+    }
+    obj.properties.iter().all(|p| match p {
+        oxc_ast::ast::ObjectPropertyKind::SpreadProperty(s) => {
+            !spread_may_define(&s.argument, name)
+        }
+        oxc_ast::ast::ObjectPropertyKind::ObjectProperty(op) => {
+            if sets_the_prototype(op) {
+                return true;
+            }
+            // The name test is unobservable from the one caller, which asks only after
+            // `owned_property` answered `None` — and where nothing unreadable is present, that
+            // answer already means no property of the name exists. Kept anyway, and said rather
+            // than hidden: it is what makes this function state its own rule instead of being
+            // correct by its caller's precondition. The same judgement round sixty-one made for
+            // `setter_without_getter`, and no mutation of mine can tell the two apart.
+            match op.key.static_name() {
+                Some(k) => k != name,
+                None => false,
+            }
+        }
+    })
 }
 
 /// Whether this callee names a concise method of an object literal — `({ m(){ … } }).m` — which
@@ -14336,6 +14419,110 @@ mod tests {
             assert!(
                 fields.iter().any(|f| f.name == "id"),
                 "that binding throws: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_arrow_and_a_derived_class_get_their_own_iterability_answers() {
+        // An arrow is an object with no `Symbol.iterator` and no way to be given one — only the
+        // `function` spelling was listed, so a binding that throws read as one that succeeds.
+        let fields = helper_reached_via(
+            "var current = e; try { (function([x]) { current = other; })(() => {}); } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "an arrow has no iterator: {fields:?}"
+        );
+        // A DERIVED class is the other way: it inherits its base's static members through the
+        // constructor's own prototype chain, so it iterates without naming an iterator anywhere
+        // in its own body. Reading only its own elements marked a running body unreachable.
+        let fields = helper_reached_via(
+            "var current = e; (function([x]) { current = other; })(class extends (class { static *[Symbol.iterator](){ yield 1; } }) {}); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "that binding succeeds: {fields:?}"
+        );
+        // The bounds: a plain function and a plain class still have none, and `extends null`
+        // inherits from `Function.prototype`, which has none either.
+        for body in [
+            "var current = e; try { (function([x]) { current = other; })(function(){}); } catch (_) {} parse(current);",
+            "var current = e; try { (function([x]) { current = other; })(class {}); } catch (_) {} parse(current);",
+            "var current = e; try { (function([x]) { current = other; })(class extends null {}); } catch (_) {} parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that binding throws: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_lookup_says_absent_and_unknowable_apart() {
+        // Three findings, one shape: a property lookup has THREE answers — present, proven
+        // absent, and unknowable — and each of these sites collapsed two of them into one.
+        //
+        // A prototype-less literal really lacks what it does not name, so `x` is `undefined` and
+        // the nested pattern raises before the body. `owned_property` answers `None` for that
+        // and for "cannot say" alike, which is right for every caller asking what value to read
+        // and loses this decline.
+        let fields = helper_reached_via(
+            "var current = e; try { (function({x:{y}}) { current = other; })({ __proto__: null }); } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "that property is proven absent: {fields:?}"
+        );
+        // A computed key this cannot read might BE the name, and it is written past whatever
+        // the scan would otherwise hand back — a spread stopped the reverse scan for exactly
+        // this reason and a computed key did not.
+        let fields = helper_reached_via(
+            "var k = \"x\", current = e; (function({x = (current = other)}){})({ x: 1, [k]: undefined }); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "that default may run: {fields:?}"
+        );
+        // …and the same key question one construct over: a computed static field is installed in
+        // the same phase whatever its key spells, so it may take the property from the method.
+        let fields = helper_reached_via(
+            "var k = \"m\", current = e; try { (class { static m(){ current = other; } static [k] = 0; }).m(); } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "that method may not be what the class holds: {fields:?}"
+        );
+        // The bounds. A prototype-less literal that DOES name the property carries it down; an
+        // ordinary literal inherits from `Object.prototype`, where names really are found, so
+        // "not written here" is not "absent" for it; a plain identifier binds `undefined` fine;
+        // a computed key this CAN read is an ordinary name; one written BEFORE the match cannot
+        // overwrite it; and a readable static key of another name takes nothing.
+        for body in [
+            "var current = e; (function({x:{y}}) { current = other; })({ __proto__: null, x: { y: 1 } }); parse(current);",
+            "var current = e; (function({x:{y}}) { current = other; })({ x: { y: 1 } }); parse(current);",
+            "var current = e; (function({x}) { current = other; })({ __proto__: null }); parse(current);",
+            // …and an ORDINARY literal proves nothing absent, because it inherits from
+            // `Object.prototype`, where `toString` and `constructor` and the rest really are
+            // found. "Not written here" is only "absent" once the prototype is gone.
+            "var current = e; (function({toString:{y}}) { current = other; })({ a: 1 }); parse(current);",
+            "var current = e; (class { static m(){ current = other; } static [\"n\"] = 0; }).m(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that write does happen: {body}"
+            );
+        }
+        for body in [
+            "var current = e; (function({x = (current = other)}){})({ x: 1, [\"y\"]: undefined }); parse(current);",
+            "var current = e; (function({x = (current = other)}){})({ [k]: undefined, x: 1 }); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that default is prevented: {body}"
             );
         }
     }

@@ -678,13 +678,44 @@ fn emit_struct_reads(
                     // would take a response the parser rejects and leave the field simply
                     // missing.
                     false => {
+                        // The child lookup and the leaf decode are two questions and this
+                        // chained them into one: `get_optional_child(…).and_then(|n| n.read())`
+                        // folds a PRESENT element with no payload into the same `None` as an
+                        // absent element, and the band was then skipped for a node the source
+                        // accessor rejects. The committed `erid` child is exactly that shape —
+                        // optional child, required `contentBytesRange(1, 100)` leaf — so an
+                        // empty `<erid/>` was accepted. Round sixty drew this distinction for
+                        // the raw-length check on the other arm of this same match and left
+                        // this one chained; the child is mapped first here now, and the leaf
+                        // judged inside that branch.
                         lines.push(format!(
-                            "{indent}let {id} = match {base}.get_optional_child({lit})"
+                            "{indent}let {id} = match {base}.get_optional_child({lit}) {{"
                         ));
-                        lines.push(format!("{indent}    .and_then(|n| n.{opt_read}) {{"));
-                        lines.push(format!("{indent}    Some({id}) => {{"));
-                        lines.extend(band.iter().map(|c| format!("{indent}        {c}")));
-                        lines.push(format!("{indent}        Some({id})"));
+                        lines.push(format!("{indent}    Some({id}_node) => {{"));
+                        if leaf.is_some_and(|c| c.required) {
+                            // A required leaf makes an absent payload a REJECTION, not an
+                            // absence: the accessor throws, and folding it to `None` would
+                            // leave the field simply missing from a response the parser turns
+                            // away.
+                            lines.push(format!("{indent}        let {id} = {id}_node.{opt_read}"));
+                            lines.push(format!(
+                                "{indent}            .ok_or_else(|| anyhow::anyhow!(\"<{fmsg}> has no content\"))?;"
+                            ));
+                            lines.extend(band.iter().map(|c| format!("{indent}        {c}")));
+                            lines.push(format!("{indent}        Some({id})"));
+                        } else {
+                            // An optional leaf really may be absent, and only a value that IS
+                            // there has to satisfy the band.
+                            lines.push(format!("{indent}        match {id}_node.{opt_read} {{"));
+                            lines.push(format!("{indent}            Some({id}) => {{"));
+                            lines.extend(
+                                band.iter().map(|c| format!("{indent}                {c}")),
+                            );
+                            lines.push(format!("{indent}                Some({id})"));
+                            lines.push(format!("{indent}            }}"));
+                            lines.push(format!("{indent}            None => None,"));
+                            lines.push(format!("{indent}        }}"));
+                        }
                         lines.push(format!("{indent}    }}"));
                         lines.push(format!("{indent}    None => None,"));
                         lines.push(format!("{indent}}};"));
@@ -2062,8 +2093,37 @@ mod tests {
         )
         .join("\n");
         assert!(
-            src.contains("Some(weight) => {") && src.contains("None => None,"),
-            "absent stays absent, out of band errors: {src}"
+            src.contains("None => None,"),
+            "an absent CHILD stays absent: {src}"
+        );
+        assert!(
+            src.contains("anyhow::ensure!((-10i64..=10i64).contains(&weight)"),
+            "a value outside the band is an error: {src}"
+        );
+        // …and a present child with no payload is a third case, which the chained
+        // `get_optional_child(…).and_then(|n| n.read())` folded into the first. The leaf here is
+        // required, so an empty element is a rejection and not an absence — the committed `erid`
+        // child is that shape and was being accepted.
+        assert!(
+            src.contains(r#"anyhow::anyhow!("<weight> has no content")"#),
+            "a present child with no payload is an error: {src}"
+        );
+    }
+
+    #[test]
+    fn an_optional_leaf_under_an_optional_child_may_still_be_absent() {
+        // The bound on that third case: when the LEAF itself is optional, an empty element is a
+        // value the field can hold and only a payload that IS there has to satisfy the band.
+        let mut leaf = bounded_leaf(Some(-10), Some(10));
+        leaf.required = false;
+        let src = emit_struct_parser(&[child_over(leaf, false)], "n", "R", "", "P").join("\n");
+        assert!(
+            !src.contains("has no content"),
+            "an absent payload is allowed: {src}"
+        );
+        assert!(
+            src.contains("anyhow::ensure!((-10i64..=10i64).contains(&weight)"),
+            "a present one is still checked: {src}"
         );
     }
 
