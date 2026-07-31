@@ -3265,6 +3265,8 @@ fn invoked_callee<'b, 'a>(mut e: &'b Expression<'a>) -> &'b Expression<'a> {
             // call is itself a CALL, so nothing above matched it and the body was walked as one
             // nobody reaches. Only `.bind`, whose result IS the receiver's body; what
             // `(function(){ … }).map(g)` hands back is something else.
+            // The selection wrappers, read from the one place that states them.
+            other if !std::ptr::eq(selected_arm(other), other) => selected_arm(other),
             Expression::CallExpression(c) => match bind_member(&c.callee) {
                 Some(object) => object,
                 None => return e,
@@ -3336,6 +3338,25 @@ fn peel_parens<'b, 'a>(mut e: &'b Expression<'a>) -> &'b Expression<'a> {
     e
 }
 
+/// The arm a decided conditional or short-circuit evaluates to, or the expression itself.
+///
+/// `1 ? f : g` IS `f`, and `1 && f` is `f`. The other way round — `0 && f` — evaluates to the
+/// LEFT, which [`logical_right_is_dead`] names and this deliberately leaves alone: the value
+/// there is the `0`.
+///
+/// Its own function because two unwrappers need it and neither can call the other: [`peel`]
+/// answers "what value is this" and `invoked_callee` answers the same question while tracking
+/// whether a comma discarded the reference on the way, so it keeps its own loop. The statement
+/// side has read `statically_selected` for as long; this is its expression twin.
+fn selected_arm<'b, 'a>(e: &'b Expression<'a>) -> &'b Expression<'a> {
+    match e {
+        Expression::ConditionalExpression(c) if always_true(&c.test) => &c.consequent,
+        Expression::ConditionalExpression(c) if always_false(&c.test) => &c.alternate,
+        Expression::LogicalExpression(l) if logical_right_is_certain(l) => &l.right,
+        other => other,
+    }
+}
+
 /// Through the wrappers that do not change which value an expression is — and no further.
 /// `invoked_callee` looks through `bind` as well, which is the wrong depth for anything asking
 /// what the receiver of a `bind` actually is.
@@ -3346,6 +3367,11 @@ fn peel<'b, 'a>(mut e: &'b Expression<'a>) -> &'b Expression<'a> {
             Expression::SequenceExpression(s) if !s.expressions.is_empty() => {
                 s.expressions.last().expect("checked non-empty")
             }
+            // A conditional no value of its test can decide is one of these wrappers too: `1 ?
+            // f : g` IS `f`. Every caller of this asks the same question — what value is this —
+            // so the answer belongs here rather than at the one reader that reported it, and
+            // `invoked_callee` reads the same helper because it cannot call this one.
+            other if !std::ptr::eq(selected_arm(other), other) => selected_arm(other),
             other => return other,
         };
     }
@@ -9983,8 +10009,15 @@ fn expression_throws(e: &Expression<'_>) -> bool {
     let a_part_raises = match peeled {
         Expression::TemplateLiteral(t) => t.expressions.iter().any(expression_throws),
         Expression::ArrayExpression(a) => a.elements.iter().any(|el| match el {
+            // …and building the array from a spread needs the spread value to be ITERABLE.
+            // `[...null]` and `[...1]` raise a `TypeError` while the literal is constructed, so
+            // the call they are an argument to never happens. Asking only whether evaluating
+            // the operand raises read the construction itself as always succeeding.
+            //
+            // An OBJECT literal's spread is not this: `{...null}` is legal and copies nothing,
+            // which is why the arm below it stays as it was.
             oxc_ast::ast::ArrayExpressionElement::SpreadElement(sp) => {
-                expression_throws(&sp.argument)
+                expression_throws(&sp.argument) || certainly_not_iterable(&sp.argument)
             }
             oxc_ast::ast::ArrayExpressionElement::Elision(_) => false,
             other => other.as_expression().is_some_and(expression_throws),
@@ -15776,6 +15809,81 @@ mod tests {
             assert!(
                 fields.iter().any(|f| f.name == "id"),
                 "nothing past that throw runs: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_callee_a_decided_test_selects_is_the_one_that_runs() {
+        // `1 ? f : g` IS `f`, so the callee unwrapper found a ternary where a function stands
+        // and walked the selected body as one nobody calls. The statement side has read
+        // `statically_selected` for as long; `selected_arm` is its expression twin, and both
+        // unwrappers read it — `peel` and `invoked_callee` cannot call each other, because the
+        // second tracks whether a comma discarded the reference on the way.
+        for body in [
+            "var current = e; (1 ? function(){ current = other; } : function(){})(); parse(current);",
+            "var current = e; (1 && function(){ current = other; })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that body already ran: {body}"
+            );
+        }
+        // The bounds. The arm NOT selected is not the callee; an undecidable test selects
+        // nothing; and `0 && f` evaluates to the LEFT, so the function is not the callee at all
+        // — which is why only the certain-right side is unwrapped.
+        // …and every OTHER reader of "what value is this" gets the same answer, which is why the
+        // rule sits in `peel` rather than only at the callee. An array pattern over `1 ? {} : []`
+        // takes the object apart and throws: without the selection the ternary is unreadable and
+        // the body reads as one that runs.
+        let fields = helper_reached_via(
+            "var current = e; try { (function([x]){ current = other; })(1 ? {} : []); } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "that binding throws on the selected arm: {fields:?}"
+        );
+        for body in [
+            "var current = e; (0 ? function(){ current = other; } : function(){})(); parse(current);",
+            "var current = e; (flag ? function(){ current = other; } : function(){})(); parse(current);",
+            "var current = e; (0 && function(){ current = other; })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that body is not what this call reaches: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_array_spread_needs_something_iterable_to_spread() {
+        // Building the array needs the spread value to be ITERABLE: `[...null]` and `[...1]`
+        // raise while the literal is constructed, so the call they are an argument to never
+        // happens. Asking only whether evaluating the operand raises read the construction
+        // itself as always succeeding.
+        for body in [
+            "var current = e; try { (function(){ current = other; })([...null]); } catch (_) {} parse(current);",
+            "var current = e; try { (function(){ current = other; })([...1]); } catch (_) {} parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that array is never built: {body}"
+            );
+        }
+        // The bounds. An array and a STRING are both iterable, and a value this cannot read
+        // settles nothing.
+        for body in [
+            "var current = e; (function(){ current = other; })([...[]]); parse(current);",
+            "var current = e; (function(){ current = other; })([...\"ab\"]); parse(current);",
+            "var current = e; (function(){ current = other; })([...xs]); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that array builds: {body}"
             );
         }
     }
