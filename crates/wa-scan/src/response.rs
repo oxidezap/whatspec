@@ -1439,7 +1439,24 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
             self.try_own_node_helper_descent(call);
         }
         // Always descend: chained calls expose both inner and outer nodes.
-        walk::walk_call_expression(self, call);
+        //
+        // The callee reference first and then the arguments in order, which is the order the
+        // engine takes them — and the list ENDS at an argument that certainly raises. Nothing
+        // written after it is evaluated, so a wire read spelled there happens on no path;
+        // `walk_call_expression` visited them all and published those reads as required, and the
+        // generated parser then demanded a field the source parser never asks for. The raising
+        // argument is itself walked: its own reads happen, up to the raise.
+        //
+        // `AllBindings` keeps walking the tail under its `unreachable` counter, because a name
+        // bound there is still a name in scope. Here there is nothing to preserve — a read that
+        // never happens is not a read — so the tail is simply not taken.
+        self.visit_expression(&call.callee);
+        for arg in &call.arguments {
+            self.visit_argument(arg);
+            if argument_raises(arg) {
+                break;
+            }
+        }
     }
 }
 
@@ -5354,16 +5371,84 @@ fn exact_byte_count(v: f64) -> Option<u32> {
     (v.fract() == 0.0 && v >= 0.0 && v <= f64::from(u32::MAX)).then_some(v as u32)
 }
 
-/// What a written argument evaluates, through the spread that may reshape where it lands.
+/// What position `i` of an array literal hands to a positional pattern.
+enum Supplied<'b, 'a> {
+    /// The expression written at that position.
+    Written(&'b Expression<'a>),
+    /// `undefined` — which a HOLE evaluates to, and which a position past the end of the literal
+    /// receives: `[a, {}] = [1]` hands the object pattern nothing at all, and coercing
+    /// `undefined` for it raises exactly as `null` would.
+    Undefined,
+    /// A spread at or before the position contributes an unknown NUMBER of elements, so nothing
+    /// from there on keeps its place and the pairing stops rather than guessing.
+    Unknown,
+}
+
+fn supplied_at<'b, 'a>(a: &'b oxc_ast::ast::ArrayExpression<'a>, i: usize) -> Supplied<'b, 'a> {
+    if a.elements
+        .iter()
+        .take(i + 1)
+        .any(|el| matches!(el, oxc_ast::ast::ArrayExpressionElement::SpreadElement(_)))
+    {
+        return Supplied::Unknown;
+    }
+    match a.elements.get(i) {
+        None | Some(oxc_ast::ast::ArrayExpressionElement::Elision(_)) => Supplied::Undefined,
+        Some(other) => other
+            .as_expression()
+            .map_or(Supplied::Unknown, Supplied::Written),
+    }
+}
+
+/// Whether handing `supplied` to this element of a destructuring pattern certainly raises.
 ///
-/// `...f()` still CALLS `f`; the spread only changes which positions the result fills. Every
-/// reader here asked `Argument::as_expression`, which answers `None` for one — so a spread of a
-/// call that certainly throws read as an argument that evaluates nothing at all, and the body it
-/// stops was walked as one that runs.
-fn argument_expression<'b, 'a>(a: &'b Argument<'a>) -> Option<&'b Expression<'a>> {
+/// Only the two ways a binding step itself can: an array pattern needs an ITERABLE, and an
+/// object pattern needs something `undefined` and `null` are not — everything else it coerces.
+/// A plain target (`current`, `a.b`) binds whatever it is given and raises on no path.
+///
+/// A DEFAULT settles nothing here. It replaces `undefined` with an expression this would then
+/// have to judge in its place, and `[{} = {}] = [void 0]` binds that default and completes; the
+/// element declines rather than reading the written value the default is there to displace.
+fn binding_step_raises(
+    t: &oxc_ast::ast::AssignmentTargetMaybeDefault<'_>,
+    supplied: &Supplied<'_, '_>,
+) -> bool {
+    match (t.as_assignment_target(), supplied) {
+        (_, Supplied::Unknown) => false,
+        (Some(oxc_ast::ast::AssignmentTarget::ArrayAssignmentTarget(_)), Supplied::Undefined) => {
+            true
+        }
+        (Some(oxc_ast::ast::AssignmentTarget::ArrayAssignmentTarget(_)), Supplied::Written(v)) => {
+            certainly_not_iterable(v)
+        }
+        (Some(oxc_ast::ast::AssignmentTarget::ObjectAssignmentTarget(_)), Supplied::Undefined) => {
+            true
+        }
+        (Some(oxc_ast::ast::AssignmentTarget::ObjectAssignmentTarget(_)), Supplied::Written(v)) => {
+            certainly_nullish(v)
+        }
+        _ => false,
+    }
+}
+
+/// Whether evaluating this ARGUMENT certainly raises, so nothing after it in the list runs.
+///
+/// A spread raises two ways and the readers here only ever asked about one. `...f()` still CALLS
+/// `f`, so a spread of something that certainly throws stops the list exactly as a bare argument
+/// does — the half every reader had, by looking THROUGH the spread to what it evaluates. The
+/// other half is the spread itself: `f(...null, e.attrString("late"))` raises while the argument
+/// list is being BUILT, as `[...null]` does while an array literal is, and looking through it
+/// answers a question about `null` that was never the one being asked.
+///
+/// One predicate for all three readers — the argument walk that suppresses what follows a raise,
+/// the invocation that declines a callee the list never reaches, and the analyser walk that must
+/// not publish those reads. They answered it apart, and no two of them agreed.
+fn argument_raises(a: &Argument<'_>) -> bool {
     match a {
-        Argument::SpreadElement(sp) => Some(&sp.argument),
-        other => other.as_expression(),
+        Argument::SpreadElement(sp) => {
+            expression_throws(&sp.argument) || certainly_not_iterable(&sp.argument)
+        }
+        other => other.as_expression().is_some_and(expression_throws),
     }
 }
 
@@ -6777,7 +6862,7 @@ impl AllBindings {
                 continue;
             }
             self.visit_argument(arg);
-            raised = argument_expression(arg).is_some_and(expression_throws);
+            raised = argument_raises(arg);
         }
         if let Some(q) = template {
             for sub in &q.expressions {
@@ -6790,6 +6875,73 @@ impl AllBindings {
                 self.visit_expression(sub);
                 raised = expression_throws(sub);
             }
+        }
+    }
+
+    /// Walk a destructuring target in binding order, suppressing what a failing step never
+    /// reaches. The argument rule above, on the other list that is taken element by element.
+    ///
+    /// Taking the value apart is itself a step and it comes before every target: an array
+    /// pattern iterates and an object pattern coerces, so `[a] = null` and `({a} = null)` raise
+    /// with nothing bound at all. Past that, an array literal on the right supplies the
+    /// positions one by one, and a target whose own binding raises ends the list —
+    /// `[{}, current] = [null, other]` converts `null` for the empty object pattern and leaves
+    /// before `current` is assigned. Walking every target regardless recorded that write, which
+    /// invalidated the alias `current` held and dropped the helper fields read through it: the
+    /// parser demands them and the generated one no longer would.
+    ///
+    /// The failing target is walked normally — the reference side of `a[k()] = …` is evaluated
+    /// before the value is fetched, so what it reads it reads — and only what follows is
+    /// unreachable.
+    fn walk_target_to_the_throw<'a>(
+        &mut self,
+        target: &oxc_ast::ast::AssignmentTarget<'a>,
+        value: &Expression<'a>,
+    ) {
+        let value = peel(value);
+        let opens = match target {
+            oxc_ast::ast::AssignmentTarget::ArrayAssignmentTarget(_) => {
+                !certainly_not_iterable(value)
+            }
+            oxc_ast::ast::AssignmentTarget::ObjectAssignmentTarget(_) => !certainly_nullish(value),
+            _ => true,
+        };
+        if !opens {
+            self.unreachable += 1;
+            self.visit_assignment_target(target);
+            self.unreachable -= 1;
+            return;
+        }
+        // Positional pairing, which only an array pattern over an array LITERAL can supply. Every
+        // other shape is walked whole, exactly as before.
+        let (
+            oxc_ast::ast::AssignmentTarget::ArrayAssignmentTarget(pat),
+            Expression::ArrayExpression(values),
+        ) = (target, value)
+        else {
+            self.visit_assignment_target(target);
+            return;
+        };
+        let mut raised = false;
+        for (i, el) in pat.elements.iter().enumerate() {
+            let Some(el) = el else {
+                // An elision names no target, so there is nothing to walk — but it still
+                // consumes its position, which the index already accounts for.
+                continue;
+            };
+            if raised {
+                self.unreachable += 1;
+                self.visit_assignment_target_maybe_default(el);
+                self.unreachable -= 1;
+                continue;
+            }
+            self.visit_assignment_target_maybe_default(el);
+            raised = binding_step_raises(el, &supplied_at(values, i));
+        }
+        if let Some(rest) = &pat.rest {
+            self.unreachable += u32::from(raised);
+            self.visit_assignment_target_rest(rest);
+            self.unreachable -= u32::from(raised);
         }
     }
 
@@ -7053,13 +7205,15 @@ impl AllBindings {
                     default_raises(&param.pattern, param.initializer.as_deref(), &suppressed)
                 })
             });
-        let argument_raises = prelude_raises
-            || arguments
-                .iter()
-                .filter_map(argument_expression)
-                .any(expression_throws)
+        //
+        // Read from `argument_raises`, the one predicate that also knows a spread of something
+        // non-iterable raises while the list is BUILT. Asking `argument_expression` here looked
+        // through the spread to what it evaluates — right for `...f()`, which really calls `f`,
+        // and blind to `...null`, which never reaches the callee at all.
+        let an_argument_raises = prelude_raises
+            || arguments.iter().any(argument_raises)
             || template.is_some_and(|q| q.expressions.iter().any(expression_throws));
-        if argument_raises
+        if an_argument_raises
             || binding_certainly_throws(
                 params,
                 &effective,
@@ -7493,7 +7647,7 @@ impl<'a> Visit<'a> for AllBindings {
         // suppression a seam, which put a key's own assignment after the value that reads it —
         // the seam is the span above instead, and the order is back to what it describes.
         if !reference_first {
-            self.visit_assignment_target(&e.left);
+            self.walk_target_to_the_throw(&e.left, &e.right);
         }
         self.visit_expression(&e.right);
         if never {
@@ -9885,6 +10039,12 @@ fn statically_selected<'s, T>(
 /// nonempty when it can be empty would require reads the parser can skip. A hole counts: `[,]`
 /// yields one `undefined`.
 ///
+/// A spread is only unknown while its OPERAND is. `[...[1]]` and `[..."a"]` copy something this
+/// can see is nonempty, so the literal is nonempty too and the question is the same one asked of
+/// the operand — this predicate, on the argument. Treating every spread as unanswerable had a
+/// body that always runs called skippable and every read in it came back optional, which is the
+/// failure this whole predicate exists to avoid.
+///
 /// A STRING is iterable too, one code point at a time, so a nonempty literal yields at least
 /// one pass and the empty one yields none. Only the array spelling was read, so `for (const x
 /// of "a")` had its body called skippable and every read in it came back optional. A template
@@ -9901,10 +10061,12 @@ fn iterates_at_least_once(e: &Expression<'_>) -> bool {
             let _ = a;
             false
         }
-        Expression::ArrayExpression(a) => a
-            .elements
-            .iter()
-            .any(|el| !matches!(el, oxc_ast::ast::ArrayExpressionElement::SpreadElement(_))),
+        Expression::ArrayExpression(a) => a.elements.iter().any(|el| match el {
+            oxc_ast::ast::ArrayExpressionElement::SpreadElement(sp) => {
+                iterates_at_least_once(&sp.argument)
+            }
+            _ => true,
+        }),
         Expression::StringLiteral(l) => !l.value.is_empty(),
         Expression::TemplateLiteral(t) => single_quasi(t).is_some_and(|c| !c.is_empty()),
         _ => false,
@@ -9987,6 +10149,15 @@ fn expression_throws(e: &Expression<'_>) -> bool {
     if let Expression::SequenceExpression(seq) = peel_parens(e) {
         return seq.expressions.iter().any(expression_throws);
     }
+    // The LEFT of a short-circuit is evaluated whichever side supplies the value, and [`peel`]
+    // hands back the right once the operator is decided — so ask here, before that happens, for
+    // the same reason the sequence above is asked before it. `(void (throws)()) ?? f` is
+    // certainly nullish AND certainly raises, and peeling first would have kept only the `f`.
+    if let Expression::LogicalExpression(l) = peel_parens(e)
+        && expression_throws(&l.left)
+    {
+        return true;
+    }
     let peeled = peel(e);
     // `new (class { constructor(){ throw 0; } })()` completes abruptly as surely as an IIFE
     // whose body throws: the constructor IS the body, invoked right here. Only the direct call
@@ -10008,6 +10179,22 @@ fn expression_throws(e: &Expression<'_>) -> bool {
     // the same thing in their own words.
     let a_part_raises = match peeled {
         Expression::TemplateLiteral(t) => t.expressions.iter().any(expression_throws),
+        // An operator computes from operands taken BEFORE it, so a raise in one of them stops
+        // the whole expression: `(throws)() + 1` never reaches the addition, and an argument
+        // spelled that way stops the call it belongs to. Only a bare call was recognized, so
+        // wrapping the very same IIFE in an operator hid it and the call was walked as one that
+        // happens — with the writes in its body recorded.
+        //
+        // Both sides of a binary, the single operand of a unary (`typeof` and `delete` included:
+        // whether the operator itself would raise is a different question, but an operand that
+        // raises settles it first), and the TEST of a conditional, which is evaluated before
+        // either arm is chosen. A decided conditional never gets here — [`peel`] has already
+        // replaced it with the arm — and its test is a literal, which raises on no path.
+        Expression::BinaryExpression(b) => {
+            expression_throws(&b.left) || expression_throws(&b.right)
+        }
+        Expression::UnaryExpression(u) => expression_throws(&u.argument),
+        Expression::ConditionalExpression(c) => expression_throws(&c.test),
         Expression::ArrayExpression(a) => a.elements.iter().any(|el| match el {
             // …and building the array from a spread needs the spread value to be ITERABLE.
             // `[...null]` and `[...1]` raise a `TypeError` while the literal is constructed, so
@@ -15886,6 +16073,166 @@ mod tests {
                 "that array builds: {body}"
             );
         }
+    }
+
+    /// A destructuring step that certainly raises ends the target list.
+    ///
+    /// `[{}, current] = [null, other]` converts `null` for the empty object pattern and leaves
+    /// there, so `current` still names the node `parse` is handed. Walking every target recorded
+    /// the write, invalidated the alias and dropped the fields read through it.
+    #[test]
+    fn a_destructuring_step_that_raises_ends_the_target_list() {
+        let reaches = |body: &str| helper_reached_via(body).iter().any(|f| f.name == "id");
+        assert!(
+            reaches(
+                "var current = e; try { ([{}, current] = [null, other]); } catch (_) {} parse(current);"
+            ),
+            "the object pattern raises on `null` before `current` is assigned",
+        );
+        // Nothing raises and the write is real, which is what makes the case above a question
+        // about reachability rather than about destructuring writes in general.
+        assert!(
+            !reaches("var current = e; ([{}, current] = [{}, other]); parse(current);"),
+            "with a coercible value at position 0 the assignment completes",
+        );
+        // Past the end of the literal is `undefined`, which raises for the same reason `null`
+        // does — a position nothing supplies, not a value written out.
+        assert!(
+            reaches("var current = e; try { ([{}, current] = []); } catch (_) {} parse(current);"),
+            "position 0 supplies `undefined` to an object pattern",
+        );
+        // Taking the value apart at all comes first, so a value that cannot be iterated raises
+        // with no target reached.
+        assert!(
+            reaches("var current = e; try { ([current] = null); } catch (_) {} parse(current);"),
+            "an array pattern over `null` raises before its first element",
+        );
+        assert!(
+            reaches(
+                "var current = e; try { ({ x: current } = null); } catch (_) {} parse(current);"
+            ),
+            "an object pattern over `null` raises before its first property",
+        );
+        // A SPREAD ahead of the position contributes an unknown number of elements, so the
+        // pairing stops rather than pairing by written order. The `null` is written second and
+        // would raise for the object pattern in second place — but the spread before it may
+        // supply any number of values, so which target it reaches is not a question this can
+        // answer, and the write it would have suppressed stands.
+        assert!(
+            !reaches(
+                "var current = e; ([{}, {}, current] = [...xs, null, other]); parse(current);"
+            ),
+            "with a spread in the way no position is claimed",
+        );
+        // …and a DEFAULT displaces the value the pairing would judge, so the element declines.
+        // Conservative in the direction that keeps the write: `[{} = {}] = [void 0]` completes.
+        assert!(
+            !reaches("var current = e; ([{} = {}, current] = [null, other]); parse(current);"),
+            "a default is left unjudged and the write stands",
+        );
+    }
+
+    /// An operand that certainly raises stops the expression it feeds, and with it the call.
+    ///
+    /// Only a bare IIFE was recognized, so wrapping the very same one in an operator hid it and
+    /// the call it stops was walked as one that happens — with the writes in its body recorded.
+    #[test]
+    fn an_operand_that_raises_stops_the_expression_it_feeds() {
+        let reaches = |arg: &str| {
+            helper_reached_via(&format!(
+                "var current = e; try {{ (function(){{ current = other; }})({arg}); }} catch (_) {{}} parse(current);"
+            ))
+            .iter()
+            .any(|f| f.name == "id")
+        };
+        assert!(
+            reaches("(function(){ throw 0; })() + 1"),
+            "a binary operand"
+        );
+        assert!(
+            reaches("1 + (function(){ throw 0; })()"),
+            "the other side of it"
+        );
+        assert!(reaches("!(function(){ throw 0; })()"), "a unary operand");
+        assert!(
+            reaches("((function(){ throw 0; })()) ? 1 : 2"),
+            "a conditional's test, taken before either arm is chosen",
+        );
+        assert!(
+            reaches("(void (function(){ throw 0; })()) ?? 1"),
+            "the left of a short-circuit, evaluated whichever side supplies the value",
+        );
+        // A call this cannot see through settles nothing, which is what keeps the rule from
+        // claiming a raise wherever an operator appears.
+        assert!(
+            !reaches("f() + 1"),
+            "an unreadable call leaves the question open and the body runs",
+        );
+    }
+
+    /// An argument written after one that certainly raises is evaluated on no path, so the wire
+    /// reads spelled there are not the parser's.
+    #[test]
+    fn an_argument_after_a_raise_reads_nothing() {
+        let names = |body: &str| {
+            helper_reached_via(body)
+                .iter()
+                .map(|f| f.name.clone())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            names("try { noop((function(){ throw 0; })(), e.attrString(\"late\")); } catch (_) {}"),
+            Vec::<String>::new(),
+            "nothing after the raise is read",
+        );
+        // The raising argument is preceded by reads that DO happen, and they stay.
+        assert_eq!(
+            names(
+                "try { noop(e.attrString(\"early\"), (function(){ throw 0; })(), e.attrString(\"late\")); } catch (_) {}"
+            ),
+            vec!["early".to_string()],
+            "the list runs up to the raise and stops",
+        );
+        // A spread of something non-iterable raises while the list is BUILT, which is the half
+        // that looking through the spread to what it evaluates cannot see.
+        assert_eq!(
+            names("try { noop(...null, e.attrString(\"late\")); } catch (_) {}"),
+            Vec::<String>::new(),
+            "spreading `null` raises before the next argument",
+        );
+        assert_eq!(
+            names("noop(e.attrString(\"early\"), e.attrString(\"late\"));"),
+            vec!["early".to_string(), "late".to_string()],
+            "with nothing raising both arguments are read",
+        );
+    }
+
+    /// A spread whose operand is provably nonempty still guarantees the loop a pass.
+    #[test]
+    fn a_spread_of_something_nonempty_still_guarantees_a_pass() {
+        let required = |iterable: &str| {
+            helper_reached_via(&format!(
+                "for (const x of {iterable}) {{ parse(e); break; }}"
+            ))
+            .iter()
+            .find(|f| f.name == "id")
+            .map(|f| f.required)
+        };
+        assert_eq!(
+            required("[...[1]]"),
+            Some(true),
+            "the spread copies one element"
+        );
+        assert_eq!(
+            required("[...\"a\"]"),
+            Some(true),
+            "a string iterates by code point"
+        );
+        assert_eq!(required("[1]"), Some(true), "the plain spelling, unchanged");
+        // An empty operand supplies nothing, and an unreadable one settles nothing — the body
+        // may be skipped either way, so the read it performs stays optional.
+        assert_eq!(required("[...[]]"), Some(false), "nothing to copy");
+        assert_eq!(required("[...xs]"), Some(false), "an unreadable operand");
     }
 
     fn helper_reached_via(body: &str) -> Vec<ParsedField> {
