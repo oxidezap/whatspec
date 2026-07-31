@@ -1,6 +1,6 @@
 {
   "schemaVersion": "2.0.0",
-  "waVersion": "2.3000.1043899084",
+  "waVersion": "2.3000.1044236315",
   "stanzas": [
     {
       "moduleName": "WASmaxOutAbPropsGetExperimentConfigRequest",
@@ -41159,6 +41159,16 @@
                 "name": "version",
                 "kind": "dynamic",
                 "required": true
+              },
+              {
+                "name": "pkey",
+                "kind": "optional",
+                "required": false
+              },
+              {
+                "name": "settings",
+                "kind": "optional",
+                "required": false
               }
             ],
             "children": [],

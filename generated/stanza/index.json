@@ -1,6 +1,6 @@
 {
   "schemaVersion": "2.0.0",
-  "waVersion": "2.3000.1043899084",
+  "waVersion": "2.3000.1044236315",
   "stanzas": [
     {
       "stanzaType": "message",
@@ -2525,7 +2525,18 @@
       "moduleName": "WAWebSendMsgCreateFanoutStanza",
       "exportedFunction": null,
       "allExports": [
+        "messageContextInfo",
+        "messageContextInfo",
+        "classifyFanoutEncNodes",
+        "isCoexV2UserAgentSend",
+        "shouldRejectCoexV2UserAgentSend",
+        "genCoexV2UserAgentAgentProto",
+        "genBotFanoutContent",
+        "genCoexV2UserAgentBotBody",
         "getBotAgentEngagementType",
+        "isSelfCoexV2Hosted",
+        "getIsBizBotFeedback",
+        "genCoexV2RelayBotNodeForTargets",
         "createFanoutMsgStanza",
         "genCsTokenBody"
       ],
@@ -5500,50 +5511,20 @@
       ],
       "children": [
         {
-          "tag": "ack",
-          "attrs": [
-            {
-              "name": "id",
-              "kind": "string",
-              "required": true
-            },
-            {
-              "name": "to",
-              "kind": "user_jid",
-              "required": true
-            },
-            {
-              "name": "class",
-              "kind": "const",
-              "value": "message",
-              "required": true
-            },
-            {
-              "name": "type",
-              "kind": "const",
-              "value": "text",
-              "required": true
-            }
-          ],
+          "tag": "list",
+          "attrs": [],
           "children": [
             {
-              "tag": "list",
-              "attrs": [],
-              "children": [
+              "tag": "item",
+              "attrs": [
                 {
-                  "tag": "item",
-                  "attrs": [
-                    {
-                      "name": "id",
-                      "kind": "string",
-                      "required": true
-                    }
-                  ],
-                  "children": [],
-                  "repeats": true
+                  "name": "id",
+                  "kind": "string",
+                  "required": true
                 }
               ],
-              "repeats": false
+              "children": [],
+              "repeats": true
             }
           ],
           "repeats": false
@@ -6166,6 +6147,36 @@
       ],
       "children": [],
       "response": null
+    },
+    {
+      "stanzaType": "status",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutStatusPublishStatusAIContentMetaMixin",
+      "exportedFunction": null,
+      "allExports": [
+        "mergeStatusAIContentMetaMixin"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [],
+      "children": [
+        {
+          "tag": "meta",
+          "attrs": [],
+          "children": [
+            {
+              "tag": "ai_content",
+              "attrs": [],
+              "children": [],
+              "repeats": false
+            }
+          ],
+          "repeats": false
+        }
+      ],
+      "response": null,
+      "fragment": true
     },
     {
       "stanzaType": "status",

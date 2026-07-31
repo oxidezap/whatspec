@@ -1,7 +1,7 @@
 syntax = "proto2";
 package whatsapp;
 
-/// WhatsApp Version: 2.3000.1043899084
+/// WhatsApp Version: 2.3000.1044236315
 
 message ADVDeviceIdentity {
   optional uint32 rawId = 1;
@@ -2275,7 +2275,6 @@ message EncryptMessageOutput {
   optional string valueSecretRef = 3;
   optional uint64 offlineThreadingId = 4;
   optional uint64 timestampMs = 5;
-  optional bytes messageKey = 6;
   optional string error = 7;
 }
 
@@ -4002,6 +4001,7 @@ message Message {
       optional HistorySyncChunkRetryResponse historySyncChunkRetryResponse = 10;
       optional FlowResponsesCsvBundle flowResponsesCsvBundle = 11;
       optional BizBroadcastInsightsContactListResponse bizBroadcastInsightsContactListResponse = 12;
+      optional ContactRefreshResponse contactRefreshResponse = 13;
       message BizBroadcastInsightsContactListResponse {
         optional string campaignId = 1;
         optional int64 timestampMs = 2;
@@ -4021,6 +4021,13 @@ message Message {
 
       message CompanionMetaNonceFetchResponse {
         optional string nonce = 1;
+      }
+
+      message ContactRefreshResponse {
+        repeated string coveredRequestIds = 1;
+        optional uint64 collectionVersion = 2;
+        optional int64 primaryDurationMs = 3;
+        optional uint32 uniqueContactCount = 4;
       }
 
       message FlowResponsesCsvBundle {
@@ -5533,6 +5540,7 @@ message StatusAttribution {
     NEWSLETTER_STATUS = 9;
     STATUS_CLOSE_SHARING = 10;
     PAID_PARTNERSHIP = 11;
+    USERNAME_STATUS = 12;
   }
 }
 

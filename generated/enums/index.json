@@ -1,6 +1,6 @@
 {
   "schemaVersion": "2.0.0",
-  "waVersion": "2.3000.1043899084",
+  "waVersion": "2.3000.1044236315",
   "enums": [
     {
       "name": "DGWAuth",
@@ -4095,6 +4095,14 @@
         {
           "name": "INVALID_ACCESS_TOKEN",
           "value": 190
+        },
+        {
+          "name": "BUSINESS_BANHAMMERED",
+          "value": 2859017
+        },
+        {
+          "name": "AD_ACCOUNT_LINKING_DISABLED",
+          "value": 2859050
         }
       ]
     },
@@ -5518,16 +5526,31 @@
           "value": 0
         },
         {
-          "name": "PostLoad",
+          "name": "TimeBased",
           "value": 1
         },
         {
-          "name": "ReturnToUnread",
+          "name": "EventBased",
           "value": 2
+        }
+      ]
+    },
+    {
+      "name": "NotificationsOptInModalCopy",
+      "module": "WAWebNotificationsModalVariant",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "PostLoad",
+          "value": "post_load"
         },
         {
-          "name": "AfterMissedCall",
-          "value": 3
+          "name": "MissedMessages",
+          "value": "missed_messages"
+        },
+        {
+          "name": "MissedCall",
+          "value": "missed_call"
         }
       ]
     },
@@ -9994,6 +10017,29 @@
       ]
     },
     {
+      "name": "WtRelayOutcome",
+      "module": "WAWebVoipWebTransportCallSummary",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "Opened",
+          "value": "opened"
+        },
+        {
+          "name": "Timeout",
+          "value": "timeout"
+        },
+        {
+          "name": "Aborted",
+          "value": "aborted"
+        },
+        {
+          "name": "Failed",
+          "value": "failed"
+        }
+      ]
+    },
+    {
       "name": "LabelOperationEntryPoints",
       "module": "WAWebWamLabelEventReporter",
       "valueKind": "string",
@@ -10171,36 +10217,6 @@
     {
       "name": "AppState",
       "module": "WAWebWindowsHybridBridgeNativeAppState",
-      "valueKind": "string",
-      "variants": [
-        {
-          "name": "Normal",
-          "value": "normal"
-        },
-        {
-          "name": "MinimizedToTray",
-          "value": "minimizedToTray"
-        }
-      ]
-    },
-    {
-      "name": "AppState_v2583",
-      "module": "WAWebWindowsHybridBridgeNativeAppState.v2583",
-      "valueKind": "string",
-      "variants": [
-        {
-          "name": "Normal",
-          "value": "normal"
-        },
-        {
-          "name": "MinimizedToTray",
-          "value": "minimizedToTray"
-        }
-      ]
-    },
-    {
-      "name": "AppState_v2584",
-      "module": "WAWebWindowsHybridBridgeNativeAppState.v2584",
       "valueKind": "string",
       "variants": [
         {
@@ -10711,6 +10727,21 @@
     {
       "name": "AppState_v2629",
       "module": "WAWebWindowsHybridBridgeNativeAppState.v2629",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "Normal",
+          "value": "normal"
+        },
+        {
+          "name": "MinimizedToTray",
+          "value": "minimizedToTray"
+        }
+      ]
+    },
+    {
+      "name": "AppState_v2630",
+      "module": "WAWebWindowsHybridBridgeNativeAppState.v2630",
       "valueKind": "string",
       "variants": [
         {

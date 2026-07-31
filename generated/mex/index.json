@@ -1,6 +1,6 @@
 {
   "schemaVersion": "2.0.0",
-  "waVersion": "2.3000.1043899084",
+  "waVersion": "2.3000.1044236315",
   "operations": {
     "ACSServerProviderConfig": {
       "originalName": "WAWebACSServerProviderConfigQuery",
@@ -891,27 +891,6 @@
         }
       }
     },
-    "CreateLabyrinthBackupMutation": {
-      "originalName": "WAWebMexCreateLabyrinthBackupJobMutation",
-      "docId": "27207738338837013",
-      "operationKind": "mutation",
-      "variables": [
-        "input"
-      ],
-      "variablesShape": {
-        "input": "string"
-      },
-      "response": {
-        "xwa2_labyrinth_create_backup": {
-          "__typename": "string",
-          "backup_id": "string",
-          "device_id": "string",
-          "epoch_id": "string",
-          "message": "string",
-          "status": "string"
-        }
-      }
-    },
     "CreateMarketingCampaignAction": {
       "originalName": "WAWebCreateMarketingCampaignActionMutation",
       "docId": "26304826652483067",
@@ -1774,19 +1753,6 @@
             }
           }
         ]
-      }
-    },
-    "FetchNativeAdsMvpEligibility": {
-      "originalName": "WAWebFetchNativeAdsMvpEligibilityQuery",
-      "docId": "26673846358955912",
-      "operationKind": "query",
-      "response": {
-        "wa_smb_native_ads_web_info": {
-          "is_page_asset_linked": "boolean",
-          "is_pageless_asset_linked": "boolean",
-          "lifetime_native_ctwa_advertiser": "string",
-          "webclient_l90_ad_creator": "string"
-        }
       }
     },
     "FetchNewChatMessageCappingInfo": {
@@ -4833,38 +4799,6 @@
       }
     },
     "UploadLabyrinthMessages": {
-      "originalName": "WAWebMexUploadLabyrinthMessagesJobMutation",
-      "docId": "27746955431579348",
-      "operationKind": "mutation",
-      "variables": [
-        "input"
-      ],
-      "variablesShape": {
-        "input": {
-          "device_id": "string",
-          "epoch_id": "string",
-          "family_device_id": "string",
-          "messages": [
-            "string"
-          ]
-        }
-      },
-      "response": {
-        "xwa2_labyrinth_upload_messages": {
-          "__typename": "string",
-          "message": "string",
-          "results": [
-            {
-              "error": "string",
-              "offline_threading_id": "string",
-              "success": "string"
-            }
-          ],
-          "status": "string"
-        }
-      }
-    },
-    "UploadLabyrinthMessagesMutation": {
       "originalName": "WAWebUploadLabyrinthMessagesJobMutation",
       "docId": "28023438937253549",
       "operationKind": "mutation",

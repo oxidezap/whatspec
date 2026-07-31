@@ -1,8 +1,32 @@
 {
-  "waVersion": "2.3000.1043899084",
-  "wasmSetHash": "60c151934cdcd6a1ac7dc8e705e8b9f9d73ef785efc3a268b687e5bc76a05310",
+  "waVersion": "2.3000.1044236315",
+  "wasmSetHash": "e0df2efc74f501ac39618a1137315c6e731c0f79d68d280a8b80e77c6d278d63",
   "wasmCount": 9,
+  "bootloader": {
+    "handlesFromPage": 3,
+    "wasmHandles": {
+      "237": "https://static.whatsapp.net/rsrc.php/yR/r/ayqr5HQtlkb.wasm",
+      "30933": "https://static.whatsapp.net/rsrc.php/ye/r/COs9e0Kj0ic.wasm",
+      "31390": "https://static.whatsapp.net/rsrc.php/yl/r/php8T1oSIZM.wasm",
+      "32180": "https://static.whatsapp.net/rsrc.php/yN/r/954SPP8OkfW.wasm",
+      "33861": "https://static.whatsapp.net/rsrc.php/yM/r/kBmvS-aCbf2.wasm",
+      "47437": "https://static.whatsapp.net/rsrc.php/ye/r/-5fSEd7-h_f.wasm",
+      "6946": "https://static.whatsapp.net/rsrc.php/yf/r/rogm88TRRiw.wasm",
+      "78864": "https://static.whatsapp.net/rsrc.php/yn/r/aLGcbi-fhcA.wasm",
+      "78865": "https://static.whatsapp.net/rsrc.php/yY/r/oVa5aA3_rvQ.wasm"
+    },
+    "requests": 6,
+    "failedRequests": 0,
+    "degradations": 0
+  },
   "wasm": [
+    {
+      "bxId": "32180",
+      "fileName": "954SPP8OkfW.wasm",
+      "url": "https://static.whatsapp.net/rsrc.php/yN/r/954SPP8OkfW.wasm",
+      "sha256": "03502b7818683cb88798c19f02c425d1cc09b727e15b7106e1136efc232f4ae6",
+      "size": 10680770
+    },
     {
       "bxId": "30933",
       "fileName": "COs9e0Kj0ic.wasm",
@@ -19,17 +43,10 @@
     },
     {
       "bxId": "33861",
-      "fileName": "a19OxQ3jkd2.wasm",
-      "url": "https://static.whatsapp.net/rsrc.php/y4/r/a19OxQ3jkd2.wasm",
-      "sha256": "574d1bc289cd6b2554ce310374130da495e57de4e385a7da030827ca69ba8a74",
-      "size": 3458838
-    },
-    {
-      "bxId": "32180",
-      "fileName": "JgwtTQVeWPm.wasm",
-      "url": "https://static.whatsapp.net/rsrc.php/yV/r/JgwtTQVeWPm.wasm",
-      "sha256": "97259423aea19cc30c1771478e035105cb0d0e64ab4b0297741b62d01deac8db",
-      "size": 10650934
+      "fileName": "kBmvS-aCbf2.wasm",
+      "url": "https://static.whatsapp.net/rsrc.php/yM/r/kBmvS-aCbf2.wasm",
+      "sha256": "89292abc5cea92b5f9648996cb01fb529f178db96be7d5848e0026a9c052f848",
+      "size": 3556406
     },
     {
       "bxId": "237",
@@ -54,17 +71,17 @@
     },
     {
       "bxId": "78865",
-      "fileName": "nkyoA-Mn5tf.wasm",
-      "url": "https://static.whatsapp.net/rsrc.php/y2/r/nkyoA-Mn5tf.wasm",
-      "sha256": "eb75d41ae129dab6c57f2fde7e3d9b1fe9f32b32b935e4bfbda5d3fac62aa7d9",
-      "size": 10876634
+      "fileName": "oVa5aA3_rvQ.wasm",
+      "url": "https://static.whatsapp.net/rsrc.php/yY/r/oVa5aA3_rvQ.wasm",
+      "sha256": "f46cc0f22f5567123d9629966cd05ec22422544c5eabb2421ea716aa45d884dc",
+      "size": 10906657
     },
     {
       "bxId": "78864",
-      "fileName": "h6fF7mBakRM.wasm",
-      "url": "https://static.whatsapp.net/rsrc.php/yI/r/h6fF7mBakRM.wasm",
-      "sha256": "eb75d41ae129dab6c57f2fde7e3d9b1fe9f32b32b935e4bfbda5d3fac62aa7d9",
-      "size": 10876634
+      "fileName": "aLGcbi-fhcA.wasm",
+      "url": "https://static.whatsapp.net/rsrc.php/yn/r/aLGcbi-fhcA.wasm",
+      "sha256": "f46cc0f22f5567123d9629966cd05ec22422544c5eabb2421ea716aa45d884dc",
+      "size": 10906657
     }
   ]
 }
