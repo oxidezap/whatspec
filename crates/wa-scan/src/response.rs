@@ -3892,8 +3892,13 @@ fn synchronous_until(
         ///
         /// The callee is evaluated and may suspend on its own, so it is still walked.
         fn visit_call_expression(&mut self, c: &CallExpression<'a>) {
-            if c.optional && certainly_nullish(&c.callee) {
-                self.visit_expression(&c.callee);
+            let short = if c.optional && certainly_nullish(&c.callee) {
+                Some(&c.callee)
+            } else {
+                short_circuit_base(&c.callee)
+            };
+            if let Some(base) = short {
+                self.visit_expression(base);
                 return;
             }
             walk::walk_call_expression(self, c);
@@ -3937,6 +3942,44 @@ fn synchronous_until(
         // the minimum across both confined a write that really is synchronous whenever its own
         // side is selected, and the field came out required on a node half the executions had
         // replaced. Each side is asked separately and the one that does not suspend is kept.
+        /// A case a readable discriminant does not select is never entered, so an `await` in it
+        /// suspends nothing. The `if`, the short circuit and the ternary have been pruned here
+        /// for as long; the switch beside them was walked case by case whatever the
+        /// discriminant said, and an unreachable await became the synchronous prefix's cutoff.
+        ///
+        /// From the SELECTED case onward, because control falls through: the arm that matched
+        /// and every arm after it can run, and the tests are evaluated only up to the match.
+        fn visit_switch_statement(&mut self, st: &oxc_ast::ast::SwitchStatement<'a>) {
+            self.visit_expression(&st.discriminant);
+            let Some(selected) = statically_selected_case(&st.discriminant, &st.cases) else {
+                walk::walk_switch_statement(self, st);
+                return;
+            };
+            for (i, case) in st.cases.iter().enumerate() {
+                if let Some(test) = &case.test
+                    && i <= selected
+                {
+                    self.visit_expression(test);
+                }
+                if i < selected {
+                    continue;
+                }
+                // …and the fallthrough STOPS at a `break`, which is what makes "from the
+                // selected case onward" a reachability claim rather than a range.
+                let mut left = false;
+                for stmt in &case.consequent {
+                    self.visit_statement(stmt);
+                    if ends_the_statement_list(stmt) {
+                        left = true;
+                        break;
+                    }
+                }
+                if left {
+                    break;
+                }
+            }
+        }
+
         fn visit_if_statement(&mut self, st: &oxc_ast::ast::IfStatement<'a>) {
             self.visit_expression(&st.test);
             if let Some((taken, _dead)) =
@@ -10665,6 +10708,22 @@ fn expression_throws(e: &Expression<'_>) -> bool {
         },
         other => other,
     };
+    // A TAGGED template is an invocation with its argument list spelled another way: the
+    // substitutions are evaluated and then the tag is called. Falling through left
+    // ``(function(){ throw 0; })`x` `` reading as a value that arrives, so the arm it sits in
+    // diluted the intersection with the side that really produces one.
+    if let Expression::TaggedTemplateExpression(t) = peeled {
+        if expression_throws(&t.tag) || t.quasi.expressions.iter().any(expression_throws) {
+            return true;
+        }
+        return match invoked_callee(&t.tag) {
+            Expression::FunctionExpression(f) if !f.generator && !f.r#async => {
+                f.body.as_ref().is_some_and(|b| throws_out(&b.statements))
+            }
+            Expression::ArrowFunctionExpression(f) if !f.r#async => throws_out(&f.body.statements),
+            _ => false,
+        };
+    }
     let Expression::CallExpression(c) = peeled else {
         return false;
     };
@@ -10715,6 +10774,11 @@ fn always_true(t: &Expression<'_>) -> bool {
     match t {
         Expression::BooleanLiteral(b) => b.value,
         Expression::NumericLiteral(n) => n.value != 0.0,
+        // `1n` is truthy and `0n` is not, exactly as their numeric twins are — the pair read
+        // every numeric spelling and no bigint one, so `1n && parse(e)` was a branch and the
+        // read inside it came out optional against a side that does not exist. The value is
+        // base ten with no underscores, so "is it zero" is "is every digit a zero".
+        Expression::BigIntLiteral(b) => b.value.as_str().bytes().any(|c| c != b'0'),
         // A string is decided by whether it holds anything, exactly as a number is decided by
         // whether it is zero. This pair read every numeric spelling and no textual one, so
         // `if ("x")` was a branch and the read inside it came out optional against a side that
@@ -10770,6 +10834,8 @@ fn always_false(t: &Expression<'_>) -> bool {
     match t {
         Expression::BooleanLiteral(b) => !b.value,
         Expression::NumericLiteral(n) => n.value == 0.0,
+        // …and its bigint twin, the mirror of the clause in `always_true`.
+        Expression::BigIntLiteral(b) => b.value.as_str().bytes().all(|c| c == b'0'),
         Expression::NullLiteral(_) => true,
         // The mirror of the rule above: the empty string is the one falsy string.
         Expression::StringLiteral(l) => l.value.is_empty(),
@@ -17126,6 +17192,84 @@ mod tests {
                 "var current = e; (async function(){ null?.(await 0); current = other; })(); parse(current);"
             ),
             "a skipped await is no suspension point",
+        );
+    }
+
+    /// An `await` control never reaches suspends nothing, whichever construct makes it
+    /// unreachable.
+    #[test]
+    fn an_await_nothing_reaches_is_no_suspension_point() {
+        let reaches = |body: &str| helper_reached_via(body).iter().any(|f| f.name == "id");
+        // The optional flag may sit on a MEMBER rather than on the call — the analyser learned
+        // the whole chain a round ago and this walker had only the direct spelling.
+        assert!(
+            !reaches(
+                "var current = e; (async function(){ null?.m(await 0); current = other; })(); parse(current);"
+            ),
+            "a nullish optional member skips the await in its argument",
+        );
+        // …and a switch case a readable discriminant does not select is never entered.
+        assert!(
+            !reaches(
+                "var current = e; (async function(){ switch ('a') { case 'a': break; case 'b': await 0; } current = other; })(); parse(current);"
+            ),
+            "an unselected case suspends nothing",
+        );
+        // The bound: an await in the SELECTED case, or in one reachable by falling through,
+        // really is the cutoff.
+        assert!(
+            reaches(
+                "var current = e; (async function(){ switch ('a') { case 'a': await 0; } current = other; })(); parse(current);"
+            ),
+            "the selected case's await suspends",
+        );
+        assert!(
+            reaches(
+                "var current = e; (async function(){ switch ('a') { case 'a': case 'b': await 0; } current = other; })(); parse(current);"
+            ),
+            "and so does one the match falls through into",
+        );
+    }
+
+    /// A bigint is as decided as its numeric twin, and a tagged template is an invocation.
+    #[test]
+    fn a_bigint_decides_a_branch_and_a_tag_can_raise() {
+        let required = |body: &str| {
+            helper_reached_via(body)
+                .iter()
+                .find(|f| f.name == "id")
+                .map(|f| f.required)
+        };
+        assert_eq!(required("1n && parse(e);"), Some(true), "`1n` is truthy");
+        assert_eq!(required("0n || parse(e);"), Some(true), "`0n` is not");
+        // …and the other direction, so neither clause is a one-sided claim.
+        assert_eq!(
+            required("if (0n) { noop(); } else { parse(e); }"),
+            Some(true),
+            "`0n` selects the alternate",
+        );
+        // The bound: a bigint this cannot decide does not exist — every literal is one or the
+        // other — so the paired bound is an ordinary undecidable test.
+        assert_eq!(
+            required("k && parse(e);"),
+            Some(false),
+            "an unreadable test is still a branch",
+        );
+        // A tagged template calls its tag, so a tag whose body throws produces no value.
+        assert_eq!(
+            required("flag ? (function(){ throw 0; })`x` : parse(e);"),
+            Some(true),
+            "the tagged arm raises, so the other is the only one that yields",
+        );
+        assert_eq!(
+            required("flag ? noop`${(function(){ throw 0; })()}` : parse(e);"),
+            Some(true),
+            "and so does a substitution that raises",
+        );
+        assert_eq!(
+            required("flag ? noop`x` : parse(e);"),
+            Some(false),
+            "an ordinary tag yields a value and the arms intersect",
         );
     }
 
