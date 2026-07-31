@@ -682,6 +682,48 @@ pub(crate) fn emit_struct_parser(
 /// descent is keyed by `(base, path)` (memoized per base — the same wrapper under two
 /// different parents must descend each). Each segment is read as required (a missing
 /// wrapper is a parse error), mirroring a required `child`.
+/// Descend a RELAXED field's source path without failing when a wrapper is absent.
+///
+/// [`descend_from`] binds each wrapper with `ok_or_else(missing)?`, which is right for a path the
+/// parser always takes. A field flattened out of an OPTIONAL same-node wrapper carries
+/// `required: false` — that is how the flattening records it — and the wrapper is no more present
+/// than the field: a `<message>` without its `<meta>` is one the source accepts, and descending
+/// with the fail-on-absence helper turned it away. That is a rejection the previous round
+/// introduced by giving these reads a descent at all; they had none before, and read the item's
+/// own attributes instead.
+///
+/// The field's own read goes inside the arm and yields the `Option<T>` its relaxed type already
+/// declares, so an absent wrapper and an absent value are the same answer — which for a field the
+/// parser may skip is the right one.
+fn emit_relaxed_path_field(cf: &ParsedField, base: &str, indent: &str) -> Vec<String> {
+    let path = cf.source_path.as_deref().unwrap_or_default();
+    let name = rust_ident(&cf.name);
+    let wrap = format!("{name}__wrap");
+    let mut chain = format!("{base}.get_optional_child({})", rust_lit(&path[0]));
+    for seg in &path[1..] {
+        chain = format!(
+            "{chain}.and_then(|w| w.get_optional_child({}))",
+            rust_lit(seg)
+        );
+    }
+    let inner = format!("{indent}        ");
+    let mut out = vec![
+        format!("{indent}let {name} = match {chain} {{"),
+        format!("{indent}    Some({wrap}) => {{"),
+    ];
+    out.extend(emit_field_parse(cf, &wrap, &inner));
+    out.push(format!("{inner}{name}"));
+    out.push(format!("{indent}    }}"));
+    out.push(format!("{indent}    None => None,"));
+    out.push(format!("{indent}}};"));
+    out
+}
+
+/// Whether this field's source path must be descended without failing on an absent wrapper.
+fn path_is_optional(cf: &ParsedField) -> bool {
+    !cf.required && cf.source_path.as_deref().is_some_and(|p| !p.is_empty())
+}
+
 fn descend_from(
     base: &str,
     path: Option<&[String]>,
@@ -1049,6 +1091,10 @@ fn emit_struct_reads(
             // the scoping is what matters.
             let mut item_wrappers: HashMap<(String, Vec<String>), String> = HashMap::new();
             for cf in &item_attrs {
+                if path_is_optional(cf) {
+                    lines.extend(emit_relaxed_path_field(cf, &loop_var, &inner));
+                    continue;
+                }
                 let cbase = descend_from(
                     &loop_var,
                     cf.source_path.as_deref(),
@@ -1093,6 +1139,10 @@ fn emit_struct_reads(
                 // …and the nested repeated loop, which reads its fields the same way.
                 let mut n_wrappers: HashMap<(String, Vec<String>), String> = HashMap::new();
                 for ncf in &n_attrs {
+                    if path_is_optional(ncf) {
+                        lines.extend(emit_relaxed_path_field(ncf, &n_loop, &n_inner));
+                        continue;
+                    }
                     let nbase = descend_from(
                         &n_loop,
                         ncf.source_path.as_deref(),
@@ -2488,8 +2538,9 @@ mod tests {
         .expect("item");
         let src = emit_struct_parser(&[item], "n", "R", "", "P").join("\n");
         assert!(
-            src.contains(r#"item_item.get_optional_child("background")"#),
-            "the path is descended from the item: {src}"
+            src.contains(r#"item_item.get_optional_child("background")"#)
+                && src.contains("missing <background>"),
+            "the path is descended, and a REQUIRED field fails on an absent wrapper: {src}"
         );
         assert!(
             !src.contains(r#"item_item.get_attr("label")"#),
@@ -2513,8 +2564,54 @@ mod tests {
         .expect("outer");
         let src = emit_struct_parser(&[outer], "n", "R", "", "P").join("\n");
         assert!(
-            src.contains(r#"part_item.get_optional_child("background")"#),
-            "the nested loop descends too: {src}"
+            src.contains(r#"part_item.get_optional_child("background")"#)
+                && src.contains("missing <background>"),
+            "the nested loop descends too, and a REQUIRED field still fails on absence: {src}"
+        );
+        // …and a RELAXED field's wrapper is no more present than the field itself: descending
+        // it with the fail-on-absence helper turned away an item the source accepts. That
+        // rejection is one the descent introduced, since these reads had no descent before.
+        let leaf: ParsedField = serde_json::from_value(serde_json::json!({
+            "method": "maybeAttrString", "name": "label", "wireName": "label",
+            "type": "string", "required": false, "sourcePath": ["meta"]
+        }))
+        .expect("leaf");
+        let item: ParsedField = serde_json::from_value(serde_json::json!({
+            "method": "child", "name": "item", "tag": "item", "type": "string",
+            "required": true, "repeats": true, "children": [leaf]
+        }))
+        .expect("item");
+        let src = emit_struct_parser(&[item], "n", "R", "", "P").join("\n");
+        assert!(
+            src.contains(r#"match item_item.get_optional_child("meta") {"#)
+                && src.contains("None => None,"),
+            "an absent wrapper leaves the field absent: {src}"
+        );
+        assert!(
+            !src.contains(r#"missing <meta>"#),
+            "and does not fail the parse: {src}"
+        );
+        // …and the nested repeated loop reads a relaxed path the same way.
+        let leaf: ParsedField = serde_json::from_value(serde_json::json!({
+            "method": "maybeAttrString", "name": "label", "wireName": "label",
+            "type": "string", "required": false, "sourcePath": ["meta"]
+        }))
+        .expect("leaf");
+        let inner_item: ParsedField = serde_json::from_value(serde_json::json!({
+            "method": "child", "name": "part", "tag": "part", "type": "string",
+            "required": true, "repeats": true, "children": [leaf]
+        }))
+        .expect("inner");
+        let outer: ParsedField = serde_json::from_value(serde_json::json!({
+            "method": "child", "name": "item", "tag": "item", "type": "string",
+            "required": true, "repeats": true, "children": [inner_item]
+        }))
+        .expect("outer");
+        let src = emit_struct_parser(&[outer], "n", "R", "", "P").join("\n");
+        assert!(
+            src.contains(r#"match part_item.get_optional_child("meta") {"#)
+                && !src.contains("missing <meta>"),
+            "the nested loop leaves a relaxed field absent too: {src}"
         );
         // The bound: a field with no source path is still read straight off the item.
         let leaf: ParsedField = serde_json::from_value(serde_json::json!({

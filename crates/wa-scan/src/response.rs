@@ -2475,6 +2475,7 @@ impl ModuleScope {
             maps: HashMap::new(),
             members: HashMap::new(),
             fn_depth: 0,
+            block_depth: 0,
         };
         b.visit_program(&ret.program);
         Self {
@@ -2496,6 +2497,15 @@ struct ModuleScopeBuilder<'a> {
     /// call to — sits at depth 1. Recording only depth-1 functions keeps a same-named
     /// helper defined *inside another function* from being treated as module-scope.
     fn_depth: u32,
+    /// How many lexical BLOCKS deep inside the current function body the walk is.
+    ///
+    /// Hoisting is what makes last-declaration-wins right, and a declaration inside a block
+    /// hoists only to that block: `{ function parse(n){…} }` binds nothing the code outside the
+    /// braces can call. Reading depth alone let such a body overwrite the module helper map, so
+    /// a parser outside the block published the inner reads. The factory body itself is a
+    /// `FunctionBody` rather than a `BlockStatement`, so a declaration directly in it is depth
+    /// zero here — which is exactly the set last-wins may apply to.
+    block_depth: u32,
 }
 
 impl ModuleScopeBuilder<'_> {
@@ -2547,12 +2557,32 @@ impl<'a> Visit<'a> for ModuleScopeBuilder<'_> {
             && let Some(id) = func.id.as_ref()
             && let Some(body) = func.body.as_ref()
         {
-            let hoisted = func.r#type == oxc_ast::ast::FunctionType::FunctionDeclaration;
+            let hoisted = func.r#type == oxc_ast::ast::FunctionType::FunctionDeclaration
+                && self.block_depth == 0;
             self.record_fn(id.name.as_str(), &func.params, body.span, hoisted);
         }
         self.fn_depth += 1;
+        // No reset of the block count across a nested body. It would read as the careful thing
+        // and no input can tell: only `fn_depth == 1` is ever recorded, so a declaration inside
+        // a nested function is refused for its depth before its block count is consulted, and
+        // at the depth that IS recorded the count is already the factory's own. A mutation
+        // removing the reset changed no answer, so the reset is not here.
         walk::walk_function(self, func, flags);
         self.fn_depth -= 1;
+    }
+
+    fn visit_block_statement(&mut self, block: &oxc_ast::ast::BlockStatement<'a>) {
+        self.block_depth += 1;
+        walk::walk_block_statement(self, block);
+        self.block_depth -= 1;
+    }
+
+    /// A switch body is a block scope of its own without being a `BlockStatement`, so a
+    /// declaration in a case is no more visible outside the switch than one inside braces.
+    fn visit_switch_statement(&mut self, stmt: &oxc_ast::ast::SwitchStatement<'a>) {
+        self.block_depth += 1;
+        walk::walk_switch_statement(self, stmt);
+        self.block_depth -= 1;
     }
 
     fn visit_variable_declarator(&mut self, d: &VariableDeclarator<'a>) {
@@ -16558,6 +16588,69 @@ mod tests {
                 "var current = e; ((function(){ current = other; }).call)(null); parse(current);"
             ),
             "a parenthesised member still invokes its receiver",
+        );
+    }
+
+    /// A function declaration inside a BLOCK hoists only to that block, so it is not the
+    /// module-scope helper a parser outside the braces calls.
+    #[test]
+    fn a_block_local_declaration_does_not_replace_the_module_helper() {
+        let scanned = |module: &str| {
+            parse_module_wap_parsers(module)
+                .into_iter()
+                .find(|r| r.parser_name == "p")
+                .expect("parser")
+                .fields
+                .iter()
+                .map(|f| f.name.clone())
+                .collect::<Vec<_>>()
+        };
+        // The outer declaration is the one in scope at the call; the block-local one binds
+        // nothing outside its braces, and last-wins let it overwrite the map.
+        assert_eq!(
+            scanned(
+                r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+                function parse(q){ q.attrString("outer"); }
+                { function parse(q){ q.attrString("inner"); } }
+                var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                    e.assertTag("receipt");
+                    parse(e);
+                });
+            }),1);"#
+            ),
+            vec!["outer".to_string()],
+            "the block-local body is not the helper the call reaches",
+        );
+        // …and a switch case is a block scope of its own without any braces of its own.
+        assert_eq!(
+            scanned(
+                r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+                function parse(q){ q.attrString("outer"); }
+                switch (t) { case 1: function parse(q){ q.attrString("inner"); } }
+                var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                    e.assertTag("receipt");
+                    parse(e);
+                });
+            }),1);"#
+            ),
+            vec!["outer".to_string()],
+            "a case body is no more visible outside the switch",
+        );
+        // The bound: two declarations DIRECTLY in the factory body both hoist, and the later
+        // one is the binding left standing — which is why last-wins exists at all.
+        assert_eq!(
+            scanned(
+                r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+                function parse(q){ q.attrString("first"); }
+                function parse(q){ q.attrString("second"); }
+                var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                    e.assertTag("receipt");
+                    parse(e);
+                });
+            }),1);"#
+            ),
+            vec!["second".to_string()],
+            "last declaration wins where both really hoist",
         );
     }
 
