@@ -4912,6 +4912,43 @@ fn instance_definition<'b, 'a>(
     })
 }
 
+/// Whether a parameter evaluates a default that certainly raises, at any depth of its pattern.
+///
+/// A default nested inside the pattern runs while the binding happens exactly as the parameter's
+/// own does: `(function ({x = (throws)()}) { … })({})` never reaches the first statement. Reading
+/// only the top-level initializer is the same rule stated at one level of a structure and not at
+/// depth, which is the shallow relative of the split this file keeps paying for.
+///
+/// `suppressed` is what the call PREVENTS — `suppressed_defaults` answers it at every depth
+/// already, so a default the arguments supply is skipped here for free.
+fn default_raises(
+    pat: &oxc_ast::ast::BindingPattern<'_>,
+    initializer: Option<&Expression<'_>>,
+    suppressed: &[Span],
+) -> bool {
+    if let Some(init) = initializer
+        && expression_throws(init)
+        && !suppressed.contains(&init.span())
+    {
+        return true;
+    }
+    match pat {
+        oxc_ast::ast::BindingPattern::AssignmentPattern(p) => {
+            default_raises(&p.left, Some(&p.right), suppressed)
+        }
+        oxc_ast::ast::BindingPattern::ObjectPattern(o) => o
+            .properties
+            .iter()
+            .any(|p| default_raises(&p.value, None, suppressed)),
+        oxc_ast::ast::BindingPattern::ArrayPattern(a) => a
+            .elements
+            .iter()
+            .flatten()
+            .any(|el| default_raises(el, None, suppressed)),
+        _ => false,
+    }
+}
+
 /// Whether the value an assignment computes never arrives, so its target is never written.
 ///
 /// `try { e = (function(){ throw 0; })(); } catch (_) {}` leaves `e` exactly as it was: the
@@ -4931,10 +4968,22 @@ fn class_constructor_throws(class: &oxc_ast::ast::Class<'_>) -> bool {
         oxc_ast::ast::ClassElement::MethodDefinition(m)
             if m.kind == oxc_ast::ast::MethodDefinitionKind::Constructor =>
         {
-            m.value
-                .body
-                .as_ref()
-                .is_some_and(|b| throws_out(&b.statements))
+            m.value.body.as_ref().is_some_and(|b| {
+                throws_out(&b.statements)
+                    // …and a statement whose own EXPRESSION certainly raises ends the
+                    // constructor as surely as a `throw` does. `throws_out` reads the statement
+                    // KINDS that leave — a `return` is one of them and its argument is not read
+                    // — so `return `${(throws)()}`` was taken for a value that arrives. Only
+                    // the top level, and only the two spellings whose expression is the whole
+                    // statement, which is what stays decidable here.
+                    || b.statements.iter().any(|st| match st {
+                        Statement::ReturnStatement(r) => {
+                            r.argument.as_ref().is_some_and(expression_throws)
+                        }
+                        Statement::ExpressionStatement(x) => expression_throws(&x.expression),
+                        _ => false,
+                    })
+            })
         }
         _ => false,
     })
@@ -4959,6 +5008,21 @@ fn constructor_may_replace_the_instance(class: &oxc_ast::ast::Class<'_>) -> bool
                 self.0 = true;
             }
             walk::walk_return_statement(self, r);
+        }
+        // …and a branch no value of its test can take is not a path this constructor has.
+        // `if (false) return {};` returns nothing on every execution, and counting it declined
+        // a construction that always keeps its instance. The same `statically_selected` the
+        // requiredness walk reads, which is where this question is already answered.
+        fn visit_if_statement(&mut self, stmt: &oxc_ast::ast::IfStatement<'a>) {
+            if let Some(taken) =
+                statically_selected(&stmt.test, &stmt.consequent, stmt.alternate.as_ref())
+            {
+                if let Some(t) = taken.0 {
+                    self.visit_statement(t);
+                }
+                return;
+            }
+            walk::walk_if_statement(self, stmt);
         }
         // A `return` inside a nested function belongs to that function, not to the constructor.
         fn visit_function(&mut self, _f: &Function<'a>, _flags: ScopeFlags) {}
@@ -4999,6 +5063,13 @@ fn certainly_a_primitive(e: &Expression<'_>) -> bool {
             | Expression::NullLiteral(_)
             | Expression::BigIntLiteral(_)
             | Expression::TemplateLiteral(_)
+            // EVERY unary operator produces a primitive, whatever it is applied to: `-x` and
+            // `+x` a number, `!x` and `delete x` a boolean, `~x` a number, `typeof x` a string,
+            // `void x` `undefined`. Listing the literal forms alone read `return -1` as
+            // something that could be an object, and a construction that keeps its instance
+            // was declined. Whether the OPERAND completes is a different question, asked of
+            // the constructor rather than of the value it hands back.
+            | Expression::UnaryExpression(_)
     ) || is_undefined_spelling(peel(e), true)
 }
 
@@ -5057,14 +5128,27 @@ fn static_definition<'b, 'a>(
     }
     // Found first, judged after — answering `None` for the wrong KIND here would go on searching
     // and hand back the definition below it, which is not the property the class has.
-    class.body.body.iter().rev().find_map(|el| match el {
-        oxc_ast::ast::ClassElement::MethodDefinition(m)
-            if m.r#static && m.key.static_name().as_deref() == Some(name) =>
-        {
-            Some(&**m)
-        }
-        _ => None,
-    })
+    // …and a computed METHOD key this cannot read might be that name too. Methods are installed
+    // in source order, so one written below the match replaces it — the same three-way answer
+    // the field check above needed, on the other kind of element. Found first, judged after:
+    // answering `None` for the wrong kind here would go on searching and hand back a definition
+    // the class no longer has.
+    class
+        .body
+        .body
+        .iter()
+        .rev()
+        .find_map(|el| match el {
+            oxc_ast::ast::ClassElement::MethodDefinition(m)
+                if m.r#static
+                    && m.kind != oxc_ast::ast::MethodDefinitionKind::Constructor
+                    && m.key.static_name().as_deref().is_none_or(|k| k == name) =>
+            {
+                Some(&**m)
+            }
+            _ => None,
+        })
+        .filter(|m| m.key.static_name().as_deref() == Some(name))
 }
 
 /// Whether `e` plainly has an own enumerable property, so `for-in` over it runs its body.
@@ -5080,19 +5164,10 @@ fn enumerates_at_least_once(e: &Expression<'_>) -> bool {
     // The object has to be BUILT before anything can enumerate it, and a literal completes
     // abruptly if any part of it does: `{ x: (function(){ throw 0 })() }` never becomes an
     // object at all, so the loop reaches its handler rather than its body. Anywhere in the
-    // literal, not only before the qualifying property — a throw written after one still
-    // stops the whole expression, so `{ x: 1, y: (throws)() }` is no more constructed than
-    // `{ y: (throws)(), x: 1 }`. Claiming a guaranteed pass over it required of every response
-    // reads the parser performs on no path.
-    let builds = !o.properties.iter().any(|p| match p {
-        oxc_ast::ast::ObjectPropertyKind::SpreadProperty(sp) => expression_throws(&sp.argument),
-        oxc_ast::ast::ObjectPropertyKind::ObjectProperty(op) => {
-            // A computed key is evaluated on the way to the property and can leave first.
-            (op.computed && expression_throws(op.key.as_expression().unwrap_or(&op.value)))
-                || expression_throws(&op.value)
-        }
-    });
-    builds
+    // literal, not only before the qualifying property — a throw written after one still stops
+    // the whole expression. Written out here when the rule arrived; `expression_throws` states
+    // it for every composite now, so this reads the one predicate.
+    !expression_throws(e)
         && o.properties.iter().any(|p| match p {
             oxc_ast::ast::ObjectPropertyKind::SpreadProperty(_) => false,
             // …and the key has to become an enumerable STRING. `for-in` never enumerates a
@@ -5280,6 +5355,25 @@ fn getters_in_pattern<'a>(
     object: &oxc_ast::ast::ObjectExpression<'a>,
     out: &mut Vec<Span>,
 ) {
+    // A REST binding copies what the named properties left behind, and copying performs a `Get`
+    // on each one — so `var {...copy} = { get x(){ … } }` runs that getter with no property
+    // named anywhere in the pattern. The named list was the whole of what this read, so a
+    // rest-only pattern claimed nothing at all.
+    //
+    // Every getter the literal has. Excluding the ones the pattern NAMES would be more faithful
+    // to what the rest actually copies, and it is not a rule this list can hold: the loop below
+    // claims those anyway, and the same span twice is the same claim. A condition no test can
+    // hold is one to remove.
+    if pat.rest.is_some() {
+        for p in &object.properties {
+            if let oxc_ast::ast::ObjectPropertyKind::ObjectProperty(op) = p
+                && op.kind == oxc_ast::ast::PropertyKind::Get
+                && let Expression::FunctionExpression(f) = &op.value
+            {
+                out.push(f.span);
+            }
+        }
+    }
     for prop in &pat.properties {
         let Some(name) = prop.key.static_name() else {
             continue;
@@ -6276,9 +6370,14 @@ struct AllBindings {
     /// getter's OWN body, because binding happens after every argument has been evaluated: a
     /// blanket push would have deferred the arguments' own writes past the call too.
     binding_getters: Vec<(Span, u32)>,
-    /// Raised while an assignment TARGET is walked whose right-hand side certainly raises: the
-    /// write happens on no path, so neither its `Write` nor its `Given` is recorded.
-    never_written: u32,
+    /// The target whose write is suppressed, by the span of its identifier: its right-hand side
+    /// certainly raises, so the write happens on no path and neither its `Write` nor its `Given`
+    /// is recorded.
+    ///
+    /// A SPAN rather than a counter. A counter raised over the target's walk suppressed every
+    /// nested write inside it too — and a computed target has a reference to evaluate, so
+    /// `({})[(current = other)] = …` writes `current` on the way to the place it assigns.
+    never_written: Vec<Span>,
 
     /// How many enclosing constructs could have skipped the part being walked. A value assigned
     /// down such a path is not certainly the one a later read sees, however textually early it
@@ -6360,7 +6459,7 @@ impl AllBindings {
         // local test, and two conditions for one fact is how the two halves of an assignment
         // came to disagree before. The mutation that raised the flag over the right-hand side's
         // own walk is what showed they still could.
-        if self.never_written > 0 {
+        if self.never_written.contains(&at) {
             return;
         }
         let extent = if lexical {
@@ -6809,9 +6908,7 @@ impl AllBindings {
             .any(|part| expression_throws(part))
             || params.is_some_and(|p| {
                 p.items.iter().any(|param| {
-                    param.initializer.as_deref().is_some_and(|init| {
-                        expression_throws(init) && !suppressed.contains(&init.span())
-                    })
+                    default_raises(&param.pattern, param.initializer.as_deref(), &suppressed)
                 })
             });
         let argument_raises = prelude_raises
@@ -7128,7 +7225,7 @@ impl<'a> Visit<'a> for AllBindings {
                     .then(|| self.innermost_repeating())
                     .flatten(),
             };
-            if self.never_written == 0 {
+            if !self.never_written.contains(&id.span) {
                 self.writes.push(w);
             }
         }
@@ -7161,6 +7258,23 @@ impl<'a> Visit<'a> for AllBindings {
         // which follows everything up to its `super()` — and pushing a fresh list dropped that.
         // Which is a defect my first draft had, and the mutation that reinstates it is what says
         // so.
+        // A MEMBER target has a reference to evaluate, and that reference is not a target: the
+        // object and the computed key of `a[k] = v` run before `v` does, so a write inside one
+        // precedes the value rather than following it. Walked before the region below is pushed
+        // — `({})[(current = other)] = parse(current)` hands `parse` what the key assigned, and
+        // declaring the whole left side to follow the value put that write after the read.
+        //
+        // Only this shape. A destructuring pattern's targets really are written after the value,
+        // which is what the region is for, and a plain identifier has no reference at all.
+        let reference_first = matches!(
+            &e.left,
+            oxc_ast::ast::AssignmentTarget::ComputedMemberExpression(_)
+                | oxc_ast::ast::AssignmentTarget::StaticMemberExpression(_)
+                | oxc_ast::ast::AssignmentTarget::PrivateFieldExpression(_)
+        );
+        if reference_first {
+            self.visit_assignment_target(&e.left);
+        }
         let mut after = self.runs_after.last().cloned().unwrap_or_default();
         after.push(e.right.span());
         self.runs_after.push(after);
@@ -7168,8 +7282,10 @@ impl<'a> Visit<'a> for AllBindings {
         // the declarator form left the plain one matching no argument position and losing the
         // helper with nothing said. The accumulator search in this file already reads both,
         // so taking only one here was a narrowing rather than a decision.
-        let never = u32::from(assignment_never_completes(Some(&e.right)));
-        self.never_written += never;
+        let never = assignment_never_completes(Some(&e.right));
+        if never {
+            self.never_written.push(e.left.span());
+        }
         if let oxc_ast::ast::AssignmentTarget::AssignmentTargetIdentifier(t) = &e.left {
             let from = match (&e.right, e.operator) {
                 (Expression::Identifier(src), oxc_syntax::operator::AssignmentOperator::Assign) => {
@@ -7195,14 +7311,18 @@ impl<'a> Visit<'a> for AllBindings {
             self.binding_getters
                 .extend(found.into_iter().map(|g| (g, e.span.end)));
         }
-        // The value first and the target second, so a right-hand side that raises can suppress
-        // the target's records without touching what it wrote on the way. `walk_assignment_
-        // expression` takes them the other way round and gives no seam to do that at.
-        self.never_written -= never;
+        // The TARGET first and the value second, which is the order JavaScript takes them: the
+        // object and the computed key of `a[k] = v` are evaluated before `v` is, and only the
+        // write itself waits for the value. Round sixty-seven inverted this pair to give the
+        // suppression a seam, which put a key's own assignment after the value that reads it —
+        // the seam is the span above instead, and the order is back to what it describes.
+        if !reference_first {
+            self.visit_assignment_target(&e.left);
+        }
         self.visit_expression(&e.right);
-        self.never_written += never;
-        self.visit_assignment_target(&e.left);
-        self.never_written -= never;
+        if never {
+            self.never_written.pop();
+        }
         self.binding_getters.truncate(restore_getters);
         self.runs_after.pop();
         self.assign_end = outer;
@@ -7249,9 +7369,11 @@ impl<'a> Visit<'a> for AllBindings {
             // raises. `var current = (function(){ throw 0; })()` binds the name and leaves it
             // `undefined`; it does not bind it to a value, and the pattern form assigns nothing
             // at all. Two spellings of one rule, which is the split this file keeps paying for.
-            let never = u32::from(assignment_never_completes(d.init.as_ref()));
-            self.never_written += never;
-            if d.id.get_binding_identifier().is_none() && never == 0 {
+            let never = assignment_never_completes(d.init.as_ref());
+            if never && let Some(id) = d.id.get_binding_identifier() {
+                self.never_written.push(id.span);
+            }
+            if d.id.get_binding_identifier().is_none() && !never {
                 for id in d.id.get_binding_identifiers() {
                     let w = Write {
                         scope: self.binding_extent(id.name.as_str(), id.span),
@@ -7282,7 +7404,9 @@ impl<'a> Visit<'a> for AllBindings {
                 self.given_value(id.name.as_str(), from, id.span, decl.kind.is_lexical());
                 self.assign_end = outer;
             }
-            self.never_written -= never;
+            if never && d.id.get_binding_identifier().is_some() {
+                self.never_written.pop();
+            }
         }
         self.hoists = outer_hoists;
     }
@@ -9593,6 +9717,14 @@ fn statically_selected<'s, T>(
 fn iterates_at_least_once(e: &Expression<'_>) -> bool {
     match e {
         Expression::ParenthesizedExpression(p) => iterates_at_least_once(&p.expression),
+        // …and the array has to be BUILT before an iterator over it exists. An element that
+        // raises stops the whole literal, so `for (const x of [(throws)()])` reaches its
+        // handler rather than its body — the same rule `for-in` over an object literal was
+        // given two rounds ago, on the other loop, read from the same predicate.
+        Expression::ArrayExpression(a) if expression_throws(e) => {
+            let _ = a;
+            false
+        }
         Expression::ArrayExpression(a) => a
             .elements
             .iter()
@@ -9685,6 +9817,43 @@ fn expression_throws(e: &Expression<'_>) -> bool {
             Expression::ClassExpression(c) => class_constructor_throws(c),
             _ => false,
         };
+    }
+    // An expression whose PARTS are evaluated on the way to its value raises when one of them
+    // does: a template builds its string from substitutions taken in order, and a literal builds
+    // itself from its elements. Reading only the outermost node had `return `${(throws)()}``
+    // taken for a value that arrives, and left two hand-rolled per-part scans elsewhere saying
+    // the same thing in their own words.
+    match peeled {
+        Expression::TemplateLiteral(t) => {
+            if t.expressions.iter().any(expression_throws) {
+                return true;
+            }
+        }
+        Expression::ArrayExpression(a) => {
+            if a.elements.iter().any(|el| match el {
+                oxc_ast::ast::ArrayExpressionElement::SpreadElement(sp) => {
+                    expression_throws(&sp.argument)
+                }
+                oxc_ast::ast::ArrayExpressionElement::Elision(_) => false,
+                other => other.as_expression().is_some_and(expression_throws),
+            }) {
+                return true;
+            }
+        }
+        Expression::ObjectExpression(o) => {
+            if o.properties.iter().any(|p| match p {
+                oxc_ast::ast::ObjectPropertyKind::SpreadProperty(sp) => {
+                    expression_throws(&sp.argument)
+                }
+                oxc_ast::ast::ObjectPropertyKind::ObjectProperty(op) => {
+                    (op.computed && expression_throws(op.key.as_expression().unwrap_or(&op.value)))
+                        || expression_throws(&op.value)
+                }
+            }) {
+                return true;
+            }
+        }
+        _ => {}
     }
     let Expression::CallExpression(c) = peeled else {
         return false;
@@ -15040,6 +15209,141 @@ mod tests {
                 "that write does happen: {body}"
             );
         }
+    }
+
+    #[test]
+    fn a_member_targets_reference_is_evaluated_before_the_value() {
+        // The object and the computed key of `a[k] = v` run before `v` does, so a write inside
+        // one PRECEDES the value rather than following it. Round sixty-seven declared the whole
+        // left side to follow the value — right for a destructuring pattern's targets, and it
+        // put a key's own assignment after the read that sees it.
+        let fields =
+            helper_reached_via("var current = e; ({})[(current = other)] = parse(current);");
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "that key ran before the value: {fields:?}"
+        );
+        // The bound: a plain identifier target has no reference at all, so what the value reads
+        // is still the old binding.
+        let fields = helper_reached_via("var current = e; x = parse(current); parse(current);");
+        assert!(fields.iter().any(|f| f.name == "id"));
+    }
+
+    #[test]
+    fn a_constructor_return_is_read_for_what_it_is() {
+        // Three answers about one expression, each of which had been partial. A branch no value
+        // of its test can take is not a path the constructor has…
+        for body in [
+            "var current = e; (new (class { constructor(){ if (false) return {}; } m(){ current = other; } })).m(); parse(current);",
+            // …EVERY unary operator produces a primitive, which `new` discards…
+            "var current = e; (new (class { constructor(){ return -1; } m(){ current = other; } })).m(); parse(current);",
+            "var current = e; (new (class { constructor(){ return typeof x; } m(){ current = other; } })).m(); parse(current);",
+            "var current = e; (new (class { constructor(){ return void {}; } m(){ current = other; } })).m(); parse(current);",
+            "var current = e; (new (class { constructor(){ return `a`; } m(){ current = other; } })).m(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that method already ran: {body}"
+            );
+        }
+        // …and a return whose value never ARRIVES ends the constructor, so nothing is built.
+        // `throws_out` reads which statement kinds leave and does not read their expressions;
+        // `expression_throws` sees into a template's substitutions now, which is what makes the
+        // two meet.
+        for body in [
+            "var current = e; try { (new (class { constructor(){ return `${(function(){throw 0})()}`; } m(){ current = other; } })).m(); } catch (_) {} parse(current);",
+            // The bound on the branch rule: a test this cannot decide leaves the return live.
+            "var current = e; try { (new (class { constructor(){ if (flag) return {}; } m(){ current = other; } })).m(); } catch (_) {} parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that method is not reached: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_rest_binding_copies_and_therefore_reads() {
+        // Copying what the named properties left behind performs a `Get` on each one, so
+        // `var {...copy} = { get x(){ … } }` runs that getter with no property named anywhere in
+        // the pattern. The named list was the whole of what the collector read.
+        for body in [
+            "var current = e; var {...copy} = { get x(){ current = other; return 1; } }; parse(current);",
+            "var current = e; var {x, ...copy} = { x: 1, get y(){ current = other; return 1; } }; parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that getter already ran: {body}"
+            );
+        }
+        // The bound: with no rest, only the properties the pattern NAMES are read.
+        let fields = helper_reached_via(
+            "var current = e; var {x} = { x: 1, get y(){ current = other; return 1; } }; parse(current);",
+        );
+        assert!(fields.iter().any(|f| f.name == "id"));
+    }
+
+    #[test]
+    fn a_default_nested_in_a_pattern_raises_before_the_body_too() {
+        // A default inside the pattern runs while the binding happens exactly as the parameter's
+        // own does — the same rule stated at one level of a structure and not at depth.
+        let fields = helper_reached_via(
+            "var current = e; try { (function({x = (function(){throw 0})()}){ current = other; })({ __proto__: null }); } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "that body is entered on no path: {fields:?}"
+        );
+        // The bound: a default the call SUPPLIES is never evaluated, at depth as at the top.
+        let fields = helper_reached_via(
+            "var current = e; (function({x = (function(){throw 0})()}){ current = other; })({ x: 1 }); parse(current);",
+        );
+        assert!(!fields.iter().any(|f| f.name == "id"));
+    }
+
+    #[test]
+    fn a_computed_static_method_takes_the_property_too() {
+        // Methods are installed in source order, so one written below the match replaces it —
+        // and a computed key this cannot read might be that name. The field check had this
+        // three-way answer and the method lookup beside it did not.
+        // The unreadable method's own body is given a write, so declining and resolving-to-it
+        // are two different answers: my first bound left it empty, where both agree and the
+        // mutation that resolves the unreadable key changed nothing.
+        let fields = helper_reached_via(
+            "var k = \"m\", current = e; (class { static m(){ current = other; } static [k](){ current = third; } }).m(); parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "that method may not be what the class holds: {fields:?}"
+        );
+        // The bound: a computed key this CAN read is an ordinary name and takes nothing.
+        let fields = helper_reached_via(
+            "var current = e; (class { static m(){ current = other; } static [\"n\"](){} }).m(); parse(current);",
+        );
+        assert!(!fields.iter().any(|f| f.name == "id"));
+    }
+
+    #[test]
+    fn a_for_of_needs_the_array_to_be_built_first() {
+        // An element that raises stops the whole literal, so no iterator over it ever exists —
+        // the rule `for-in` over an object literal was given, on the other loop. Both read one
+        // predicate now rather than scanning their parts in their own words.
+        for body in [
+            "for (const x of [(function(){throw 0})()]) { parse(e); }",
+            "for (const x of [...(function(){throw 0})()]) { parse(e); }",
+        ] {
+            let (required, _) = guards_and_field(body);
+            assert!(!required, "that body is never reached: {body}");
+        }
+        // The bounds: a literal that plainly builds still guarantees its pass, and an empty one
+        // still guarantees nothing.
+        let (required, _) = guards_and_field("for (const x of [1]) { parse(e); }");
+        assert!(required);
+        let (required, _) = guards_and_field("for (const x of []) { parse(e); }");
+        assert!(!required);
     }
 
     fn helper_reached_via(body: &str) -> Vec<ParsedField> {
