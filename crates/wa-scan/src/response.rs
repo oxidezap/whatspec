@@ -1451,6 +1451,12 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
         // bound there is still a name in scope. Here there is nothing to preserve — a read that
         // never happens is not a read — so the tail is simply not taken.
         self.visit_expression(&call.callee);
+        // `null?.(…)` evaluates NO argument: the optional call short-circuits on a nullish
+        // callee and hands back `undefined` without building a list at all. Descending anyway
+        // published the reads spelled there as ones the parser performs.
+        if call.optional && certainly_nullish(&call.callee) {
+            return;
+        }
         for arg in &call.arguments {
             self.visit_argument(arg);
             if argument_raises(arg) {
@@ -7937,6 +7943,16 @@ impl<'a> Visit<'a> for AllBindings {
     }
 
     fn visit_call_expression(&mut self, call: &CallExpression<'a>) {
+        // `null?.(current = other)` short-circuits before its argument list exists, so the write
+        // happens on no path. The arguments are still walked — as unreachable, so the scopes
+        // they open stay recorded and their writes do not — which is the shape every other
+        // never-evaluated region in this visitor takes.
+        if call.optional && certainly_nullish(&call.callee) {
+            self.unreachable += 1;
+            walk::walk_call_expression(self, call);
+            self.unreachable -= 1;
+            return;
+        }
         if !self.walk_invocation(&call.callee, &call.arguments, None, call.span, false) {
             walk::walk_call_expression(self, call);
         }
@@ -8006,6 +8022,14 @@ impl<'a> Visit<'a> for AllBindings {
         // corpus spells `for (;;)`, and both start their body whatever else they do.
         if always_true(&stmt.test) {
             self.walk_first_pass(&stmt.body);
+        } else if always_false(&stmt.test) {
+            // …and a test that cannot be TRUE never starts a pass at all: `while (0) { … }` is
+            // dead code, and reading its body as merely skippable kept the write in it as a
+            // second value the binding could not settle against. The `if` and the short-circuit
+            // have read this predicate for as long; the loop beside them had only its opposite.
+            self.unreachable += 1;
+            self.visit_statement(&stmt.body);
+            self.unreachable -= 1;
         } else {
             self.maybe_skipped(|s| s.visit_statement(&stmt.body));
         }
@@ -8282,11 +8306,24 @@ impl<'a> Visit<'a> for AllBindings {
         // case including its test in one skippable region marked those assignments conditional,
         // so `switch (k) { case (current = e): … }` left the helper's fields optional though
         // every execution performs the write.
-        let guaranteed = stmt
+        let mut guaranteed = stmt
             .cases
             .iter()
             .position(|c| c.test.is_some())
             .map_or(0, |first| first + 1);
+        // …and where a readable discriminant SELECTS a case, every test up to and including that
+        // one is evaluated on every path — the switch tests in order and stops at the match, so
+        // the match's own test is as certain as the first. Marking only the tests after it dead
+        // left it merely conditional, so a write there could not supersede an earlier one and
+        // the alias it restores never settled.
+        //
+        // Read before the loop below, which uses the same index to mark what follows dead: one
+        // selection, both of its consequences.
+        let matched = statically_selected_case(&stmt.discriminant, &stmt.cases)
+            .filter(|&i| stmt.cases[i].test.is_some());
+        if let Some(m) = matched {
+            guaranteed = guaranteed.max(m + 1);
+        }
         for case in stmt.cases.iter().take(guaranteed) {
             if let Some(test) = &case.test {
                 self.visit_expression(test);
@@ -8301,8 +8338,6 @@ impl<'a> Visit<'a> for AllBindings {
         // DEFAULT when none does, and that is the case where every test was evaluated — so the
         // index is taken only when it names a case that has one. The consequents are untouched:
         // a later arm is still reachable by falling through from the matched one.
-        let matched = statically_selected_case(&stmt.discriminant, &stmt.cases)
-            .filter(|&i| stmt.cases[i].test.is_some());
         self.maybe_skipped(|s| {
             for (i, case) in stmt.cases.iter().enumerate() {
                 if i < guaranteed {
@@ -16721,6 +16756,15 @@ mod tests {
             ),
             "an earlier test runs and its write stands",
         );
+        // The matching case's test is evaluated on EVERY path, not merely some: the switch
+        // tests in order and stops there, so a write on the way to it is as certain as one in
+        // the first test. Leaving it conditional kept an earlier value alive beside it.
+        assert!(
+            reaches(
+                "var current = other; switch ('b') { case 'a': break; case (current = e, 'b'): break; } parse(current);"
+            ),
+            "the matching test always runs, so its write supersedes the earlier one",
+        );
         // The MATCHING case's own test is evaluated — it is the one that matched — so a write
         // on the way to its value stands. `peel` reads a comma's last element, so a test can
         // both perform a write and be the literal that selects.
@@ -16752,6 +16796,58 @@ mod tests {
                 "var current = e; switch ('a') { case 'a': case 'b': current = other; } parse(current);"
             ),
             "fallthrough reaches the later consequent",
+        );
+    }
+
+    /// A test that cannot be true never starts a pass, so the body is dead code — not a path
+    /// a value merely might take.
+    #[test]
+    fn a_while_that_cannot_be_entered_writes_nothing() {
+        let reaches = |body: &str| helper_reached_via(body).iter().any(|f| f.name == "id");
+        assert!(
+            reaches("var current = e; while (0) { current = other; } parse(current);"),
+            "the body runs on no path",
+        );
+        assert!(
+            reaches("var current = e; while (!1) { current = other; } parse(current);"),
+            "however the falsity is spelled",
+        );
+        // The bound: a test this cannot decide leaves the body a path the value may take.
+        assert!(
+            !reaches("var current = e; while (k) { current = other; } parse(current);"),
+            "an unreadable test keeps the write in play",
+        );
+    }
+
+    /// An optional call short-circuits on a nullish callee, so its arguments are never built.
+    #[test]
+    fn an_optional_call_on_nothing_evaluates_no_argument() {
+        assert!(
+            helper_reached_via("null?.(e.attrString(\"late\"));")
+                .iter()
+                .all(|f| f.name != "late"),
+            "the argument list is never built",
+        );
+        // …and the binding side agrees: a write spelled there happens on no path.
+        assert!(
+            helper_reached_via("var current = e; null?.(current = other); parse(current);")
+                .iter()
+                .any(|f| f.name == "id"),
+            "nor is the write performed",
+        );
+        // The bound: an ordinary call really does evaluate its arguments.
+        assert!(
+            helper_reached_via("noop(e.attrString(\"late\"));")
+                .iter()
+                .any(|f| f.name == "late"),
+            "a call that happens reads its arguments",
+        );
+        // …and an optional call on something that is NOT nullish happens too.
+        assert!(
+            helper_reached_via("noop?.(e.attrString(\"late\"));")
+                .iter()
+                .any(|f| f.name == "late"),
+            "an unreadable callee settles nothing",
         );
     }
 

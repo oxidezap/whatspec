@@ -1319,6 +1319,12 @@ pub(crate) struct VariantCtx<'a> {
     /// declared `website_content` twice, with two types and two constructor parameters, and the
     /// generated module did not compile.
     pub reserved: &'a std::collections::HashSet<String>,
+    /// Which spec field each attribute SITE reads, keyed by the path of tags down to its node.
+    ///
+    /// Two nodes may spell an attribute the same way and mean different things, so the field a
+    /// site writes is not derivable from the attribute name alone — the collection pass resolved
+    /// it and this is where the builder reads that answer back.
+    pub attr_fields: &'a crate::spec::AttrFieldMap,
 }
 
 /// A field name this spec does not already use, from either source.
@@ -1348,8 +1354,10 @@ pub(crate) fn emit_child_builder(
     indent: &str,
     used_names: &mut HashMap<String, usize>,
     ctx: &mut VariantCtx,
+    path: &[String],
 ) -> (Vec<String>, String, bool) {
     let mut lines: Vec<String> = Vec::new();
+    let here: Vec<String> = path.iter().cloned().chain([child.tag.clone()]).collect();
     let base_name = format!("{}_node", snake_case(&child.tag));
     let count = *used_names.get(&base_name).unwrap_or(&0);
     used_names.insert(base_name.clone(), count + 1);
@@ -1362,7 +1370,7 @@ pub(crate) fn emit_child_builder(
     let mut nested_var_names: Vec<(String, bool)> = Vec::new();
     for nested in &child.children {
         let (nested_lines, nested_var, nested_is_list) =
-            emit_child_builder(nested, indent, used_names, ctx);
+            emit_child_builder(nested, indent, used_names, ctx, &here);
         lines.extend(nested_lines);
         nested_var_names.push((nested_var, nested_is_list));
     }
@@ -1382,14 +1390,22 @@ pub(crate) fn emit_child_builder(
             .is_some_and(|c| c.kind == WapContentKind::Dynamic && c.const_bytes.is_none())
     {
         let field = unique_field(ctx, &content_field_name(&var_name));
+        let element = child
+            .content
+            .as_ref()
+            .map_or_else(|| "Vec<u8>".to_string(), payload_type);
         ctx.fields
-            .push((field.clone(), "Vec<Vec<u8>>".to_string(), false));
+            .push((field.clone(), format!("Vec<{element}>"), false));
         let list = format!("{var_name}s");
         lines.push(format!("{indent}let mut {list} = Vec::new();"));
         lines.push(format!("{indent}for payload in &self.{field} {{"));
         lines.push(format!(
-            "{indent}    {list}.push(NodeBuilder::new({}).bytes(payload.clone()).build());",
-            rust_lit(&child.tag)
+            "{indent}    {list}.push(NodeBuilder::new({}).bytes({}).build());",
+            rust_lit(&child.tag),
+            child.content.as_ref().map_or_else(
+                || "payload.clone()".to_string(),
+                |c| payload_expr(c, "payload")
+            )
         ));
         lines.push(format!("{indent}}}"));
         return (lines, list, true);
@@ -1425,7 +1441,14 @@ pub(crate) fn emit_child_builder(
     }
     for attr in &child.attrs {
         let alit = rust_lit(&attr.name);
-        let ident = rust_ident(&attr.name);
+        // The field this SITE reads, which the collection pass resolved: a name shared with
+        // another node's attribute was given a distinct field there, and deriving it from the
+        // attribute name here would write both sites to whichever one won.
+        let ident = ctx
+            .attr_fields
+            .get(&(here.clone(), attr.name.clone()))
+            .cloned()
+            .unwrap_or_else(|| rust_ident(&attr.name));
         match &attr.kind {
             WapAttrKind::Const => {
                 if let Some(value) = &attr.value {
@@ -1453,6 +1476,21 @@ pub(crate) fn emit_child_builder(
             WapAttrKind::Optional => {
                 body.push(format!(
                     "{indent}if let Some(v) = &self.{ident} {{ {var_name} = {var_name}.attr({alit}, v.as_str()); }}"
+                ));
+            }
+            // A GENERATED id is an attribute the request carries, not one it lacks. It reached
+            // the catch-all and was dropped, so the committed `<usync sid>` and the nested
+            // `<iq id>` of `updateCartEnabled` were built without them — requests the source
+            // cannot send. Threaded as a caller-supplied `String`: what generates it is the
+            // consumer's business (a counter, a random id, a session sequence), and this cannot
+            // call a generator it has never seen. `collect_attrs` skips this kind, so the field
+            // is declared here and reserved against the names that pass already exposed.
+            WapAttrKind::GeneratedId => {
+                let field = unique_field(ctx, &ident);
+                ctx.fields
+                    .push((field.clone(), "String".to_string(), false));
+                body.push(format!(
+                    "{indent}{var_name} = {var_name}.attr({alit}, self.{field}.as_str());"
                 ));
             }
             _ => {}
@@ -1510,9 +1548,13 @@ fn emit_variant_groups(
         } else {
             format!("{base}Variant")
         };
+        // Through `rust_ident`, and the `_vN` suffix on the PLAIN spelling first: a node tagged
+        // `<type>` produced `pub type`, a `type` parameter and `self.type`, none of which
+        // compile, and `r#type_v2` would be no better. The variant CHILD member learned this two
+        // rounds ago and the group's own field was left on `snake_case` beside it.
         let field = {
             let f = snake_case(&node.tag);
-            if multi { format!("{f}_v{}", gi + 1) } else { f }
+            rust_ident(&if multi { format!("{f}_v{}", gi + 1) } else { f })
         };
         let disc = variant_discriminator(group);
         // Deduped variant names: when the discriminator can't tell variants apart
@@ -1641,9 +1683,10 @@ fn emit_node_content(
     if content.kind == WapContentKind::Bytes {
         let field = unique_field(ctx, &content_field_name(var_name));
         ctx.fields
-            .push((field.clone(), "Vec<u8>".to_string(), false));
+            .push((field.clone(), payload_type(content), false));
         return vec![format!(
-            "{indent}{var_name} = {var_name}.bytes(self.{field}.clone());"
+            "{indent}{var_name} = {var_name}.bytes({});",
+            payload_expr(content, &format!("self.{field}"))
         )];
     }
     // A fixed STRING is the const_bytes case in the other spelling: the value is known, so it is
@@ -1676,12 +1719,35 @@ fn emit_node_content(
     if content.kind == WapContentKind::Dynamic {
         let field = unique_field(ctx, &content_field_name(var_name));
         ctx.fields
-            .push((field.clone(), "Vec<u8>".to_string(), false));
+            .push((field.clone(), payload_type(content), false));
         return vec![format!(
-            "{indent}{var_name} = {var_name}.bytes(self.{field}.clone());"
+            "{indent}{var_name} = {var_name}.bytes({});",
+            payload_expr(content, &format!("self.{field}"))
         )];
     }
     Vec::new()
+}
+
+/// The type a caller-supplied payload takes: a fixed-size array where the node declares a
+/// length, and an unbounded `Vec<u8>` where it does not.
+///
+/// `BIG_ENDIAN_CONTENT(x, 3)` accepts three bytes and nothing else, and a `Vec<u8>` let a caller
+/// hand over one or four — a request the source builder cannot produce. `build_iq` returns an
+/// `InfoQuery` rather than a `Result`, so there is no runtime check to add here; the array says
+/// the same thing where it cannot be said later, and says it at compile time.
+fn payload_type(content: &wa_ir::WapContent) -> String {
+    match content.byte_length {
+        Some(n) => format!("[u8; {n}]"),
+        None => "Vec<u8>".to_string(),
+    }
+}
+
+/// The same payload as the `Vec<u8>` the builder takes, however it was declared.
+fn payload_expr(content: &wa_ir::WapContent, field: &str) -> String {
+    match content.byte_length {
+        Some(_) => format!("{field}.to_vec()"),
+        None => format!("{field}.clone()"),
+    }
 }
 
 /// The spec-struct field a node's caller-supplied content is threaded through.
@@ -2371,13 +2437,15 @@ mod tests {
     fn build1(child: &WapChildNode) -> (Vec<String>, String, bool) {
         let (mut enums, mut fields) = (Vec::new(), Vec::new());
         let reserved = std::collections::HashSet::new();
+        let attr_fields = crate::spec::AttrFieldMap::new();
         let mut ctx = VariantCtx {
             spec_base: "T",
             enum_defs: &mut enums,
             fields: &mut fields,
             reserved: &reserved,
+            attr_fields: &attr_fields,
         };
-        emit_child_builder(child, "", &mut HashMap::new(), &mut ctx)
+        emit_child_builder(child, "", &mut HashMap::new(), &mut ctx, &[])
     }
 
     /// Flattening removes an optional same-node wrapper, and with it the only record that its
@@ -2466,13 +2534,15 @@ mod tests {
         };
         let (mut enums, mut fields) = (Vec::new(), Vec::new());
         let reserved = std::collections::HashSet::new();
+        let attr_fields = crate::spec::AttrFieldMap::new();
         let mut ctx = VariantCtx {
             spec_base: "T",
             enum_defs: &mut enums,
             fields: &mut fields,
             reserved: &reserved,
+            attr_fields: &attr_fields,
         };
-        let (lines, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
+        let (lines, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx, &[]);
         let src = lines.join("\n");
         let defs = enums.join("\n");
         // The item's own struct, and the payload member that carries a list of them.
@@ -2699,13 +2769,16 @@ mod tests {
         });
         let (mut enums, mut fields) = (Vec::new(), Vec::new());
         let reserved = std::collections::HashSet::new();
+        let attr_fields = crate::spec::AttrFieldMap::new();
         let mut ctx = VariantCtx {
             spec_base: "T",
             enum_defs: &mut enums,
             fields: &mut fields,
             reserved: &reserved,
+            attr_fields: &attr_fields,
         };
-        let (lines, var, is_list) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
+        let (lines, var, is_list) =
+            emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx, &[]);
         assert!(is_list, "the child yields a list of nodes");
         assert_eq!(var, "area_description_nodes");
         assert!(
@@ -2732,17 +2805,144 @@ mod tests {
         });
         let (mut enums, mut fields) = (Vec::new(), Vec::new());
         let reserved = std::collections::HashSet::new();
+        let attr_fields = crate::spec::AttrFieldMap::new();
         let mut ctx = VariantCtx {
             spec_base: "T",
             enum_defs: &mut enums,
             fields: &mut fields,
             reserved: &reserved,
+            attr_fields: &attr_fields,
         };
-        let (_, var, is_list) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
+        let (_, var, is_list) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx, &[]);
         assert!(!is_list && var == "website_node", "one node: {var}");
         assert!(
             fields.contains(&("website_content".to_string(), "Vec<u8>".to_string(), false)),
             "one payload: {fields:?}"
+        );
+    }
+
+    /// A variant group's own spec field is a name the module has to bind, and a wire tag is
+    /// only sometimes one. The variant CHILD member learned this two rounds ago; this did not.
+    #[test]
+    fn a_variant_group_field_becomes_a_usable_identifier() {
+        use wa_ir::{WapVariant, WapVariantGroup};
+        let group = || WapVariantGroup {
+            optional: false,
+            variants: vec![WapVariant {
+                attrs: vec![attr("platform", WapAttrKind::String, None)],
+                children: vec![],
+            }],
+        };
+        let build = |groups: Vec<WapVariantGroup>| {
+            let node = WapChildNode {
+                tag: "type".into(),
+                attrs: vec![],
+                children: vec![],
+                content: None,
+                repeats: false,
+                variant_groups: groups,
+            };
+            let (mut enums, mut fields) = (Vec::new(), Vec::new());
+            let reserved = std::collections::HashSet::new();
+            let attr_fields = crate::spec::AttrFieldMap::new();
+            let mut ctx = VariantCtx {
+                spec_base: "T",
+                enum_defs: &mut enums,
+                fields: &mut fields,
+                reserved: &reserved,
+                attr_fields: &attr_fields,
+            };
+            emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx, &[]);
+            fields
+        };
+        assert_eq!(
+            build(vec![group()])[0].0,
+            "r#type",
+            "a keyword tag is escaped"
+        );
+        // …and the `_vN` suffix goes on the PLAIN spelling, since `r#type_v2` is no identifier.
+        let multi = build(vec![group(), group()]);
+        assert_eq!(multi[0].0, "type_v1");
+        assert_eq!(multi[1].0, "type_v2");
+    }
+
+    /// A generated id is an attribute the request CARRIES. It reached the catch-all and was
+    /// dropped, so `<usync sid>` was built without one — a request the source cannot send.
+    #[test]
+    fn a_generated_id_attribute_is_carried_not_dropped() {
+        let mut node = leaf("usync");
+        node.attrs = vec![attr("sid", WapAttrKind::GeneratedId, None)];
+        let (mut enums, mut fields) = (Vec::new(), Vec::new());
+        let reserved = std::collections::HashSet::new();
+        let attr_fields = crate::spec::AttrFieldMap::new();
+        let mut ctx = VariantCtx {
+            spec_base: "T",
+            enum_defs: &mut enums,
+            fields: &mut fields,
+            reserved: &reserved,
+            attr_fields: &attr_fields,
+        };
+        let (lines, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx, &[]);
+        assert!(
+            fields.contains(&("sid".to_string(), "String".to_string(), false)),
+            "the caller supplies it: {fields:?}"
+        );
+        assert!(
+            lines
+                .join("\n")
+                .contains(r#"usync_node = usync_node.attr("sid", self.sid.as_str());"#),
+            "and the node carries it: {}",
+            lines.join("\n")
+        );
+    }
+
+    /// An attribute SITE writes the field the collection pass gave it, which is not derivable
+    /// from the attribute's own name: another node may spell it the same and mean something
+    /// else, and deriving it here would write both sites to whichever name won.
+    #[test]
+    fn an_attribute_site_writes_the_field_it_was_assigned() {
+        let mut node = leaf("linked_parent");
+        node.attrs = vec![attr("jid", WapAttrKind::GroupJid, None)];
+        let (mut enums, mut fields) = (Vec::new(), Vec::new());
+        let reserved = std::collections::HashSet::new();
+        let mut attr_fields = crate::spec::AttrFieldMap::new();
+        attr_fields.insert(
+            (vec!["linked_parent".to_string()], "jid".to_string()),
+            "linked_parent_jid".to_string(),
+        );
+        let mut ctx = VariantCtx {
+            spec_base: "T",
+            enum_defs: &mut enums,
+            fields: &mut fields,
+            reserved: &reserved,
+            attr_fields: &attr_fields,
+        };
+        let (lines, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx, &[]);
+        assert!(
+            lines
+                .join("\n")
+                .contains(r#"attr("jid", self.linked_parent_jid.clone());"#),
+            "the assigned field, not the derived one: {}",
+            lines.join("\n")
+        );
+        // The bound: with nothing assigned the plain derivation stands, so a request whose
+        // attribute names never collided is emitted exactly as before.
+        let (mut enums, mut fields) = (Vec::new(), Vec::new());
+        let empty = crate::spec::AttrFieldMap::new();
+        let mut ctx = VariantCtx {
+            spec_base: "T",
+            enum_defs: &mut enums,
+            fields: &mut fields,
+            reserved: &reserved,
+            attr_fields: &empty,
+        };
+        let (lines, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx, &[]);
+        assert!(
+            lines
+                .join("\n")
+                .contains(r#"attr("jid", self.jid.clone());"#),
+            "nothing assigned, nothing renamed: {}",
+            lines.join("\n")
         );
     }
 
@@ -2776,13 +2976,15 @@ mod tests {
         };
         let (mut enums, mut fields) = (Vec::new(), Vec::new());
         let reserved = std::collections::HashSet::new();
+        let attr_fields = crate::spec::AttrFieldMap::new();
         let mut ctx = VariantCtx {
             spec_base: "T",
             enum_defs: &mut enums,
             fields: &mut fields,
             reserved: &reserved,
+            attr_fields: &attr_fields,
         };
-        let (lines, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
+        let (lines, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx, &[]);
         let defs = enums.join("\n");
         let src = lines.join("\n");
         assert!(
@@ -2811,13 +3013,15 @@ mod tests {
         };
         let (mut enums, mut fields) = (Vec::new(), Vec::new());
         let reserved = std::collections::HashSet::new();
+        let attr_fields = crate::spec::AttrFieldMap::new();
         let mut ctx = VariantCtx {
             spec_base: "T",
             enum_defs: &mut enums,
             fields: &mut fields,
             reserved: &reserved,
+            attr_fields: &attr_fields,
         };
-        let (_, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
+        let (_, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx, &[]);
         let defs = enums.join("\n");
         assert!(
             defs.contains("type_children: Vec<") && !defs.contains("r#type_children"),
@@ -2842,13 +3046,15 @@ mod tests {
         };
         let (mut enums, mut fields) = (Vec::new(), Vec::new());
         let reserved = std::collections::HashSet::new();
+        let attr_fields = crate::spec::AttrFieldMap::new();
         let mut ctx = VariantCtx {
             spec_base: "T",
             enum_defs: &mut enums,
             fields: &mut fields,
             reserved: &reserved,
+            attr_fields: &attr_fields,
         };
-        let (_, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
+        let (_, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx, &[]);
         let defs = enums.join("\n");
         assert!(
             defs.contains("my_tag: String") && defs.contains("my_tag_children: Vec<"),
@@ -2879,13 +3085,15 @@ mod tests {
         };
         let (mut enums, mut fields) = (Vec::new(), Vec::new());
         let reserved = std::collections::HashSet::new();
+        let attr_fields = crate::spec::AttrFieldMap::new();
         let mut ctx = VariantCtx {
             spec_base: "T",
             enum_defs: &mut enums,
             fields: &mut fields,
             reserved: &reserved,
+            attr_fields: &attr_fields,
         };
-        let (lines, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
+        let (lines, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx, &[]);
         // A child that does not repeat is exactly ONE node, and its cardinality survives the
         // fallback: `Vec<Node>` would let a caller supply none or several.
         assert!(
@@ -2922,13 +3130,15 @@ mod tests {
         };
         let (mut enums, mut fields) = (Vec::new(), Vec::new());
         let reserved = std::collections::HashSet::new();
+        let attr_fields = crate::spec::AttrFieldMap::new();
         let mut ctx = VariantCtx {
             spec_base: "T",
             enum_defs: &mut enums,
             fields: &mut fields,
             reserved: &reserved,
+            attr_fields: &attr_fields,
         };
-        let (lines, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
+        let (lines, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx, &[]);
         assert!(
             enums
                 .join("\n")
@@ -2956,13 +3166,15 @@ mod tests {
         });
         let (mut enums, mut fields) = (Vec::new(), Vec::new());
         let reserved = std::collections::HashSet::new();
+        let attr_fields = crate::spec::AttrFieldMap::new();
         let mut ctx = VariantCtx {
             spec_base: "T",
             enum_defs: &mut enums,
             fields: &mut fields,
             reserved: &reserved,
+            attr_fields: &attr_fields,
         };
-        let (lines, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
+        let (lines, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx, &[]);
         // `Dynamic` says the scan could not resolve the value, not that the value is text —
         // the same record covers a URL and a signature — so the payload has to preserve bytes.
         assert!(
@@ -2992,8 +3204,9 @@ mod tests {
             enum_defs: &mut enums,
             fields: &mut fields,
             reserved: &reserved,
+            attr_fields: &attr_fields,
         };
-        let (lines, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
+        let (lines, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx, &[]);
         assert!(
             fields.contains(&(
                 "website_content_2".to_string(),
@@ -3023,13 +3236,15 @@ mod tests {
         });
         let (mut enums, mut fields) = (Vec::new(), Vec::new());
         let reserved = std::collections::HashSet::new();
+        let attr_fields = crate::spec::AttrFieldMap::new();
         let mut ctx = VariantCtx {
             spec_base: "T",
             enum_defs: &mut enums,
             fields: &mut fields,
             reserved: &reserved,
+            attr_fields: &attr_fields,
         };
-        let (lines, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
+        let (lines, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx, &[]);
         assert!(
             lines
                 .join("\n")
@@ -3091,13 +3306,15 @@ mod tests {
         };
         let (mut enums, mut fields) = (Vec::new(), Vec::new());
         let reserved = std::collections::HashSet::new();
+        let attr_fields = crate::spec::AttrFieldMap::new();
         let mut ctx = VariantCtx {
             spec_base: "Foo",
             enum_defs: &mut enums,
             fields: &mut fields,
             reserved: &reserved,
+            attr_fields: &attr_fields,
         };
-        let (lines, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
+        let (lines, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx, &[]);
         let enum_src = enums.join("\n");
         let code = lines.join("\n");
 
@@ -3170,13 +3387,15 @@ mod tests {
         };
         let (mut enums, mut fields) = (Vec::new(), Vec::new());
         let reserved = std::collections::HashSet::new();
+        let attr_fields = crate::spec::AttrFieldMap::new();
         let mut ctx = VariantCtx {
             spec_base: "Foo",
             enum_defs: &mut enums,
             fields: &mut fields,
             reserved: &reserved,
+            attr_fields: &attr_fields,
         };
-        let (lines, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
+        let (lines, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx, &[]);
         let enum_src = enums.join("\n");
         // Three distinct variants, no duplicate `Platform`.
         assert_eq!(
@@ -3479,25 +3698,59 @@ mod tests {
         };
         let (mut enums, mut fields) = (Vec::new(), Vec::new());
         let reserved = std::collections::HashSet::new();
+        let attr_fields = crate::spec::AttrFieldMap::new();
         let mut ctx = VariantCtx {
             spec_base: "T",
             enum_defs: &mut enums,
             fields: &mut fields,
             reserved: &reserved,
+            attr_fields: &attr_fields,
         };
-        let (lines, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
+        let (lines, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx, &[]);
         let code = lines.join("\n");
+        // A declared LENGTH is part of what the node accepts, and `build_iq` returns no
+        // `Result` to check it in — so the type says it: 64 bytes and nothing else.
         assert!(
-            code.contains("signature_node = signature_node.bytes(self.signature_content.clone());"),
+            code.contains(
+                "signature_node = signature_node.bytes(self.signature_content.to_vec());"
+            ),
             "{code}"
         );
         assert_eq!(
             fields,
             vec![(
                 "signature_content".to_string(),
-                "Vec<u8>".to_string(),
+                "[u8; 64]".to_string(),
                 false
             )]
+        );
+        // The bound: with no length declared the payload is unbounded, exactly as before.
+        let mut node = leaf("signature");
+        node.content = Some(WapContent {
+            kind: WapContentKind::Bytes,
+            ..Default::default()
+        });
+        let (mut enums, mut fields) = (Vec::new(), Vec::new());
+        let reserved = std::collections::HashSet::new();
+        let attr_fields = crate::spec::AttrFieldMap::new();
+        let mut ctx = VariantCtx {
+            spec_base: "T",
+            enum_defs: &mut enums,
+            fields: &mut fields,
+            reserved: &reserved,
+            attr_fields: &attr_fields,
+        };
+        let (lines, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx, &[]);
+        assert!(
+            lines
+                .join("\n")
+                .contains("bytes(self.signature_content.clone());"),
+            "no length, no array: {}",
+            lines.join("\n")
+        );
+        assert_eq!(
+            fields[0].1, "Vec<u8>",
+            "and an unbounded payload: {fields:?}"
         );
     }
 
@@ -3520,13 +3773,15 @@ mod tests {
         };
         let (mut enums, mut fields) = (Vec::new(), Vec::new());
         let reserved = std::collections::HashSet::new();
+        let attr_fields = crate::spec::AttrFieldMap::new();
         let mut ctx = VariantCtx {
             spec_base: "T",
             enum_defs: &mut enums,
             fields: &mut fields,
             reserved: &reserved,
+            attr_fields: &attr_fields,
         };
-        emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
+        emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx, &[]);
         assert_eq!(fields[0].0, "node_id_content");
     }
 
@@ -3549,13 +3804,15 @@ mod tests {
         };
         let (mut enums, mut fields) = (Vec::new(), Vec::new());
         let reserved = std::collections::HashSet::new();
+        let attr_fields = crate::spec::AttrFieldMap::new();
         let mut ctx = VariantCtx {
             spec_base: "T",
             enum_defs: &mut enums,
             fields: &mut fields,
             reserved: &reserved,
+            attr_fields: &attr_fields,
         };
-        let (lines, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
+        let (lines, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx, &[]);
         assert!(fields.is_empty(), "no spec field for a malformed constant");
         assert!(
             !lines.join("\n").contains(".bytes("),

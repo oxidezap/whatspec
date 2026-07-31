@@ -1,6 +1,6 @@
 //! Generate one `IqSpec` impl (struct + constructor + response + build/parse).
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
 use regex::Regex;
@@ -550,7 +550,14 @@ pub(crate) fn generate_spec(op: &IqStanzaDef, ns_const: &str, spec_name: &str) -
     // Spec fields from request-children attrs (skip const + generated id).
     let mut spec_fields: Vec<(String, &'static str, WapAttrKind)> = Vec::new();
     let mut seen_spec = HashSet::new();
-    collect_attrs(&op.request.children, &mut spec_fields, &mut seen_spec);
+    let mut attr_fields: AttrFieldMap = HashMap::new();
+    collect_attrs(
+        &op.request.children,
+        &mut spec_fields,
+        &mut seen_spec,
+        &[],
+        &mut attr_fields,
+    );
 
     // Generate `build_iq`'s body first: it discovers each node's variant groups
     // (smax MixinGroup disjunctions), emitting the enum types and the extra spec
@@ -568,6 +575,7 @@ pub(crate) fn generate_spec(op: &IqStanzaDef, ns_const: &str, spec_name: &str) -
         &mut variant_enums,
         &mut variant_fields,
         &reserved,
+        &attr_fields,
     );
 
     // ── Variant enums (top-level, before the struct that references them) ──
@@ -810,6 +818,7 @@ fn emit_build_iq(
     variant_enums: &mut Vec<String>,
     variant_fields: &mut Vec<(String, String, bool)>,
     reserved: &HashSet<String>,
+    attr_fields: &AttrFieldMap,
 ) -> Vec<String> {
     let mut lines = vec!["    fn build_iq(&self) -> InfoQuery<'static> {".to_string()];
     let target = if matches!(op.target, IqTarget::Group) {
@@ -823,12 +832,13 @@ fn emit_build_iq(
             enum_defs: variant_enums,
             fields: variant_fields,
             reserved,
+            attr_fields,
         };
         let mut top_var_names: Vec<(String, bool)> = Vec::new();
         let mut used_names = std::collections::HashMap::new();
         for child in &op.request.children {
             let (child_lines, child_var, is_list) =
-                emit_child_builder(child, "        ", &mut used_names, &mut ctx);
+                emit_child_builder(child, "        ", &mut used_names, &mut ctx, &[]);
             lines.extend(child_lines);
             top_var_names.push((child_var, is_list));
         }
@@ -870,21 +880,58 @@ fn emit_build_iq(
     lines
 }
 
+/// Collect the spec fields a request's attributes need, and record which field each attribute
+/// SITE reads — keyed by the path of tags down to it, since two nodes may spell an attribute the
+/// same way and mean different things.
+///
+/// One `seen` set across the whole tree collapsed them into a single field: the committed group
+/// create request carries `jid` on its repeated `<participant>` nodes and on `<linked_parent>`,
+/// a user JID and a group JID, and the spec exposed one `jid` written to both — a request the
+/// caller cannot construct at all. Deduplication is right only for the SAME node's attribute,
+/// which really is one input; across nodes it is two inputs sharing a name.
+///
+/// The first site keeps the plain spelling, so nothing that never collided moves. A later site
+/// takes its owning tag as a prefix, and a numeric suffix past that.
+pub(crate) type AttrFieldMap = HashMap<(Vec<String>, String), String>;
+
 fn collect_attrs(
     children: &[WapChildNode],
     out: &mut Vec<(String, &'static str, WapAttrKind)>,
     seen: &mut HashSet<String>,
+    path: &[String],
+    map: &mut AttrFieldMap,
 ) {
     for child in children {
+        let mut here = path.to_vec();
+        here.push(child.tag.clone());
         for attr in &child.attrs {
-            if !matches!(attr.kind, WapAttrKind::Const | WapAttrKind::GeneratedId) {
-                let ident = rust_ident(&attr.name);
-                if seen.insert(ident.clone()) {
-                    out.push((ident, rust_attr_type(&attr.kind), attr.kind.clone()));
-                }
+            if matches!(attr.kind, WapAttrKind::Const | WapAttrKind::GeneratedId) {
+                continue;
             }
+            let ident = rust_ident(&attr.name);
+            let key = (here.clone(), attr.name.clone());
+            // The same node's attribute is one input however many times the tree repeats it.
+            if let Some(existing) = map.get(&key) {
+                let _ = existing;
+                continue;
+            }
+            let field = if seen.insert(ident.clone()) {
+                ident
+            } else {
+                let prefixed = rust_ident(&format!("{}_{}", child.tag, attr.name));
+                if seen.insert(prefixed.clone()) {
+                    prefixed
+                } else {
+                    (2..)
+                        .map(|n| format!("{prefixed}_{n}"))
+                        .find(|n| seen.insert(n.clone()))
+                        .expect("an unused suffix exists")
+                }
+            };
+            map.insert(key, field.clone());
+            out.push((field, rust_attr_type(&attr.kind), attr.kind.clone()));
         }
-        collect_attrs(&child.children, out, seen);
+        collect_attrs(&child.children, out, seen, &here, map);
     }
 }
 
@@ -1016,6 +1063,72 @@ mod tests {
         assert!(
             fail_required_fields(std::slice::from_ref(&optional)).is_empty(),
             "an optional content read discriminates nothing",
+        );
+    }
+
+    /// Two nodes may spell an attribute the same way and mean different things, so one `seen`
+    /// set across the tree collapsed them into a single field written to both.
+    #[test]
+    fn same_named_attributes_on_different_nodes_stay_apart() {
+        let node = |tag: &str, kind: WapAttrKind| wa_ir::WapChildNode {
+            tag: tag.into(),
+            attrs: vec![wa_ir::WapAttrDef {
+                name: "jid".into(),
+                kind,
+                value: None,
+                required: true,
+                enum_ref: None,
+            }],
+            children: vec![],
+            content: None,
+            repeats: false,
+            variant_groups: vec![],
+        };
+        let children = vec![
+            node("participant", WapAttrKind::UserJid),
+            node("linked_parent", WapAttrKind::GroupJid),
+        ];
+        let mut out = Vec::new();
+        let mut seen = HashSet::new();
+        let mut map = HashMap::new();
+        collect_attrs(&children, &mut out, &mut seen, &[], &mut map);
+        let names: Vec<&str> = out.iter().map(|(n, _, _)| n.as_str()).collect();
+        assert_eq!(
+            names,
+            vec!["jid", "linked_parent_jid"],
+            "the second site takes its own field: {out:?}"
+        );
+        // …and each SITE is told which field it reads, or the builder would write both to
+        // whichever name won.
+        assert_eq!(
+            map.get(&(vec!["participant".to_string()], "jid".to_string()))
+                .map(String::as_str),
+            Some("jid")
+        );
+        assert_eq!(
+            map.get(&(vec!["linked_parent".to_string()], "jid".to_string()))
+                .map(String::as_str),
+            Some("linked_parent_jid")
+        );
+        // The bound: the SAME node's attribute is one input however often the tree spells it.
+        // Two sibling `<participant>` nodes are one repeated shape, not two fields.
+        let mut out = Vec::new();
+        let mut seen = HashSet::new();
+        let mut map = HashMap::new();
+        collect_attrs(
+            &[
+                node("participant", WapAttrKind::UserJid),
+                node("participant", WapAttrKind::UserJid),
+            ],
+            &mut out,
+            &mut seen,
+            &[],
+            &mut map,
+        );
+        assert_eq!(
+            out.iter().map(|(n, _, _)| n.as_str()).collect::<Vec<_>>(),
+            vec!["jid"],
+            "one node, one input, whatever the repetition: {out:?}"
         );
     }
 
