@@ -1414,6 +1414,20 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
         self.conditional_depth -= 1;
     }
 
+    fn visit_sequence_expression(&mut self, seq: &oxc_ast::ast::SequenceExpression<'a>) {
+        // A comma list is evaluated in order and STOPS at an element that certainly raises, so
+        // `((throws)(), e.attrString("late"))` reads nothing. The argument walk asked its
+        // question of whole arguments, one level too coarse: it declined to walk what came
+        // AFTER a raising argument and then walked every part of the raising one, publishing a
+        // read the parser performs on no path.
+        for e in &seq.expressions {
+            self.visit_expression(e);
+            if expression_throws(e) {
+                return;
+            }
+        }
+    }
+
     fn visit_call_expression(&mut self, call: &CallExpression<'a>) {
         if self.inside_recursed(call.span) {
             // Read in its own scope by `process_child_method` — unless it reaches back
@@ -1450,13 +1464,23 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
         // `AllBindings` keeps walking the tail under its `unreachable` counter, because a name
         // bound there is still a name in scope. Here there is nothing to preserve — a read that
         // never happens is not a read — so the tail is simply not taken.
-        self.visit_expression(&call.callee);
         // `null?.(…)` evaluates NO argument: the optional call short-circuits on a nullish
         // callee and hands back `undefined` without building a list at all. Descending anyway
         // published the reads spelled there as ones the parser performs.
-        if call.optional && certainly_nullish(&call.callee) {
+        //
+        // Asked of the whole CHAIN, since the optional flag may sit on a member rather than on
+        // the call — `null?.[key]()` is the same short circuit spelled one link earlier. What
+        // runs is everything up to the nullish base, so that is walked and the rest is not.
+        let short = if call.optional && certainly_nullish(&call.callee) {
+            Some(&call.callee)
+        } else {
+            short_circuit_base(&call.callee)
+        };
+        if let Some(base) = short {
+            self.visit_expression(base);
             return;
         }
+        self.visit_expression(&call.callee);
         for arg in &call.arguments {
             self.visit_argument(arg);
             if argument_raises(arg) {
@@ -5551,6 +5575,39 @@ fn binding_step_raises(
     }
 }
 
+/// The object of the first optional link in a chain that certainly SHORT-CIRCUITS.
+///
+/// `null?.[e.attrString("late")]()` evaluates the `null` and nothing else: the optional flag sits
+/// on the computed member rather than on the call, so a check for `call.optional` alone missed
+/// it and the key was walked as a read the parser performs. Everything up to and including the
+/// nullish base really is evaluated — `void f()` is nullish and calls `f` — so the base is handed
+/// back rather than the whole chain being dropped.
+fn short_circuit_base<'b, 'a>(e: &'b Expression<'a>) -> Option<&'b Expression<'a>> {
+    let link = |optional: bool, object: &'b Expression<'a>| {
+        if optional && certainly_nullish(object) {
+            Some(object)
+        } else {
+            short_circuit_base(object)
+        }
+    };
+    match peel_parens(e) {
+        Expression::ChainExpression(c) => match &c.expression {
+            oxc_ast::ast::ChainElement::CallExpression(inner) => {
+                link(inner.optional, &inner.callee)
+            }
+            oxc_ast::ast::ChainElement::ComputedMemberExpression(m) => link(m.optional, &m.object),
+            oxc_ast::ast::ChainElement::StaticMemberExpression(m) => link(m.optional, &m.object),
+            oxc_ast::ast::ChainElement::PrivateFieldExpression(m) => link(m.optional, &m.object),
+            _ => None,
+        },
+        Expression::ComputedMemberExpression(m) => link(m.optional, &m.object),
+        Expression::StaticMemberExpression(m) => link(m.optional, &m.object),
+        Expression::PrivateFieldExpression(m) => link(m.optional, &m.object),
+        Expression::CallExpression(c) => link(c.optional, &c.callee),
+        _ => None,
+    }
+}
+
 /// Whether completing this assignment TARGET certainly raises, whatever the value stored.
 ///
 /// Storing through a nullish base is the way: `null.x = 1` and `(void 0)[k] = 1` raise a
@@ -7341,9 +7398,10 @@ impl AllBindings {
         let suppressed = suppressed_defaults(params, &effective, template);
         let mut leading_before_the_call = Vec::new();
         leading_parts(callee_expr, &mut leading_before_the_call);
-        let prelude_raises = leading_before_the_call
+        let leading_raises = leading_before_the_call
             .iter()
-            .any(|part| expression_throws(part))
+            .any(|part| expression_throws(part));
+        let prelude_raises = leading_raises
             || params.is_some_and(|p| {
                 p.items.iter().any(|param| {
                     default_raises(&param.pattern, param.initializer.as_deref(), &suppressed)
@@ -7389,7 +7447,13 @@ impl AllBindings {
             // The arguments are the other half: once a callee-leading expression has thrown,
             // they are never reached at all, so they are walked as unreachable rather than
             // walked to their own first throw.
-            if prelude_raises {
+            // On a LEADING failure only. `prelude_raises` also covers a parameter default that
+            // throws, and that happens while the call binds — after every argument has already
+            // been evaluated. Marking them unreachable for it discarded writes that really
+            // happen: `(function(x, y = (throws)()){})(current = other)` assigns `other` and
+            // then leaves. The two failures share the decision to skip the BODY and nothing
+            // else, which is what merging them into one flag hid.
+            if leading_raises {
                 let mut leading = Vec::new();
                 leading_parts(callee_expr, &mut leading);
                 let mut raised = false;
@@ -7939,6 +8003,19 @@ impl<'a> Visit<'a> for AllBindings {
         }
         if let Some(f) = &t.finalizer {
             self.visit_block_statement(f);
+        }
+    }
+
+    fn visit_sequence_expression(&mut self, seq: &oxc_ast::ast::SequenceExpression<'a>) {
+        // The same rule the argument list takes, one level down: a comma list stops at an
+        // element that certainly raises. The tail is still walked, as unreachable, so the scopes
+        // it opens stay recorded and its writes do not.
+        let mut raised = false;
+        for e in &seq.expressions {
+            self.unreachable += u32::from(raised);
+            self.visit_expression(e);
+            self.unreachable -= u32::from(raised);
+            raised = raised || expression_throws(e);
         }
     }
 
@@ -16572,6 +16649,27 @@ mod tests {
         );
     }
 
+    /// A parameter DEFAULT that raises does so while the call binds — after every argument has
+    /// been evaluated — so a write in an argument still happens.
+    #[test]
+    fn a_default_that_raises_does_not_unwind_the_arguments() {
+        let reaches = |body: &str| helper_reached_via(body).iter().any(|f| f.name == "id");
+        assert!(
+            !reaches(
+                "var current = e; try { (function(x, y = (function(){ throw 0; })()){})(current = other); } catch (_) {} parse(current);"
+            ),
+            "the argument ran before the default raised, so its write stands",
+        );
+        // The bound: a LEADING failure really does skip the arguments — it happens before the
+        // list exists, which is the case this was merged with.
+        assert!(
+            reaches(
+                "var current = e; try { ((function(){ throw 0; })(), function(){})(current = other); } catch (_) {} parse(current);"
+            ),
+            "a callee-leading raise skips the arguments",
+        );
+    }
+
     /// A call is decided by its callee and its arguments before its body is ever reached.
     #[test]
     fn a_call_carries_the_raise_of_what_it_evaluates_first() {
@@ -16848,6 +16946,67 @@ mod tests {
                 .iter()
                 .any(|f| f.name == "late"),
             "an unreadable callee settles nothing",
+        );
+        // The optional flag may sit one link EARLIER, on a member rather than on the call —
+        // the same short circuit, and a check for `call.optional` alone missed it.
+        assert!(
+            helper_reached_via("null?.[e.attrString(\"late\")]();")
+                .iter()
+                .all(|f| f.name != "late"),
+            "a nullish optional member skips its key and its call",
+        );
+        assert!(
+            helper_reached_via("null?.m(e.attrString(\"late\"));")
+                .iter()
+                .all(|f| f.name != "late"),
+            "and the static spelling of the same link",
+        );
+        // The bound: a member chain with no nullish base runs.
+        assert!(
+            helper_reached_via("thing?.m(e.attrString(\"late\"));")
+                .iter()
+                .any(|f| f.name == "late"),
+            "an unreadable base settles nothing",
+        );
+    }
+
+    /// A comma list is evaluated in order and STOPS at an element that certainly raises, so a
+    /// read spelled after one happens on no path — even inside a single argument.
+    #[test]
+    fn a_sequence_stops_at_the_element_that_raises() {
+        assert!(
+            helper_reached_via(
+                "try { noop(((function(){ throw 0; })(), e.attrString(\"late\"))); } catch (_) {}"
+            )
+            .iter()
+            .all(|f| f.name != "late"),
+            "the tail of the argument is never evaluated",
+        );
+        // …and the binding side agrees: a write in that tail happens on no path.
+        assert!(
+            helper_reached_via(
+                "var current = e; try { noop(((function(){ throw 0; })(), current = other)); } catch (_) {} parse(current);"
+            )
+            .iter()
+            .any(|f| f.name == "id"),
+            "nor is the write performed",
+        );
+        // The bound: what comes BEFORE the raise is evaluated and read.
+        assert!(
+            helper_reached_via(
+                "try { noop((e.attrString(\"early\"), (function(){ throw 0; })())); } catch (_) {}"
+            )
+            .iter()
+            .any(|f| f.name == "early"),
+            "the list runs up to the raise",
+        );
+        // …and on the binding side too, past the FIRST element: nothing is suppressed until
+        // something raises, however far down the list the write sits.
+        assert!(
+            helper_reached_via("var current = e; noop((1, current = other)); parse(current);")
+                .iter()
+                .all(|f| f.name != "id"),
+            "a write with no raise before it stands wherever it sits",
         );
     }
 
