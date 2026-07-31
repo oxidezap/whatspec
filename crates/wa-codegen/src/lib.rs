@@ -315,7 +315,68 @@ mod tests {
         );
         assert!(c.contains("let headline_node = response.get_optional_child(\"headline\")"));
         assert!(c.contains(".ok_or_else(|| anyhow::anyhow!(\"missing <headline>\"))?;"));
-        assert!(c.contains("let body = body_node.content_str().unwrap_or_default().to_string();"));
+        // The leaf is required, so the read demands the content — the same rule the ordinary
+        // content read takes, and the one this path's discriminator signature now claims.
+        assert!(c.contains(
+            r#"let body = body_node.content_str().ok_or_else(|| anyhow::anyhow!("missing body"))?.to_string();"#
+        ));
+    }
+
+    /// The flattened child-content read and the discriminator signature must agree about
+    /// whether an absent payload fails, or the outcome-union gate reasons from a claim the
+    /// emitted parser does not honour.
+    #[test]
+    fn a_flattened_child_content_read_fails_exactly_where_its_signature_says() {
+        let wrapper = |leaf_required: bool| {
+            let mut c = parsed("child", "detail", ParsedFieldType::String);
+            c.tag = Some("detail".into());
+            let mut leaf = parsed("contentString", "content", ParsedFieldType::String);
+            leaf.required = leaf_required;
+            c.children = Some(vec![leaf]);
+            c
+        };
+        let module = |f: wa_ir::ParsedField| {
+            let ir = IqIr {
+                wa_version: "0.0.0".into(),
+                stanzas: vec![IqStanzaDef {
+                    module_name: "WAWebDetail".into(),
+                    namespace: "fb:thrift_iq".into(),
+                    iq_type: IqType::Get,
+                    target: IqTarget::Server,
+                    parser_name: "p".into(),
+                    exported_function: Some("detail".into()),
+                    all_exports: vec!["detail".into()],
+                    request: IqRequestDef {
+                        namespace: "fb:thrift_iq".into(),
+                        iq_type: IqType::Get,
+                        target: IqTarget::Server,
+                        children: vec![],
+                    },
+                    response: ParsedResponse {
+                        parser_name: "p".into(),
+                        assertions: vec![],
+                        fields: vec![f],
+                        ..Default::default()
+                    },
+                }],
+                unparseable: vec![],
+            };
+            generate_iq(&ir)
+        };
+        // A required leaf demands its content, and the signature records it.
+        let src = module(wrapper(true));
+        assert!(
+            src.contains(r#"ok_or_else(|| anyhow::anyhow!("missing detail"))?"#),
+            "a required content leaf is demanded: {src}"
+        );
+        // An OPTIONAL leaf under a required child still defaults — the field is typed by the
+        // child, so the read has to produce a value — and the signature must not claim
+        // otherwise. The two conditions are the same flag, read in two files.
+        let src = module(wrapper(false));
+        assert!(
+            src.contains("let detail = detail_node.content_str().unwrap_or_default().to_string();"),
+            "an optional leaf still defaults: {src}"
+        );
     }
 
     #[test]

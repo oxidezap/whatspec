@@ -839,7 +839,23 @@ fn emit_struct_reads(
                     indent,
                     &format!("{id}_node"),
                 ));
-                lines.push(format!("{indent}let {id} = {id}_node.{req_read};"));
+                // …and it DEMANDS the content when the leaf is required, which is the same
+                // question `emit_field_parse` was taught two rounds ago and this path was not.
+                // `req_read` ends every spelling in `unwrap_or_default`, so an empty `<detail/>`
+                // read as the type's default — and once a required content read counted toward
+                // a variant's discriminator signature, that signature was claiming a failure
+                // this parser does not perform. Two arms could then look disjoint while the
+                // first accepted everything the second wanted, which is exactly the shadowing
+                // the gate exists to refuse. I added the signature entry last round without
+                // checking every emitter path honoured it; this is the path that did not.
+                let demands = leaf.is_some_and(|c| c.required);
+                lines.push(match leaf.filter(|_| demands) {
+                    Some(c) => format!(
+                        "{indent}let {id} = {};",
+                        content_read_required(c, &format!("{id}_node"), &fmsg)
+                    ),
+                    None => format!("{indent}let {id} = {id}_node.{req_read};"),
+                });
                 lines.extend(band.iter().map(|c| format!("{indent}{c}")));
             }
             inits.push(format!("{indent}    {id},"));
@@ -1574,10 +1590,20 @@ fn variant_child_member(
 ) -> (String, String, Vec<String>) {
     // The binding lives in the same pattern as the variant's attrs, so a child tag that spells
     // one of them would shadow it. Rare enough to have no example here and cheap to rule out.
+    //
+    // Sanitized LAST, and through `rust_ident` like every other name this file emits: a tag is
+    // wire text, and `snake_case` alone leaves `type` and `2fa` as they are — neither of which
+    // is a Rust identifier, so the generated module would not compile. Suffixing after the
+    // escape would be no better, since `r#type_children` is not one either; the collision test
+    // therefore compares escaped forms and the suffix goes on the plain one.
     let mut member = snake_case(&c.tag);
-    if siblings.iter().any(|a| rust_ident(&a.name) == member) {
-        member = format!("{member}_children");
+    if siblings
+        .iter()
+        .any(|a| rust_ident(&a.name) == rust_ident(&member))
+    {
+        member.push_str("_children");
     }
+    let member = rust_ident(&member);
     // …and cardinality survives the fallback. A child that does not repeat is exactly one node,
     // and declaring `Vec<Node>` for it let a caller supply none or several — a request the
     // source cannot send, from the very branch that exists so no request is silently wrong.
@@ -2090,6 +2116,110 @@ mod tests {
             src.matches(".children(").count(),
             1,
             "and exactly one call sets them: {src}"
+        );
+    }
+
+    /// A wire tag is text, and only some of it spells a Rust identifier. `type` and `2fa` are
+    /// valid tags and neither is a name the generated module can bind, so the payload member and
+    /// the match binding go through the same escape every other emitted name does.
+    #[test]
+    fn a_variant_child_tag_becomes_a_usable_identifier() {
+        use wa_ir::{WapVariant, WapVariantGroup};
+        let kid = |tag: &str| WapChildNode {
+            tag: tag.into(),
+            attrs: vec![attr("v", WapAttrKind::String, None)],
+            children: vec![],
+            content: None,
+            repeats: true,
+            variant_groups: vec![],
+        };
+        let node = WapChildNode {
+            tag: "config".into(),
+            attrs: vec![],
+            children: vec![],
+            content: None,
+            repeats: false,
+            variant_groups: vec![WapVariantGroup {
+                optional: false,
+                variants: vec![WapVariant {
+                    attrs: vec![attr("platform", WapAttrKind::String, None)],
+                    children: vec![kid("type"), kid("2fa")],
+                }],
+            }],
+        };
+        let (mut enums, mut fields) = (Vec::new(), Vec::new());
+        let mut ctx = VariantCtx {
+            spec_base: "T",
+            enum_defs: &mut enums,
+            fields: &mut fields,
+        };
+        let (lines, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
+        let defs = enums.join("\n");
+        let src = lines.join("\n");
+        assert!(
+            defs.contains("r#type: Vec<") && src.contains("for item in r#type {"),
+            "a keyword tag is escaped: {defs}\n{src}"
+        );
+        assert!(
+            defs.contains("_2fa: Vec<") && src.contains("for item in _2fa {"),
+            "and a digit-led one is not left digit-led: {defs}\n{src}"
+        );
+        // …and a tag that collides with one of the variant's own attrs is suffixed on the PLAIN
+        // spelling, since `r#platform_children` would not be an identifier either.
+        let node = WapChildNode {
+            tag: "config".into(),
+            attrs: vec![],
+            children: vec![],
+            content: None,
+            repeats: false,
+            variant_groups: vec![WapVariantGroup {
+                optional: false,
+                variants: vec![WapVariant {
+                    attrs: vec![attr("type", WapAttrKind::String, None)],
+                    children: vec![kid("type")],
+                }],
+            }],
+        };
+        let (mut enums, mut fields) = (Vec::new(), Vec::new());
+        let mut ctx = VariantCtx {
+            spec_base: "T",
+            enum_defs: &mut enums,
+            fields: &mut fields,
+        };
+        let (_, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
+        let defs = enums.join("\n");
+        assert!(
+            defs.contains("type_children: Vec<") && !defs.contains("r#type_children"),
+            "the suffix goes on the plain spelling: {defs}"
+        );
+        // …and the collision is judged on the ESCAPED spellings, because that is what the
+        // pattern binds. `myTag` and `my-tag` are different wire names and one identifier, so
+        // comparing the raw text would declare the member twice.
+        let node = WapChildNode {
+            tag: "config".into(),
+            attrs: vec![],
+            children: vec![],
+            content: None,
+            repeats: false,
+            variant_groups: vec![WapVariantGroup {
+                optional: false,
+                variants: vec![WapVariant {
+                    attrs: vec![attr("myTag", WapAttrKind::String, None)],
+                    children: vec![kid("my-tag")],
+                }],
+            }],
+        };
+        let (mut enums, mut fields) = (Vec::new(), Vec::new());
+        let mut ctx = VariantCtx {
+            spec_base: "T",
+            enum_defs: &mut enums,
+            fields: &mut fields,
+        };
+        let (_, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
+        let defs = enums.join("\n");
+        assert!(
+            defs.contains("my_tag: String") && defs.contains("my_tag_children: Vec<"),
+            "two wire names, one identifier, two members: {defs}"
         );
     }
 
