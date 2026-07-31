@@ -3262,12 +3262,17 @@ fn invoked_callee<'b, 'a>(mut e: &'b Expression<'a>) -> &'b Expression<'a> {
     // A member taken through the comma operator is a bare function VALUE: the reference is
     // discarded, so `(0, f.call)(null)` hands `Function.prototype.call` an `undefined` receiver
     // and throws before `f` is entered. Parentheses keep the reference and are not this.
-    let mut through_comma = false;
+    //
+    // A decided SELECTION does the same. `(1 ? f.call : g)(null)` evaluates the conditional to
+    // the member's value and the receiver is gone with it, so the throw is the comma's throw
+    // under another spelling. Round seventy-two taught this loop to see through the selection
+    // and left the flag alone, which reached the receiver as though it had survived.
+    let mut reference_lost = false;
     loop {
         e = match e {
             Expression::ParenthesizedExpression(p) => &p.expression,
             Expression::SequenceExpression(s) if !s.expressions.is_empty() => {
-                through_comma = true;
+                reference_lost = true;
                 s.expressions.last().expect("checked non-empty")
             }
             // `(function(){ … }).call(null)` runs that body as immediately as `()` does; the
@@ -3283,14 +3288,17 @@ fn invoked_callee<'b, 'a>(mut e: &'b Expression<'a>) -> &'b Expression<'a> {
             // nobody reaches. Only `.bind`, whose result IS the receiver's body; what
             // `(function(){ … }).map(g)` hands back is something else.
             // The selection wrappers, read from the one place that states them.
-            other if !std::ptr::eq(selected_arm(other), other) => selected_arm(other),
+            other if !std::ptr::eq(selected_arm(other), other) => {
+                reference_lost = true;
+                selected_arm(other)
+            }
             Expression::CallExpression(c) => match bind_member(&c.callee) {
                 Some(object) => object,
                 None => return e,
             },
             other => match named_member(other) {
                 Some((name, object))
-                    if matches!(name.as_ref(), "call" | "apply") && !through_comma =>
+                    if matches!(name.as_ref(), "call" | "apply") && !reference_lost =>
                 {
                     object
                 }
@@ -4387,6 +4395,34 @@ fn is_constructible(callee: &Expression<'_>) -> bool {
     }
 }
 
+/// Whether `new` over this callee certainly raises, because it is certainly not a constructor.
+///
+/// The other side of [`is_constructible`], and NOT its negation: that one declines everything it
+/// cannot read, which is right where a wrong `true` would approve a body nothing runs. Here a
+/// wrong `true` claims a raise that does not happen, so the spellings are listed again from the
+/// certain end — an arrow, an async function and a generator have no `[[Construct]]`, and
+/// neither does any primitive or plain object literal. An identifier settles nothing either way.
+///
+/// `walk_invocation` asks the first question to decide whether to walk a body. This is the
+/// second: `new (() => { … })()` raises before the arrow is entered, so the arm it sits in
+/// completes abruptly and must not dilute what the arms that do produce a value require.
+fn certainly_not_constructible(callee: &Expression<'_>) -> bool {
+    match peel(callee) {
+        Expression::ArrowFunctionExpression(_) => true,
+        Expression::FunctionExpression(f) => f.generator || f.r#async,
+        Expression::ObjectExpression(_)
+        | Expression::ArrayExpression(_)
+        | Expression::NumericLiteral(_)
+        | Expression::StringLiteral(_)
+        | Expression::BooleanLiteral(_)
+        | Expression::NullLiteral(_)
+        | Expression::BigIntLiteral(_)
+        | Expression::RegExpLiteral(_)
+        | Expression::TemplateLiteral(_) => true,
+        _ => false,
+    }
+}
+
 /// Whether a class with this heritage throws the moment it is DEFINED.
 ///
 /// `class C extends (() => {})` evaluates the arrow and then rejects it: a heritage has to be
@@ -5372,6 +5408,7 @@ fn exact_byte_count(v: f64) -> Option<u32> {
 }
 
 /// What position `i` of an array literal hands to a positional pattern.
+#[derive(Clone, Copy)]
 enum Supplied<'b, 'a> {
     /// The expression written at that position.
     Written(&'b Expression<'a>),
@@ -5406,14 +5443,44 @@ fn supplied_at<'b, 'a>(a: &'b oxc_ast::ast::ArrayExpression<'a>, i: usize) -> Su
 /// object pattern needs something `undefined` and `null` are not — everything else it coerces.
 /// A plain target (`current`, `a.b`) binds whatever it is given and raises on no path.
 ///
-/// A DEFAULT settles nothing here. It replaces `undefined` with an expression this would then
-/// have to judge in its place, and `[{} = {}] = [void 0]` binds that default and completes; the
-/// element declines rather than reading the written value the default is there to displace.
+/// A DEFAULT stands in for exactly one value. `undefined` takes it and everything else — `null`
+/// included — reaches the pattern untouched, so `[{} = {}] = [null]` converts `null` for the
+/// object pattern and raises with the default never taken. I declined the whole shape instead,
+/// and wrote the decline into the source as if it were the rule: a default does not make the
+/// step unanswerable, it makes the answer depend on which of the two values arrives. Where that
+/// is decidable the element is judged against whichever one it really receives, and where it is
+/// not — an ordinary expression, which may be `undefined` or may not — it declines.
 fn binding_step_raises(
     t: &oxc_ast::ast::AssignmentTargetMaybeDefault<'_>,
-    supplied: &Supplied<'_, '_>,
+    supplied: Supplied<'_, '_>,
 ) -> bool {
-    match (t.as_assignment_target(), supplied) {
+    let (target, supplied) = match t {
+        oxc_ast::ast::AssignmentTargetMaybeDefault::AssignmentTargetWithDefault(d) => {
+            let taken = match supplied {
+                // Nothing supplied IS `undefined`, so the initializer is what the pattern gets
+                // — and it is an expression like any other, judged in the value's place.
+                Supplied::Undefined => Supplied::Written(&d.init),
+                Supplied::Written(v) if certainly_undefined(v) => Supplied::Written(&d.init),
+                Supplied::Written(v) if certainly_not_undefined(v) => Supplied::Written(v),
+                // A value that may be `undefined` and may not: which of the two the pattern
+                // receives is undecidable, so the element declines.
+                //
+                // No input reaches this today. [`certainly_not_undefined`] recognizes every
+                // form the two pattern predicates below can decide — every literal, every
+                // function, every class, every object — so a value that falls past the arms
+                // above is one they both answer `false` for anyway. The clause is here for
+                // what it STATES rather than for what it currently changes: teach
+                // `certainly_not_iterable` or `certainly_nullish` one more spelling without
+                // teaching this one, and without it that value would quietly be judged as
+                // though the default could not apply. A mutation removing it is caught by no
+                // test, and it is kept deliberately.
+                _ => return false,
+            };
+            (Some(&d.binding), taken)
+        }
+        other => (other.as_assignment_target(), supplied),
+    };
+    match (target, supplied) {
         (_, Supplied::Unknown) => false,
         (Some(oxc_ast::ast::AssignmentTarget::ArrayAssignmentTarget(_)), Supplied::Undefined) => {
             true
@@ -6936,7 +7003,7 @@ impl AllBindings {
                 continue;
             }
             self.visit_assignment_target_maybe_default(el);
-            raised = binding_step_raises(el, &supplied_at(values, i));
+            raised = binding_step_raises(el, supplied_at(values, i));
         }
         if let Some(rest) = &pat.rest {
             self.unreachable += u32::from(raised);
@@ -10002,6 +10069,40 @@ fn logical_right_is_certain(expr: &oxc_ast::ast::LogicalExpression<'_>) -> bool 
 ///
 /// `void <anything>` is `undefined` whatever it evaluates, side effects included. A bare
 /// `undefined` is an identifier nothing here resolves, so it declines with everything else.
+/// Whether `t` is certainly `undefined` — the half of [`certainly_nullish`] a DEFAULT reacts to.
+///
+/// `null` is nullish and is NOT this: a default stands in for `undefined` alone, so `null` runs
+/// straight into the pattern it was written beside. `void <anything>` is `undefined` whatever it
+/// evaluates, and a bare `undefined` is an identifier a source may rebind, which is why the
+/// spelling settles nothing on its own.
+fn certainly_undefined(t: &Expression<'_>) -> bool {
+    matches!(peel(t), Expression::UnaryExpression(u)
+        if u.operator == oxc_syntax::operator::UnaryOperator::Void)
+}
+
+/// Whether `t` is certainly NOT `undefined`, so a default written beside it is never taken.
+///
+/// The complement of [`certainly_undefined`] over the spellings that settle it, which is every
+/// literal — `null` among them — and every value-constructing form. Anything this cannot read
+/// may evaluate to `undefined` and leaves the question open.
+fn certainly_not_undefined(t: &Expression<'_>) -> bool {
+    matches!(
+        peel(t),
+        Expression::NullLiteral(_)
+            | Expression::NumericLiteral(_)
+            | Expression::StringLiteral(_)
+            | Expression::BooleanLiteral(_)
+            | Expression::BigIntLiteral(_)
+            | Expression::RegExpLiteral(_)
+            | Expression::TemplateLiteral(_)
+            | Expression::ObjectExpression(_)
+            | Expression::ArrayExpression(_)
+            | Expression::FunctionExpression(_)
+            | Expression::ArrowFunctionExpression(_)
+            | Expression::ClassExpression(_)
+    )
+}
+
 fn certainly_nullish(t: &Expression<'_>) -> bool {
     match t {
         Expression::NullLiteral(_) => true,
@@ -10167,9 +10268,19 @@ fn expression_throws(e: &Expression<'_>) -> bool {
     // The same question `instance_definition` asks before resolving a member of the instance,
     // which is where I first wrote it — one predicate now, so the two cannot disagree.
     if let Expression::NewExpression(n) = peeled {
+        // The callee is evaluated first and the arguments after it, both before anything is
+        // constructed — the same order, and the same rule, an ordinary call is read by.
+        if expression_throws(&n.callee) || n.arguments.iter().any(argument_raises) {
+            return true;
+        }
         return match peel(&n.callee) {
             Expression::ClassExpression(c) => class_constructor_throws(c),
-            _ => false,
+            // …and `new` over something with no `[[Construct]]` raises before any body is
+            // entered. `walk_invocation` has declined to WALK such a body since the round it
+            // was reported for, which was only half the answer: the arm still counted as one
+            // that produces a value, so `flag ? new (() => { parse(e); })() : parse(e)` kept
+            // an impossible arm in the intersection and left the read optional.
+            other => certainly_not_constructible(other),
         };
     }
     // An expression whose PARTS are evaluated on the way to its value raises when one of them
@@ -10195,6 +10306,12 @@ fn expression_throws(e: &Expression<'_>) -> bool {
         }
         Expression::UnaryExpression(u) => expression_throws(&u.argument),
         Expression::ConditionalExpression(c) => expression_throws(&c.test),
+        // …and an ASSIGNMENT evaluates its right side on the way to the value it yields, so
+        // `f(x = (throws)())` never reaches `f`. Not the logical spellings: `x ||= (throws)()`
+        // evaluates the right on one path only, and which one is a question about `x`.
+        Expression::AssignmentExpression(a) if !a.operator.is_logical() => {
+            expression_throws(&a.right)
+        }
         Expression::ArrayExpression(a) => a.elements.iter().any(|el| match el {
             // …and building the array from a spread needs the spread value to be ITERABLE.
             // `[...null]` and `[...1]` raise a `TypeError` while the literal is constructed, so
@@ -16124,11 +16241,38 @@ mod tests {
             ),
             "with a spread in the way no position is claimed",
         );
-        // …and a DEFAULT displaces the value the pairing would judge, so the element declines.
-        // Conservative in the direction that keeps the write: `[{} = {}] = [void 0]` completes.
+        // A DEFAULT stands in for `undefined` and for nothing else, so which value the pattern
+        // really receives is the whole question. `null` is not `undefined`: it runs past the
+        // default into the object pattern and raises there.
         assert!(
-            !reaches("var current = e; ([{} = {}, current] = [null, other]); parse(current);"),
-            "a default is left unjudged and the write stands",
+            reaches(
+                "var current = e; try { ([{} = {}, current] = [null, other]); } catch (_) {} parse(current);"
+            ),
+            "`null` skips the default and the pattern converts it",
+        );
+        // …and `void 0` IS `undefined`, so the default is taken and the step completes.
+        assert!(
+            !reaches("var current = e; ([{} = {}, current] = [void 0, other]); parse(current);"),
+            "the default replaces `undefined` and binds",
+        );
+        // The default is then the value the pattern receives, judged in the written value's
+        // place rather than waved through.
+        assert!(
+            reaches(
+                "var current = e; try { ([{} = null, current] = [void 0, other]); } catch (_) {} parse(current);"
+            ),
+            "a default that is itself nullish raises for the object pattern",
+        );
+        // Nothing supplied is `undefined` too, so a position past the end takes the default.
+        assert!(
+            !reaches("var current = e; ([{} = {}, current] = []); parse(current);"),
+            "a missing position takes the default",
+        );
+        // …and a value this cannot read may be `undefined` or may not, so which of the two the
+        // pattern sees is undecidable and the element declines.
+        assert!(
+            !reaches("var current = e; ([{} = {}, current] = [maybe, other]); parse(current);"),
+            "an unreadable value leaves the default undecided",
         );
     }
 
@@ -16233,6 +16377,111 @@ mod tests {
         // may be skipped either way, so the read it performs stays optional.
         assert_eq!(required("[...[]]"), Some(false), "nothing to copy");
         assert_eq!(required("[...xs]"), Some(false), "an unreadable operand");
+    }
+
+    /// An assignment evaluates its right side on the way to the value it yields.
+    #[test]
+    fn an_assignment_carries_the_raise_of_its_right_side() {
+        let reaches = |arg: &str| {
+            helper_reached_via(&format!(
+                "var current = e; try {{ (function(){{ current = other; }})({arg}); }} catch (_) {{}} parse(current);"
+            ))
+            .iter()
+            .any(|f| f.name == "id")
+        };
+        assert!(
+            reaches("x = (function(){ throw 0; })()"),
+            "the right side raises before the call it feeds",
+        );
+        // A LOGICAL assignment evaluates its right on one path only, and which one is a question
+        // about the target — so the raise is not certain and the body runs.
+        assert!(
+            !reaches("x ||= (function(){ throw 0; })()"),
+            "a short-circuit assignment may never reach its right side",
+        );
+        assert!(
+            !reaches("x = f()"),
+            "an unreadable call on the right settles nothing",
+        );
+    }
+
+    /// `new` over something with no `[[Construct]]` raises before any body is entered, so the
+    /// arm it sits in produces no value and must not dilute what the other arms require.
+    #[test]
+    fn a_new_over_something_unconstructible_completes_abruptly() {
+        let required = |body: &str| {
+            helper_reached_via(body)
+                .iter()
+                .find(|f| f.name == "id")
+                .map(|f| f.required)
+        };
+        assert_eq!(
+            required("if (flag) { new (() => { parse(e); })(); } else { parse(e); }"),
+            Some(true),
+            "the arrow arm raises, so every execution that returns takes the else",
+        );
+        assert_eq!(
+            required("if (flag) { new (function*(){ parse(e); })(); } else { parse(e); }"),
+            Some(true),
+            "a generator has no [[Construct]] either",
+        );
+        assert_eq!(
+            required("if (flag) { new ({})(); } else { parse(e); }"),
+            Some(true),
+            "nor does a plain object",
+        );
+        // A constructor really is one, so both arms produce a value and the read is optional
+        // against the arm that does not perform it.
+        assert_eq!(
+            required("if (flag) { new (function(){ noop(); })(); } else { parse(e); }"),
+            Some(false),
+            "an ordinary function constructs and the else arm is a real alternative",
+        );
+        assert_eq!(
+            required("if (flag) { new Whatever(); } else { parse(e); }"),
+            Some(false),
+            "an identifier settles nothing and the arm stands",
+        );
+        // The callee and the arguments are both evaluated before anything is constructed, so a
+        // raise in either stops the arm however constructible the callee is.
+        assert_eq!(
+            required(
+                "if (flag) { new (function(){ noop(); })((function(){ throw 0; })()); } else { parse(e); }"
+            ),
+            Some(true),
+            "an argument that raises stops the construction",
+        );
+        assert_eq!(
+            required("if (flag) { new ((function(){ throw 0; })())(); } else { parse(e); }"),
+            Some(true),
+            "and so does the callee expression itself",
+        );
+    }
+
+    /// A decided selection hands back the member's VALUE, so the receiver is lost with it.
+    #[test]
+    fn a_selected_member_loses_its_receiver_like_a_comma_does() {
+        let reaches = |body: &str| helper_reached_via(body).iter().any(|f| f.name == "id");
+        assert!(
+            reaches(
+                "var current = e; try { (1 ? (function(){ current = other; }).call : fallback)(null); } catch (_) {} parse(current);"
+            ),
+            "the selection discards the reference and `.call` raises on an undefined receiver",
+        );
+        assert!(
+            reaches(
+                "var current = e; try { (1 && (function(){ current = other; }).apply)(null); } catch (_) {} parse(current);"
+            ),
+            "the short-circuit spelling of the same selection",
+        );
+        // Parentheses keep the reference, which is what makes the selection the thing that
+        // loses it rather than unwrapping in general.
+        assert!(
+            !reaches(
+                "var current = e; ((function(){ current = other; }).call)(null); parse(current);"
+            ),
+            "a parenthesised member still invokes its receiver",
+        );
     }
 
     fn helper_reached_via(body: &str) -> Vec<ParsedField> {

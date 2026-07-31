@@ -364,11 +364,23 @@ fn flatten_same_node_inner(fields: &[ParsedField], force_optional: bool) -> Vec<
     out
 }
 
-/// Weaken an attribute leaf to its optional `maybe…` accessor (so an optional
-/// same-node wrapper's children read as `Option<_>`). Content leaves already read
-/// leniently (`unwrap_or_default`); child/JID accessors have no `maybe` form here,
-/// so they are left unchanged (a rare over-strictness in the reference codegen).
+/// Weaken a leaf the flattening lifted out of an OPTIONAL same-node wrapper.
+///
+/// Flattening removes the wrapper, and with it the only thing that recorded "these are read
+/// only when the wrapper is present". Whatever it lifted is therefore no longer required, and
+/// `required = false` is the way this IR says so — `rust_field_type` reads it, the content path
+/// reads it, and the child-descent reads it, so one flag reaches every kind of descendant.
+///
+/// The METHOD is a separate question and moves only where the accessor itself needs it: three
+/// attribute spellings have a `maybe…` form and the rest read leniently already. This function
+/// asked the method question alone and let its answer decide the flag, so everything without a
+/// `maybe…` spelling — every JID, every content leaf, every child — kept `required: true` and
+/// was emitted as a mandatory read of a wrapper that may not be there. The generated parser then
+/// rejected the branch where the wrapper is absent, which is the whole case flattening exists to
+/// serve. The comment here called that "a rare over-strictness in the reference codegen"; it was
+/// this function's own.
 fn weaken_attr_to_optional(f: &mut ParsedField) {
+    f.required = false;
     let weakened = match f.method.as_str() {
         wap::ATTR_STRING => Some(wap::MAYBE_ATTR_STRING),
         wap::ATTR_INT => Some(wap::MAYBE_ATTR_INT),
@@ -377,7 +389,6 @@ fn weaken_attr_to_optional(f: &mut ParsedField) {
     };
     if let Some(m) = weakened {
         f.method = m.to_string();
-        f.required = false;
     }
 }
 

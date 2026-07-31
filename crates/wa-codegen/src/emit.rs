@@ -60,14 +60,17 @@ pub(crate) fn emit_field_parse(f: &ParsedField, node_var: &str, indent: &str) ->
         // one asked only the accessor spelling, and no content accessor spells optionality.
         let optional_leaf = !f.required;
         let mut out = raw_length_check(Some(f), &name, &fmsg, indent, node_var);
-        out.push(format!(
-            "{indent}let {name} = {node_var}.{};",
-            if optional_leaf {
+        out.push(if optional_leaf {
+            format!(
+                "{indent}let {name} = {node_var}.{};",
                 content_decoder_opt(method)
-            } else {
-                content_decoder(method)
-            }
-        ));
+            )
+        } else {
+            format!(
+                "{indent}let {name} = {};",
+                content_read_required(f, node_var, &fmsg)
+            )
+        });
         // The same band the attribute path enforces. A content leaf declaring `intMin: -10`
         // decoded the number and checked nothing, and the moment its width could be signed a
         // `-20` materialized where the unsigned parse had been refusing every negative value by
@@ -80,18 +83,23 @@ pub(crate) fn emit_field_parse(f: &ParsedField, node_var: &str, indent: &str) ->
         // The REQUIRED spelling is left exactly as it was, message and all — an optional leaf is
         // the only thing that moves here, and a diff on every required one would say this
         // touched them.
-        let checked = |test: String| -> String {
-            if optional_leaf {
-                format!("{name}.as_ref().is_none_or(|{name}| {test})")
-            } else {
-                test
-            }
-        };
+        // …and HOW an absent one is skipped depends on what the payload is. An integer is
+        // `Option<i64>`, which is `Copy`: `is_none_or` takes it by value, binds the number and
+        // leaves the field readable for the message afterwards. Bytes are not — `as_ref()` keeps
+        // the `Vec` where it is and `len()` reads straight through the reference.
+        //
+        // One `as_ref()` served both, which bound `&i64` under the integer band: `weight >=
+        // -10i64` does not compile against a reference, and neither does the two-sided
+        // `contains(&&i64)`. Emitted Rust that does not type-check, from the branch that has
+        // now produced four of them — every one found by reading rather than by building,
+        // because nothing in this workspace compiles the module it writes.
+        let checked_value = |test: String| format!("{name}.is_none_or(|{name}| {test})");
+        let checked_ref = |test: String| format!("{name}.as_ref().is_none_or(|{name}| {test})");
         if let Some(test) = super::fields::int_band(f, &name) {
             out.push(if optional_leaf {
                 format!(
                     "{indent}anyhow::ensure!({}, \"{fmsg} out of range: {{:?}}\", {name});",
-                    checked(test)
+                    checked_value(test)
                 )
             } else {
                 format!("{indent}anyhow::ensure!({test}, \"{fmsg} out of range: {{}}\", {name});")
@@ -112,7 +120,7 @@ pub(crate) fn emit_field_parse(f: &ParsedField, node_var: &str, indent: &str) ->
             out.push(if optional_leaf {
                 format!(
                     "{indent}anyhow::ensure!({}, \"{fmsg} wrong length: {{:?}}\", {name});",
-                    checked(test)
+                    checked_ref(test)
                 )
             } else {
                 format!(
@@ -423,6 +431,39 @@ pub(crate) fn content_decoder(method: &str) -> &'static str {
             "content_str().and_then(|s| s.parse().ok()).unwrap_or_default()"
         }
         _ => "content_str().unwrap_or_default().to_string()",
+    }
+}
+
+/// The read for a REQUIRED content leaf, which demands the content it is required to carry.
+///
+/// [`content_decoder`] ends every spelling in `unwrap_or_default`, so `<count></count>` decoded
+/// to `0` and `<count>abc</count>` decoded to `0` beside it — both values the source accessor
+/// turns away, materialized as an ordinary reading of the response. The union's `leaf_guard` has
+/// required content that is present AND parses since it was written, and selects no arm without
+/// it; the ordinary struct read accepted everything. One rule, two places, one copy missing it.
+///
+/// The union ARM keeps `content_decoder`: by the time an arm's members are built its guard has
+/// already established both facts, so defaulting there can only be reached where the default is
+/// the right answer.
+fn content_read_required(f: &ParsedField, node_var: &str, fmsg: &str) -> String {
+    let method = f.method.as_str();
+    let absent = format!("ok_or_else(|| anyhow::anyhow!(\"missing {fmsg}\"))?");
+    // `contentUint(N)` is N big-endian BYTES, not text, which is why it is asked before the
+    // classifier — folding them into a `u64` cannot fail once the payload is there.
+    if method == "contentUint" {
+        return format!(
+            "{node_var}.content_bytes().{absent}.iter().fold(0u64, |acc, &x| (acc << 8) | x as u64)"
+        );
+    }
+    match wap::method_field_type(method) {
+        ParsedFieldType::Bytes => format!("{node_var}.content_bytes().{absent}.to_vec()"),
+        // The one spelling where PRESENT is not enough: text that does not parse is a value the
+        // accessor rejects, and the width is written out so the parse has a type to reach for.
+        ParsedFieldType::Integer => format!(
+            "{node_var}.content_str().{absent}.parse::<{}>().map_err(|_| anyhow::anyhow!(\"{fmsg} not a number\"))?",
+            super::fields::integer_width(f)
+        ),
+        _ => format!("{node_var}.content_str().{absent}.to_string()"),
     }
 }
 
@@ -1078,6 +1119,22 @@ pub(crate) fn emit_child_builder(
     // Collect the attr/children mutations; the node only needs `mut` if there's
     // at least one (otherwise `unused_mut` would warn in the consumer).
     let mut body: Vec<String> = Vec::new();
+    // `.children(…)` SETS a node's children, so the static list and a variant's cannot each
+    // call it — the second would erase the first. Where a variant contributes children they
+    // share one accumulator, seeded with the static ones so those keep their leading position,
+    // and it is attached once at the end. Where none does, the array spelling is left exactly
+    // as it was so every other node's emission is unchanged.
+    let variant_children = child
+        .variant_groups
+        .iter()
+        .flat_map(|g| &g.variants)
+        .any(|v| !v.children.is_empty());
+    if variant_children {
+        body.push(format!(
+            "{indent}let mut {var_name}_children: Vec<wacore_binary::node::Node> = vec![{}];",
+            nested_var_names.join(", ")
+        ));
+    }
     for attr in &child.attrs {
         let alit = rust_lit(&attr.name);
         let ident = rust_ident(&attr.name);
@@ -1115,7 +1172,11 @@ pub(crate) fn emit_child_builder(
     }
     body.extend(emit_variant_groups(child, &var_name, indent, ctx));
     body.extend(emit_node_content(child, &var_name, indent, ctx));
-    if !nested_var_names.is_empty() {
+    if variant_children {
+        body.push(format!(
+            "{indent}{var_name} = {var_name}.children({var_name}_children);"
+        ));
+    } else if !nested_var_names.is_empty() {
         body.push(format!(
             "{indent}{var_name} = {var_name}.children([{}]);",
             nested_var_names.join(", ")
@@ -1176,7 +1237,7 @@ fn emit_variant_groups(
         ];
         for (vi, v) in group.variants.iter().enumerate() {
             let vname = &vnames[vi];
-            let payload: Vec<String> = v
+            let mut payload: Vec<String> = v
                 .attrs
                 .iter()
                 .filter(|a| !matches!(a.kind, WapAttrKind::Const | WapAttrKind::GeneratedId))
@@ -1188,6 +1249,16 @@ fn emit_variant_groups(
                     )
                 })
                 .collect();
+            // …and the CHILDREN the variant contributes, which this enum carried none of. A
+            // variant is "the attrs and children this alternative adds to the node", and the
+            // payload was built from half of it — so choosing the `<config>` variant whose
+            // shape is a repeated `<item>` list emitted a `<config>` with no items, a request
+            // the source cannot produce and the caller has no way to complete.
+            for c in &v.children {
+                let (member, ty, def) = variant_child_member(&enum_name, vname, c, &v.attrs);
+                payload.push(format!("{member}: {ty}"));
+                ctx.enum_defs.extend(def);
+            }
             if payload.is_empty() {
                 def.push(format!("    {vname},"));
             } else {
@@ -1276,21 +1347,63 @@ fn emit_node_content(
     // *terminal* `_node` segment (the var is `{tag}_node` or `{tag}_node_{n}`) so a
     // tag that itself contains `_node` isn't corrupted (`node_id_node` → `node_id_content`).
     if content.kind == WapContentKind::Bytes {
-        let field = match var_name.rfind("_node") {
-            Some(pos) => format!(
-                "{}_content{}",
-                &var_name[..pos],
-                &var_name[pos + "_node".len()..]
-            ),
-            None => format!("{var_name}_content"),
-        };
+        let field = content_field_name(var_name);
         ctx.fields
             .push((field.clone(), "Vec<u8>".to_string(), false));
         return vec![format!(
             "{indent}{var_name} = {var_name}.bytes(self.{field}.clone());"
         )];
     }
+    // Opaque content the scan could not resolve to bytes or to a constant is still CONTENT: the
+    // node carries a value the caller supplies. Falling through to nothing turned three
+    // committed nodes — a business profile's `<website>` and its repeated `<area_description>`
+    // — into empty elements, discarding exactly the value the request exists to send.
+    //
+    // Threaded as a `String` and written through `.bytes`, which is the one content setter the
+    // emitted modules demonstrate. Node content on this wire is a node list or a byte buffer,
+    // and text is the latter, so the spelling costs nothing.
+    // A fixed STRING is the const_bytes case in the other spelling: the value is known, so it is
+    // written out rather than asked of the caller. Nothing in the committed corpus carries one,
+    // and the branch fell through to no content beside the dynamic one — the same empty element,
+    // for the one kind whose value this already has in hand.
+    if content.kind == WapContentKind::Const
+        && let Some(value) = &content.value
+    {
+        let lits = value
+            .as_bytes()
+            .iter()
+            .map(|b| format!("0x{b:02x}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        return vec![format!(
+            "{indent}{var_name} = {var_name}.bytes(vec![{lits}]);"
+        )];
+    }
+    if content.kind == WapContentKind::Dynamic {
+        let field = content_field_name(var_name);
+        ctx.fields
+            .push((field.clone(), "String".to_string(), false));
+        return vec![format!(
+            "{indent}{var_name} = {var_name}.bytes(self.{field}.clone().into_bytes());"
+        )];
+    }
     Vec::new()
+}
+
+/// The spec-struct field a node's caller-supplied content is threaded through.
+///
+/// Renames the TERMINAL `_node` segment of the caller's collision-free var name (`id_node` →
+/// `id_content`, `id_node_2` → `id_content_2`) so repeated leaf tags each get a distinct field,
+/// and so a tag that itself contains `_node` is not corrupted (`node_id_node` → `node_id_content`).
+fn content_field_name(var_name: &str) -> String {
+    match var_name.rfind("_node") {
+        Some(pos) => format!(
+            "{}_content{}",
+            &var_name[..pos],
+            &var_name[pos + "_node".len()..]
+        ),
+        None => format!("{var_name}_content"),
+    }
 }
 
 /// Decode an even-length hex string (`"00"`, `"0a1b"`) to its bytes. Returns `None`
@@ -1386,12 +1499,17 @@ fn variant_arm(
     var_name: &str,
     indent: &str,
 ) -> Vec<String> {
-    let binds: Vec<String> = v
+    let mut binds: Vec<String> = v
         .attrs
         .iter()
         .filter(|a| !matches!(a.kind, WapAttrKind::Const | WapAttrKind::GeneratedId))
         .map(|a| rust_ident(&a.name))
         .collect();
+    binds.extend(
+        v.children
+            .iter()
+            .map(|c| variant_child_member(enum_name, vname, c, &v.attrs).0),
+    );
     let pat = if binds.is_empty() {
         format!("{enum_name}::{vname}")
     } else {
@@ -1426,8 +1544,136 @@ fn variant_arm(
             _ => {}
         }
     }
+    // …and the children the variant contributes, built from the payload the enum now carries.
+    for c in &v.children {
+        let (member, _, _) = variant_child_member(enum_name, vname, c, &v.attrs);
+        lines.extend(variant_child_build(c, &member, var_name, &body_indent));
+    }
     lines.push(format!("{indent}}}"));
     lines
+}
+
+/// The enum-payload member a variant's child contributes: `(binding, type, struct defs)`.
+///
+/// A child this can express as a TYPE is one that is attributes and nothing else — no nested
+/// children of its own, no element content, no variant groups. That is every variant child in
+/// the committed corpus (two `<config>` alternatives, each a repeated `<item>` of plain attrs),
+/// and it becomes a struct the caller fills in, `Vec<_>` where the child repeats.
+///
+/// Anything richer falls back to `Vec<Node>` — the caller hands the nodes over ready-made. Not
+/// an ideal shape, and better than the two alternatives: emitting a node with the children
+/// silently missing produces a request the source cannot send, and skipping the variant group
+/// drops the attrs with them. Whatever this cannot describe, the caller can still supply.
+fn variant_child_member(
+    enum_name: &str,
+    vname: &str,
+    c: &WapChildNode,
+    siblings: &[wa_ir::WapAttrDef],
+) -> (String, String, Vec<String>) {
+    // The binding lives in the same pattern as the variant's attrs, so a child tag that spells
+    // one of them would shadow it. Rare enough to have no example here and cheap to rule out.
+    let mut member = snake_case(&c.tag);
+    if siblings.iter().any(|a| rust_ident(&a.name) == member) {
+        member = format!("{member}_children");
+    }
+    let opaque = (
+        member.clone(),
+        "Vec<wacore_binary::node::Node>".to_string(),
+        Vec::new(),
+    );
+    if !c.children.is_empty() || c.content.is_some() || !c.variant_groups.is_empty() {
+        return opaque;
+    }
+    let fields: Vec<String> = c
+        .attrs
+        .iter()
+        .filter(|a| !matches!(a.kind, WapAttrKind::Const | WapAttrKind::GeneratedId))
+        .map(|a| {
+            format!(
+                "    pub {}: {},",
+                rust_ident(&a.name),
+                crate::fields::rust_attr_type(&a.kind)
+            )
+        })
+        .collect();
+    let sname = format!("{enum_name}{vname}{}", pascal_case(&c.tag));
+    let mut def = vec![
+        "#[derive(Debug, Clone)]".to_string(),
+        format!("pub struct {sname} {{"),
+    ];
+    def.extend(fields);
+    def.push("}".to_string());
+    def.push(String::new());
+    let ty = if c.repeats {
+        format!("Vec<{sname}>")
+    } else {
+        sname
+    };
+    (member, ty, def)
+}
+
+/// The build statements for one variant child, from the payload [`variant_child_member`] named.
+///
+/// Every node goes into the arm's shared `{var}_children` accumulator rather than into a
+/// `.children(…)` call of its own: that call SETS the list, so two of them — a variant's and the
+/// node's static children, or two children of one variant — would leave only the last.
+fn variant_child_build(
+    c: &WapChildNode,
+    member: &str,
+    var_name: &str,
+    indent: &str,
+) -> Vec<String> {
+    // The opaque fallback: the caller built the nodes, so they are taken as they are.
+    if !c.children.is_empty() || c.content.is_some() || !c.variant_groups.is_empty() {
+        return vec![format!(
+            "{indent}{var_name}_children.extend({member}.iter().cloned());"
+        )];
+    }
+    let node = format!("{member}_node");
+    let attrs = |src: &str, ind: &str| -> Vec<String> {
+        c.attrs
+            .iter()
+            .filter_map(|a| {
+                let alit = rust_lit(&a.name);
+                let ident = rust_ident(&a.name);
+                Some(match &a.kind {
+                    WapAttrKind::Const => format!(
+                        "{ind}{node} = {node}.attr({alit}, {});",
+                        rust_lit(a.value.as_deref()?)
+                    ),
+                    WapAttrKind::Optional => format!(
+                        "{ind}if let Some(x) = &{src}.{ident} {{ {node} = {node}.attr({alit}, x.as_str()); }}"
+                    ),
+                    WapAttrKind::Integer => {
+                        format!("{ind}{node} = {node}.attr({alit}, {src}.{ident}.to_string());")
+                    }
+                    k if crate::fields::is_jid_kind(k) => {
+                        format!("{ind}{node} = {node}.attr({alit}, {src}.{ident}.clone());")
+                    }
+                    WapAttrKind::String | WapAttrKind::Dynamic => {
+                        format!("{ind}{node} = {node}.attr({alit}, {src}.{ident}.as_str());")
+                    }
+                    _ => return None,
+                })
+            })
+            .collect()
+    };
+    let tag = rust_lit(&c.tag);
+    if !c.repeats {
+        let mut out = vec![format!("{indent}let mut {node} = NodeBuilder::new({tag});")];
+        out.extend(attrs(member, indent));
+        out.push(format!("{indent}{var_name}_children.push({node}.build());"));
+        return out;
+    }
+    let inner = format!("{indent}    ");
+    let mut out = vec![
+        format!("{indent}for item in {member} {{"),
+        format!("{inner}let mut {node} = NodeBuilder::new({tag});"),
+    ];
+    out.extend(attrs("item", &inner));
+    out.push(format!("{inner}{var_name}_children.push({node}.build());"));
+    out.push(format!("{indent}}}"));
+    out
 }
 
 #[cfg(test)]
@@ -1495,7 +1741,31 @@ mod tests {
             ),
             "absence is not a rejection: {src}"
         );
-        // The bound: a REQUIRED content leaf is emitted exactly as before, message and all.
+        // …and the bands the other payload kinds carry. An integer is `Copy`, so the closure
+        // binds the NUMBER — `as_ref()` here would compare `&i64` against `-10i64` and the
+        // emitted module would not compile.
+        let f: ParsedField = serde_json::from_value(serde_json::json!({
+            "method": "contentInt", "name": "weight", "type": "integer",
+            "required": false, "intMin": -10
+        }))
+        .expect("field");
+        let src = emit_field_parse(&f, "n", "").join("\n");
+        assert!(
+            src.contains("weight.is_none_or(|weight| weight >= -10i64)"),
+            "an optional integer band binds by value: {src}"
+        );
+        let f: ParsedField = serde_json::from_value(serde_json::json!({
+            "method": "contentInt", "name": "weight", "type": "integer",
+            "required": false, "intMin": -10, "intMax": 10
+        }))
+        .expect("field");
+        let src = emit_field_parse(&f, "n", "").join("\n");
+        assert!(
+            src.contains("weight.is_none_or(|weight| (-10i64..=10i64).contains(&weight))"),
+            "and so does a two-sided one: {src}"
+        );
+        // A REQUIRED content leaf demands its content, which is what the union's own guard has
+        // required all along — the shape moved deliberately and this is the new spelling.
         let f: ParsedField = serde_json::from_value(serde_json::json!({
             "method": "contentBytes", "name": "elementValue", "type": "bytes",
             "required": true, "byteLength": 32
@@ -1503,11 +1773,65 @@ mod tests {
         .expect("field");
         let src = emit_field_parse(&f, "n", "").join("\n");
         assert!(
-            src.contains("n.content_bytes().map(|b| b.to_vec()).unwrap_or_default();")
-                && src.contains(
-                    r#"anyhow::ensure!(element_value.len() == 32, "elementValue wrong length: {}", element_value.len());"#
-                ),
-            "the required shape is unchanged: {src}"
+            src.contains(
+                r#"n.content_bytes().ok_or_else(|| anyhow::anyhow!("missing elementValue"))?.to_vec();"#
+            ) && src.contains(
+                r#"anyhow::ensure!(element_value.len() == 32, "elementValue wrong length: {}", element_value.len());"#
+            ),
+            "a required leaf demands its content: {src}"
+        );
+    }
+
+    /// A required content leaf that cannot be decoded is a response the source rejects, and
+    /// every decoder used to end in `unwrap_or_default` — so a missing body and an unparseable
+    /// one both materialized as the type's default.
+    #[test]
+    fn a_required_content_leaf_demands_something_it_can_decode() {
+        let src = |m: &str, ty: &str| {
+            let f: ParsedField = serde_json::from_value(serde_json::json!({
+                "method": m, "name": "elementValue", "type": ty, "required": true
+            }))
+            .expect("field");
+            emit_field_parse(&f, "n", "").join("\n")
+        };
+        // Text that does not parse is the sharper half: present content, and still a value the
+        // accessor turns away.
+        let int = src("contentInt", "integer");
+        assert!(
+            int.contains(
+                r#"content_str().ok_or_else(|| anyhow::anyhow!("missing elementValue"))?"#
+            ) && int.contains(
+                r#".parse::<u64>().map_err(|_| anyhow::anyhow!("elementValue not a number"))?"#
+            ),
+            "a required integer must be present and parse: {int}"
+        );
+        assert!(
+            !src("contentString", "string").contains("unwrap_or_default"),
+            "nor does a required string default",
+        );
+        assert!(
+            !src("contentBytes", "bytes").contains("unwrap_or_default"),
+            "nor do required bytes",
+        );
+        // `contentUint` is N big-endian bytes, so presence is the whole question — folding them
+        // cannot fail once the payload is there.
+        let uint = src("contentUint", "integer");
+        assert!(
+            uint.contains(
+                r#"content_bytes().ok_or_else(|| anyhow::anyhow!("missing elementValue"))?"#
+            ) && uint.contains("fold(0u64"),
+            "a required uint demands its bytes and folds them: {uint}"
+        );
+        // The bound: an OPTIONAL leaf still hands back an `Option` and demands nothing.
+        let f: ParsedField = serde_json::from_value(serde_json::json!({
+            "method": "contentInt", "name": "elementValue", "type": "integer",
+            "required": false
+        }))
+        .expect("field");
+        let opt = emit_field_parse(&f, "n", "").join("\n");
+        assert!(
+            opt.contains("n.content_str().and_then(|s| s.parse().ok());"),
+            "an optional leaf is untouched: {opt}"
         );
     }
 
@@ -1628,6 +1952,238 @@ mod tests {
             fields: &mut fields,
         };
         emit_child_builder(child, "", &mut HashMap::new(), &mut ctx)
+    }
+
+    /// Flattening removes an optional same-node wrapper, and with it the only record that its
+    /// descendants are read only when the wrapper is there — so every one of them is no longer
+    /// required. Only three attribute spellings were weakened, and the rest kept `required:
+    /// true`: a JID, a content leaf and a child were all emitted as mandatory reads of a node
+    /// that may be absent, and the generated parser rejected the branch flattening exists for.
+    #[test]
+    fn an_optional_same_node_wrapper_weakens_every_descendant() {
+        let wrapper: ParsedField = serde_json::from_value(serde_json::json!({
+            "method": "child", "name": "result", "type": "string",
+            "required": false, "sameNode": true,
+            "children": [
+                {"method": "attrString", "name": "label", "type": "string", "required": true},
+                {"method": "attrUserJid", "name": "jid", "type": "user_jid", "required": true},
+                {"method": "contentString", "name": "elementValue", "type": "string",
+                 "required": true},
+                {"method": "child", "name": "detail", "type": "string", "required": true,
+                 "children": [
+                     {"method": "attrInt", "name": "count", "type": "integer",
+                      "required": true}
+                 ]}
+            ]
+        }))
+        .expect("wrapper");
+        let flat = crate::fields::flatten_same_node(std::slice::from_ref(&wrapper));
+        for f in &flat {
+            assert!(
+                !f.required,
+                "every lifted leaf is optional, not just the ones with a `maybe…` spelling: {f:?}"
+            );
+        }
+        // …and the ones that HAVE a `maybe…` accessor take it, which is the half that already
+        // worked and must keep working.
+        let by = |n: &str| flat.iter().find(|f| f.name == n).expect(n).clone();
+        assert_eq!(by("label").method, "maybeAttrString");
+        // The rest keep their accessor — there is no `maybe` form — and the flag carries it.
+        assert_eq!(by("jid").method, "attrUserJid");
+        assert_eq!(by("elementValue").method, "contentString");
+        // …and the weakening reaches through a nested child, not just the top level.
+        let detail = by("detail");
+        let kids = detail.children.as_deref().unwrap_or(&[]);
+        assert!(
+            kids.iter().all(|c| !c.required),
+            "a grandchild of the wrapper is no more required than a child: {kids:?}"
+        );
+        // The bound: a REQUIRED same-node wrapper lifts its descendants unchanged.
+        let mut required_wrapper = wrapper.clone();
+        required_wrapper.required = true;
+        let flat = crate::fields::flatten_same_node(std::slice::from_ref(&required_wrapper));
+        assert!(
+            flat.iter().all(|f| f.required),
+            "nothing is weakened under a wrapper that is always there: {flat:?}"
+        );
+    }
+
+    /// A variant is the attrs AND children its alternative adds to the node, and the enum
+    /// carried only the attrs — so choosing a variant emitted a node the source cannot send.
+    #[test]
+    fn a_variant_carries_the_children_it_contributes() {
+        use wa_ir::{WapVariant, WapVariantGroup};
+        let item = WapChildNode {
+            tag: "item".into(),
+            attrs: vec![
+                attr("jid", WapAttrKind::GroupJid, None),
+                attr("mute", WapAttrKind::Integer, None),
+            ],
+            children: vec![],
+            content: None,
+            repeats: true,
+            variant_groups: vec![],
+        };
+        let node = WapChildNode {
+            tag: "config".into(),
+            attrs: vec![],
+            children: vec![leaf("static")],
+            content: None,
+            repeats: false,
+            variant_groups: vec![WapVariantGroup {
+                optional: false,
+                variants: vec![WapVariant {
+                    attrs: vec![attr("platform", WapAttrKind::String, None)],
+                    children: vec![item],
+                }],
+            }],
+        };
+        let (mut enums, mut fields) = (Vec::new(), Vec::new());
+        let mut ctx = VariantCtx {
+            spec_base: "T",
+            enum_defs: &mut enums,
+            fields: &mut fields,
+        };
+        let (lines, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
+        let src = lines.join("\n");
+        let defs = enums.join("\n");
+        // The item's own struct, and the payload member that carries a list of them.
+        assert!(
+            defs.contains("pub struct TConfigVariantPlatformItem {")
+                && defs.contains("pub jid: Jid,")
+                && defs.contains("pub mute: u64,"),
+            "the child becomes a struct the caller fills: {defs}"
+        );
+        assert!(
+            defs.contains("item: Vec<TConfigVariantPlatformItem>"),
+            "and the variant carries a list of them: {defs}"
+        );
+        // The arm builds them, attr by attr.
+        assert!(
+            src.contains("for item in item {")
+                && src.contains(r#"item_node = item_node.attr("jid", item.jid.clone());"#)
+                && src.contains(r#"item_node = item_node.attr("mute", item.mute.to_string());"#),
+            "and the arm builds each one: {src}"
+        );
+        // `.children(…)` SETS the list, so the static child and the variant's share one
+        // accumulator — attaching them separately would leave only whichever ran last.
+        assert!(
+            src.contains(
+                "let mut config_node_children: Vec<wacore_binary::node::Node> = vec![static_node];"
+            ) && src.contains("config_node_children.push(item_node.build());")
+                && src.contains("config_node = config_node.children(config_node_children);"),
+            "one accumulator, attached once: {src}"
+        );
+        assert_eq!(
+            src.matches(".children(").count(),
+            1,
+            "and exactly one call sets them: {src}"
+        );
+    }
+
+    /// A child shape richer than attributes has no struct this can describe, so the caller hands
+    /// the nodes over ready-made — never a node with the children silently missing.
+    #[test]
+    fn a_variant_child_this_cannot_type_is_caller_supplied() {
+        use wa_ir::{WapVariant, WapVariantGroup};
+        let mut nested = leaf("wrapper");
+        nested.children = vec![leaf("inner")];
+        let node = WapChildNode {
+            tag: "config".into(),
+            attrs: vec![],
+            children: vec![],
+            content: None,
+            repeats: false,
+            variant_groups: vec![WapVariantGroup {
+                optional: false,
+                variants: vec![WapVariant {
+                    attrs: vec![attr("platform", WapAttrKind::String, None)],
+                    children: vec![nested],
+                }],
+            }],
+        };
+        let (mut enums, mut fields) = (Vec::new(), Vec::new());
+        let mut ctx = VariantCtx {
+            spec_base: "T",
+            enum_defs: &mut enums,
+            fields: &mut fields,
+        };
+        let (lines, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
+        assert!(
+            enums
+                .join("\n")
+                .contains("wrapper: Vec<wacore_binary::node::Node>"),
+            "the payload takes raw nodes: {}",
+            enums.join("\n")
+        );
+        assert!(
+            lines
+                .join("\n")
+                .contains("config_node_children.extend(wrapper.iter().cloned());"),
+            "and the arm attaches them: {}",
+            lines.join("\n")
+        );
+    }
+
+    /// Opaque content is still content: the node carries a value the caller supplies, and
+    /// emitting nothing turned it into an empty element that discards the caller's data.
+    #[test]
+    fn dynamic_node_content_is_caller_supplied() {
+        let mut node = leaf("website");
+        node.content = Some(wa_ir::WapContent {
+            kind: WapContentKind::Dynamic,
+            ..Default::default()
+        });
+        let (mut enums, mut fields) = (Vec::new(), Vec::new());
+        let mut ctx = VariantCtx {
+            spec_base: "T",
+            enum_defs: &mut enums,
+            fields: &mut fields,
+        };
+        let (lines, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
+        assert!(
+            fields.contains(&("website_content".to_string(), "String".to_string(), false)),
+            "the caller supplies the text: {fields:?}"
+        );
+        assert!(
+            lines.join("\n").contains(
+                "website_node = website_node.bytes(self.website_content.clone().into_bytes());"
+            ),
+            "and it is written as the node's content: {}",
+            lines.join("\n")
+        );
+        // The bound: a node with no content declared still builds empty.
+        let (lines, _) = build1(&leaf("website"));
+        assert!(
+            !lines.join("\n").contains("bytes("),
+            "no content, no payload: {}",
+            lines.join("\n")
+        );
+        // …and a CONST value is known, so it is written out rather than asked of the caller.
+        let mut node = leaf("website");
+        node.content = Some(wa_ir::WapContent {
+            kind: WapContentKind::Const,
+            value: Some("hi".into()),
+            ..Default::default()
+        });
+        let (mut enums, mut fields) = (Vec::new(), Vec::new());
+        let mut ctx = VariantCtx {
+            spec_base: "T",
+            enum_defs: &mut enums,
+            fields: &mut fields,
+        };
+        let (lines, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
+        assert!(
+            lines
+                .join("\n")
+                .contains("website_node = website_node.bytes(vec![0x68, 0x69]);"),
+            "a known value is a literal: {}",
+            lines.join("\n")
+        );
+        assert!(
+            fields.is_empty(),
+            "and asks the caller for nothing: {fields:?}"
+        );
     }
 
     #[test]
