@@ -3885,6 +3885,23 @@ fn synchronous_until(
             self.note(e.span.start);
             walk::walk_await_expression(self, e);
         }
+        /// A handler a protected block cannot ENTER suspends nothing: `try {} catch (_) { await
+        /// 0; }` leaves what follows as synchronous as it looks. The generic walk read the
+        /// handler's await as the cutoff and confined a write the caller really sees.
+        ///
+        /// The FINALIZER always runs and is walked whatever the block does, which is what keeps
+        /// this about the handler rather than about the statement.
+        fn visit_try_statement(&mut self, st: &oxc_ast::ast::TryStatement<'a>) {
+            self.visit_block_statement(&st.block);
+            if let Some(handler) = st.handler.as_ref()
+                && block_can_raise(&st.block)
+            {
+                self.visit_catch_clause(handler);
+            }
+            if let Some(finalizer) = st.finalizer.as_ref() {
+                self.visit_block_statement(finalizer);
+            }
+        }
         /// An optional call that certainly short-circuits evaluates no argument, so an `await`
         /// written there suspends nothing: `null?.(await 0); current = other;` completes the
         /// assignment synchronously. Noting the skipped await as the cutoff confined a write
@@ -5275,12 +5292,23 @@ fn class_constructor_throws(class: &oxc_ast::ast::Class<'_>) -> bool {
                 // not read what the exit computes. The expression-statement half was written
                 // here too and belongs to `throws_out`, which asks it in EXECUTION order — so
                 // an unreachable throw after `return;` stops counting for free.
+                // In EXECUTION order, stopping where the constructor has already completed:
+                // `return {}; return (throws)()` hands back the first object and never reaches
+                // the second, and reading every `return` with `any` called the construction
+                // certain to raise — excluding an arm that really produces a value. The list is
+                // taken up to and INCLUDING the statement that ends it, which is the `return`
+                // whose own argument still has to be judged.
+                let mut reached = Vec::new();
+                for st in &b.statements {
+                    reached.push(st);
+                    if ends_the_statement_list(st) {
+                        break;
+                    }
+                }
                 throws_out(&b.statements)
-                    || b.statements.iter().any(|st| match st {
-                        Statement::ReturnStatement(r) => {
-                            r.argument.as_ref().is_some_and(expression_throws)
-                        }
-                        _ => false,
+                    || reached.iter().any(|st| {
+                        matches!(st, Statement::ReturnStatement(r)
+                            if r.argument.as_ref().is_some_and(expression_throws))
                     })
             })
         }
@@ -5637,13 +5665,63 @@ fn binding_step_raises(
 /// list and enters no body, so it yields `undefined` however its arguments are spelled. Anything
 /// else is an ordinary call and answers as one.
 fn chain_call_throws(c: &CallExpression<'_>) -> bool {
+    call_throws(c)
+}
+
+/// Whether this call certainly completes abruptly, however its callee was spelled.
+///
+/// Three phases, in the order the engine takes them: the callee, the arguments, and the BINDING
+/// of the parameters — a default that raises does so before the first statement, so
+/// `(function(x = (throws)()){})()` yields no value at all. Only the body was read, which had a
+/// call that cannot possibly return dilute the arm it sits in.
+///
+/// The short circuit comes first and answers for the whole chain: `null?.m((throws)())` builds
+/// no argument list and enters nothing, so it hands back `undefined` however its arguments read.
+/// A check on `c.optional` alone missed the spelling that carries the flag one link earlier.
+fn call_throws(c: &CallExpression<'_>) -> bool {
     if expression_throws(&c.callee) {
         return true;
     }
-    if c.optional && certainly_nullish(&c.callee) {
+    if (c.optional && certainly_nullish(&c.callee)) || short_circuit_base(&c.callee).is_some() {
         return false;
     }
-    c.arguments.iter().any(argument_raises)
+    if c.arguments.iter().any(argument_raises) {
+        return true;
+    }
+    let callee = invoked_callee(&c.callee);
+    let params = match callee {
+        Expression::FunctionExpression(f) => Some(&f.params),
+        Expression::ArrowFunctionExpression(f) => Some(&f.params),
+        _ => None,
+    };
+    // A default the call SUPPLIES a value for never runs, so the ones that raise are only those
+    // past the written arguments — the same question `walk_invocation` asks, spelled for the
+    // arguments this call really has.
+    if let Some(p) = params
+        && p.items
+            .iter()
+            .skip(c.arguments.len())
+            .any(|param| default_raises(&param.pattern, param.initializer.as_deref(), &[]))
+    {
+        return true;
+    }
+    match callee {
+        Expression::FunctionExpression(f) if !f.generator && !f.r#async => {
+            f.body.as_ref().is_some_and(|b| throws_out(&b.statements))
+        }
+        Expression::ArrowFunctionExpression(f) if !f.r#async => throws_out(&f.body.statements),
+        _ => false,
+    }
+}
+
+/// Whether anything in this protected block could raise, so its handler can be entered.
+///
+/// Deliberately narrow in one direction only: an EMPTY block certainly cannot, and anything with
+/// a statement in it is left alone. Claiming a block cannot raise where it can would prune a
+/// handler executions really reach, and the empty spelling is the one that settles it — a `try
+/// {}` written for its `finally`, whose handler is unreachable by construction.
+fn block_can_raise(block: &oxc_ast::ast::BlockStatement<'_>) -> bool {
+    !block.body.is_empty()
 }
 
 /// The object of the first optional link in a chain that certainly SHORT-CIRCUITS.
@@ -10739,19 +10817,7 @@ fn expression_throws(e: &Expression<'_>) -> bool {
     // body, so it yields `undefined` however its arguments are spelled. Reading them anyway made
     // `flag ? null?.((throws)()) : parse(e)` a throwing arm, and the intersection then ignored
     // the side that really produces a value.
-    if c.optional && certainly_nullish(&c.callee) {
-        return false;
-    }
-    if c.arguments.iter().any(argument_raises) {
-        return true;
-    }
-    match invoked_callee(&c.callee) {
-        Expression::FunctionExpression(f) if !f.generator && !f.r#async => {
-            f.body.as_ref().is_some_and(|b| throws_out(&b.statements))
-        }
-        Expression::ArrowFunctionExpression(f) if !f.r#async => throws_out(&f.body.statements),
-        _ => false,
-    }
+    call_throws(c)
 }
 
 /// The text of a template with nothing substituted into it, which is a string literal spelled
@@ -17228,6 +17294,91 @@ mod tests {
                 "var current = e; (async function(){ switch ('a') { case 'a': case 'b': await 0; } current = other; })(); parse(current);"
             ),
             "and so does one the match falls through into",
+        );
+    }
+
+    /// A call completes abruptly for three reasons, in the order the engine takes them — and
+    /// only the body was read.
+    #[test]
+    fn a_call_is_judged_by_more_than_its_body() {
+        let required = |body: &str| {
+            helper_reached_via(body)
+                .iter()
+                .find(|f| f.name == "id")
+                .map(|f| f.required)
+        };
+        // The short circuit answers for the whole CHAIN, so an argument it never builds cannot
+        // make the arm raise.
+        assert_eq!(
+            required("flag ? null?.m((function(){ throw 0; })()) : parse(e);"),
+            Some(false),
+            "the arm yields `undefined` and the intersection sees both sides",
+        );
+        // A default raises while the call BINDS, before the first statement — so the call
+        // produces nothing and the other arm is the only one that does.
+        assert_eq!(
+            required("flag ? (function(x = (function(){ throw 0; })()){})() : parse(e);"),
+            Some(true),
+            "a binding failure is an abrupt completion",
+        );
+        // …and a default the call SUPPLIES a value for never runs.
+        assert_eq!(
+            required("flag ? (function(x = (function(){ throw 0; })()){})(1) : parse(e);"),
+            Some(false),
+            "a supplied parameter prevents its default",
+        );
+    }
+
+    /// A constructor's `return`s are read in execution order: one that already handed back an
+    /// object never reaches the next.
+    #[test]
+    fn a_constructor_stops_at_the_return_that_completes_it() {
+        let required = |body: &str| {
+            helper_reached_via(body)
+                .iter()
+                .find(|f| f.name == "id")
+                .map(|f| f.required)
+        };
+        assert_eq!(
+            required(
+                "flag ? new (class { constructor(){ return {}; return (function(){ throw 0; })(); } })() : parse(e);"
+            ),
+            Some(false),
+            "the first return completes the construction",
+        );
+        // The bound: a throwing return that IS reached still settles it.
+        assert_eq!(
+            required(
+                "flag ? new (class { constructor(){ return (function(){ throw 0; })(); } })() : parse(e);"
+            ),
+            Some(true),
+            "a reachable throwing return raises",
+        );
+    }
+
+    /// A handler a protected block cannot ENTER suspends nothing.
+    #[test]
+    fn an_unreachable_handler_is_no_suspension_point() {
+        let reaches = |body: &str| helper_reached_via(body).iter().any(|f| f.name == "id");
+        assert!(
+            !reaches(
+                "var current = e; (async function(){ try {} catch (_) { await 0; } current = other; })(); parse(current);"
+            ),
+            "an empty try cannot raise, so its handler never runs",
+        );
+        // The bound: a block with something in it may raise, and its handler is walked.
+        assert!(
+            reaches(
+                "var current = e; (async function(){ try { noop(); } catch (_) { await 0; } current = other; })(); parse(current);"
+            ),
+            "a block that can raise keeps its handler live",
+        );
+        // …and the FINALIZER always runs, whatever the block does.
+        assert!(
+            reaches(
+                "var current = e; (async function(){ try {} finally { await 0; } current = other; })(); parse(current);"
+            ),
+            "a finalizer suspends whether or not anything raised",
         );
     }
 
