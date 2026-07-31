@@ -4855,6 +4855,83 @@ fn static_getter<'b, 'a>(
         .map(|m| &*m.value)
 }
 
+/// The method or accessor an INSTANCE of this class ends up holding under `name`.
+///
+/// `(new (class { m(){ … } })).m()` runs that body as immediately as an IIFE does: the class is
+/// written here, the instance is built here, and nothing between the two can substitute another
+/// `m`. An instance FIELD of the name is set on the object by the constructor and takes the
+/// property from the prototype's method — the same overwrite rule the class object has one level
+/// up — and a key this cannot read might be that name.
+///
+/// A class with a HERITAGE declines: its constructor may `return` an object that is not this
+/// instance at all, and an inherited member could supply the name where nothing here can follow
+/// it. `instance_fields_initialize` answers the first half already and is the same question.
+fn instance_definition<'b, 'a>(
+    class: &'b oxc_ast::ast::Class<'a>,
+    name: &str,
+) -> Option<&'b oxc_ast::ast::MethodDefinition<'a>> {
+    if class.super_class.is_some() || !instance_fields_initialize(class) {
+        return None;
+    }
+    // …and there has to BE an instance. A constructor that leaves by throwing builds nothing, so
+    // the member is never reached and recording its body's writes describes a call that happens
+    // on no path — the same reachability question `new` already answers for the constructor
+    // itself, asked one step later.
+    let ctor_throws = class.body.body.iter().any(|el| match el {
+        oxc_ast::ast::ClassElement::MethodDefinition(m)
+            if m.kind == oxc_ast::ast::MethodDefinitionKind::Constructor =>
+        {
+            m.value
+                .body
+                .as_ref()
+                .is_some_and(|b| throws_out(&b.statements))
+        }
+        _ => false,
+    });
+    if ctor_throws {
+        return None;
+    }
+    let overwritten = class.body.body.iter().any(|el| match el {
+        oxc_ast::ast::ClassElement::PropertyDefinition(p) => {
+            !p.r#static && p.key.static_name().as_deref().is_none_or(|k| k == name)
+        }
+        oxc_ast::ast::ClassElement::AccessorProperty(p) => {
+            !p.r#static && p.key.static_name().as_deref().is_none_or(|k| k == name)
+        }
+        _ => false,
+    });
+    if overwritten {
+        return None;
+    }
+    class.body.body.iter().rev().find_map(|el| match el {
+        oxc_ast::ast::ClassElement::MethodDefinition(m)
+            if !m.r#static
+                && m.kind != oxc_ast::ast::MethodDefinitionKind::Constructor
+                && m.key.static_name().as_deref() == Some(name) =>
+        {
+            Some(&**m)
+        }
+        _ => None,
+    })
+}
+
+/// The member an instance CONSTRUCTED on the spot supplies under `name`, of the kind asked for.
+fn instance_member<'b, 'a>(
+    object: &'b Expression<'a>,
+    name: &str,
+    kind: oxc_ast::ast::MethodDefinitionKind,
+) -> Option<&'b oxc_ast::ast::Function<'a>> {
+    let Expression::NewExpression(n) = peel(object) else {
+        return None;
+    };
+    let Expression::ClassExpression(c) = peel(&n.callee) else {
+        return None;
+    };
+    instance_definition(c, name)
+        .filter(|m| m.kind == kind)
+        .map(|m| &*m.value)
+}
+
 /// The method or accessor the class OBJECT ends up holding under `name`, or `None` when nothing
 /// here can say what it holds.
 ///
@@ -5145,6 +5222,54 @@ fn getters_in_pattern<'a>(
             && let Expression::ObjectExpression(o) = &op.value
         {
             getters_in_pattern(inner, o, out);
+        }
+    }
+}
+
+/// The same, for the ASSIGNMENT spelling of a destructuring read.
+///
+/// `({x} = { get x(){ … } })` invokes that getter as surely as `var {x} = …` does — reading a
+/// property is reading a property, however the target is written. The declaration form is an
+/// `ObjectPattern` and this one an `ObjectAssignmentTarget`, two AST shapes for one rule, which
+/// is why only the property question is shared and each walker reads its own nodes.
+fn getters_in_assignment_target<'a>(
+    pat: &oxc_ast::ast::ObjectAssignmentTarget<'a>,
+    object: &oxc_ast::ast::ObjectExpression<'a>,
+    out: &mut Vec<Span>,
+) {
+    for prop in &pat.properties {
+        // The name this property reads and the pattern it hands the value to, from either
+        // spelling — `({x} = …)` names its target and `({x: y} = …)` names them apart. My first
+        // draft answered the getter question once per spelling, and the mutation that widened
+        // one arm to accept setters passed because the shorthand went through the other: two
+        // copies of one rule inside a function written to remove exactly that, in the same
+        // commit. The name is read per spelling now and the property judged once.
+        let (name, nested) = match prop {
+            oxc_ast::ast::AssignmentTargetProperty::AssignmentTargetPropertyIdentifier(id) => {
+                (id.binding.name.to_string(), None)
+            }
+            oxc_ast::ast::AssignmentTargetProperty::AssignmentTargetPropertyProperty(p) => {
+                let Some(n) = p.name.static_name() else {
+                    continue;
+                };
+                (n.to_string(), p.binding.as_assignment_target())
+            }
+        };
+        let Some(op) = owned_property(object, &name) else {
+            continue;
+        };
+        if op.kind == oxc_ast::ast::PropertyKind::Get
+            && let Expression::FunctionExpression(f) = &op.value
+        {
+            out.push(f.span);
+        }
+        // …and one level in, for as far as both sides are written out — the pattern below this
+        // property takes apart the value of THIS one, so a getter there is invoked by the same
+        // read. The nesting the parameter-binding walker already has, on the other spelling.
+        if let Some(oxc_ast::ast::AssignmentTarget::ObjectAssignmentTarget(inner)) = nested
+            && let Expression::ObjectExpression(o) = &op.value
+        {
+            getters_in_assignment_target(inner, o, out);
         }
     }
 }
@@ -6385,7 +6510,13 @@ impl AllBindings {
                 // declining alone left the body deferred, which is the very defect that was
                 // reported for the object literal.
                 Expression::ClassExpression(c) => static_getter(c, name.as_ref()),
-                _ => None,
+                // …and an instance getter of a class constructed here, which runs on the read
+                // exactly as the class object's does.
+                _ => instance_member(
+                    object,
+                    name.as_ref(),
+                    oxc_ast::ast::MethodDefinitionKind::Get,
+                ),
             }
         {
             let restore = self.binding_getters.len();
@@ -6443,7 +6574,14 @@ impl AllBindings {
         let static_called =
             named_member(peel(callee_expr)).and_then(|(name, object)| match peel(object) {
                 Expression::ClassExpression(c) => static_method(c, name.as_ref()),
-                _ => None,
+                // …and the same question of an INSTANCE built right here. `(new (class { m(){ …
+                // } })).m()` runs that body as immediately as a static method's, and the
+                // `NewExpression` fell through to the deferred walk with its write confined.
+                _ => instance_member(
+                    object,
+                    name.as_ref(),
+                    oxc_ast::ast::MethodDefinitionKind::Method,
+                ),
             });
         // What this invocation binds, from whichever of the two the callee turned out to be.
         // Every check below reads this one list, or the call is judged against parameters it
@@ -6557,10 +6695,32 @@ impl AllBindings {
         // recorded a write for a tag that is never invoked. I named that gap when I drew the
         // rule and shipped without it; it came back as the next round's finding, which is the
         // argument against leaving a half-stated rule for later.
-        let argument_raises = arguments
+        //
+        // …and neither the arguments nor the substitutions are the whole prelude. Everything the
+        // CALLEE evaluates on the way to the function runs before them — `((function(){ throw 0
+        // })(), function(){ … })()` never reaches the body — and so does every parameter default
+        // the call does not prevent, which is evaluated while the binding happens and before the
+        // first statement. Reading only the written argument list approved a body entered on no
+        // path in both shapes: one rule about what precedes the body, stated for one of the
+        // three things that do.
+        let suppressed = suppressed_defaults(params, &effective, template);
+        let mut leading_before_the_call = Vec::new();
+        leading_parts(callee_expr, &mut leading_before_the_call);
+        let prelude_raises = leading_before_the_call
             .iter()
-            .filter_map(argument_expression)
-            .any(expression_throws)
+            .any(|part| expression_throws(part))
+            || params.is_some_and(|p| {
+                p.items.iter().any(|param| {
+                    param.initializer.as_deref().is_some_and(|init| {
+                        expression_throws(init) && !suppressed.contains(&init.span())
+                    })
+                })
+            });
+        let argument_raises = prelude_raises
+            || arguments
+                .iter()
+                .filter_map(argument_expression)
+                .any(expression_throws)
             || template.is_some_and(|q| q.expressions.iter().any(expression_throws));
         if argument_raises
             || binding_certainly_throws(
@@ -6609,7 +6769,6 @@ impl AllBindings {
                 .into_iter()
                 .map(|g| (g, span.end)),
         );
-        let suppressed = suppressed_defaults(params, &effective, template);
         let restore = self.suppressed_defaults.len();
         self.suppressed_defaults.extend(suppressed);
         self.visit_expression(callee);
@@ -6919,7 +7078,23 @@ impl<'a> Visit<'a> for AllBindings {
             };
             self.given_value(t.name.as_str(), from, t.span, false);
         }
+        // A destructuring READ invokes the accessors it selects: `({x} = { get x(){ … } })`
+        // runs that getter right here, before anything after the assignment reads what it
+        // wrote. The parameter-binding walker has known this since the round it was reported
+        // for; a destructuring assignment reads properties in exactly the same way and its
+        // getters were left deferred, so a write inside one stayed confined to a function
+        // nobody was known to call.
+        let restore_getters = self.binding_getters.len();
+        if let oxc_ast::ast::AssignmentTarget::ObjectAssignmentTarget(pat) = &e.left
+            && let Expression::ObjectExpression(o) = peel(&e.right)
+        {
+            let mut found = Vec::new();
+            getters_in_assignment_target(pat, o, &mut found);
+            self.binding_getters
+                .extend(found.into_iter().map(|g| (g, e.span.end)));
+        }
         walk::walk_assignment_expression(self, e);
+        self.binding_getters.truncate(restore_getters);
         self.runs_after.pop();
         self.assign_end = outer;
     }
@@ -6935,7 +7110,20 @@ impl<'a> Visit<'a> for AllBindings {
             // value by the first and the child it names was never filed. The doc comment on
             // `binding_extent` claimed this order already held; it held for a later assignment
             // and never for the declarator itself.
+            // …and the DECLARATION spelling of the same read invokes the same accessors.
+            // `var {x} = { get x(){ … } }` is `({x} = …)` with a binding attached, and the two
+            // spellings of one rule is the split this file keeps paying for.
+            let restore_getters = self.binding_getters.len();
+            if let oxc_ast::ast::BindingPattern::ObjectPattern(pat) = &d.id
+                && let Some(Expression::ObjectExpression(o)) = d.init.as_ref().map(peel)
+            {
+                let mut found = Vec::new();
+                getters_in_pattern(pat, o, &mut found);
+                self.binding_getters
+                    .extend(found.into_iter().map(|g| (g, d.span.end)));
+            }
             self.visit_variable_declarator(d);
+            self.binding_getters.truncate(restore_getters);
             // A destructuring declarator ASSIGNS what it takes apart: `var [e] = [other]`
             // rebinds the parser's own parameter, and `for (var [e] of xs)` does it per pass.
             // Only the single-identifier form recorded anything, so the name still looked like
@@ -14523,6 +14711,111 @@ mod tests {
             assert!(
                 fields.iter().any(|f| f.name == "id"),
                 "that default is prevented: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_method_of_an_instance_built_here_runs_where_it_is_called() {
+        // `(new (class { m(){ … } })).m()` runs that body as immediately as an IIFE does: the
+        // class is written here, the instance is built here, and nothing between the two can
+        // substitute another `m`. Only a method directly on a class OBJECT was resolved, so the
+        // `NewExpression` fell through to the deferred walk with its write confined.
+        for body in [
+            "var current = e; (new (class { m(){ current = other; } })).m(); parse(current);",
+            // …and an instance GETTER runs on the read, exactly as the class object's does.
+            "var current = e; (new (class { get m(){ current = other; return function(){} } })).m(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that body already ran: {body}"
+            );
+        }
+        // The bounds. A name the class does not define is not this shape; a STATIC member is
+        // not on the instance; an instance FIELD of the name takes the property from the
+        // prototype's method; and a constructor that throws builds no instance at all, so the
+        // member is never reached.
+        for body in [
+            "var current = e; (new (class { m(){ current = other; } })).n(); parse(current);",
+            "var current = e; (new (class { static m(){ current = other; } })).m(); parse(current);",
+            "var current = e; (new (class { m(){ current = other; } m = 0; })).m(); parse(current);",
+            "var current = e; try { (new (class { constructor(){ throw 0; } m(){ current = other; } })).m(); } catch (_) {} parse(current);",
+            // A class with a HERITAGE declines: its constructor may return an object that is
+            // not this instance, and an inherited member could supply the name.
+            "var current = e; (new (class extends Object { m(){ current = other; } })).m(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that body is not what this call reaches: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn nothing_in_the_invocation_prelude_may_raise_before_the_body() {
+        // The arguments are not the whole prelude. Everything the CALLEE evaluates on the way to
+        // the function runs before them, and so does every parameter default the call does not
+        // prevent — one rule about what precedes the body, stated for one of the three things
+        // that do.
+        for body in [
+            "var current = e; try { ((function(){ throw 0; })(), function(){ current = other; })(); } catch (_) {} parse(current);",
+            "var current = e; try { (function(x = (function(){ throw 0; })()){ current = other; })(); } catch (_) {} parse(current);",
+            // …and a LATER default is reached when the arguments run out before it.
+            "var current = e; try { (function(a, x = (function(){ throw 0; })()){ current = other; })(1); } catch (_) {} parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that body is entered on no path: {body}"
+            );
+        }
+        // The bounds. A leading part that raises nothing is an ordinary prelude, and a default
+        // the call SUPPLIES is never evaluated — which is the whole point of tracking which of
+        // them the arguments prevent.
+        for body in [
+            "var current = e; (1, function(){ current = other; })(); parse(current);",
+            "var current = e; (function(x = (function(){ throw 0; })()){ current = other; })(1); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that body does run: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_destructuring_read_invokes_the_getters_it_selects() {
+        // Reading a property is reading a property, however the target is written: `({x} = { get
+        // x(){ … } })` runs that getter right here. The parameter-binding walker has known this
+        // since the round it was reported for, and the two destructuring spellings were left
+        // deferred — the same rule in three places with two copies missing it.
+        for body in [
+            "var current = e, x; ({x} = { get x(){ current = other; return 1; } }); parse(current);",
+            "var current = e; var {x} = { get x(){ current = other; return 1; } }; parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that getter already ran: {body}"
+            );
+        }
+        // The bounds. Only the properties the pattern SELECTS are read, a plain value invokes
+        // nothing, and a setter's body does not run on a read at all.
+        for body in [
+            "var current = e, x; ({x} = { x: 1 }); parse(current);",
+            "var current = e, x; ({x} = { x: 1, get y(){ current = other; return 1; } }); parse(current);",
+            // …in either order, because "the property this name resolves to" is the question
+            // and "some getter in the literal" is not.
+            "var current = e, x; ({x} = { get y(){ current = other; return 1; }, x: 1 }); parse(current);",
+            "var current = e, x; ({x} = { set x(v){ current = other; } }); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "nothing here runs that body: {body}"
             );
         }
     }
