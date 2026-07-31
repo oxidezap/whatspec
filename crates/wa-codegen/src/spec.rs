@@ -1,6 +1,6 @@
 //! Generate one `IqSpec` impl (struct + constructor + response + build/parse).
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
 use regex::Regex;
@@ -9,30 +9,26 @@ use wa_ir::{
     WapAttrKind, WapChildNode,
 };
 
-/// Two outcome variants are separable by a discriminator when both pin the SAME attr
-/// to DIFFERENT literal values (`type:"result"` vs `type:"error"`): a response
-/// satisfying one fails the other's guard, so neither can shadow the other.
+/// Two outcome variants are separable by a discriminator when a response satisfying one fails
+/// the other's guard, so neither can shadow the other.
+///
+/// The exact complement of [`pins_can_coincide`], and it is spelled as one. This was a second
+/// copy of that relation restricted to attributes, so the round that taught the SELECTOR about
+/// content pins left the ADMISSION gate behind it: two outcomes separated by `literalContent`
+/// were still judged to shadow each other, the union was refused, and the guard emitted for
+/// them was never reached. A rule fixed at one end and not the other, which is the shape this
+/// branch keeps being caught for — so there is one end now.
+///
+/// A presence-only assertion (`value: None`) is not a pin and never conflicts: a parser that
+/// merely requires `type` to exist also accepts `type="result"`, so the variants are not
+/// disjoint. [`variant_pins`] drops it for that reason, and this inherits the answer.
 pub(crate) fn assertions_conflict(a: &ResponseVariant, b: &ResponseVariant) -> bool {
-    // BOTH sides must pin a literal, and to the same NAMED attribute. `Some("result")`
-    // against a presence-only assertion (`value: None`) is not a conflict: a parser that
-    // merely requires `type` to exist also accepts `type="result"`, so the variants are
-    // not disjoint and the earlier arm shadows the later one in a first-success cascade.
-    a.assertions.iter().any(|x| {
-        x.kind == AssertionKind::Attr
-            && x.name.is_some()
-            && x.value.is_some()
-            && b.assertions.iter().any(|y| {
-                y.kind == AssertionKind::Attr
-                    && y.name == x.name
-                    && y.value.is_some()
-                    && y.value != x.value
-            })
-    })
+    !pins_can_coincide(&variant_pins(a), &variant_pins(b))
 }
 
 use crate::emit::{VariantCtx, emit_child_builder, emit_response_parser};
 use crate::fields::{collect_response_fields, rust_attr_type};
-use crate::naming::{pascal_case, rust_ident, rust_lit, rust_lit_inner};
+use crate::naming::{fmt_lit_inner, pascal_case, rust_ident, rust_lit};
 
 /// Length of the common prefix shared by the variant tags, backed up to a word
 /// boundary (next ASCII-uppercase char). Lets `GetBlockListResponseSuccessWithMatch`
@@ -98,24 +94,83 @@ pub(crate) fn parser_is_valid(
     true
 }
 
-/// The names of fields whose absence makes a generated variant parser return `Err`
+/// The reads whose absence makes a generated variant parser return `Err`
 /// (so they discriminate which variant a response matches): required attrs
 /// (`attr…`, read with `?`) and required `child` nodes (read with `ok_or_else`).
-/// Excludes optionals (`maybe…`), content reads (defaulted, never fail), and
-/// untyped union/mixin placeholders (`method == ""`). Recursive.
+/// Excludes optionals (`maybe…`) and untyped union/mixin placeholders (`method == ""`).
+/// Recursive.
+///
+/// A REQUIRED content read belongs here too, and did not while every content decoder ended in
+/// `unwrap_or_default` — a read that cannot fail cannot discriminate. It fails now: an absent or
+/// undecodable payload is an error, so a variant that requires its node's content really does
+/// bail where a fallback variant would not. Leaving it out left two such outcomes looking like
+/// empty signatures, which the union gate reads as indistinguishable, so a discriminable pair
+/// was rejected and only the fallback shape emitted.
+///
+/// Keyed by what the parser READS, not by the struct field it writes: the descent path,
+/// then the wire attribute name or the child tag. Two variants can name the same wire
+/// attribute differently — `{name: "success_code", wire_name: "code"}` against
+/// `{name: "error_code", wire_name: "code"}` — and by output name those sets look disjoint,
+/// so the shadowing gate below admitted a union whose first parser accepts every response
+/// the second could and left the second unreachable. The `attr`/`child` marker keeps an
+/// attribute and a child tag of the same spelling apart, and the path keeps a nested `code`
+/// from standing in for a top-level one.
 fn fail_required_fields(fields: &[wa_ir::ParsedField]) -> std::collections::BTreeSet<String> {
     let mut out = std::collections::BTreeSet::new();
-    fn walk(fields: &[wa_ir::ParsedField], out: &mut std::collections::BTreeSet<String>) {
+    fn walk(
+        fields: &[wa_ir::ParsedField],
+        base: &[String],
+        reached: bool,
+        out: &mut std::collections::BTreeSet<String>,
+    ) {
         for f in fields {
-            if f.required && (f.method == "child" || f.method.starts_with("attr")) {
-                out.insert(f.name.clone());
+            let mut path = base.to_vec();
+            path.extend(f.source_path.iter().flatten().cloned());
+            // `f.required` alongside the method test is belt and braces: the accessor
+            // vocabulary already carries optionality, so an optional attribute reads
+            // `maybeAttrString` — which does not start with `attr` — and an optional child
+            // reads `maybeChild`. No well-formed IR separates the two conditions, and the
+            // mutation dropping `f.required` changes no answer. Kept because the alternative is
+            // code that depends on that invariant without saying so.
+            // Content has no NAME — it is the node's own payload — so the descent path is the
+            // whole of its identity, which is exactly what distinguishes one node's content
+            // from another's.
+            if reached && f.required && wa_ir::wap::is_content_method(&f.method) {
+                out.insert(format!("{}/content", path.join("/")));
+            }
+            // …and a REPEATED child fails on nothing. Its parser iterates `get_children_by_tag`
+            // and succeeds with an empty vector where the child is absent, so recording it as
+            // fail-on-absent gave two variants a difference their parsers do not have — and the
+            // gate then admitted a union whose first arm accepts the later arm's response.
+            let repeated = f.repeats == Some(true);
+            if reached
+                && f.required
+                && !repeated
+                && (f.method == "child" || f.method.starts_with("attr"))
+            {
+                let (kind, wire) = if f.method == "child" {
+                    ("child", f.tag.as_deref().unwrap_or(&f.name))
+                } else {
+                    ("attr", f.wire_name.as_deref().unwrap_or(&f.name))
+                };
+                out.insert(format!("{}/{kind}:{wire}", path.join("/")));
             }
             if let Some(kids) = &f.children {
-                walk(kids, out);
+                let mut inner = path;
+                if f.method == "child" || f.method == "maybeChild" {
+                    inner.push(f.tag.as_deref().unwrap_or(&f.name).to_string());
+                }
+                // Under an OPTIONAL child nothing is fail-on-absent: the emitter defaults the
+                // whole subtree when that child is missing, so a required attribute inside it
+                // does not make the parser bail and cannot discriminate a variant. The walk
+                // recorded it anyway, and once round forty-six qualified these keys by path
+                // that false requirement could differ from a later variant's real one — so the
+                // subset gate admitted a union whose first arm then took the later response.
+                walk(kids, &inner, reached && f.required, out);
             }
         }
     }
-    walk(fields, &mut out);
+    walk(fields, &[], true, &mut out);
     out
 }
 
@@ -125,6 +180,74 @@ fn fail_required_fields(fields: &[wa_ir::ParsedField]) -> std::collections::BTre
 /// variant's parser validates ([`parser_is_valid`]); otherwise `None` (and nothing
 /// emitted), so the caller falls back to the single-shape/`()` path rather than
 /// generating an invalid parser. Models the IR's outcome wire shape, not domain types.
+/// A value a response variant pins before it will accept a node.
+///
+/// Two kinds, because an outcome root has two things to pin: an ATTRIBUTE by name, and the
+/// node's own text CONTENT, which `literalContent` writes and which has no name at all.
+/// Modelling the set as `(name, value)` pairs kept the first and dropped the second, so a
+/// content-discriminated arm emitted no selector and took every response whose required fields
+/// happened to parse — whichever content value made the source parser select a later one.
+#[derive(PartialEq, Eq)]
+enum Pin<'a> {
+    Attr(&'a str, &'a str),
+    Content(&'a str),
+}
+
+/// The pins a response variant asserts — the set that has to pick this variant alone before a
+/// match may be treated as final.
+fn variant_pins(v: &ResponseVariant) -> Vec<Pin<'_>> {
+    v.assertions
+        .iter()
+        .filter_map(|a| match a.kind {
+            AssertionKind::Attr => match (&a.name, &a.value) {
+                (Some(name), Some(value)) => Some(Pin::Attr(name.as_str(), value.as_str())),
+                _ => None,
+            },
+            // `name` is unused for a content pin; the value is the whole of it.
+            AssertionKind::Content => a.value.as_deref().map(Pin::Content),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The same pins as generated conditions.
+fn pin_conditions(v: &ResponseVariant, node: &str) -> Vec<String> {
+    variant_pins(v)
+        .into_iter()
+        .map(|pin| match pin {
+            Pin::Attr(name, value) => format!(
+                "{node}.get_attr({}).map(|x| x.as_str()).as_deref() == Some({})",
+                rust_lit(name),
+                rust_lit(value),
+            ),
+            Pin::Content(value) => format!(
+                "{node}.content_str().as_deref() == Some({})",
+                rust_lit(value),
+            ),
+        })
+        .collect()
+}
+
+/// Whether a node satisfying `mine` could satisfy `other` as well.
+///
+/// Only a pin the two disagree on rules that out — anything `other` pins and `mine` does not is
+/// a value the node is free to carry, and a pin `mine` has that `other` lacks constrains
+/// nothing about `other`. So a variant pinning a SUPERSET of another's is still reachable
+/// through it, and an unpinned variant is reachable through every one of them.
+fn pins_can_coincide(mine: &[Pin<'_>], other: &[Pin<'_>]) -> bool {
+    !mine.iter().any(|m| {
+        other.iter().any(|o| match (m, o) {
+            (Pin::Attr(name, value), Pin::Attr(o_name, o_value)) => {
+                name == o_name && value != o_value
+            }
+            // A node has ONE text content, so two variants pinning it to different values are
+            // as exclusive as two disagreeing on an attribute.
+            (Pin::Content(value), Pin::Content(o_value)) => value != o_value,
+            _ => false,
+        })
+    })
+}
+
 fn emit_outcome_types(
     op: &IqStanzaDef,
     spec_base: &str,
@@ -271,35 +394,65 @@ fn emit_outcome_parse(
     indent: &str,
 ) -> Vec<String> {
     let mut lines = Vec::new();
-    for (v, (vname, sname)) in op.response.variants.iter().zip(info) {
+    for (i, (v, (vname, sname))) in op.response.variants.iter().zip(info).enumerate() {
+        // The discriminator SELECTS; it does not bail. Spelled as a bail inside the payload
+        // closure, a pin miss and a malformed payload were one `Err` and both moved on — so a
+        // `type="result"` response whose success payload failed came back as the Error variant,
+        // where the source dispatch takes the result path and rejects it. Review reported this
+        // on the union cascade; this is the same emitter's twin on the response root, and
+        // fixing one and not the other is the shape this branch keeps being caught for.
+        //
+        // A variant with NO pin is discriminated by its own required fields, exactly as an
+        // unpinned union arm is, so there a failed parse IS the miss and it still falls through.
+        let conds: Vec<String> = pin_conditions(v, "response");
+        // A pin set is a discriminator only when it picks this variant ALONE. The committed
+        // `WASmaxOutGroupsCreateRequest` pins both `CreateResponseSuccess` and
+        // `CreateResponseGroupAlreadyExists` to `type="result"` and tells them apart by
+        // disjoint required fields — `emit_outcome_types` admitted the pair for exactly that
+        // reason — so making the first match terminal turned a group-already-exists response
+        // into an error.
+        //
+        // Asked as "could a node that satisfies these conditions reach a LATER variant", not as
+        // equality of the condition lists. Equality missed two shapes at once: the same pins
+        // written in a different order, and a later variant pinning a SUPERSET, whose responses
+        // this arm's own condition also matches. Later only — an earlier variant is tried first,
+        // so a node it would take never reaches this one.
+        let mine = variant_pins(v);
+        let unique = !mine.is_empty()
+            && !op.response.variants[i + 1..]
+                .iter()
+                .any(|o| pins_can_coincide(&mine, &variant_pins(o)));
+        // The pin guards whenever there is one; uniqueness decides only whether a payload error
+        // inside that guard is terminal. Reading one flag for both dropped the condition
+        // entirely from every shared-pin arm, so a response this variant's pin excludes could
+        // still be returned as it whenever its required fields happened to parse.
+        let guarded = !conds.is_empty();
+        let body = if guarded {
+            lines.push(format!("{indent}if {} {{", conds.join(" && ")));
+            format!("{indent}    ")
+        } else {
+            indent.to_string()
+        };
         lines.push(format!(
-            "{indent}let __r: Result<{sname}, anyhow::Error> = (|| -> Result<{sname}, anyhow::Error> {{"
+            "{body}let __r: Result<{sname}, anyhow::Error> = (|| -> Result<{sname}, anyhow::Error> {{"
         ));
-        // Discriminator guards first: an attr pinned to a literal (`type:"result"`)
-        // must match, else this variant doesn't apply — bail so the next arm is tried.
-        for a in &v.assertions {
-            if a.kind == AssertionKind::Attr
-                && let (Some(name), Some(value)) = (&a.name, &a.value)
-            {
-                lines.push(format!(
-                    "{indent}    if response.get_attr({}).map(|x| x.as_str()).as_deref() != Some({}) {{ anyhow::bail!(\"{vname}: {} != {}\"); }}",
-                    rust_lit(name),
-                    rust_lit(value),
-                    rust_lit_inner(name),
-                    rust_lit_inner(value),
-                ));
-            }
-        }
         lines.extend(emit_response_parser(
             &v.fields,
             sname,
-            &format!("{indent}    "),
+            &format!("{body}    "),
             sname,
         ));
-        lines.push(format!("{indent}}})();"));
-        lines.push(format!(
-            "{indent}if let Ok(__v) = __r {{ return Ok({enum_name}::{vname}(__v)); }}"
-        ));
+        lines.push(format!("{body}}})();"));
+        if unique {
+            lines.push(format!("{body}return Ok({enum_name}::{vname}(__r?));"));
+        } else {
+            lines.push(format!(
+                "{body}if let Ok(__v) = __r {{ return Ok({enum_name}::{vname}(__v)); }}"
+            ));
+        }
+        if guarded {
+            lines.push(format!("{indent}}}"));
+        }
     }
     lines.push(format!(
         "{indent}anyhow::bail!(\"{enum_name}: no response variant matched\")"
@@ -332,8 +485,8 @@ fn emit_success_guards(op: &IqStanzaDef, indent: &str) -> Vec<String> {
                         "{indent}if response.get_attr({}).map(|x| x.as_str()).as_deref() != Some({}) {{ anyhow::bail!(\"not a success response: {} != {}\"); }}",
                         rust_lit(name),
                         rust_lit(value),
-                        rust_lit_inner(name),
-                        rust_lit_inner(value),
+                        fmt_lit_inner(name),
+                        fmt_lit_inner(value),
                     ));
                 }
             }
@@ -342,7 +495,7 @@ fn emit_success_guards(op: &IqStanzaDef, indent: &str) -> Vec<String> {
                     lines.push(format!(
                         "{indent}if response.content_str() != Some({}) {{ anyhow::bail!(\"not a success response: content != {}\"); }}",
                         rust_lit(value),
-                        rust_lit_inner(value),
+                        fmt_lit_inner(value),
                     ));
                 }
             }
@@ -406,7 +559,14 @@ pub(crate) fn generate_spec(op: &IqStanzaDef, ns_const: &str, spec_name: &str) -
     // Spec fields from request-children attrs (skip const + generated id).
     let mut spec_fields: Vec<(String, &'static str, WapAttrKind)> = Vec::new();
     let mut seen_spec = HashSet::new();
-    collect_attrs(&op.request.children, &mut spec_fields, &mut seen_spec);
+    let mut attr_fields: AttrFieldMap = HashMap::new();
+    collect_attrs(
+        &op.request.children,
+        &mut spec_fields,
+        &mut seen_spec,
+        &[],
+        &mut attr_fields,
+    );
 
     // Generate `build_iq`'s body first: it discovers each node's variant groups
     // (smax MixinGroup disjunctions), emitting the enum types and the extra spec
@@ -414,6 +574,8 @@ pub(crate) fn generate_spec(op: &IqStanzaDef, ns_const: &str, spec_name: &str) -
     let spec_base = spec_name.trim_end_matches("Spec").to_string();
     let mut variant_enums: Vec<String> = Vec::new();
     let mut variant_fields: Vec<(String, String, bool)> = Vec::new();
+    // The attribute field names, so a synthesized content field cannot collide with one.
+    let reserved: HashSet<String> = spec_fields.iter().map(|(n, _, _)| n.clone()).collect();
     let build_iq_lines = emit_build_iq(
         op,
         ns_const,
@@ -421,6 +583,8 @@ pub(crate) fn generate_spec(op: &IqStanzaDef, ns_const: &str, spec_name: &str) -
         &spec_base,
         &mut variant_enums,
         &mut variant_fields,
+        &reserved,
+        &attr_fields,
     );
 
     // ── Variant enums (top-level, before the struct that references them) ──
@@ -662,6 +826,8 @@ fn emit_build_iq(
     spec_base: &str,
     variant_enums: &mut Vec<String>,
     variant_fields: &mut Vec<(String, String, bool)>,
+    reserved: &HashSet<String>,
+    attr_fields: &AttrFieldMap,
 ) -> Vec<String> {
     let mut lines = vec!["    fn build_iq(&self) -> InfoQuery<'static> {".to_string()];
     let target = if matches!(op.target, IqTarget::Group) {
@@ -674,23 +840,45 @@ fn emit_build_iq(
             spec_base,
             enum_defs: variant_enums,
             fields: variant_fields,
+            reserved,
+            attr_fields,
         };
-        let mut top_var_names: Vec<String> = Vec::new();
+        let mut top_var_names: Vec<(String, bool)> = Vec::new();
         let mut used_names = std::collections::HashMap::new();
         for child in &op.request.children {
-            let (child_lines, child_var) =
-                emit_child_builder(child, "        ", &mut used_names, &mut ctx);
+            let (child_lines, child_var, is_list) =
+                emit_child_builder(child, "        ", &mut used_names, &mut ctx, &[]);
             lines.extend(child_lines);
-            top_var_names.push(child_var);
+            top_var_names.push((child_var, is_list));
         }
         lines.push(String::new());
         lines.push(format!("        InfoQuery::{iq}("));
         lines.push(format!("            {ns_const},"));
         lines.push(format!("            {target},"));
-        lines.push(format!(
-            "            Some(NodeContent::Nodes(vec![{}])),",
-            top_var_names.join(", ")
-        ));
+        // A top-level child that repeats yields a LIST of nodes, which the `vec![a, b]` spelling
+        // cannot hold — those are spread in, and the rest pushed one by one.
+        if top_var_names.iter().any(|(_, is_list)| *is_list) {
+            lines.push("            Some(NodeContent::Nodes({".to_string());
+            lines.push("                let mut __children = Vec::new();".to_string());
+            for (v, is_list) in &top_var_names {
+                lines.push(if *is_list {
+                    format!("                __children.extend({v});")
+                } else {
+                    format!("                __children.push({v});")
+                });
+            }
+            lines.push("                __children".to_string());
+            lines.push("            })),".to_string());
+        } else {
+            lines.push(format!(
+                "            Some(NodeContent::Nodes(vec![{}])),",
+                top_var_names
+                    .iter()
+                    .map(|(v, _)| v.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        }
         lines.push("        )".to_string());
     } else {
         lines.push(format!(
@@ -701,21 +889,58 @@ fn emit_build_iq(
     lines
 }
 
+/// Collect the spec fields a request's attributes need, and record which field each attribute
+/// SITE reads — keyed by the path of tags down to it, since two nodes may spell an attribute the
+/// same way and mean different things.
+///
+/// One `seen` set across the whole tree collapsed them into a single field: the committed group
+/// create request carries `jid` on its repeated `<participant>` nodes and on `<linked_parent>`,
+/// a user JID and a group JID, and the spec exposed one `jid` written to both — a request the
+/// caller cannot construct at all. Deduplication is right only for the SAME node's attribute,
+/// which really is one input; across nodes it is two inputs sharing a name.
+///
+/// The first site keeps the plain spelling, so nothing that never collided moves. A later site
+/// takes its owning tag as a prefix, and a numeric suffix past that.
+pub(crate) type AttrFieldMap = HashMap<(Vec<String>, String), String>;
+
 fn collect_attrs(
     children: &[WapChildNode],
     out: &mut Vec<(String, &'static str, WapAttrKind)>,
     seen: &mut HashSet<String>,
+    path: &[String],
+    map: &mut AttrFieldMap,
 ) {
     for child in children {
+        let mut here = path.to_vec();
+        here.push(child.tag.clone());
         for attr in &child.attrs {
-            if !matches!(attr.kind, WapAttrKind::Const | WapAttrKind::GeneratedId) {
-                let ident = rust_ident(&attr.name);
-                if seen.insert(ident.clone()) {
-                    out.push((ident, rust_attr_type(&attr.kind), attr.kind.clone()));
-                }
+            if matches!(attr.kind, WapAttrKind::Const | WapAttrKind::GeneratedId) {
+                continue;
             }
+            let ident = rust_ident(&attr.name);
+            let key = (here.clone(), attr.name.clone());
+            // The same node's attribute is one input however many times the tree repeats it.
+            if let Some(existing) = map.get(&key) {
+                let _ = existing;
+                continue;
+            }
+            let field = if seen.insert(ident.clone()) {
+                ident
+            } else {
+                let prefixed = rust_ident(&format!("{}_{}", child.tag, attr.name));
+                if seen.insert(prefixed.clone()) {
+                    prefixed
+                } else {
+                    (2..)
+                        .map(|n| format!("{prefixed}_{n}"))
+                        .find(|n| seen.insert(n.clone()))
+                        .expect("an unused suffix exists")
+                }
+            };
+            map.insert(key, field.clone());
+            out.push((field, rust_attr_type(&attr.kind), attr.kind.clone()));
         }
-        collect_attrs(&child.children, out, seen);
+        collect_attrs(&child.children, out, seen, &here, map);
     }
 }
 
@@ -789,6 +1014,229 @@ mod tests {
             assertions,
             ..Default::default()
         }
+    }
+
+    fn conflict_content(value: &str) -> wa_ir::ResponseAssertion {
+        wa_ir::ResponseAssertion {
+            kind: AssertionKind::Content,
+            name: None,
+            value: Some(value.to_string()),
+            reference_path: None,
+        }
+    }
+
+    /// A required content read fails on an absent payload, so it separates outcomes exactly as
+    /// a required attribute does — and while every content decoder ended in `unwrap_or_default`
+    /// it could not, which is why the signature left it out. It fails now, and leaving it out
+    /// made two distinguishable outcomes look like a pair of empty signatures.
+    #[test]
+    fn a_required_content_read_counts_toward_a_variants_signature() {
+        let field = |json: serde_json::Value| -> wa_ir::ParsedField {
+            serde_json::from_value(json).expect("field")
+        };
+        let content = field(serde_json::json!({
+            "method": "contentString", "name": "elementValue", "type": "string",
+            "required": true
+        }));
+        assert!(
+            !fail_required_fields(std::slice::from_ref(&content)).is_empty(),
+            "a required content read is fail-on-absent",
+        );
+        // …and it is keyed by the DESCENT, since content has no name of its own: one node's
+        // content must not stand in for another's. Both shapes below require the same child, so
+        // the child entry cannot be what tells them apart — only where the content sits can.
+        let content_inside = vec![field(serde_json::json!({
+            "method": "child", "name": "detail", "type": "string", "required": true,
+            "children": [{
+                "method": "contentString", "name": "elementValue", "type": "string",
+                "required": true
+            }]
+        }))];
+        let content_outside = vec![
+            field(serde_json::json!({
+                "method": "child", "name": "detail", "type": "string", "required": true
+            })),
+            content.clone(),
+        ];
+        assert_ne!(
+            fail_required_fields(&content_inside),
+            fail_required_fields(&content_outside),
+            "content under a child is a different requirement from content at the root",
+        );
+        // A REPEATED child fails on nothing: its parser iterates and succeeds with an empty
+        // vector where the child is absent, so it cannot tell one variant from another.
+        let repeated = field(serde_json::json!({
+            "method": "child", "name": "item", "tag": "item", "type": "string",
+            "required": true, "repeats": true,
+            "children": [{"method": "attrString", "name": "v", "wireName": "v",
+                          "type": "string", "required": true}]
+        }));
+        assert!(
+            !fail_required_fields(std::slice::from_ref(&repeated))
+                .iter()
+                .any(|k| k.contains("child:item")),
+            "a repeated child is not fail-on-absent",
+        );
+        // …and a child that does NOT repeat still is, which is what makes the exclusion about
+        // repetition rather than about children.
+        let single = field(serde_json::json!({
+            "method": "child", "name": "item", "tag": "item", "type": "string",
+            "required": true,
+            "children": [{"method": "attrString", "name": "v", "wireName": "v",
+                          "type": "string", "required": true}]
+        }));
+        assert!(
+            fail_required_fields(std::slice::from_ref(&single))
+                .iter()
+                .any(|k| k.contains("child:item")),
+            "a single required child bails on absence",
+        );
+        // The bound: an OPTIONAL content read still fails on nothing, because the emitter hands
+        // back a `None` the field holds rather than an error.
+        let optional = field(serde_json::json!({
+            "method": "contentString", "name": "elementValue", "type": "string",
+            "required": false
+        }));
+        assert!(
+            fail_required_fields(std::slice::from_ref(&optional)).is_empty(),
+            "an optional content read discriminates nothing",
+        );
+    }
+
+    /// Two nodes may spell an attribute the same way and mean different things, so one `seen`
+    /// set across the tree collapsed them into a single field written to both.
+    #[test]
+    fn same_named_attributes_on_different_nodes_stay_apart() {
+        let node = |tag: &str, kind: WapAttrKind| wa_ir::WapChildNode {
+            tag: tag.into(),
+            attrs: vec![wa_ir::WapAttrDef {
+                name: "jid".into(),
+                kind,
+                value: None,
+                required: true,
+                enum_ref: None,
+            }],
+            children: vec![],
+            content: None,
+            repeats: false,
+            variant_groups: vec![],
+        };
+        let children = vec![
+            node("participant", WapAttrKind::UserJid),
+            node("linked_parent", WapAttrKind::GroupJid),
+        ];
+        let mut out = Vec::new();
+        let mut seen = HashSet::new();
+        let mut map = HashMap::new();
+        collect_attrs(&children, &mut out, &mut seen, &[], &mut map);
+        let names: Vec<&str> = out.iter().map(|(n, _, _)| n.as_str()).collect();
+        assert_eq!(
+            names,
+            vec!["jid", "linked_parent_jid"],
+            "the second site takes its own field: {out:?}"
+        );
+        // …and each SITE is told which field it reads, or the builder would write both to
+        // whichever name won.
+        assert_eq!(
+            map.get(&(vec!["participant".to_string()], "jid".to_string()))
+                .map(String::as_str),
+            Some("jid")
+        );
+        assert_eq!(
+            map.get(&(vec!["linked_parent".to_string()], "jid".to_string()))
+                .map(String::as_str),
+            Some("linked_parent_jid")
+        );
+        // The bound: the SAME node's attribute is one input however often the tree spells it.
+        // Two sibling `<participant>` nodes are one repeated shape, not two fields.
+        let mut out = Vec::new();
+        let mut seen = HashSet::new();
+        let mut map = HashMap::new();
+        collect_attrs(
+            &[
+                node("participant", WapAttrKind::UserJid),
+                node("participant", WapAttrKind::UserJid),
+            ],
+            &mut out,
+            &mut seen,
+            &[],
+            &mut map,
+        );
+        assert_eq!(
+            out.iter().map(|(n, _, _)| n.as_str()).collect::<Vec<_>>(),
+            vec!["jid"],
+            "one node, one input, whatever the repetition: {out:?}"
+        );
+    }
+
+    #[test]
+    fn a_content_pin_selects_a_variant_as_much_as_an_attribute_one() {
+        // An outcome root has two things to pin, and the pin set modelled only one. A variant
+        // discriminated by `literalContent` emitted no selector at all, so a response carrying
+        // both variants' required fields came back as the first regardless of which content
+        // value made the source parser choose the second.
+        let v = conflict_variant(vec![conflict_content("admin_add")]);
+        let conds = pin_conditions(&v, "response");
+        assert_eq!(
+            conds,
+            vec![r#"response.content_str().as_deref() == Some("admin_add")"#.to_string()],
+            "the content is compared"
+        );
+        // …and it discriminates: a node has ONE text content, so two variants pinning it to
+        // different values are as exclusive as two disagreeing on an attribute.
+        let other = conflict_variant(vec![conflict_content("admin_remove")]);
+        assert!(
+            !pins_can_coincide(&variant_pins(&v), &variant_pins(&other)),
+            "different content values cannot both match"
+        );
+        // The bounds. The same value still coincides; a content pin and an ATTRIBUTE pin
+        // constrain different things and never conflict; and an unpinned variant is still
+        // reachable through every one of them.
+        assert!(pins_can_coincide(
+            &variant_pins(&v),
+            &variant_pins(&conflict_variant(vec![conflict_content("admin_add")]))
+        ));
+        assert!(pins_can_coincide(
+            &variant_pins(&v),
+            &variant_pins(&conflict_variant(vec![conflict_attr(
+                "type",
+                Some("result")
+            )]))
+        ));
+        assert!(pins_can_coincide(
+            &variant_pins(&v),
+            &variant_pins(&conflict_variant(vec![]))
+        ));
+        // …and it has to reach the ADMISSION gate as well as the selector. `assertions_conflict`
+        // was a second copy of this relation restricted to attributes, so two outcomes separated
+        // by `literalContent` were judged to shadow each other, the union was refused, and the
+        // guard emitted for them was never reached — the rule fixed at one end and not the
+        // other. The two are one function now, so this cannot drift again.
+        assert!(
+            assertions_conflict(&v, &other),
+            "content pins separate the outcomes"
+        );
+        assert!(
+            !assertions_conflict(&v, &conflict_variant(vec![conflict_content("admin_add")])),
+            "the same value does not"
+        );
+        assert!(
+            !assertions_conflict(
+                &v,
+                &conflict_variant(vec![conflict_attr("type", Some("result"))])
+            ),
+            "and a pin on something else does not"
+        );
+
+        // And an attribute pin still reads as one — the enum did not swallow the old shape.
+        let a = conflict_variant(vec![conflict_attr("type", Some("result"))]);
+        assert_eq!(
+            pin_conditions(&a, "response"),
+            vec![
+                r#"response.get_attr("type").map(|x| x.as_str()).as_deref() == Some("result")"#
+                    .to_string()
+            ]
+        );
     }
 
     #[test]
@@ -958,6 +1406,386 @@ mod tests {
     }
 
     #[test]
+    fn a_variant_a_later_superset_can_also_take_is_not_unique() {
+        use wa_ir::{
+            ParsedField, ParsedFieldType, ResponseAssertion, ResponseVariant, ResponseVariantKind,
+        };
+        // Equality of the pin lists is the wrong question. A variant pinning `type="result"`
+        // followed by one pinning `type="result"` AND `kind="special"` has a DIFFERENT list, so
+        // ordered equality called it unique — but every response the second takes, the first's
+        // own condition also matches, so making it terminal means the second is never tried.
+        // The question is whether a node satisfying these conditions can reach a later variant.
+        fn attr(name: &str) -> ParsedField {
+            ParsedField {
+                method: "attrString".into(),
+                name: name.into(),
+                field_type: ParsedFieldType::String,
+                required: true,
+                ..Default::default()
+            }
+        }
+        fn pin(name: &str, value: &str) -> ResponseAssertion {
+            ResponseAssertion {
+                kind: AssertionKind::Attr,
+                name: Some(name.into()),
+                value: Some(value.into()),
+                reference_path: None,
+            }
+        }
+        let mut op = stanza("WASmaxOutFooWideRequest", Some("makeWideRequest"));
+        op.response = ParsedResponse {
+            parser_name: "FooWideRPC".into(),
+            variants: vec![
+                ResponseVariant {
+                    tag: "WideResponsePlain".into(),
+                    module_name: "m".into(),
+                    kind: ResponseVariantKind::Success,
+                    assertions: vec![pin("type", "result")],
+                    fields: vec![attr("plainOnly")],
+                    ..Default::default()
+                },
+                ResponseVariant {
+                    tag: "WideResponseSpecial".into(),
+                    module_name: "m".into(),
+                    kind: ResponseVariantKind::Success,
+                    assertions: vec![pin("type", "result"), pin("kind", "special")],
+                    fields: vec![attr("specialOnly")],
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let code = generate_spec(&op, "FOO_NAMESPACE", "MakeWideRequestSpec");
+        assert!(
+            code.contains(
+                "if let Ok(__v) = __r { return Ok(MakeWideRequestResponse::Plain(__v)); }"
+            ),
+            "the wider pin cannot be terminal:\n{code}"
+        );
+        // The bound: pins that CONTRADICT rule each other out, so a node matching one cannot
+        // reach the other and the first is a discriminator after all.
+        op.response.variants[1].assertions = vec![pin("type", "error")];
+        let code = generate_spec(&op, "FOO_NAMESPACE", "MakeWideRequestSpec");
+        assert!(
+            code.contains("return Ok(MakeWideRequestResponse::Plain(__r?));"),
+            "disagreeing pins separate the two:\n{code}"
+        );
+    }
+
+    #[test]
+    fn variants_sharing_a_pin_still_cascade() {
+        use wa_ir::{
+            ParsedField, ParsedFieldType, ResponseAssertion, ResponseVariant, ResponseVariantKind,
+        };
+        // A pin set is a discriminator only when it picks ONE variant. The committed
+        // `WASmaxOutGroupsCreateRequest` pins both its success and its group-already-exists
+        // outcomes to `type="result"` and tells them apart by disjoint required fields — which
+        // is exactly why `emit_outcome_types` admits the pair — so making the first match
+        // terminal turned a real response into an error. Sharing a pin puts a variant back on
+        // the first-success side, where its own payload is the only thing that can select it.
+        fn attr(name: &str) -> ParsedField {
+            ParsedField {
+                method: "attrString".into(),
+                name: name.into(),
+                field_type: ParsedFieldType::String,
+                required: true,
+                ..Default::default()
+            }
+        }
+        fn type_assert(value: &str) -> ResponseAssertion {
+            ResponseAssertion {
+                kind: AssertionKind::Attr,
+                name: Some("type".into()),
+                value: Some(value.into()),
+                reference_path: None,
+            }
+        }
+        let mut op = stanza("WASmaxOutFooCreateRequest", Some("makeCreateRequest"));
+        op.response = ParsedResponse {
+            parser_name: "FooCreateRPC".into(),
+            variants: vec![
+                ResponseVariant {
+                    tag: "CreateResponseSuccess".into(),
+                    module_name: "m".into(),
+                    kind: ResponseVariantKind::Success,
+                    assertions: vec![type_assert("result")],
+                    fields: vec![attr("groupId")],
+                    ..Default::default()
+                },
+                ResponseVariant {
+                    tag: "CreateResponseGroupAlreadyExists".into(),
+                    module_name: "m".into(),
+                    kind: ResponseVariantKind::Success,
+                    assertions: vec![type_assert("result")],
+                    fields: vec![attr("existingId")],
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let code = generate_spec(&op, "FOO_NAMESPACE", "MakeCreateRequestSpec");
+        // The EARLIER of the pair must fall through: its pin does not tell it from the one
+        // below, so a failed payload is still a miss.
+        assert!(
+            code.contains(
+                "if let Ok(__v) = __r { return Ok(MakeCreateRequestResponse::Success(__v)); }"
+            ),
+            "a shared pin is not a discriminator:\n{code}"
+        );
+        // The LAST one may be terminal, and should be: nothing below it could have taken the
+        // node, so its payload error is the only answer left — and the tail below it bails
+        // anyway, with a less precise message.
+        assert!(
+            code.contains("return Ok(MakeCreateRequestResponse::GroupAlreadyExists(__r?));"),
+            "the last matching variant has nothing to fall through to:\n{code}"
+        );
+        // …and both are still GUARDED on the pin they share. What uniqueness decides is whether
+        // a payload error inside the guard is terminal, not whether the pin is tested at all: a
+        // shared `type="result"` still excludes a `type="error"` response. Reading one flag for
+        // both dropped the condition from every shared-pin variant.
+        assert_eq!(
+            code.matches("get_attr(\"type\").map(|x| x.as_str()).as_deref() == Some(\"result\")")
+                .count(),
+            2,
+            "a shared pin still guards its own variant:\n{code}"
+        );
+    }
+
+    #[test]
+    fn a_requirement_under_an_optional_child_discriminates_nothing() {
+        use wa_ir::{ParsedField, ParsedFieldType, ResponseVariant, ResponseVariantKind};
+        // The emitter defaults a whole subtree when its optional child is missing, so a
+        // required attribute INSIDE one never makes the parser bail and cannot tell a variant
+        // from its sibling. The signature walk recorded it anyway — and once round forty-six
+        // qualified these keys by path, that false requirement could differ from a later
+        // variant's real one, so the subset gate admitted a union whose first arm then took
+        // every response the second could.
+        fn attr(name: &str, required: bool) -> ParsedField {
+            ParsedField {
+                method: if required {
+                    "attrString"
+                } else {
+                    "maybeAttrString"
+                }
+                .into(),
+                name: name.into(),
+                field_type: ParsedFieldType::String,
+                required,
+                ..Default::default()
+            }
+        }
+        fn optional_child(tag: &str, kids: Vec<ParsedField>) -> ParsedField {
+            ParsedField {
+                method: "maybeChild".into(),
+                name: tag.into(),
+                tag: Some(tag.into()),
+                field_type: ParsedFieldType::String,
+                required: false,
+                children: Some(kids),
+                ..Default::default()
+            }
+        }
+        let mut op = stanza("WASmaxOutFooOptRequest", Some("makeOptRequest"));
+        op.response = ParsedResponse {
+            parser_name: "FooOptRPC".into(),
+            variants: vec![
+                ResponseVariant {
+                    tag: "OptResponseSuccess".into(),
+                    module_name: "m".into(),
+                    kind: ResponseVariantKind::Success,
+                    fields: vec![optional_child("detail", vec![attr("code", true)])],
+                    ..Default::default()
+                },
+                ResponseVariant {
+                    tag: "OptResponseError".into(),
+                    module_name: "m".into(),
+                    kind: ResponseVariantKind::Error,
+                    fields: vec![attr("reason", true)],
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let code = generate_spec(&op, "FOO_NAMESPACE", "MakeOptRequestSpec");
+        assert!(
+            !code.contains("enum MakeOptRequestResponse"),
+            "the first variant requires nothing, so it shadows the second:\n{code}"
+        );
+        // The bound: the same attribute under a REQUIRED child is fail-on-absent, so it does
+        // separate them and the union stands.
+        let mut op = stanza("WASmaxOutFooOptRequest", Some("makeOptRequest"));
+        let mut required_child = optional_child("detail", vec![attr("code", true)]);
+        required_child.method = "child".into();
+        required_child.required = true;
+        op.response = ParsedResponse {
+            parser_name: "FooOptRPC".into(),
+            variants: vec![
+                ResponseVariant {
+                    tag: "OptResponseSuccess".into(),
+                    module_name: "m".into(),
+                    kind: ResponseVariantKind::Success,
+                    fields: vec![required_child],
+                    ..Default::default()
+                },
+                ResponseVariant {
+                    tag: "OptResponseError".into(),
+                    module_name: "m".into(),
+                    kind: ResponseVariantKind::Error,
+                    fields: vec![attr("reason", true)],
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let code = generate_spec(&op, "FOO_NAMESPACE", "MakeOptRequestSpec");
+        assert!(
+            code.contains("enum MakeOptRequestResponse"),
+            "a required child really does discriminate:\n{code}"
+        );
+        // And the other bound, which is the rule this walk had right all along: an OPTIONAL
+        // field of the variant's own is not fail-on-absent either, so two variants told apart
+        // only by one are not separable. Recording every field regardless is the over-broad
+        // mutation.
+        let mut op = stanza("WASmaxOutFooOptRequest", Some("makeOptRequest"));
+        op.response = ParsedResponse {
+            parser_name: "FooOptRPC".into(),
+            variants: vec![
+                ResponseVariant {
+                    tag: "OptResponseSuccess".into(),
+                    module_name: "m".into(),
+                    kind: ResponseVariantKind::Success,
+                    fields: vec![attr("hint", false)],
+                    ..Default::default()
+                },
+                ResponseVariant {
+                    tag: "OptResponseError".into(),
+                    module_name: "m".into(),
+                    kind: ResponseVariantKind::Error,
+                    fields: vec![attr("reason", true)],
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let code = generate_spec(&op, "FOO_NAMESPACE", "MakeOptRequestSpec");
+        assert!(
+            !code.contains("enum MakeOptRequestResponse"),
+            "an optional field discriminates nothing:\n{code}"
+        );
+    }
+
+    #[test]
+    fn two_variants_reading_one_wire_attribute_are_not_disjoint() {
+        use wa_ir::{ParsedField, ParsedFieldType, ResponseVariant, ResponseVariantKind};
+        // The shadowing gate asks whether an earlier variant's required reads are a subset of a
+        // later one's, and it asked that of the OUTPUT field names. Two variants may bind one
+        // wire attribute under different result names — `success_code` and `error_code`, both
+        // reading `code` — and by output name those sets look disjoint, so the union was
+        // admitted with two parsers of identical acceptance and the second unreachable. Keyed by
+        // what the parser reads, the sets are equal and the gate declines to the single-shape
+        // path.
+        fn coded(name: &str) -> ParsedField {
+            ParsedField {
+                method: "attrString".into(),
+                name: name.into(),
+                wire_name: Some("code".into()),
+                field_type: ParsedFieldType::String,
+                required: true,
+                ..Default::default()
+            }
+        }
+        let mut op = stanza("WASmaxOutFooCodeRequest", Some("makeCodeRequest"));
+        op.response = ParsedResponse {
+            parser_name: "FooCodeRPC".into(),
+            variants: vec![
+                ResponseVariant {
+                    tag: "CodeResponseSuccess".into(),
+                    module_name: "m".into(),
+                    kind: ResponseVariantKind::Success,
+                    fields: vec![coded("successCode")],
+                    ..Default::default()
+                },
+                ResponseVariant {
+                    tag: "CodeResponseError".into(),
+                    module_name: "m".into(),
+                    kind: ResponseVariantKind::Error,
+                    fields: vec![coded("errorCode")],
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let code = generate_spec(&op, "FOO_NAMESPACE", "MakeCodeRequestSpec");
+        assert!(
+            !code.contains("enum MakeCodeRequestResponse"),
+            "one wire read cannot separate two variants:\n{code}"
+        );
+        // The bounds, both of them things the key must NOT conflate. First: the same wire name
+        // read at a different DESCENT is a different read. A `code` on the response and a `code`
+        // inside an `<error>` wrapper are told apart by whether that wrapper exists, so keying
+        // on the name alone would decline a union that is perfectly separable — a loss of typing
+        // rather than a wrong parser, and still not the answer.
+        let mut op = stanza("WASmaxOutFooCodeRequest", Some("makeCodeRequest"));
+        let mut nested = coded("errorCode");
+        nested.source_path = Some(vec!["error".into()]);
+        op.response = ParsedResponse {
+            parser_name: "FooCodeRPC".into(),
+            variants: vec![
+                ResponseVariant {
+                    tag: "CodeResponseSuccess".into(),
+                    module_name: "m".into(),
+                    kind: ResponseVariantKind::Success,
+                    fields: vec![coded("successCode")],
+                    ..Default::default()
+                },
+                ResponseVariant {
+                    tag: "CodeResponseError".into(),
+                    module_name: "m".into(),
+                    kind: ResponseVariantKind::Error,
+                    fields: vec![nested],
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let code = generate_spec(&op, "FOO_NAMESPACE", "MakeCodeRequestSpec");
+        assert!(
+            code.contains("enum MakeCodeRequestResponse"),
+            "the same name at a different descent is a different read:\n{code}"
+        );
+        // Second: two variants reading different wire attributes are separable exactly as
+        // before, so the key change narrows nothing it should not.
+        let mut op = stanza("WASmaxOutFooCodeRequest", Some("makeCodeRequest"));
+        let mut distinct = coded("errorCode");
+        distinct.wire_name = Some("reason".into());
+        op.response = ParsedResponse {
+            parser_name: "FooCodeRPC".into(),
+            variants: vec![
+                ResponseVariant {
+                    tag: "CodeResponseSuccess".into(),
+                    module_name: "m".into(),
+                    kind: ResponseVariantKind::Success,
+                    fields: vec![coded("successCode")],
+                    ..Default::default()
+                },
+                ResponseVariant {
+                    tag: "CodeResponseError".into(),
+                    module_name: "m".into(),
+                    kind: ResponseVariantKind::Error,
+                    fields: vec![distinct],
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let code = generate_spec(&op, "FOO_NAMESPACE", "MakeCodeRequestSpec");
+        assert!(
+            code.contains("enum MakeCodeRequestResponse"),
+            "different wire reads still separate them:\n{code}"
+        );
+    }
+
+    #[test]
     fn conflicting_assertions_separate_subset_variants_into_enum() {
         use wa_ir::{
             ParsedField, ParsedFieldType, ResponseAssertion, ResponseVariant, ResponseVariantKind,
@@ -1010,17 +1838,26 @@ mod tests {
             code.contains("pub enum MakeGetThingRequestResponse"),
             "{code}"
         );
+        // Each arm guards on its pin — as a SELECTOR now rather than as a bail inside the
+        // payload closure, which is what separates a discriminator miss from a payload that
+        // failed. Spelled the other way, a `type="result"` response whose success payload failed
+        // came back as the Error variant.
         assert!(
             code.contains(
-                "if response.get_attr(\"type\").map(|x| x.as_str()).as_deref() != Some(\"result\")"
+                "if response.get_attr(\"type\").map(|x| x.as_str()).as_deref() == Some(\"result\") {"
             ),
-            "success arm must guard type==result: {code}"
+            "success arm must select on type==result: {code}"
         );
         assert!(
             code.contains(
-                "if response.get_attr(\"type\").map(|x| x.as_str()).as_deref() != Some(\"error\")"
+                "if response.get_attr(\"type\").map(|x| x.as_str()).as_deref() == Some(\"error\") {"
             ),
-            "error arm must guard type==error: {code}"
+            "error arm must select on type==error: {code}"
+        );
+        // And its payload error is the answer, rather than the next variant's parse.
+        assert!(
+            code.contains("return Ok(MakeGetThingRequestResponse::Success(__r?));"),
+            "the selected arm's payload error is propagated: {code}"
         );
     }
 

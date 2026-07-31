@@ -315,7 +315,230 @@ mod tests {
         );
         assert!(c.contains("let headline_node = response.get_optional_child(\"headline\")"));
         assert!(c.contains(".ok_or_else(|| anyhow::anyhow!(\"missing <headline>\"))?;"));
-        assert!(c.contains("let body = body_node.content_str().unwrap_or_default().to_string();"));
+        // The leaf is required, so the read demands the content — the same rule the ordinary
+        // content read takes, and the one this path's discriminator signature now claims.
+        assert!(c.contains(
+            r#"let body = body_node.content_str().ok_or_else(|| anyhow::anyhow!("missing body"))?.to_string();"#
+        ));
+    }
+
+    /// The flattened child-content read and the discriminator signature must agree about
+    /// whether an absent payload fails, or the outcome-union gate reasons from a claim the
+    /// emitted parser does not honour.
+    #[test]
+    fn a_flattened_child_content_read_fails_exactly_where_its_signature_says() {
+        let wrapper = |leaf_required: bool| {
+            let mut c = parsed("child", "detail", ParsedFieldType::String);
+            c.tag = Some("detail".into());
+            let mut leaf = parsed("contentString", "content", ParsedFieldType::String);
+            leaf.required = leaf_required;
+            c.children = Some(vec![leaf]);
+            c
+        };
+        let module = |f: wa_ir::ParsedField| {
+            let ir = IqIr {
+                wa_version: "0.0.0".into(),
+                stanzas: vec![IqStanzaDef {
+                    module_name: "WAWebDetail".into(),
+                    namespace: "fb:thrift_iq".into(),
+                    iq_type: IqType::Get,
+                    target: IqTarget::Server,
+                    parser_name: "p".into(),
+                    exported_function: Some("detail".into()),
+                    all_exports: vec!["detail".into()],
+                    request: IqRequestDef {
+                        namespace: "fb:thrift_iq".into(),
+                        iq_type: IqType::Get,
+                        target: IqTarget::Server,
+                        children: vec![],
+                    },
+                    response: ParsedResponse {
+                        parser_name: "p".into(),
+                        assertions: vec![],
+                        fields: vec![f],
+                        ..Default::default()
+                    },
+                }],
+                unparseable: vec![],
+            };
+            generate_iq(&ir)
+        };
+        // A required leaf demands its content, and the signature records it.
+        let src = module(wrapper(true));
+        assert!(
+            src.contains(r#"ok_or_else(|| anyhow::anyhow!("missing detail"))?"#),
+            "a required content leaf is demanded: {src}"
+        );
+        // An OPTIONAL leaf under a required child still defaults — the field is typed by the
+        // child, so the read has to produce a value — and the signature must not claim
+        // otherwise. The two conditions are the same flag, read in two files.
+        let src = module(wrapper(false));
+        assert!(
+            src.contains("let detail = detail_node.content_str().unwrap_or_default().to_string();"),
+            "an optional leaf still defaults: {src}"
+        );
+    }
+
+    #[test]
+    fn a_child_content_integer_reaching_below_zero_is_signed() {
+        // The range lives on the content LEAF, not on the `child` that carries it, so asking
+        // the child alone answered `u64` and a negative payload failed to parse. The width
+        // has to be asked of whatever actually decodes the number.
+        let ranged = |tag: &str, min: i64| {
+            let mut leaf = parsed("contentInt", "content", ParsedFieldType::Integer);
+            leaf.int_min = Some(min);
+            leaf.int_max = Some(10);
+            let mut c = parsed("child", tag, ParsedFieldType::String);
+            c.tag = Some(tag.into());
+            c.children = Some(vec![leaf]);
+            c
+        };
+        let ir = IqIr {
+            wa_version: "0.0.0".into(),
+            stanzas: vec![IqStanzaDef {
+                module_name: "WAWebWeights".into(),
+                namespace: "fb:thrift_iq".into(),
+                iq_type: IqType::Get,
+                target: IqTarget::Server,
+                parser_name: "p".into(),
+                exported_function: Some("weights".into()),
+                all_exports: vec!["weights".into()],
+                request: IqRequestDef {
+                    namespace: "fb:thrift_iq".into(),
+                    iq_type: IqType::Get,
+                    target: IqTarget::Server,
+                    children: vec![],
+                },
+                response: ParsedResponse {
+                    parser_name: "p".into(),
+                    assertions: vec![],
+                    fields: vec![ranged("weight", -10), ranged("count", 0)],
+                    ..Default::default()
+                },
+            }],
+            unparseable: vec![],
+        };
+        let c = &generate_iq(&ir);
+        assert!(
+            c.contains("pub weight: i64,"),
+            "negative bound is signed: {c}"
+        );
+        assert!(
+            c.contains("pub count: u64,"),
+            "and a non-negative one is untouched: {c}"
+        );
+    }
+
+    #[test]
+    fn a_band_with_no_lower_bound_is_signed_whatever_its_ceiling() {
+        // `attrIntRange(e, "score", void 0, 10)` enforces "at most 10" and nothing at all
+        // underneath, so the source accepts `-1` and the field has to be able to hold it.
+        // Reading the CEILING's sign — signed only when the maximum was itself negative —
+        // declared this `u64`, and then `n <= 10u64` accepted the value while `parse::<u64>()`
+        // had already failed on it: every negative response rejected, and inside a union the
+        // arm's band called contradictory. A band open at the bottom is signed however high
+        // its top is.
+        let ranged = |name: &str, min: Option<i64>, max: Option<i64>| {
+            let mut f = parsed("attrIntRange", name, ParsedFieldType::Integer);
+            f.int_min = min;
+            f.int_max = max;
+            f
+        };
+        let ir = IqIr {
+            wa_version: "0.0.0".into(),
+            stanzas: vec![IqStanzaDef {
+                module_name: "WAWebScores".into(),
+                namespace: "fb:thrift_iq".into(),
+                iq_type: IqType::Get,
+                target: IqTarget::Server,
+                parser_name: "p".into(),
+                exported_function: Some("scores".into()),
+                all_exports: vec!["scores".into()],
+                request: IqRequestDef {
+                    namespace: "fb:thrift_iq".into(),
+                    iq_type: IqType::Get,
+                    target: IqTarget::Server,
+                    children: vec![],
+                },
+                response: ParsedResponse {
+                    parser_name: "p".into(),
+                    assertions: vec![],
+                    fields: vec![
+                        ranged("score", None, Some(10)),
+                        ranged("count", Some(0), Some(10)),
+                        ranged("plain", None, None),
+                    ],
+                    ..Default::default()
+                },
+            }],
+            unparseable: vec![],
+        };
+        let c = &generate_iq(&ir);
+        assert!(
+            c.contains("pub score: i64,"),
+            "an open bottom admits negatives: {c}"
+        );
+        assert!(
+            c.contains("pub count: u64,"),
+            "a floor at zero does not: {c}"
+        );
+        assert!(
+            c.contains("pub plain: u64,"),
+            "and no band at all is left as it was: {c}"
+        );
+    }
+
+    #[test]
+    fn a_content_uint_stays_unsigned_whatever_range_it_carries() {
+        // `contentUint(N)` is N big-endian BYTES folded into a `u64`, not decimal text, so a
+        // range could never make it signed — declaring the field `i64` against that fold is
+        // code that does not compile, which is the failure the width predicate exists to stop.
+        // Nothing in the scanner puts a range on a content method (only `attrIntRange` does),
+        // so this reaches codegen only through hand-built IR; the point of pinning it is that
+        // the invariant holds by construction rather than by coincidence.
+        let ranged_uint = |tag: &str| {
+            let mut leaf = parsed("contentUint", "content", ParsedFieldType::Integer);
+            leaf.int_min = Some(-5);
+            leaf.int_max = Some(5);
+            let mut c = parsed("child", tag, ParsedFieldType::String);
+            c.tag = Some(tag.into());
+            c.children = Some(vec![leaf]);
+            c
+        };
+        let ir = IqIr {
+            wa_version: "0.0.0".into(),
+            stanzas: vec![IqStanzaDef {
+                module_name: "WAWebPreKeys".into(),
+                namespace: "encrypt".into(),
+                iq_type: IqType::Get,
+                target: IqTarget::Server,
+                parser_name: "p".into(),
+                exported_function: Some("keys".into()),
+                all_exports: vec!["keys".into()],
+                request: IqRequestDef {
+                    namespace: "encrypt".into(),
+                    iq_type: IqType::Get,
+                    target: IqTarget::Server,
+                    children: vec![],
+                },
+                response: ParsedResponse {
+                    parser_name: "p".into(),
+                    assertions: vec![],
+                    fields: vec![ranged_uint("registration")],
+                    ..Default::default()
+                },
+            }],
+            unparseable: vec![],
+        };
+        let c = &generate_iq(&ir);
+        assert!(
+            c.contains("pub registration: u64,"),
+            "a byte fold is unsigned whatever the range says: {c}"
+        );
+        assert!(
+            !c.contains("pub registration: i64,"),
+            "and never declared against the fold's type: {c}"
+        );
     }
 
     #[test]

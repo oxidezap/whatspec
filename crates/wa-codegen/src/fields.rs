@@ -74,6 +74,144 @@ fn tag_or_name(f: &ParsedField) -> &str {
     f.tag.as_deref().unwrap_or(&f.name)
 }
 
+/// Whether the range the IR declares for `f` admits a negative value.
+///
+/// Every integer materialized as `u64`, so a field the parser accepts down to `-10000` had
+/// no representation at all. `samplingWeight` in `iq`'s `configs` and
+/// `experimentOrSamplingConfigMixinGroup` is declared `intMin: -10000`, and both emit as a
+/// tag cascade — each arm decoded inside a closure, an `Err` skipping to the next. A wire
+/// value of `-500` therefore failed `parse()`, dropped the `SamplingConfig` arm, and fell
+/// off the end of the cascade: the whole union field came back `None`, not just that leaf.
+///
+/// The width has to follow the declared range, and one predicate answers it for the type,
+/// the decoder and a union arm's band alike. Spelling it separately at each is what let a
+/// guard and the payload it admits disagree.
+pub(crate) fn admits_negative(f: &ParsedField) -> bool {
+    // `contentUint(N)` is N big-endian BYTES, not decimal text, and the emitter folds it into
+    // a `u64` unconditionally. So a range on it could never make it signed, and letting one
+    // say otherwise would declare the field `i64` against a `u64` fold — code that does not
+    // compile, which is the failure this predicate was introduced to stop happening in the
+    // child-content path. Nothing sets a range on a content method today; the guard is here so
+    // that stays true by construction rather than by coincidence.
+    if f.method == "contentUint" {
+        return false;
+    }
+    if wap::method_field_type(&f.method) != ParsedFieldType::Integer {
+        return false;
+    }
+    // A declared lower bound below zero — or NO declared lower bound alongside an upper one,
+    // because a band open at the bottom admits every negative value whatever its ceiling.
+    // `attrIntRange("score", void 0, 10)` is "at most 10", which the source accepts `-1` for;
+    // reading the ceiling's sign instead left it `u64`, so the decoder rejected values the
+    // parser takes and the union called the arm's band contradictory. Only `-1` as a maximum
+    // was caught, which is the same rule stopping one case short of what it says.
+    //
+    // No range at all is untouched: an integer accessor with nothing declared is unsigned by
+    // this generator's convention, and that is not what a half-open BAND says.
+    match (f.int_min, f.int_max) {
+        (Some(lo), _) => lo < 0,
+        (None, Some(_)) => true,
+        (None, None) => false,
+    }
+}
+
+/// Whether a declared integer band admits NOTHING at the width that is actually emitted.
+///
+/// Contradictory, not merely negative: a minimum above the maximum admits nothing at any width,
+/// and `int_max < 0` alone is an ordinary signed band — WHEN the field is signed. A width forced
+/// unsigned admits nothing below zero, so a ceiling there admits nothing at all; `contentUint`
+/// is a byte fold that [`admits_negative`] keeps `u64` whatever range it carries. Both halves
+/// are the same statement, asked of the width that is really emitted.
+///
+/// One spelling for the two readers that need it: the union's arm-degrading test, which has
+/// asked it all along, and [`int_band`], which was dropping the unsatisfiable bound as though it
+/// were a redundant one. The same one-rule-two-places asymmetry as the band itself, found the
+/// same way.
+pub(crate) fn contradictory_band(f: &ParsedField) -> bool {
+    f.int_min.zip(f.int_max).is_some_and(|(lo, hi)| lo > hi)
+        || (!admits_negative(f)
+            && wap::method_field_type(&f.method) == ParsedFieldType::Integer
+            && f.int_max.is_some_and(|hi| hi < 0))
+}
+
+/// The band a bounded integer accessor enforces, as a test on a decoded value named `var` —
+/// `attrIntRange(node, "count", 1, 10)` → `(1u64..=10u64).contains(&count)`.
+///
+/// The width is spelled on the literals so the `parse()` feeding it has a type to infer. A bound
+/// no value of that width can fail says nothing, and emitting it only invited a clippy lint;
+/// signed, every bound is meaningful — dropping the negative lower one is what left
+/// `samplingWeight` guarded by its maximum alone over an unsigned parse.
+///
+/// One spelling for two readers: the union arm's selection guard, which has applied it all along,
+/// and the plain struct read, which parsed the number and enforced nothing. That asymmetry stopped
+/// being harmless the moment the width could be signed — an unsigned parse used to turn away every
+/// negative value by itself, and `i64` accepts them.
+pub(crate) fn int_band(f: &ParsedField, var: &str) -> Option<String> {
+    if wap::method_field_type(&f.method) != ParsedFieldType::Integer {
+        return None;
+    }
+    // A band that admits nothing is not a band with a bound to drop. The filters below remove a
+    // bound no value of the emitted width can FAIL; a negative ceiling under an unsigned width
+    // is the opposite — one no value can PASS — and removing it turned `intMin: 5, intMax: -1`
+    // into "at least five" and `0, -1` into no check at all. Both accept everything the source
+    // accessor rejects. `false` is the honest test, and it keeps every caller's shape: the
+    // check already sits where a present value is judged, so an absent optional field is
+    // untouched by it.
+    if contradictory_band(f) {
+        return Some("false".to_string());
+    }
+    let w = integer_width(f);
+    let signed = admits_negative(f);
+    let lo = f.int_min.filter(|n| signed || *n > 0);
+    let hi = f.int_max.filter(|n| signed || *n >= 0);
+    match (lo, hi) {
+        (Some(lo), Some(hi)) => Some(format!("({lo}{w}..={hi}{w}).contains(&{var})")),
+        (Some(lo), None) => Some(format!("{var} >= {lo}{w}")),
+        (None, Some(hi)) => Some(format!("{var} <= {hi}{w}")),
+        (None, None) => None,
+    }
+}
+
+/// The values an enum leaf accepts, however the scan recorded them — a resolved module enum's
+/// variants, or the key set an `attrEnumValues` table listed.
+///
+/// One spelling for the union arm's selection guard and for the ordinary struct read, which had
+/// no membership check at all — it copied whatever text was there for a field whose accessor
+/// takes seven values and nothing else.
+pub(crate) fn enum_values(f: &ParsedField) -> Option<Vec<String>> {
+    if let Some(r) = f.enum_ref.as_ref()
+        && !r.variants.is_empty()
+    {
+        return Some(r.variants.iter().map(|v| v.value.clone()).collect());
+    }
+    f.enum_keys.as_ref().filter(|k| !k.is_empty()).cloned()
+}
+
+/// The byte-length constraint a bytes accessor enforces, as a test on a decoded `Vec<u8>` named
+/// `var` — `contentBytes(32)` → `var.len() == 32`, `contentBytesRange(1, 128)` →
+/// `(1..=128).contains(&var.len())`.
+///
+/// One spelling for the same two readers the integer band has: the union arm's selection guard,
+/// which has checked lengths all along, and the plain struct read, which decoded the payload and
+/// checked nothing — so a generated parser took a body the source accessor rejects for its
+/// length. The same asymmetry, on the other kind of constraint.
+pub(crate) fn byte_band(f: &ParsedField, var: &str) -> Option<String> {
+    match (f.byte_length, f.byte_min, f.byte_max) {
+        // An exact length wins: nothing sets both, and a range beside one would be the fixed
+        // length restated.
+        (Some(n), _, _) => Some(format!("{var}.len() == {n}")),
+        (None, Some(lo), Some(hi)) => Some(format!("({lo}..={hi}).contains(&{var}.len())")),
+        (None, Some(lo), None) => Some(format!("{var}.len() >= {lo}")),
+        (None, None, Some(hi)) => Some(format!("{var}.len() <= {hi}")),
+        (None, None, None) => None,
+    }
+}
+
+/// The Rust integer width `f` materializes as.
+pub(crate) fn integer_width(f: &ParsedField) -> &'static str {
+    if admits_negative(f) { "i64" } else { "u64" }
+}
+
 /// The Rust type for a response field, derived from the method's canonical
 /// [`wap::method_field_type`] + optionality — one mapping, no per-consumer drift.
 pub(crate) fn rust_field_type(field: &ParsedField) -> &'static str {
@@ -82,7 +220,7 @@ pub(crate) fn rust_field_type(field: &ParsedField) -> &'static str {
         return "bool";
     }
     let base = match wap::method_field_type(&field.method) {
-        ParsedFieldType::Integer => "u64",
+        ParsedFieldType::Integer => integer_width(field),
         ParsedFieldType::Bytes => "Vec<u8>",
         // Every JID flavor materializes as one `Jid` today; the flavor lives in the IR.
         t if t.is_jid() => "Jid",
@@ -98,6 +236,7 @@ pub(crate) fn rust_field_type(field: &ParsedField) -> &'static str {
     if wap::is_optional_method(&field.method) || !field.required {
         match base {
             "u64" => "Option<u64>",
+            "i64" => "Option<i64>",
             "Vec<u8>" => "Option<Vec<u8>>",
             "Jid" => "Option<Jid>",
             _ => "Option<String>",
@@ -225,11 +364,23 @@ fn flatten_same_node_inner(fields: &[ParsedField], force_optional: bool) -> Vec<
     out
 }
 
-/// Weaken an attribute leaf to its optional `maybe…` accessor (so an optional
-/// same-node wrapper's children read as `Option<_>`). Content leaves already read
-/// leniently (`unwrap_or_default`); child/JID accessors have no `maybe` form here,
-/// so they are left unchanged (a rare over-strictness in the reference codegen).
+/// Weaken a leaf the flattening lifted out of an OPTIONAL same-node wrapper.
+///
+/// Flattening removes the wrapper, and with it the only thing that recorded "these are read
+/// only when the wrapper is present". Whatever it lifted is therefore no longer required, and
+/// `required = false` is the way this IR says so — `rust_field_type` reads it, the content path
+/// reads it, and the child-descent reads it, so one flag reaches every kind of descendant.
+///
+/// The METHOD is a separate question and moves only where the accessor itself needs it: three
+/// attribute spellings have a `maybe…` form and the rest read leniently already. This function
+/// asked the method question alone and let its answer decide the flag, so everything without a
+/// `maybe…` spelling — every JID, every content leaf, every child — kept `required: true` and
+/// was emitted as a mandatory read of a wrapper that may not be there. The generated parser then
+/// rejected the branch where the wrapper is absent, which is the whole case flattening exists to
+/// serve. The comment here called that "a rare over-strictness in the reference codegen"; it was
+/// this function's own.
 fn weaken_attr_to_optional(f: &mut ParsedField) {
+    f.required = false;
     let weakened = match f.method.as_str() {
         wap::ATTR_STRING => Some(wap::MAYBE_ATTR_STRING),
         wap::ATTR_INT => Some(wap::MAYBE_ATTR_INT),
@@ -238,7 +389,6 @@ fn weaken_attr_to_optional(f: &mut ParsedField) {
     };
     if let Some(m) = weakened {
         f.method = m.to_string();
-        f.required = false;
     }
 }
 
@@ -278,12 +428,31 @@ pub(crate) fn collect_response_fields(
             // `child("x").contentString()` → a single `x: String` field (named by
             // the child tag), not a stray `content` attr that collapses siblings.
             if let Some(ct) = f.content_type.or_else(|| child_content_type(f)) {
+                // The leaf the emitter will actually read: the FIRST content accessor among
+                // the children, which is the same `find` `emit_*` does. Asking whether ANY
+                // child admits negatives let a negative-bounded ATTRIBUTE sibling declare the
+                // flattened field `i64` while the emitter went on folding a `contentUint`
+                // into a `u64` — a struct initialization that does not compile. The width has
+                // to come from the leaf that decodes the value. That `contentUint` is a byte
+                // fold and so never signed is `admits_negative`'s own business now; spelling
+                // it here as well meant the shared predicate could be asked elsewhere and
+                // answer differently.
+                let signed_content = kids
+                    .iter()
+                    .find(|c| wap::is_content_method(&c.method))
+                    .is_some_and(admits_negative);
                 let base = match ct {
                     ContentType::Bytes => "Vec<u8>",
+                    ContentType::Integer if signed_content => "i64",
                     ContentType::Integer => "u64",
                     _ => "String",
                 };
-                let wrapped = if f.method == "maybeChild" {
+                // Optionality has the same TWO sources here as in `rust_field_type`: the
+                // accessor spelling, and the IR's own `required`. This path read only the
+                // accessor, so a `child` the scanner had relaxed still emitted a mandatory
+                // field — and the requiredness work in this branch relaxed 27 of them, none of
+                // which reached the generated decoder for a content-only child.
+                let wrapped = if f.method == "maybeChild" || !f.required {
                     format!("Option<{base}>")
                 } else {
                     base.to_string()

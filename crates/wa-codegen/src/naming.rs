@@ -69,9 +69,36 @@ pub(crate) fn rust_lit(s: &str) -> String {
 
 /// The escaped *inner* content of [`rust_lit`] (no surrounding quotes), for
 /// embedding inside a larger literal such as an error message.
+///
+/// Not for embedding into a FORMAT string — see [`fmt_lit_inner`], which is what every
+/// `anyhow!`/`ensure!`/`bail!` message in the emitted module needs.
 pub(crate) fn rust_lit_inner(s: &str) -> String {
     let lit = rust_lit(s);
     lit[1..lit.len() - 1].to_string()
+}
+
+/// The same, with braces doubled, for text that lands inside a `format!`-family string.
+///
+/// Every diagnostic the emitter writes is the first argument of `anyhow!`, `ensure!` or
+/// `bail!`, which is a format string whether or not it takes arguments. A wire name, a child
+/// tag or a pinned VALUE holding `{` or `}` therefore became a placeholder in the generated
+/// Rust: a pin of `"{}"` produced a message with two placeholders and one argument, and the
+/// emitted module stopped compiling. Nothing in CI compiles that module, so an otherwise valid
+/// IR would have shipped a broken consumer — the second defect on this branch of that kind.
+///
+/// The doubling comes FIRST, on the original text, and the Rust escaping on top of it. I had
+/// written the other order here with the claim that "neither can produce the other's input",
+/// which is the one thing that is not true of them: `{s:?}` spells a control character as
+/// `\u{1}`, so doubling afterwards produced `\u{{1}}` and the emitted module stopped compiling
+/// with `invalid character in unicode escape`. Another of the reversals the PR lists, and the
+/// second defect on this branch that would have shipped Rust that does not build — nothing in
+/// CI compiles that module.
+///
+/// This order cannot have the same problem in reverse. Doubling only ever writes `{` and `}`,
+/// which `{s:?}` passes through untouched; and an escape the encoding introduces is resolved by
+/// the Rust lexer before `format_args!` ever sees the string, so its braces are not placeholders.
+pub(crate) fn fmt_lit_inner(s: &str) -> String {
+    rust_lit_inner(&s.replace('{', "{{").replace('}', "}}"))
 }
 
 /// Make `base` a unique, ident-safe name: non-empty, not starting with a digit,
@@ -123,6 +150,26 @@ pub(crate) fn pascal_case(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_format_message_survives_every_character_a_wire_name_can_hold() {
+        // A brace in the text is a PLACEHOLDER in the emitted `anyhow!`/`ensure!` message, so it
+        // has to be doubled — and the doubling has to happen on the original text, because the
+        // Rust escaping introduces braces of its own. I had it the other way round with the
+        // claim that "neither can produce the other's input"; `{s:?}` spells a control character
+        // as `\u{1}`, which doubling turned into `\u{{1}}` — Rust that does not compile.
+        assert_eq!(fmt_lit_inner("{}"), "{{}}");
+        assert_eq!(fmt_lit_inner("a{b}c"), "a{{b}}c");
+        assert_eq!(fmt_lit_inner("\u{1}"), "\\u{1}");
+        // The bound: an escape the ENCODING introduces keeps its braces, because the Rust lexer
+        // resolves it before `format_args!` ever sees the string — doubling those would be the
+        // defect, not the fix.
+        assert_eq!(fmt_lit_inner("\u{7f}"), "\\u{7f}");
+        // And the ordinary text every other case is: quotes and backslashes escaped once.
+        assert_eq!(fmt_lit_inner("plain"), "plain");
+        assert_eq!(fmt_lit_inner("a\"b"), "a\\\"b");
+        assert_eq!(fmt_lit_inner("a\\b"), "a\\\\b");
+    }
 
     #[test]
     fn casing() {

@@ -42,6 +42,7 @@
       "degraded": 5,
       "dropsByReason": {
         "action enum table not structurally resolvable": 1,
+        "contentBytes": 1,
         "shadowedCallbackRead": 1
       },
       "stanzaTags": 13,
@@ -83,7 +84,7 @@
     "notif": {
       "file": "notif/index.json",
       "schema": "schema/notif.schema.json",
-      "sha256": "1838dc3c61e73070311d245fa1230ef0bc94408f925c94f6d5993635248d9380"
+      "sha256": "b9fb8491f008816297147b48ea7d7a694f488b848415606593495b05c61d7010"
     },
     "proto": {
       "file": "proto/WAProto.proto",

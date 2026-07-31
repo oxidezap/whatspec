@@ -21,7 +21,9 @@ use wa_ir::{
     UnionVariant,
 };
 
-use wa_oxc::{arg_expr, as_call, as_identifier, as_string_lit, callee_method, callee_object};
+use wa_oxc::{
+    arg_expr, as_call, as_identifier, as_int, as_string_lit, callee_method, callee_object,
+};
 
 /// The class name a legacy response parser is constructed from.
 const PARSER_CLASS: &str = "WADeprecatedWapParser";
@@ -298,6 +300,7 @@ fn field_from_call(
     method: &str,
     call: &CallExpression,
     module_scope: &ModuleScope,
+    undefined_shadowed: bool,
     unresolved: &mut Vec<String>,
 ) -> ParsedField {
     let arg0 = call.arguments.first().and_then(arg_expr);
@@ -323,11 +326,20 @@ fn field_from_call(
         // is not a decimal string: WA packs a prekey id into 3 bytes and a registration
         // id into 4, big-endian, so the length is part of the wire contract and dropping
         // it left the field looking like unbounded text.
-        wap::CONTENT_BYTES | "contentUint" => {
-            if let Some(Expression::NumericLiteral(n)) = arg0 {
-                f.byte_length = Some(n.value as u32);
-            }
-        }
+        wap::CONTENT_BYTES | "contentUint" => match arg0 {
+            // No length declared at all is not an unreadable one: `contentBytes()` accepts a
+            // payload of any size and says so completely. Recording a drop for it turned seven
+            // fully-read accessors into diagnostics — which the manifest showed the moment the
+            // tree was regenerated, and is why the diff is read rather than assumed.
+            None => {}
+            Some(Expression::NumericLiteral(n)) => match exact_byte_count(n.value) {
+                Some(len) => f.byte_length = Some(len),
+                None => unresolved.push(format!("{method}@{field_name}")),
+            },
+            // A length spelled in a way this pass cannot read is a constraint it would be
+            // publishing as absent, which is the drop worth recording.
+            Some(_) => unresolved.push(format!("{method}@{field_name}")),
+        },
         // `contentLiteralBytes(new Uint8Array([5]))` — the node is the receiver on this
         // path, so the sequence is argument 0 (smax passes the node first).
         "contentLiteralBytes" => match arg0.and_then(crate::response_smax::static_byte_literal) {
@@ -341,7 +353,7 @@ fn field_from_call(
         // length, which `byte_length` already expresses.
         "contentBytesRange" => {
             let bound = |i: usize| match call.arguments.get(i).and_then(arg_expr) {
-                Some(Expression::NumericLiteral(n)) => Some(n.value as u32),
+                Some(Expression::NumericLiteral(n)) => exact_byte_count(n.value),
                 _ => None,
             };
             match (bound(0), bound(1)) {
@@ -359,12 +371,39 @@ fn field_from_call(
         // `count="99"` the source turns away. An open bound stays open: WA writes
         // `attrIntRange(e, "t", 0, void 0)` for "no upper limit".
         "attrIntRange" => {
+            // Three answers, not two. `void 0` — which is how WA writes "no upper limit" — is an
+            // OPEN bound and the band stays half-open. An expression this scan cannot fold is an
+            // UNKNOWN one, and reading it as open was the same mistake as reading a negative
+            // literal as absent, from the other side: `attrIntRange("score", minimum, 10)`
+            // became "signed, at most 10", so the decoder took a `-1` that a `minimum` of 5
+            // turns away. Neither bound is recorded when either is unreadable, and the drop
+            // says so rather than a band nobody can check.
+            // Through `as_int`, because JavaScript has no negative literal: `-10` is a unary
+            // minus over `10`, and matching `NumericLiteral` alone recorded no floor at all.
+            // An absent floor is not neutral — it is the open-bottom band, which the width rule
+            // reads as "this field is signed with no lower limit", so the emitted decoder took
+            // a `-20` the accessor turns away. The exact opposite of what the bound is for, and
+            // reachable only for a negative one. `as_int` also turns away a fractional or
+            // out-of-range literal, which the cast quietly truncated.
             let bound = |i: usize| match call.arguments.get(i).and_then(arg_expr) {
-                Some(Expression::NumericLiteral(n)) => Some(n.value as i64),
-                _ => None,
+                // A missing argument, `void 0`, `undefined` or `null`: the accessor is told
+                // there is no bound on that side.
+                None => IntBound::Open,
+                Some(e) if is_no_bound(e, undefined_shadowed) => IntBound::Open,
+                // Through `as_int`, because JavaScript has no negative literal: `-10` is a
+                // unary minus over `10`. It also turns away a fractional or out-of-range
+                // literal, which the old cast quietly truncated.
+                Some(e) => as_int(e).map_or(IntBound::Unreadable, IntBound::At),
             };
-            f.int_min = bound(1);
-            f.int_max = bound(2);
+            match (bound(1), bound(2)) {
+                (IntBound::Unreadable, _) | (_, IntBound::Unreadable) => {
+                    unresolved.push(format!("{RANGE_BOUND}@{field_name}"));
+                }
+                (lo, hi) => {
+                    f.int_min = lo.value();
+                    f.int_max = hi.value();
+                }
+            }
         }
         _ => {}
     }
@@ -459,10 +498,12 @@ fn analyze_seeded(
         unfollowable: Vec::new(),
         local_bindings: Default::default(),
         conditional_assertions: Vec::new(),
+        guard_claims: Vec::new(),
         relaxed_by_branch: Vec::new(),
         conditional_depth: 0,
         guarded_names: Vec::new(),
         helper_depth: 0,
+        block_depth: 0,
     };
     // A helper the ENCLOSING parser bound shadows the module's here too, and this
     // scope cannot see that binding on its own.
@@ -473,7 +514,7 @@ fn analyze_seeded(
     a.visit_program(&ret.program);
     a.attach_pending_enum_keys();
     ParserResult {
-        assertions: a.assertions,
+        assertions: unconditional_assertions(&mut a),
         fields: a.fields,
         unresolved: a.unresolved,
         child_vars: a.child_vars,
@@ -500,6 +541,81 @@ const UNKNOWN_RECEIVER: &str = "readThroughUnknownNode";
 
 /// The `dropsByReason` key for a helper chain the descent stopped following.
 const HELPER_DEPTH: &str = "helperChainTooDeep";
+/// A helper was handed a node whose name has since been assigned to, so where its reads
+/// belong is no longer known.
+const NODE_REASSIGNED: &str = "reassignedNodeHandedOn";
+/// The formal the node was handed to binds by pattern rather than by name, so the helper
+/// body cannot be analysed against it.
+const UNNAMED_FORMAL: &str = "nodeBoundByPattern";
+
+/// The `dropsByReason` key for a `switch` arm that redeclares a tracked child node and then
+/// falls through, so the arms after it are reached with two different bindings of that name
+/// depending on where the value entered.
+///
+/// `switch (mode) { case "a": var x = e.child("inner"); case "b": parse(x); break; }` reads
+/// `x` as `<inner>` when entered at `"a"` and as the outer `x` when entered at `"b"`. Both
+/// placements are correct for their own path, and the tree needs both — which means walking
+/// the reading arm once per entry path. That is O(cases²) re-walks, each able to trigger
+/// helper descent and re-parse a module function, against a corpus whose largest dispatch has
+/// 44 arms. Declined on that cost, and counted here so the omission is visible in the drop
+/// accounting instead of being a shape that quietly claims one placement is the only one.
+const SWITCH_ARM_SHADOW: &str = "arm-shadowed node";
+
+/// The `dropsByReason` key for a case test that reads the wire on a path no entry accounts for.
+///
+/// A test that is not reached by every value-producing execution is evaluated by exactly the
+/// entries that did not match an earlier one — `switch (mode) { case "a": parse(e); break; case
+/// parse(e): break; default: parse(e); }` calls `parse` on every path, but through the test on
+/// some of them. Attributing that would mean a per-test relaxation slice plus a model of which
+/// entries evaluate which test, in the visitor this branch has already revised six times.
+///
+/// Declined on that, and detected rather than guessed at: the marker fires exactly when such a
+/// test contributed a read, which in the locked corpus is never. Of 4836 non-literal case tests
+/// there, 4831 are `o("SomeModule").MEMBER` enum lookups and not one contains a wire accessor —
+/// the shape is ubiquitous in form and absent in substance.
+const SWITCH_TEST_READ: &str = "case-test read";
+
+/// A bound on `attrIntRange` that is neither a literal nor the "no bound" spelling — a
+/// `minimum` whose value only the running module knows. Recorded rather than guessed, because
+/// both guesses are wrong in a direction: calling it open makes the field signed and unbounded
+/// below, and calling it zero invents a floor the source may not enforce.
+const RANGE_BOUND: &str = "unreadableRangeBound";
+
+/// One side of a declared integer range, which is three answers and not two.
+enum IntBound {
+    /// Explicitly no bound on this side — a missing argument, `void 0`, `undefined`, `null`.
+    Open,
+    At(i64),
+    /// An expression this scan cannot fold.
+    Unreadable,
+}
+
+impl IntBound {
+    fn value(self) -> Option<i64> {
+        match self {
+            IntBound::At(n) => Some(n),
+            _ => None,
+        }
+    }
+}
+
+/// Whether `e` is how a source says "no bound on this side".
+///
+/// `undefined` is an ordinary identifier and a source may bind it — `{ let undefined = 5;
+/// e.attrIntRange("score", undefined, 10) }` enforces a floor of five. Reading the spelling
+/// alone recorded no lower bound, and an absent floor is the open-bottom band, which the width
+/// rule reads as "signed with no lower limit": the emitted decoder took a negative the accessor
+/// turns away. `shadowed` says whether that name is bound where the call sits; `void` and
+/// `null` are operators and a literal, which nothing can rebind.
+fn is_no_bound(e: &Expression<'_>, shadowed: bool) -> bool {
+    match e {
+        Expression::NullLiteral(_) => true,
+        Expression::Identifier(i) => i.name == "undefined" && !shadowed,
+        Expression::UnaryExpression(u) => u.operator == oxc_syntax::operator::UnaryOperator::Void,
+        Expression::ParenthesizedExpression(p) => is_no_bound(&p.expression, shadowed),
+        _ => false,
+    }
+}
 
 struct ParserAnalyzer<'src, 'ms> {
     code: &'src str,
@@ -568,6 +684,19 @@ struct ParserAnalyzer<'src, 'ms> {
     /// count, not by value: the same guard made once inside an `if` and once outside is
     /// enforced on every path, and filtering by equality dropped both.
     conditional_assertions: Vec<ResponseAssertion>,
+    /// The same guards again, as CLAIMS a branch hands up — the assertion half of
+    /// [`ParserAnalyzer::relaxed_by_branch`], and separate storage for the same reason.
+    ///
+    /// `conditional_assertions` is a multiset subtracted from the output, so an entry must
+    /// stay in it for exactly as long as its guard is unpublished. The per-branch slices an
+    /// intersection reads want the opposite: rewriting, so a nested conditional hands its
+    /// enclosing one only what it established. Serving both from one list, the nested settle
+    /// could only leave the region alone — and every branch-local guard travelled up with it,
+    /// so `if (outer) { if (inner) assertAttr("kind","a"); else assertAttr("kind","b"); }`
+    /// published `kind="a"` against a parser that asserts `"b"` down one path and nothing at
+    /// all down another. Rejecting what the source accepts, from the one place the two roles
+    /// could not both be honoured.
+    guard_claims: Vec<ResponseAssertion>,
     /// Whether the call being visited sits under a branch. A helper reached only when
     /// `kind === "a"` does not make its payload required of every element.
     conditional_depth: u32,
@@ -579,6 +708,10 @@ struct ParserAnalyzer<'src, 'ms> {
     guarded_names: Vec<(String, String)>,
     /// Recursion guard for module-scope helper descent (`m(n,i)` → analyze `m`'s body).
     helper_depth: u32,
+    /// How many `{ … }` blocks deep the walk is. The analysed source is itself a block — a
+    /// callback body — and names declared at the top of it live for the whole of it,
+    /// including a dispatch reconstructed after the walk from the final `child_vars`.
+    block_depth: u32,
 }
 
 impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
@@ -597,6 +730,55 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
         let outer_vars = self.child_vars.clone();
         walk::walk_arrow_function_expression(self, func);
         self.child_vars = outer_vars;
+    }
+
+    fn visit_block_statement(&mut self, block: &oxc_ast::ast::BlockStatement<'a>) {
+        // A `let`/`const` naming a child dies with the block, so the outer entry of that
+        // name has to come back — `{ let x = e.child("inner"); } x.attrString("outside")`
+        // read the outside attribute off `<inner>`, which puts a field under a node the
+        // parser never reads it from. Restoring per FUNCTION was not enough, and
+        // restoring the whole map per block would be wrong the other way: `var` is
+        // function-scoped and a child it binds is meant to outlive the block.
+        // Only for a block NESTED inside the body. The outermost one IS the analysed source,
+        // and restoring at the end of it deleted a `let`-bound child before
+        // `discriminated_children` read the map to seed the dispatch arms — so
+        // `let detail = e.child("detail")` followed by arms reading `detail` produced an empty
+        // `<detail>` and lost both reads with nothing recorded.
+        let nested = self.block_depth > 0;
+        let shadowed: Vec<(String, Option<Vec<PathSeg>>)> = if nested {
+            block
+                .body
+                .iter()
+                .filter_map(|s| match s {
+                    Statement::VariableDeclaration(d) => Some(&**d),
+                    _ => None,
+                })
+                .flat_map(|d| self.lexical_children_of(Some(d)))
+                .collect()
+        } else {
+            Vec::new()
+        };
+        self.block_depth += 1;
+        // Nothing after an unconditional exit runs: `{ throw 0; parse(e); }` never reaches
+        // that read, and walking the list flat recorded it as one every successful execution
+        // performs. `AllBindings::walk_in_order` has drawn this cut on the collector side all
+        // along — one rule in two places with one copy missing it, again — and it stayed
+        // hidden here only because the one construct that could expose it, a `try` block that
+        // throws out, used to have its whole claim set discarded.
+        //
+        // A skipped path rather than silence: an unreachable read says nothing about what the
+        // parser requires, and recording it as optional says exactly that.
+        let mut past_the_exit = false;
+        for st in &block.body {
+            if past_the_exit {
+                self.in_skipped_path(|s| s.visit_statement(st));
+            } else {
+                self.visit_statement(st);
+                past_the_exit = ends_the_statement_list(st);
+            }
+        }
+        self.block_depth -= 1;
+        self.restore_children(shadowed);
     }
 
     fn visit_variable_declaration(&mut self, decl: &VariableDeclaration<'a>) {
@@ -645,30 +827,498 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
         walk::walk_variable_declaration(self, decl);
     }
 
+    fn visit_switch_statement(&mut self, stmt: &oxc_ast::ast::SwitchStatement<'a>) {
+        // The discriminant is evaluated to choose a case, so it runs whichever case wins.
+        self.visit_expression(&stmt.discriminant);
+        // Tests are evaluated in order until one matches, so a test is skipped only when an
+        // earlier one matched. A test is therefore reached on every execution that can produce
+        // a value when every earlier tested case, once entered, THROWS — the paths that skip it
+        // are exactly the paths that hand nothing back.
+        //
+        // The first tested case is the vacuous instance of that, and a `default` written first
+        // is not a test and does not shield the one after it: `switch (mode) { default: break;
+        // case parse(e): break; }` still evaluates `parse`. So is `switch (mode) { case "a":
+        // throw Error(); case parse(e): break; default: break; }`, where the only value-
+        // producing executions are the ones that fell through the `"a"` test — reading that
+        // second test as conditional relaxed a read every successful parse performs.
+        // An arm that redeclares a tracked child and then falls through leaves the arms after
+        // it reachable with two different bindings of that name. Only the falling-through case
+        // is ambiguous: `case "x": var t = e.child("t"); break;` rebinds nothing anyone else
+        // sees. Counted rather than resolved — see `SWITCH_ARM_SHADOW`.
+        let tracked_before: Vec<String> = self.child_vars.keys().cloned().collect();
+        for (i, case) in stmt.cases.iter().enumerate() {
+            if leaves_switch(&case.consequent, true) || i + 1 >= stmt.cases.len() {
+                continue;
+            }
+            for name in hoisted_names(&case.consequent) {
+                if tracked_before.iter().any(|t| t == &name) {
+                    self.unresolved.push(format!("{SWITCH_ARM_SHADOW}@{name}"));
+                }
+            }
+        }
+        let entry_throws = entry_paths_throw(&stmt.cases);
+        let always_evaluated: Vec<bool> = (0..stmt.cases.len())
+            .map(|i| {
+                stmt.cases[i].test.is_some()
+                    && (0..i).all(|j| stmt.cases[j].test.is_none() || entry_throws[j])
+            })
+            .collect();
+        for (i, case) in stmt.cases.iter().enumerate() {
+            if always_evaluated[i]
+                && let Some(test) = case.test.as_ref()
+            {
+                self.visit_expression(test);
+            }
+        }
+        let before = (self.assertions.len(), self.relaxed_by_branch.len());
+        self.conditional_depth += 1;
+        // What each case establishes ON ITS OWN. A helper every case calls runs on every
+        // path, the same way one called from both sides of an `if` does — and `if` gets that
+        // back through an intersection this had no equivalent of, so N weakened copies just
+        // stayed weak and a field the parser always reads came out optional.
+        let mut per_case: Vec<Vec<RelaxedId>> = Vec::new();
+        // The guards each case establishes, collected the same way and settled through the
+        // same intersection — a helper every arm calls enforces its `assertAttr` on every
+        // path, and discarding those while promoting the arm's FIELDS to required published a
+        // shape that accepts values every source path rejects.
+        let guard_mark = (self.guard_claims.len(), self.conditional_assertions.len());
+        let mut per_case_guards: Vec<Vec<ResponseAssertion>> = Vec::new();
+        // Every case shares ONE lexical scope, and it ends with the switch — so a `let`/`const`
+        // naming a child must not outlive it. `switch (m) { case 1: let d = e.child("inner");
+        // break; } d.attrString("outside")` filed the trailing read under `<inner>`, which is
+        // the wrong-node direction the block and loop-header restores were added for. This
+        // visitor mutated `child_vars` and put nothing back; `SWITCH_ARM_SHADOW` does not cover
+        // it, since that fires only for a falling-through arm and only records a drop.
+        let shadowed: Vec<(String, Option<Vec<PathSeg>>)> = stmt
+            .cases
+            .iter()
+            .flat_map(|c| c.consequent.iter())
+            .filter_map(|st| match st {
+                Statement::VariableDeclaration(d) => Some(&**d),
+                _ => None,
+            })
+            .flat_map(|d| self.lexical_children_of(Some(d)))
+            .collect();
+        // What the switch was entered WITH, to put back at an arm boundary no fallthrough
+        // crosses.
+        let entered_with = self.child_vars.clone();
+        for (i, case) in stmt.cases.iter().enumerate() {
+            // Entering at this case runs it and the ones after it; the ones before it run only
+            // if control fell through, and an arm that ends on every path lets nothing through.
+            // `case "a": var t = e.child("inner"); break; case "b": t.attrString("id");` filed
+            // the second arm's read under `<inner>` — a node that entry never reached. The
+            // wrong node, and silently: `SWITCH_ARM_SHADOW` fires only for an arm that falls
+            // through AND redeclares a name tracked before the switch, which a `break` here
+            // rules out. This is the half of the fallthrough model that costs nothing to be
+            // exact about; which bindings a falling-through entry carries stays counted.
+            if i > 0
+                && stmt.cases[i - 1]
+                    .consequent
+                    .iter()
+                    .any(ends_the_statement_list)
+            {
+                self.child_vars.clone_from(&entered_with);
+            }
+            // Falling through into a case runs its CONSEQUENT, never its test, so the two are
+            // collected apart — folding a later case's test into the entry path had
+            // `case "a": case parse(e): break;` promote reads the `"a"` path never performs.
+            if !always_evaluated[i]
+                && let Some(test) = case.test.as_ref()
+            {
+                // A test reached only by the entries that did not match earlier: its reads
+                // belong to those paths, and nothing here can say which. Counted — see
+                // `SWITCH_TEST_READ`.
+                let before_test = self.relaxed_by_branch.len();
+                self.visit_expression(test);
+                if self.relaxed_by_branch.len() > before_test {
+                    self.unresolved.push(SWITCH_TEST_READ.to_string());
+                }
+            }
+            let at = self.relaxed_by_branch.len();
+            let at_guards = self.guard_claims.len();
+            for st in &case.consequent {
+                self.visit_statement(st);
+            }
+            per_case.push(self.relaxed_by_branch[at..].to_vec());
+            per_case_guards.push(self.guard_claims[at_guards..].to_vec());
+        }
+        // Entering at case `i` runs case `i` and then falls through to `i+1`, `i+2`… until one
+        // of them leaves. `switch (mode) { case "a": default: parse(e); }` runs `parse` for
+        // every value, and intersecting each case's OWN reads called the empty first case
+        // decisive and left the payload optional.
+        let mut entry: Vec<Vec<RelaxedId>> = vec![Vec::new(); stmt.cases.len()];
+        let mut entry_guards: Vec<Vec<ResponseAssertion>> = vec![Vec::new(); stmt.cases.len()];
+        for i in (0..stmt.cases.len()).rev() {
+            let body = &stmt.cases[i].consequent;
+            let leaves = leaves_switch(body, false);
+            let mut weak = per_case[i].clone();
+            let mut guards = per_case_guards[i].clone();
+            if !leaves && i + 1 < stmt.cases.len() {
+                weak.extend(entry[i + 1].iter().cloned());
+                guards.extend(entry_guards[i + 1].iter().cloned());
+            }
+            entry[i] = weak;
+            entry_guards[i] = guards;
+        }
+        let per_case = entry;
+        let per_case_guards = entry_guards;
+        // Only when a `default` makes the cases cover every value — otherwise an unlisted
+        // value runs none of them, and promoting would require of every element something
+        // the parser reads on no path at all. A case that merely falls through establishes
+        // nothing of its own, so the intersection stays empty and nothing is promoted.
+        // Over the paths that can PRODUCE a result. An arm ending in `throw` returns nothing,
+        // so every successful execution took one of the others — including it as an empty path
+        // left a field optional that every path yielding a value reads.
+        // A `default` is not the only way the cases can cover every value. A discriminant that
+        // can only be `true` or `false` is covered by listing both, and `switch (!!flag) { case
+        // true: … case false: … }` runs one of them on every execution — so the intersection
+        // belongs exactly as much as it does under a `default`. The default-only gate skipped
+        // it and left the fields optional.
+        // …and a discriminant this can READ covers every value on its own: there is exactly one
+        // value, so the entry it selects is the one every execution takes. The listed-booleans
+        // rule beside it is the same idea for a discriminant whose value is unknown but whose
+        // TYPE has only two inhabitants.
+        let selected = statically_selected_case(&stmt.discriminant, &stmt.cases);
+        let exhaustive = stmt.cases.iter().any(|c| c.test.is_none())
+            || selected.is_some()
+            || (statically_boolean(&stmt.discriminant) && both_booleans_listed(&stmt.cases));
+        // Entering at case `i` runs its consequent and then falls through, so whether that
+        // ENTRY can produce a value is what decides whether it belongs in the intersection.
+        // `entry_paths_throw` already modelled the fallthrough for the test ordering and this
+        // asked `throws_out` of the local consequent alone, so `case "a": default: throw` left
+        // the empty `"a"` entry in the fold and the helper's fields optional.
+        // And over the entries an execution can actually START at. A case repeating an earlier
+        // case's literal is never matched — the first one wins — so its reads say nothing about
+        // any entry path, and including the empty duplicate emptied the intersection.
+        let entry_shadowed = shadowed_case_tests(&stmt.cases);
+        // And when the source names which entry runs, no other one is an entry path — the same
+        // cut a repeated literal makes, drawn from the discriminant instead of from an earlier
+        // case. Without it the intersection over "every entry" folded in arms this switch can
+        // never take.
+        let yields_a_value = |i: &usize| -> bool {
+            !entry_throws[*i] && !entry_shadowed[*i] && selected.is_none_or(|s| s == *i)
+        };
+        let established = if exhaustive {
+            per_case
+                .into_iter()
+                .enumerate()
+                .filter(|(i, _)| yields_a_value(i))
+                .map(|(_, weak)| weak)
+                .reduce(|a, b| branch_intersection(&a, &b))
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        let guard_sides: Vec<Vec<ResponseAssertion>> = if exhaustive {
+            per_case_guards
+                .into_iter()
+                .enumerate()
+                .filter(|(i, _)| yields_a_value(i))
+                .map(|(_, g)| g)
+                .collect()
+        } else {
+            Vec::new()
+        };
+        self.relaxed_by_branch.truncate(before.1);
+        self.settle_guard_intersection(guard_mark.0, guard_mark.1, &guard_sides);
+        // Still inside this switch's own increment, so `settle` can tell whether an
+        // enclosing conditional can skip the whole thing — the same order `if` uses.
+        self.settle_branch_intersection(established);
+        self.conditional_depth -= 1;
+        self.restore_children(shadowed);
+    }
+
+    fn visit_while_statement(&mut self, stmt: &oxc_ast::ast::WhileStatement<'a>) {
+        // The test is evaluated before the first pass, so it runs even when the body does not.
+        self.visit_expression(&stmt.test);
+        // But a test that cannot be false has no zero-iteration path: `while (!0) { parse(e);
+        // break; }` is `for (;;)` spelled differently, and the corpus writes it that way 74
+        // times. Wrapping the body in a skipped path regardless relaxed reads every successful
+        // execution performs.
+        if always_true(&stmt.test) {
+            self.walk_guaranteed_pass(&stmt.body);
+        } else {
+            self.in_skipped_path(|s| s.visit_statement(&stmt.body));
+        }
+    }
+
+    fn visit_do_while_statement(&mut self, stmt: &oxc_ast::ast::DoWhileStatement<'a>) {
+        // `do` runs its body before the test, so the first pass is guaranteed. A `break` can
+        // cut that pass short, but only for what comes AFTER it — `do { parse(e); break; }`
+        // still runs `parse` every time, and weakening the whole body called its reads
+        // optional. So the body is walked in order and the counter goes up at the first
+        // statement that something before it could have jumped past.
+        self.walk_guaranteed_pass(&stmt.body);
+        // And the test is only reached if the pass did not leave the loop first:
+        // `do { break; } while (parse(e))` never evaluates `parse` at all, so recovering its
+        // reads as required rejects nodes the parser never looks at. A body that can only
+        // THROW past the test is different — `do { if (bad) throw Error(); } while (parse(e))`
+        // evaluates `parse` on every execution that yields anything.
+        // `continue` is not one of those ways out: in a `do`/`while` it transfers control TO
+        // the test, so `do { continue; } while (parse(e))` evaluates `parse` on every execution
+        // that can leave the loop at all. Counting it with `break` relaxed a read every
+        // successful parse performs.
+        if leaves_the_loop_with_a_value(&stmt.body) {
+            self.in_skipped_path(|s| s.visit_expression(&stmt.test));
+        } else {
+            self.visit_expression(&stmt.test);
+        }
+    }
+
+    fn visit_for_statement(&mut self, stmt: &oxc_ast::ast::ForStatement<'a>) {
+        // A `let`/`const` in the header is scoped to the loop, so a child it names has to be
+        // put back afterwards — `for (let x = e.child("inner"); …) {} x.attrString("id")` reads
+        // the trailing attribute off the OUTER `x`. Only block statements were being restored,
+        // and a loop header is not one.
+        let shadowed = self.lexical_children_of(stmt.init.as_ref().and_then(|i| match i {
+            oxc_ast::ast::ForStatementInit::VariableDeclaration(d) => Some(&**d),
+            _ => None,
+        }));
+        // Initializer and test are evaluated before the first pass; the update only after
+        // a pass that happened.
+        if let Some(init) = &stmt.init {
+            self.visit_for_statement_init(init);
+        }
+        if let Some(test) = &stmt.test {
+            self.visit_expression(test);
+        }
+        // With no test there is no zero-iteration path: `for (;;) { … }` necessarily starts
+        // its body, so what the body reads before it can leave is read every time — the same
+        // asymmetry `do`/`while` has, which is why the body is walked in order here too.
+        // No test, or one that cannot be false: either way the body necessarily starts. The
+        // braced and unbraced arms said the same thing twice and only one of them had the
+        // in-order walk, which is why they are one arm now.
+        let guaranteed = stmt.test.as_ref().is_none_or(always_true);
+        match (&stmt.body, guaranteed) {
+            (body, true) => {
+                self.walk_guaranteed_pass(body);
+                if let Some(update) = &stmt.update {
+                    self.in_skipped_path(|s| s.visit_expression(update));
+                }
+            }
+            // Body first, then the update: that is the order JavaScript runs them, and a
+            // binding the body makes is one the update can read. Reversed, `for (; more;
+            // parse(detail)) { var detail = e.child("detail"); }` reached `parse` before
+            // `child_vars` held `detail` and lost the helper's fields with nothing recorded.
+            // Both stay inside the skipped path — a tested loop may run zero times.
+            _ => self.in_skipped_path(|s| {
+                s.visit_statement(&stmt.body);
+                if let Some(update) = &stmt.update {
+                    s.visit_expression(update);
+                }
+            }),
+        }
+        self.restore_children(shadowed);
+    }
+
+    fn visit_for_in_statement(&mut self, stmt: &oxc_ast::ast::ForInStatement<'a>) {
+        // The object is evaluated to be enumerated, however few keys it turns out to have.
+        self.visit_expression(&stmt.right);
+        // …unless it plainly has one. A literal with an own enumerable property runs the body
+        // at least once, which is the guaranteed-pass asymmetry the `for-of` beside it has had
+        // since round twenty-five and this loop never got.
+        if enumerates_at_least_once(&stmt.right) {
+            self.visit_for_statement_left(&stmt.left);
+            self.walk_guaranteed_pass(&stmt.body);
+            return;
+        }
+        // The binding is bound once per key, so a default in it — `for (const [v = read(e)]
+        // …)` — runs only when there is a key. Writing these visitors by hand and walking
+        // only the iterable and the body dropped such a read with nothing recorded.
+        self.in_skipped_path(|s| {
+            s.visit_for_statement_left(&stmt.left);
+            s.visit_statement(&stmt.body);
+        });
+    }
+
+    fn visit_for_of_statement(&mut self, stmt: &oxc_ast::ast::ForOfStatement<'a>) {
+        self.visit_expression(&stmt.right);
+        // A list that syntactically cannot be empty runs the body at least once, so what the pass
+        // reads before it can leave is read every time — the same guaranteed-pass asymmetry
+        // `for (;;)` and `while (!0)` have, over the one iterable whose length is decidable here.
+        // An arbitrary expression keeps its zero-iteration path.
+        if iterates_at_least_once(&stmt.right) {
+            self.visit_for_statement_left(&stmt.left);
+            self.walk_guaranteed_pass(&stmt.body);
+            return;
+        }
+        self.in_skipped_path(|s| {
+            s.visit_for_statement_left(&stmt.left);
+            s.visit_statement(&stmt.body);
+        });
+    }
+
+    fn visit_try_statement(&mut self, stmt: &oxc_ast::ast::TryStatement<'a>) {
+        // Nothing here runs at all: a block that hangs reaches neither the handler nor the
+        // finalizer, so their reads belong to no path. The whole-try classification learned
+        // this in `throws_out`; treating the handler as the block's successor here made a
+        // `catch` that parses required, which is the same mistake pointing the other way.
+        if hangs_forever(&stmt.block.body) {
+            self.in_skipped_path(|s| {
+                s.visit_block_statement(&stmt.block);
+                if let Some(h) = &stmt.handler {
+                    s.visit_catch_clause(h);
+                }
+                if let Some(f) = &stmt.finalizer {
+                    s.visit_block_statement(f);
+                }
+            });
+            return;
+        }
+        // A `finally` that can leave with a result hands one back whatever the block was doing,
+        // so `try { parse(e); } finally { return fallback; }` returns `fallback` without ever
+        // finishing `parse` — nothing the block or the handler reads is read on every path that
+        // yields something. `throws_out` learned this fact last round for the try as a WHOLE;
+        // the visitor deciding requiredness for the try's own reads never asked, so it kept
+        // them required and the shape rejected responses the parser accepts. The same rule in
+        // two places with one copy missing it, for the fourth time on this branch.
+        if fin_leaves_with_a_value(stmt) {
+            self.in_skipped_path(|s| {
+                s.visit_block_statement(&stmt.block);
+                if let Some(h) = &stmt.handler {
+                    s.visit_catch_clause(h);
+                }
+            });
+            // Still unconditional: it runs whichever way the block went.
+            if let Some(f) = &stmt.finalizer {
+                self.visit_block_statement(f);
+            }
+            return;
+        }
+        match &stmt.handler {
+            // With a handler the block may abort partway and the parser carries on, so what
+            // it reads past a throwing call is not read on every path — and the handler
+            // itself runs only when the block failed. But a helper BOTH call, so every
+            // successful execution passed through it, which is the two-sided intersection
+            // `if` already does and this had no equivalent of.
+            // …but a block that leaves by THROWING is not one of those shapes: there is no
+            // path where it completes, so the handler is a continuation of the same execution
+            // rather than an alternative to it. `try { parse(e); throw 0; } catch (_) {}` calls
+            // `parse` on every execution that reaches the try, and raising the counter over the
+            // pair intersected the block against a handler that establishes nothing — leaving
+            // optional a read the parser always performs. A straight line, walked at the depth
+            // it is written at; a conditional INSIDE the block still relaxes its own reads,
+            // which is what keeps `try { if (k) parse(e); throw 0; }` optional.
+            Some(h) if throws_out(&stmt.block.body) => {
+                self.visit_block_statement(&stmt.block);
+                self.visit_catch_clause(h);
+            }
+            Some(h) => {
+                let parked = self.conditional_assertions.len();
+                let before = (self.guard_claims.len(), self.relaxed_by_branch.len());
+                self.conditional_depth += 1;
+                self.visit_block_statement(&stmt.block);
+                let tried = (
+                    self.guard_claims[before.0..].to_vec(),
+                    self.relaxed_by_branch[before.1..].to_vec(),
+                );
+                let after_try = (self.guard_claims.len(), self.relaxed_by_branch.len());
+                self.visit_catch_clause(h);
+                let caught = (
+                    self.guard_claims[after_try.0..].to_vec(),
+                    self.relaxed_by_branch[after_try.1..].to_vec(),
+                );
+                // Over the paths that can PRODUCE a result, the same filter the switch arms
+                // get. `catch (_) { throw Error(); }` hands nothing back, so every execution
+                // that yielded a result completed the block — intersecting against the empty
+                // handler left the block's reads optional where every successful parse
+                // performs them. The block's own half of that filter is the arm above, which
+                // does not reach here: a block that throws out has no alternative to intersect
+                // against at all.
+                let mut weak_sides = vec![tried.1];
+                let mut guard_sides = vec![tried.0];
+                if !throws_out(&h.body.body) {
+                    weak_sides.push(caught.1);
+                    guard_sides.push(caught.0);
+                }
+                let established = weak_sides
+                    .into_iter()
+                    .reduce(|a, b| branch_intersection(&a, &b))
+                    .unwrap_or_default();
+                self.relaxed_by_branch.truncate(before.1);
+                self.settle_guard_intersection(before.0, parked, &guard_sides);
+                self.settle_branch_intersection(established);
+                self.conditional_depth -= 1;
+            }
+            // Without one, an error propagates out of the parser: there is no path where
+            // the block failed and a result was still produced, so its reads stay required.
+            None => self.visit_block_statement(&stmt.block),
+        }
+        // The finalizer runs whichever way the block went, so it is conditional on nothing.
+        if let Some(f) = &stmt.finalizer {
+            self.visit_block_statement(f);
+        }
+    }
+
     fn visit_if_statement(&mut self, stmt: &oxc_ast::ast::IfStatement<'a>) {
         self.visit_expression(&stmt.test);
+        // A test no value of it can change is not a branch at all: `if (!0) { parse(e); }` runs
+        // `parse` on every execution, and raising the counter regardless intersected its reads
+        // with an `else` that does not exist — leaving optional what the parser always performs.
+        // The same `always_true`/`always_false` the loops read, on the construct they came from.
+        // The side NOT taken is still walked, in a skipped path: its reads are unreachable, and
+        // recording them as optional says less than dropping them silently would.
+        if let Some(taken) =
+            statically_selected(&stmt.test, &stmt.consequent, stmt.alternate.as_ref())
+        {
+            if let Some(t) = taken.0 {
+                self.visit_statement(t);
+            }
+            if let Some(dead) = taken.1 {
+                self.in_skipped_path(|s| s.visit_statement(dead));
+            }
+            return;
+        }
         // `if (e.hasAttr("x")) …` says the element may lack `x` only on the path where it
         // was found; the `else` is where it is known ABSENT, and a read there is required
         // by whatever the parser does next. A negated test flips the two.
         let tested = self.canonical_guards(&stmt.test);
         let n = tested.len();
+        let parked = self.conditional_assertions.len();
         self.conditional_depth += 1;
 
-        let before_then = (self.assertions.len(), self.relaxed_by_branch.len());
+        let before_then = (self.guard_claims.len(), self.relaxed_by_branch.len());
         self.guarded_names.extend(tested);
         self.visit_statement(&stmt.consequent);
         self.guarded_names.truncate(self.guarded_names.len() - n);
-        let then_side: Vec<ResponseAssertion> = self.assertions[before_then.0..].to_vec();
+        let then_side = self.guard_claims[before_then.0..].to_vec();
         let then_weak = self.relaxed_by_branch[before_then.1..].to_vec();
 
         let mut established = Vec::new();
         if let Some(alt) = &stmt.alternate {
-            let before_else = (self.assertions.len(), self.relaxed_by_branch.len());
+            let before_else = (self.guard_claims.len(), self.relaxed_by_branch.len());
             self.visit_statement(alt);
-            let else_side: Vec<ResponseAssertion> = self.assertions[before_else.0..].to_vec();
+            let else_side = self.guard_claims[before_else.0..].to_vec();
             let else_weak = self.relaxed_by_branch[before_else.1..].to_vec();
-            self.unmark_branch_intersection(&then_side, &else_side);
-            established = branch_intersection(&then_weak, &else_weak);
+            // Over the sides that can PRODUCE a value. `if (flag) { parse(e); } else { throw
+            // Error(); }` calls `parse` on every execution that yields anything, and
+            // intersecting against the empty throwing side left the payload optional and its
+            // guard unpublished. The switch and the try have filtered this for two rounds; the
+            // construct that taught them the intersection had not.
+            let sides: Vec<(Vec<RelaxedId>, Vec<ResponseAssertion>)> = [
+                (&stmt.consequent, then_weak, then_side),
+                (alt, else_weak, else_side),
+            ]
+            .into_iter()
+            .filter(|(body, _, _)| !throws_out(std::slice::from_ref(*body)))
+            .map(|(_, w, g)| (w, g))
+            .collect();
+            let guard_sides: Vec<Vec<ResponseAssertion>> =
+                sides.iter().map(|(_, g)| g.clone()).collect();
+            self.settle_guard_intersection(before_then.0, parked, &guard_sides);
+            established = sides
+                .into_iter()
+                .map(|(w, _)| w)
+                .reduce(|a, b| branch_intersection(&a, &b))
+                .unwrap_or_default();
+        } else {
+            // With no `else` the implicit other side establishes nothing, so the intersection
+            // is empty — but the claims were still sitting in the region, and an enclosing
+            // conditional read them as this branch's own. `if (outer) { if (inner)
+            // assertAttr("kind", "a"); } else { assertAttr("kind", "a"); }` published a guard
+            // the parser makes only when `inner` holds. Settling with no sides at all says it:
+            // nothing established, claims dropped, everything stays parked.
+            self.settle_guard_intersection(before_then.0, parked, &[]);
         }
         // Settled after the truncate, so a claim handed up outlives the branch that
         // established it and the enclosing conditional can see it.
@@ -691,35 +1341,91 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
         };
         let n = tested.len();
         self.guarded_names.extend(tested);
+        // `!0 && parse(e)` and `0 || parse(e)` both run the right side always — the third
+        // spelling of the same rule, and the counter went up for it too.
+        if logical_right_is_certain(expr) {
+            self.visit_expression(&expr.right);
+            self.guarded_names.truncate(self.guarded_names.len() - n);
+            return;
+        }
+        let claims = (self.guard_claims.len(), self.relaxed_by_branch.len());
         self.conditional_depth += 1;
         self.visit_expression(&expr.right);
         self.conditional_depth -= 1;
+        self.discard_claims(claims);
         self.guarded_names.truncate(self.guarded_names.len() - n);
     }
 
     fn visit_conditional_expression(&mut self, expr: &oxc_ast::ast::ConditionalExpression<'a>) {
         self.visit_expression(&expr.test);
+        // `!0 ? a : b` selects its side as surely as `if (!0)` does. Spelling the rule for the
+        // statement and not for the expression is how half the findings on this branch happened,
+        // so both read the one selector.
+        if let Some((taken, dead)) =
+            statically_selected(&expr.test, &expr.consequent, Some(&expr.alternate))
+        {
+            if let Some(taken) = taken {
+                self.visit_expression(taken);
+            }
+            if let Some(dead) = dead {
+                self.in_skipped_path(|s| s.visit_expression(dead));
+            }
+            return;
+        }
         let tested = self.canonical_guards(&expr.test);
         let n = tested.len();
+        let parked = self.conditional_assertions.len();
         self.conditional_depth += 1;
 
-        let before_then = (self.assertions.len(), self.relaxed_by_branch.len());
+        let before_then = (self.guard_claims.len(), self.relaxed_by_branch.len());
         self.guarded_names.extend(tested);
         self.visit_expression(&expr.consequent);
         self.guarded_names.truncate(self.guarded_names.len() - n);
-        let then_side: Vec<ResponseAssertion> = self.assertions[before_then.0..].to_vec();
+        let then_side = self.guard_claims[before_then.0..].to_vec();
         let then_weak = self.relaxed_by_branch[before_then.1..].to_vec();
 
-        let before_else = (self.assertions.len(), self.relaxed_by_branch.len());
+        let before_else = (self.guard_claims.len(), self.relaxed_by_branch.len());
         self.visit_expression(&expr.alternate);
-        let else_side: Vec<ResponseAssertion> = self.assertions[before_else.0..].to_vec();
+        let else_side = self.guard_claims[before_else.0..].to_vec();
         let else_weak = self.relaxed_by_branch[before_else.1..].to_vec();
-        self.unmark_branch_intersection(&then_side, &else_side);
-        let established = branch_intersection(&then_weak, &else_weak);
+        // Over the arms that can PRODUCE a value, which the `if` has filtered since the round
+        // that taught it and this spelling of the same choice never did. `flag ? parse(e) :
+        // (function(){ throw Error(); })()` calls `parse` on every execution that yields
+        // anything, and intersecting against the empty throwing arm left the payload optional
+        // and its guard unpublished — the parser rejecting a response the generated one accepts.
+        let arms: Vec<(Vec<RelaxedId>, Vec<ResponseAssertion>)> = [
+            (&expr.consequent, then_weak, then_side),
+            (&expr.alternate, else_weak, else_side),
+        ]
+        .into_iter()
+        .filter(|(arm, _, _)| !expression_throws(arm))
+        .map(|(_, w, g)| (w, g))
+        .collect();
+        let guard_arms: Vec<Vec<ResponseAssertion>> = arms.iter().map(|(_, g)| g.clone()).collect();
+        self.settle_guard_intersection(before_then.0, parked, &guard_arms);
+        let established = arms
+            .into_iter()
+            .map(|(w, _)| w)
+            .reduce(|a, b| branch_intersection(&a, &b))
+            .unwrap_or_default();
 
         self.relaxed_by_branch.truncate(before_then.1);
         self.settle_branch_intersection(established);
         self.conditional_depth -= 1;
+    }
+
+    fn visit_sequence_expression(&mut self, seq: &oxc_ast::ast::SequenceExpression<'a>) {
+        // A comma list is evaluated in order and STOPS at an element that certainly raises, so
+        // `((throws)(), e.attrString("late"))` reads nothing. The argument walk asked its
+        // question of whole arguments, one level too coarse: it declined to walk what came
+        // AFTER a raising argument and then walked every part of the raising one, publishing a
+        // read the parser performs on no path.
+        for e in &seq.expressions {
+            self.visit_expression(e);
+            if expression_throws(e) {
+                return;
+            }
+        }
     }
 
     fn visit_call_expression(&mut self, call: &CallExpression<'a>) {
@@ -747,7 +1453,40 @@ impl<'a> Visit<'a> for ParserAnalyzer<'_, '_> {
             self.try_own_node_helper_descent(call);
         }
         // Always descend: chained calls expose both inner and outer nodes.
-        walk::walk_call_expression(self, call);
+        //
+        // The callee reference first and then the arguments in order, which is the order the
+        // engine takes them — and the list ENDS at an argument that certainly raises. Nothing
+        // written after it is evaluated, so a wire read spelled there happens on no path;
+        // `walk_call_expression` visited them all and published those reads as required, and the
+        // generated parser then demanded a field the source parser never asks for. The raising
+        // argument is itself walked: its own reads happen, up to the raise.
+        //
+        // `AllBindings` keeps walking the tail under its `unreachable` counter, because a name
+        // bound there is still a name in scope. Here there is nothing to preserve — a read that
+        // never happens is not a read — so the tail is simply not taken.
+        // `null?.(…)` evaluates NO argument: the optional call short-circuits on a nullish
+        // callee and hands back `undefined` without building a list at all. Descending anyway
+        // published the reads spelled there as ones the parser performs.
+        //
+        // Asked of the whole CHAIN, since the optional flag may sit on a member rather than on
+        // the call — `null?.[key]()` is the same short circuit spelled one link earlier. What
+        // runs is everything up to the nullish base, so that is walked and the rest is not.
+        let short = if call.optional && certainly_nullish(&call.callee) {
+            Some(&call.callee)
+        } else {
+            short_circuit_base(&call.callee)
+        };
+        if let Some(base) = short {
+            self.visit_expression(base);
+            return;
+        }
+        self.visit_expression(&call.callee);
+        for arg in &call.arguments {
+            self.visit_argument(arg);
+            if argument_raises(arg) {
+                break;
+            }
+        }
     }
 }
 
@@ -759,10 +1498,6 @@ impl ParserAnalyzer<'_, '_> {
             .any(|r| span.start >= r.start && span.end <= r.end)
     }
 
-    /// An assertion made whichever way a branch goes is made always. Both occurrences were
-    /// marked conditional on the way in; their intersection is not. `if`/`else` and the
-    /// ternary are the same shape here, and teaching only one left the other filtering
-    /// both occurrences away.
     /// A helper called on both sides of a branch runs on every path, so what it reads is
     /// required after all — two weakened copies OR to weak, and the field ended up optional
     /// where the parser always demands it.
@@ -779,24 +1514,175 @@ impl ParserAnalyzer<'_, '_> {
         }
     }
 
-    fn unmark_branch_intersection(
+    /// An assertion made whichever way a branch goes is made always: the assertion half of
+    /// [`ParserAnalyzer::settle_branch_intersection`], and deliberately the same shape.
+    ///
+    /// `sides` are the claim slices, one per path that can produce a result. `claims` is where
+    /// this conditional's claim region begins and `parked` where its parked region does — the
+    /// two are rewritten differently, which is the whole reason they are two lists.
+    ///
+    /// A value every side establishes holds on every path, so EVERY occurrence parked inside
+    /// the region is released — how many times one branch redundantly re-asserts it says
+    /// nothing about whether it holds, and removing a fixed two left `if (c) { parse(e);
+    /// parse(e); } else { parse(e); }` with a stray mark that filtered the guard back out.
+    fn settle_guard_intersection(
         &mut self,
-        then_side: &[ResponseAssertion],
-        else_side: &[ResponseAssertion],
+        claims: usize,
+        parked: usize,
+        sides: &[Vec<ResponseAssertion>],
     ) {
-        for a in then_side.iter().filter(|a| else_side.contains(a)) {
-            for _ in 0..2 {
-                if let Some(i) = self.conditional_assertions.iter().position(|x| x == a) {
-                    self.conditional_assertions.swap_remove(i);
-                }
-            }
+        let Some((first, rest)) = sides.split_first() else {
+            // No path yields a value, so nothing is established — and the claims this
+            // conditional collected are nobody's, since no enclosing branch runs it for a
+            // result either.
+            self.guard_claims.truncate(claims);
+            return;
+        };
+        let established: Vec<ResponseAssertion> = first
+            .iter()
+            .filter(|a| rest.iter().all(|s| s.contains(a)))
+            .cloned()
+            .collect();
+        // The claims this conditional hands up are exactly what it established, whatever it
+        // took to establish them. Everything else was one inner path's alone.
+        self.guard_claims.truncate(claims);
+        // Established relative to THIS conditional only. Nested inside a one-sided outer `if`,
+        // the outer can still skip every branch, so the guard stays parked — unpublished — and
+        // travels on as the outer branch's own claim for the enclosing intersection to weigh.
+        // Releasing it regardless of nesting published a guard the parser enforces on no path
+        // at all.
+        if self.conditional_depth > 1 {
+            self.guard_claims.extend(established);
+            return;
         }
+        // At the outermost conditional there is nothing left to skip the branch, so what every
+        // side established is unconditional: unpark every occurrence of it and it publishes.
+        let mut region = self.conditional_assertions.split_off(parked);
+        region.retain(|a| !established.contains(a));
+        self.conditional_assertions.append(&mut region);
     }
 
     /// Whether an enclosing inner function re-binds the parser's own parameter, as seen
     /// from `span`.
     fn param_shadowed(&self, span: Span) -> bool {
         self.bound_by_inner_scope(self.param, span)
+    }
+
+    /// The name the formal at `idx` binds, or `None` with the stop recorded — there is no
+    /// formal at that position, or it binds by pattern and so has no name to analyse the
+    /// helper body against. One lookup for both descent paths: the two spellings of it were
+    /// identical, and identical is how they drift.
+    fn bound_formal<'p>(
+        &mut self,
+        params: &'p [Option<String>],
+        idx: usize,
+        helper: &str,
+    ) -> Option<&'p str> {
+        match params.get(idx) {
+            Some(Some(p)) => Some(p.as_str()),
+            // A formal that binds by pattern: the node arrives, and there is no name to
+            // analyse the body against. That is a read the shape is missing.
+            Some(None) => {
+                self.unresolved.push(format!("{UNNAMED_FORMAL}@{helper}"));
+                None
+            }
+            // No formal at all at that position. `helper(row)` where `helper()` declares
+            // none simply ignores the argument, so there is nothing to recover and nothing
+            // to report — counting it marked complete shapes as having lost something.
+            None => None,
+        }
+    }
+
+    /// The child entries a lexical declaration is about to shadow, with what they were —
+    /// one snapshot for every scope that can host one, so a block and a loop header cannot
+    /// disagree about which names die with them.
+    fn lexical_children_of(
+        &self,
+        decl: Option<&VariableDeclaration<'_>>,
+    ) -> Vec<(String, Option<Vec<PathSeg>>)> {
+        decl.filter(|d| d.kind.is_lexical())
+            .into_iter()
+            .flat_map(|d| d.declarations.iter())
+            .flat_map(|d| d.id.get_binding_identifiers())
+            .map(|i| {
+                let name = i.name.to_string();
+                let before = self.child_vars.get(&name).cloned();
+                (name, before)
+            })
+            .collect()
+    }
+
+    fn restore_children(&mut self, shadowed: Vec<(String, Option<Vec<PathSeg>>)>) {
+        for (name, before) in shadowed {
+            match before {
+                Some(path) => self.child_vars.insert(name, path),
+                None => self.child_vars.remove(&name),
+            };
+        }
+    }
+
+    /// Walk a loop body whose first pass is guaranteed, in source order: everything up to the
+    /// first statement that something before it could have jumped past runs whatever happens,
+    /// and only what follows that is a skipped path.
+    ///
+    /// `do`/`while`, a testless `for` and a `while` whose test cannot be false all have this
+    /// same asymmetry. It was written out three times, once without the unbraced case and once
+    /// not at all, which is how `while (!0)` kept relaxing a read the parser always performs.
+    fn walk_guaranteed_pass<'a>(&mut self, body: &Statement<'a>) {
+        let Statement::BlockStatement(b) = body else {
+            // Nothing precedes a single statement, so the guaranteed pass reaches it.
+            self.visit_statement(body);
+            return;
+        };
+        let mut skipped = false;
+        for st in &b.body {
+            if skipped {
+                self.in_skipped_path(|s| s.visit_statement(st));
+            } else {
+                self.visit_statement(st);
+                // Only an exit that hands back a result: a statement that can merely THROW
+                // past what follows it does not put a later read on a path some successful
+                // parse skipped.
+                skipped = exits_with_a_value(st);
+            }
+        }
+    }
+
+    /// Walk something control can reach past without having run it, with the branch counter
+    /// raised for the duration.
+    ///
+    /// A helper called only down such a path does not make its payload required of every
+    /// element, and its guards are that path's rather than the caller's. `switch`, the loops
+    /// and a caught `try` each arrived separately as the same bug, so the first fix asked one
+    /// whole-statement question — which was wrong in the other direction: a `switch`
+    /// discriminant, a loop test and a `try` without a handler all run whatever happens, and
+    /// weakening them called reads optional that the parser always performs. WHICH PART of a
+    /// statement is skippable differs per construct, so each says so itself and this only
+    /// carries the counter.
+    fn in_skipped_path(&mut self, f: impl FnOnce(&mut Self)) {
+        let claims = (self.guard_claims.len(), self.relaxed_by_branch.len());
+        self.conditional_depth += 1;
+        f(self);
+        self.conditional_depth -= 1;
+        // And it claims nothing for the branch it sits in. There is no intersection here to
+        // settle — the path is simply skippable — so anything parked inside it must not travel
+        // on as the enclosing branch's contribution: `if (a) { for (x of y) helper(e); } else {
+        // helper(e); }` had both sides claim what `helper` reads, and the enclosing `if`
+        // intersected them into a promotion, requiring of every element a read an empty list
+        // performs on no path. The guards went the same way, publishing an `assertAttr` the
+        // parser may never make. Both directions reject what the source accepts.
+        self.discard_claims(claims);
+    }
+
+    /// Forget the claims made since `(guards, weak)` — for a construct that establishes
+    /// nothing, whatever ran inside it.
+    ///
+    /// The parked entries stay: a guard keeps its unpublished mark and a relaxed field keeps
+    /// being optional, which is what "this may not have run" means for the output. Only the
+    /// claim an enclosing intersection would read is dropped.
+    fn discard_claims(&mut self, (guards, weak): (usize, usize)) {
+        self.guard_claims.truncate(guards);
+        self.relaxed_by_branch.truncate(weak);
     }
 
     /// Whether `name`, read at `span`, belongs to an enclosing callback rather than to the
@@ -867,7 +1753,13 @@ impl ParserAnalyzer<'_, '_> {
     /// `hasChild(…) ? … : null` it is not required of every element, however unconditional
     /// the accessor itself looks.
     fn read_field(&mut self, method: &str, call: &CallExpression) -> ParsedField {
-        let mut f = field_from_call(method, call, self.module, &mut self.unresolved);
+        let mut f = field_from_call(
+            method,
+            call,
+            self.module,
+            self.local_bindings.shadows("undefined", call.span),
+            &mut self.unresolved,
+        );
         let wire = f.wire_name.clone().unwrap_or_else(|| f.name.clone());
         let node = callee_object(call)
             .and_then(receiver_path)
@@ -1037,9 +1929,9 @@ impl ParserAnalyzer<'_, '_> {
             // caller following this scope cannot see that from the call site, so the fact
             // travels with the assertion.
             if guarded {
-                for a in &self.assertions[before..] {
-                    self.conditional_assertions.push(a.clone());
-                }
+                let parked: Vec<ResponseAssertion> = self.assertions[before..].to_vec();
+                self.conditional_assertions.extend(parked.iter().cloned());
+                self.guard_claims.extend(parked);
             }
             return;
         }
@@ -1281,19 +2173,45 @@ impl ParserAnalyzer<'_, '_> {
         // Only an argument still naming the node it was bound to: an enclosing callback may
         // have re-bound the name, and descending on the stale entry would hang the helper's
         // fields off whatever node that name used to mean.
-        let Some((arg_idx, tag)) = call.arguments.iter().enumerate().find_map(|(i, a)| {
+        let mut moved = false;
+        let picked = call.arguments.iter().enumerate().find_map(|(i, a)| {
             let id = arg_expr(a).and_then(as_identifier)?;
             if !self.names_an_outer_node(id, call.span) {
                 return None;
             }
-            self.child_vars.get(id).map(|t| (i, t.clone()))
-        }) else {
+            // A node this scope tracks is the only thing that can be HANDED ON, so it is the
+            // only thing whose loss there is to report. Asking about the write first meant any
+            // ordinary local that happens to be assigned — `for (i = 0; i < n; i++) helper(i)`
+            // — recorded `reassignedNodeHandedOn` for a child node that was never involved.
+            // That is the same false-positive accounting the `picked`-is-none check below was
+            // added to remove, one condition earlier, and it is the harmful kind: it makes
+            // `dropsByReason` claim losses that did not happen.
+            let tracked = self.child_vars.get(id)?;
+            // `child_vars` is only updated by a declarator, so `i = i.child("other")` leaves
+            // the recorded path pointing at the node `i` USED to name and the helper's fields
+            // land under it. The sibling path was hardened against exactly this and this one
+            // was not — the same instance-not-class split that put `leaf_guard` inline in one
+            // union shape and left the other with a presence test.
+            if self.local_bindings.written_in_scope(id, call.span) {
+                moved = true;
+                return None;
+            }
+            Some((i, tracked.clone()))
+        });
+        // Only once nothing survived. Pushing from inside the search recorded a loss for
+        // `helper(reassigned, stillGood)` and then descended through the second argument
+        // anyway — a drop entry for a read that was recovered. The own-node path already
+        // waits for the whole search to fail; this one did not.
+        let Some((arg_idx, tag)) = picked else {
+            if moved {
+                self.unresolved.push(format!("{NODE_REASSIGNED}@{name}"));
+            }
             return;
         };
         let Some((params, body_src)) = self.module.functions.get(name) else {
             return;
         };
-        let Some(bound_param) = params.get(arg_idx) else {
+        let Some(bound_param) = self.bound_formal(params, arg_idx, name) else {
             return;
         };
         // The helper's parameter names the node at the end of the path; the caller's tree
@@ -1339,19 +2257,59 @@ impl ParserAnalyzer<'_, '_> {
             return;
         }
         // Every position it is handed to, not just the first: `parse(e, e)` binds the
-        // node to both parameters, and reading only one dropped what the other saw.
+        // node to both parameters, and reading only one dropped what the other saw. An
+        // alias of the node is the node — comparing against the parameter's own identifier
+        // alone lost the helper entirely when the callback copied it first.
+        //
+        // A name that has been assigned to no longer stands for the node it was bound to, and
+        // `names_for` already declines to follow one. The parameter itself is the case it
+        // cannot see, so it is checked here — per ARGUMENT, not per call: rejecting the whole
+        // call because the parameter was written somewhere threw away
+        // `var original = row; row = row.child("detail"); parse(original)`, where `original`
+        // still names the row and the helper's fields are recoverable there.
+        let (stands_for, uncertain) = self.local_bindings.names_for(self.param, call.span);
+        // The parameter is bound before the body runs, so anything that gives it a value —
+        // an assignment or a redeclaration with an initializer — moves it off the node.
+        let param_moved = self.local_bindings.written_in_scope(self.param, call.span)
+            || self.local_bindings.given_before(self.param, call.span);
         let positions: Vec<usize> = call
             .arguments
             .iter()
             .enumerate()
             .filter(|(_, a)| {
-                arg_expr(a)
-                    .and_then(as_identifier)
-                    .is_some_and(|id| id == self.param && !self.bound_by_inner_scope(id, call.span))
+                arg_expr(a).and_then(as_identifier).is_some_and(|id| {
+                    stands_for.contains(id)
+                        && !(id == self.param && param_moved)
+                        && !self.bound_by_inner_scope(id, call.span)
+                })
             })
             .map(|(i, _)| i)
             .collect();
+        // Handed on under a name that names the node only down some path: the call is
+        // unconditional, so `conditional_depth` says nothing about it, and what the helper reads
+        // is still read only when that path ran. Per ARGUMENT, so `parse(e)` beside an unrelated
+        // conditional alias keeps its requiredness.
+        let via_a_conditional_alias = positions.iter().any(|i| {
+            call.arguments
+                .get(*i)
+                .and_then(arg_expr)
+                .and_then(as_identifier)
+                .is_some_and(|id| uncertain.contains(id))
+        });
         if positions.is_empty() {
+            // The node was handed on under a name that no longer stands for it — the
+            // parameter itself after a write, or a copy given a second value. The shape is
+            // incomplete either way, and saying so is what separates a bounded descent from
+            // a silent one.
+            if param_moved
+                && call.arguments.iter().any(|a| {
+                    arg_expr(a)
+                        .and_then(as_identifier)
+                        .is_some_and(|id| id == self.param)
+                })
+            {
+                self.unresolved.push(format!("{NODE_REASSIGNED}@{name}"));
+            }
             return;
         }
         let Some((params, body_src)) = self.module.functions.get(name) else {
@@ -1368,7 +2326,7 @@ impl ParserAnalyzer<'_, '_> {
         let mut lost = Vec::new();
         let mut guards = Vec::new();
         for idx in positions {
-            let Some(bound_param) = params.get(idx) else {
+            let Some(bound_param) = self.bound_formal(params, idx, name) else {
                 continue;
             };
             let (f, l, g) = analyze_node_helper(
@@ -1389,18 +2347,45 @@ impl ParserAnalyzer<'_, '_> {
         // and dropping it published a shape that accepts what the parser rejects — but only
         // when the parser always runs it. Reached down one branch, its guards are that
         // branch's, and hoisting them would reject everything the other branches accept.
-        if self.conditional_depth == 0 {
-            for g in guards {
-                if !self.assertions.contains(&g) {
-                    self.assertions.push(g);
-                }
+        //
+        // So the conditional case is RECORDED rather than discarded, with the fact that it
+        // was conditional travelling alongside in `conditional_assertions` — exactly how a
+        // direct `e.assertAttr` behind an `if` is handled. Discarding it outright left
+        // nothing for an intersection to hand back, so a helper called on both sides of a
+        // branch had its fields promoted to required (the fields ARE parked, in
+        // `relaxed_by_branch`) while its guard vanished: decoding accepted values every
+        // source path rejects. No dedup on this side — two occurrences are what a two-sided
+        // intersection needs to see, and one is unmarked per occurrence.
+        for g in guards {
+            if self.conditional_depth > 0 {
+                self.assertions.push(g.clone());
+                self.conditional_assertions.push(g.clone());
+                self.guard_claims.push(g);
+                continue;
             }
+            // At depth zero the guard holds always, so it is recorded with nothing parked
+            // beside it — and recorded unconditionally, because a presence test here dropped
+            // it outright. `if (flag) { parse(e); } parse(e);` recorded one occurrence and
+            // PARKED it; the presence test then skipped the unconditional call, the
+            // subtraction removed the parked copy, and the guard vanished even though the
+            // second call enforces it on every path. Order-dependent too: unconditional-first
+            // published it fine. The multiset is the whole mechanism, and
+            // `unconditional_assertions` collapses whatever survives it, so a repeated call
+            // costs an occurrence here and never a duplicate in the output.
+            self.assertions.push(g);
         }
         // Reached only down one branch, its payload is not required of every element —
         // requiring it would have consumers reject the elements the other branch accepts.
         if self.conditional_depth > 0 {
             for f in &mut recovered {
                 note_relaxed(f, "", &mut self.relaxed_by_branch);
+                relax_deeply(f);
+            }
+        } else if via_a_conditional_alias {
+            // Same conclusion, different reason — and NO claim parked: nothing an enclosing
+            // branch does makes the alias certain, so there is no intersection that should ever
+            // hand this back as established.
+            for f in &mut recovered {
                 relax_deeply(f);
             }
         }
@@ -1495,7 +2480,7 @@ struct ModuleScope {
     /// helper name → (parameter names, body source). Covers both `function name(p){body}`
     /// declarations and `var name = function(p){body}` expressions, so a sibling helper the
     /// parser hands a child node to is reachable in either the un-minified or minified form.
-    functions: HashMap<String, (Vec<String>, String)>,
+    functions: HashMap<String, (Vec<Option<String>>, String)>,
     /// object-map name → its keys in source order — the allowed value set an enum accessor
     /// (`attrEnumOrNullIfUnknown("attr", map)`) validates a wire attr against.
     maps: HashMap<String, Vec<String>>,
@@ -1520,6 +2505,7 @@ impl ModuleScope {
             maps: HashMap::new(),
             members: HashMap::new(),
             fn_depth: 0,
+            block_depth: 0,
         };
         b.visit_program(&ret.program);
         Self {
@@ -1532,7 +2518,7 @@ impl ModuleScope {
 
 struct ModuleScopeBuilder<'a> {
     module_source: &'a str,
-    functions: HashMap<String, (Vec<String>, String)>,
+    functions: HashMap<String, (Vec<Option<String>>, String)>,
     maps: HashMap<String, Vec<String>>,
     members: HashMap<String, Vec<String>>,
     /// Number of function bodies we are currently inside. The bundle wraps every module
@@ -1541,24 +2527,45 @@ struct ModuleScopeBuilder<'a> {
     /// call to — sits at depth 1. Recording only depth-1 functions keeps a same-named
     /// helper defined *inside another function* from being treated as module-scope.
     fn_depth: u32,
+    /// How many lexical BLOCKS deep inside the current function body the walk is.
+    ///
+    /// Hoisting is what makes last-declaration-wins right, and a declaration inside a block
+    /// hoists only to that block: `{ function parse(n){…} }` binds nothing the code outside the
+    /// braces can call. Reading depth alone let such a body overwrite the module helper map, so
+    /// a parser outside the block published the inner reads. The factory body itself is a
+    /// `FunctionBody` rather than a `BlockStatement`, so a declaration directly in it is depth
+    /// zero here — which is exactly the set last-wins may apply to.
+    block_depth: u32,
 }
 
 impl ModuleScopeBuilder<'_> {
-    /// Record `name`'s params + body source, first declaration wins (matching the prior
-    /// first-match-in-visit-order `FnFinder` behavior for a shadowed name).
+    /// Record `name`'s params + body source. First one wins, except for a hoisted
+    /// declaration, where the LAST is the binding that survives.
+    ///
+    /// `function parse(p){A} function parse(p){B} parse(e)` calls B: both declarations are
+    /// hoisted and the later assignment is the one left standing. Keeping the first published
+    /// the fields of a body that never runs and omitted the ones that do — a shape disagreeing
+    /// with the helper the parser actually calls. An assignment form is not hoisted this way,
+    /// so which of two is live depends on where the call sits, and first-wins stays the
+    /// conservative reading there.
     fn record_fn(
         &mut self,
         name: &str,
         params: &oxc_ast::ast::FormalParameters,
         body: oxc_span::Span,
+        hoisted: bool,
     ) {
-        if self.functions.contains_key(name) {
+        if self.functions.contains_key(name) && !hoisted {
             return;
         }
-        let param_names = params
+        // By POSITION, not just the ones that have a name: a destructured formal
+        // (`function parse({opts}, node)`) contributes no identifier, and dropping it slid
+        // every later parameter one place left. The node then bound to the wrong formal, or
+        // to none at all, and the helper's reads left the shape with nothing recorded.
+        let param_names: Vec<Option<String>> = params
             .items
             .iter()
-            .filter_map(|p| p.pattern.get_identifier_name().map(|n| n.to_string()))
+            .map(|p| p.pattern.get_identifier_name().map(|n| n.to_string()))
             .collect();
         let body_src = self.module_source[body.start as usize..body.end as usize].to_string();
         self.functions
@@ -1571,15 +2578,41 @@ impl<'a> Visit<'a> for ModuleScopeBuilder<'_> {
         // A `function name(){…}` directly in the factory body (depth 1) is a module-scope
         // sibling helper; deeper ones are function-local and must not be resolvable as
         // module-scope. `record_fn` still first-wins, matching the old finder's order.
+        // A generator is not one of these: `function* parse(p){…}` called as `parse(e)` builds
+        // an iterator and runs none of the body, so descending into it required of every
+        // response what no execution of that call reads. The same fact the IIFE rule learned
+        // one round earlier, at the other site that decides whether a body runs.
         if self.fn_depth == 1
+            && !func.generator
             && let Some(id) = func.id.as_ref()
             && let Some(body) = func.body.as_ref()
         {
-            self.record_fn(id.name.as_str(), &func.params, body.span);
+            let hoisted = func.r#type == oxc_ast::ast::FunctionType::FunctionDeclaration
+                && self.block_depth == 0;
+            self.record_fn(id.name.as_str(), &func.params, body.span, hoisted);
         }
         self.fn_depth += 1;
+        // No reset of the block count across a nested body. It would read as the careful thing
+        // and no input can tell: only `fn_depth == 1` is ever recorded, so a declaration inside
+        // a nested function is refused for its depth before its block count is consulted, and
+        // at the depth that IS recorded the count is already the factory's own. A mutation
+        // removing the reset changed no answer, so the reset is not here.
         walk::walk_function(self, func, flags);
         self.fn_depth -= 1;
+    }
+
+    fn visit_block_statement(&mut self, block: &oxc_ast::ast::BlockStatement<'a>) {
+        self.block_depth += 1;
+        walk::walk_block_statement(self, block);
+        self.block_depth -= 1;
+    }
+
+    /// A switch body is a block scope of its own without being a `BlockStatement`, so a
+    /// declaration in a case is no more visible outside the switch than one inside braces.
+    fn visit_switch_statement(&mut self, stmt: &oxc_ast::ast::SwitchStatement<'a>) {
+        self.block_depth += 1;
+        walk::walk_switch_statement(self, stmt);
+        self.block_depth -= 1;
     }
 
     fn visit_variable_declarator(&mut self, d: &VariableDeclarator<'a>) {
@@ -1590,9 +2623,9 @@ impl<'a> Visit<'a> for ModuleScopeBuilder<'_> {
                 // `var name = function(p){ body }` — the common minified helper form the
                 // old declaration-only finder missed. Only a factory-body-level (depth 1)
                 // binding is a module-scope helper.
-                Expression::FunctionExpression(f) if self.fn_depth == 1 => {
+                Expression::FunctionExpression(f) if self.fn_depth == 1 && !f.generator => {
                     if let Some(body) = f.body.as_ref() {
-                        self.record_fn(name.as_str(), &f.params, body.span);
+                        self.record_fn(name.as_str(), &f.params, body.span, false);
                     }
                 }
                 // `var name = { key: val, … }` — an enum value map — or the same object
@@ -1658,7 +2691,7 @@ impl<'a> Visit<'a> for ModuleScopeBuilder<'_> {
 fn analyze_node_helper(
     body_src: &str,
     bound_param: &str,
-    formals: &[String],
+    formals: &[Option<String>],
     module: &ModuleScope,
     depth: u32,
 ) -> (Vec<ParsedField>, Vec<String>, Vec<ResponseAssertion>) {
@@ -1681,33 +2714,28 @@ fn analyze_node_helper(
         unfollowable: Vec::new(),
         local_bindings: Default::default(),
         conditional_assertions: Vec::new(),
+        guard_claims: Vec::new(),
         relaxed_by_branch: Vec::new(),
         conditional_depth: 0,
         guarded_names: Vec::new(),
         helper_depth: depth,
+        block_depth: 0,
     };
     a.local_bindings = all_bindings(&ret.program);
     // Its own parameters are names it binds: `delegate(node, parse)` calls the `parse` it
     // was handed, not the module's, and the body alone does not say so.
-    a.local_bindings.names.extend(formals.iter().cloned());
+    // The named ones. A formal that binds by pattern shadows whatever its properties are
+    // called, which this list cannot say — the positions are what it is kept for.
+    a.local_bindings
+        .names
+        .extend(formals.iter().flatten().cloned());
     a.visit_program(&ret.program);
     a.attach_pending_enum_keys();
     // What the helper could not resolve is the caller's loss too: reporting the field
     // without it lets the constraint ratchet read as clean while a byte range vanished.
     // Only what the helper enforces on every path: an `assertAttr` behind its own `if`
     // holds when that branch runs, and hoisting it would have the parser demand it always.
-    let mut guarded = a.conditional_assertions.clone();
-    let unconditional = a
-        .assertions
-        .into_iter()
-        .filter(|x| match guarded.iter().position(|g| g == x) {
-            Some(i) => {
-                guarded.swap_remove(i);
-                false
-            }
-            None => true,
-        })
-        .collect();
+    let unconditional = unconditional_assertions(&mut a);
     (a.fields, a.unresolved, unconditional)
 }
 
@@ -1739,10 +2767,12 @@ fn analyze_child_node(
         unfollowable: Vec::new(),
         local_bindings: Default::default(),
         conditional_assertions: Vec::new(),
+        guard_claims: Vec::new(),
         relaxed_by_branch: Vec::new(),
         conditional_depth: 0,
         guarded_names: Vec::new(),
         helper_depth: depth,
+        block_depth: 0,
     };
     a.local_bindings = all_bindings(&ret.program);
     a.visit_program(&ret.program);
@@ -1886,6 +2916,36 @@ fn count_paths(f: &ParsedField, path: &str, out: &mut std::collections::HashSet<
 }
 
 /// What a shape claims, by identity, so an intersection of branches can put it back.
+/// The assertions that hold on EVERY path: everything recorded, minus the occurrences
+/// marked as made behind a branch.
+///
+/// A multiset subtraction rather than a filter — `if (c) assertAttr(k); else assertAttr(k);`
+/// records the assertion twice and `unmark_branch_intersection` unmarks both, so removing
+/// every occurrence of a marked value would delete the pair the two-sided intersection just
+/// established. The helper path did this inline and the top-level parser did not do it at
+/// all, so an `assertTag` made down one branch was published as one every response
+/// satisfies — the harmful direction, since decoding then rejects what the parser accepts.
+fn unconditional_assertions(a: &mut ParserAnalyzer) -> Vec<ResponseAssertion> {
+    let mut guarded = std::mem::take(&mut a.conditional_assertions);
+    let mut out: Vec<ResponseAssertion> = Vec::new();
+    for x in std::mem::take(&mut a.assertions) {
+        // Multiset subtraction first, THEN dedup. Collapsing duplicates before the
+        // subtraction would leave one occurrence matching a mark that belongs to another and
+        // filter out a guard that holds — the order is what makes both halves work.
+        if let Some(i) = guarded.iter().position(|g| *g == x) {
+            guarded.swap_remove(i);
+            continue;
+        }
+        // Two identical assertions constrain nothing a single one does not: a helper called
+        // on both sides of a branch establishes its guard once, and both occurrences reaching
+        // the output published `assertAttr("kind", "x")` twice on the same shape.
+        if !out.contains(&x) {
+            out.push(x);
+        }
+    }
+    out
+}
+
 /// What both branches of one conditional establish.
 fn branch_intersection(then_weak: &[RelaxedId], else_weak: &[RelaxedId]) -> Vec<RelaxedId> {
     then_weak
@@ -2007,6 +3067,33 @@ fn merge_or_push(into: &mut Vec<ParsedField>, f: ParsedField, lost: &mut Vec<Str
 /// only one side pins something the pin is taken; where both pin something different the
 /// merge cannot represent both, and says so rather than publishing whichever came first.
 fn take_constraints(into: &mut ParsedField, from: &ParsedField, lost: &mut Vec<String>) {
+    // A CONSTRAINT the two sides disagree about is dropped, not kept from whichever arrived
+    // first. `if (flag) attrIntRange("count", 1, 10); else attrIntRange("count", 20, 30);`
+    // enforces one band or the other and the field can carry only one, so publishing `1..=10`
+    // makes the generated parser REJECT a `count="25"` that the source accepts down its other
+    // path. An unconstrained field accepts more than the source does, which is the error this
+    // branch has been narrowing all along; rejecting what the source takes breaks the consumer
+    // outright, which is the one it must not make. The clash is still reported either way.
+    //
+    // The dispatch lifter reads that report and refuses the whole transformation, which is the
+    // stronger answer where it applies — it has somewhere to fall back to. Here there is no
+    // second shape to choose, so declining means declining the constraint.
+    macro_rules! constrain {
+        ($($field:ident),+ $(,)?) => {$(
+            match (&into.$field, &from.$field) {
+                (None, Some(v)) => into.$field = Some(v.clone()),
+                (Some(a), Some(b)) if a != b => {
+                    lost.push(format!("{MERGE_CONFLICT}@{}:{}", stringify!($field), into.name));
+                    into.$field = None;
+                }
+                _ => {}
+            }
+        )+};
+    }
+    // The STRUCTURAL facts are not constraints and clearing one would describe a different
+    // field rather than a less constrained one: where the value is read from, what it decodes
+    // as, whether it repeats. A disagreement there is reported and the first reading kept,
+    // because there is no "unconstrained" version of "which child this comes from".
     macro_rules! carry {
         ($($field:ident),+ $(,)?) => {$(
             match (&into.$field, &from.$field) {
@@ -2018,7 +3105,7 @@ fn take_constraints(into: &mut ParsedField, from: &ParsedField, lost: &mut Vec<S
             }
         )+};
     }
-    carry!(
+    constrain!(
         byte_length,
         byte_min,
         byte_max,
@@ -2028,11 +3115,8 @@ fn take_constraints(into: &mut ParsedField, from: &ParsedField, lost: &mut Vec<S
         enum_ref,
         pending_enum_ref,
         literal_value,
-        content_type,
-        reference_path,
-        source_path,
-        repeats,
     );
+    carry!(content_type, reference_path, source_path, repeats,);
 }
 
 /// Reads a dispatch chain where it actually sits, rather than looking for comparisons
@@ -2162,6 +3246,3172 @@ fn one_read_per_property(fields: &mut [ParsedField]) -> bool {
     fields
         .iter()
         .all(|f| seen.insert(rust_member_form(&f.name)))
+}
+
+/// A member access by a name this can read, computed or not: `f.call` and `f["call"]` reach the
+/// same function, and matching only the dotted spelling left the bracket one walking an inline
+/// body as one nobody calls. `static_name` answers `None` for a key nothing here resolves, which
+/// is what keeps `f[k]` out.
+fn named_member<'b, 'a>(
+    e: &'b Expression<'a>,
+) -> Option<(std::borrow::Cow<'b, str>, &'b Expression<'a>)> {
+    match e {
+        Expression::StaticMemberExpression(m) => Some((
+            std::borrow::Cow::Borrowed(m.property.name.as_str()),
+            &m.object,
+        )),
+        // Peeled: `f[("call")]` names the same property as `f["call"]`, and parentheses around
+        // a key change nothing about which one it is.
+        Expression::ComputedMemberExpression(m) => match peel(&m.expression) {
+            Expression::StringLiteral(s) => {
+                Some((std::borrow::Cow::Borrowed(s.value.as_str()), &m.object))
+            }
+            // A template with nothing substituted into it is a string spelled another way, and
+            // ``f[`call`]`` reaches the same function as `f.call`. One with a substitution names
+            // whatever that evaluates to, which is not a question for a syntactic pass.
+            Expression::TemplateLiteral(t) if t.expressions.is_empty() && t.quasis.len() == 1 => t
+                .quasis
+                .first()
+                .and_then(|q| q.value.cooked.as_ref())
+                .map(|c| (std::borrow::Cow::Borrowed(c.as_str()), &m.object)),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// The `.bind` member a call's callee resolves to, if that is what it is — so `f.bind(…)` is
+/// told from `f.map(…)`, whose result is not `f`.
+fn bind_member<'b, 'a>(callee: &'b Expression<'a>) -> Option<&'b Expression<'a>> {
+    // …and only while the RECEIVER survives. `invoked_callee` refuses to unwrap `call`/`apply`
+    // through a comma for exactly this reason, and re-applying `named_member` to its result
+    // here threw that state away: `(0, f.bind)(null)` hands `Function.prototype.bind` an
+    // `undefined` receiver and throws before `f` is reached, and the body was walked as one the
+    // call certainly runs. The same rule the neighbouring wrappers have, asked where this
+    // reader can see it — the comma has to be at the TOP of the callee, because `(0, f).bind`
+    // takes the member AFTER the discard and is an ordinary reference.
+    if reference_discarded(callee) {
+        return None;
+    }
+    match named_member(invoked_callee(callee)) {
+        Some((name, object)) if name == "bind" => Some(object),
+        _ => None,
+    }
+}
+
+/// Whether the value this expression names arrives with its REFERENCE discarded — which the
+/// comma operator does and parentheses do not.
+///
+/// `(0, f.bind)` is `Function.prototype.bind` with no receiver, so calling it throws; `(f.bind)`
+/// and `(0, f).bind` both keep one and do not.
+fn reference_discarded(e: &Expression<'_>) -> bool {
+    match e {
+        Expression::ParenthesizedExpression(p) => reference_discarded(&p.expression),
+        Expression::SequenceExpression(_) => true,
+        _ => false,
+    }
+}
+
+/// The expression a call actually invokes, through the wrappers that do not change it:
+/// parentheses, and a comma expression, whose value is its last element.
+///
+/// `(0, function(){ … })()` is how a minifier calls a function with `this` unbound, and reading
+/// only the parenthesised form classified that body as one nobody calls — so a write inside it
+/// stayed confined and the helper's fields were published on the node it had moved away from.
+fn invoked_callee<'b, 'a>(mut e: &'b Expression<'a>) -> &'b Expression<'a> {
+    // A member taken through the comma operator is a bare function VALUE: the reference is
+    // discarded, so `(0, f.call)(null)` hands `Function.prototype.call` an `undefined` receiver
+    // and throws before `f` is entered. Parentheses keep the reference and are not this.
+    //
+    // A decided SELECTION does the same. `(1 ? f.call : g)(null)` evaluates the conditional to
+    // the member's value and the receiver is gone with it, so the throw is the comma's throw
+    // under another spelling. Round seventy-two taught this loop to see through the selection
+    // and left the flag alone, which reached the receiver as though it had survived.
+    let mut reference_lost = false;
+    loop {
+        e = match e {
+            Expression::ParenthesizedExpression(p) => &p.expression,
+            Expression::SequenceExpression(s) if !s.expressions.is_empty() => {
+                reference_lost = true;
+                s.expressions.last().expect("checked non-empty")
+            }
+            // `(function(){ … }).call(null)` runs that body as immediately as `()` does; the
+            // callee is a member expression, so the matcher fell through to the deferred walk
+            // and the write stayed confined.
+            //
+            // Unwrapped unconditionally, not only for an inline receiver: `thing.call(…)`
+            // unwraps to `thing`, which the caller's own test then rejects as something it has
+            // never seen the body of. Guarding it here as well was an inert second copy of that
+            // test, and no mutation could tell the two versions apart.
+            // `(function(){ … }).bind(null)()` runs that body now too. The callee of the outer
+            // call is itself a CALL, so nothing above matched it and the body was walked as one
+            // nobody reaches. Only `.bind`, whose result IS the receiver's body; what
+            // `(function(){ … }).map(g)` hands back is something else.
+            // The selection wrappers, read from the one place that states them.
+            other if !std::ptr::eq(selected_arm(other), other) => {
+                reference_lost = true;
+                selected_arm(other)
+            }
+            Expression::CallExpression(c) => match bind_member(&c.callee) {
+                Some(object) => object,
+                None => return e,
+            },
+            other => match named_member(other) {
+                Some((name, object))
+                    if matches!(name.as_ref(), "call" | "apply") && !reference_lost =>
+                {
+                    object
+                }
+                // `({ m(){ … } }).m()` selects that method and runs it here, as plainly as an
+                // IIFE does. Only the `call`/`apply` wrappers were unwrapped, so an ordinary
+                // named method was walked as a function nobody reaches and its write stayed
+                // confined. `owned_property` decides which property the literal ends up with,
+                // spreads and all; a GETTER is not this shape — reading `m` would invoke the
+                // getter and call whatever it returned.
+                Some((name, object)) => match peel(object) {
+                    Expression::ObjectExpression(o) => match owned_property(o, name.as_ref()) {
+                        Some(op) if op.kind == oxc_ast::ast::PropertyKind::Init => &op.value,
+                        _ => return other,
+                    },
+                    _ => return other,
+                },
+                _ => return other,
+            },
+        };
+    }
+}
+
+/// What actually reaches the invoked function's parameters, one slot per position.
+///
+/// `f(a, b)` hands them straight through. `f.call(thisArg, a, b)` hands `a, b`, the first
+/// argument being the receiver. `f.apply(thisArg, [1])` hands the elements of that array — a
+/// literal one is as readable as an argument list, and answering "unknowable" for every `.apply`
+/// walked a default the call really does prevent.
+///
+/// `None` in a slot is an array ELISION — a position that certainly holds `undefined`, so it
+/// supplies nothing while the positions after it stay where they are. A spread is the other
+/// answer and ends the mapping outright, because it moves every position after it by an amount
+/// nothing here knows.
+fn effective_arguments<'b, 'a>(
+    callee_expr: &'b Expression<'a>,
+    arguments: &'b [Argument<'a>],
+) -> (Vec<Option<&'b Expression<'a>>>, bool) {
+    arguments_then(callee_expr, arguments, (Vec::new(), true))
+}
+
+/// The KEY of a computed member, when there is one — the expression evaluated between the
+/// object and the call.
+///
+/// [`named_member`] reads through it to decide WHICH property is named and hands back only the
+/// object, so a key that writes on the way had that write recorded nowhere. Returned whatever
+/// the key spells: a bare literal evaluates nothing and walking it costs nothing.
+fn computed_key<'b, 'a>(e: &'b Expression<'a>) -> Option<&'b Expression<'a>> {
+    match e {
+        Expression::ComputedMemberExpression(m) => Some(&m.expression),
+        _ => None,
+    }
+}
+
+/// Through parentheses alone, leaving a sequence intact.
+///
+/// [`peel`] takes a sequence's value with it, which is what a reader asking "what IS this"
+/// wants and the opposite of what one asking "what does evaluating this DO" wants.
+fn peel_parens<'b, 'a>(mut e: &'b Expression<'a>) -> &'b Expression<'a> {
+    while let Expression::ParenthesizedExpression(p) = e {
+        e = &p.expression;
+    }
+    e
+}
+
+/// The arm a decided conditional or short-circuit evaluates to, or the expression itself.
+///
+/// `1 ? f : g` IS `f`, and `1 && f` is `f`. The other way round — `0 && f` — evaluates to the
+/// LEFT, which [`logical_right_is_dead`] names and this deliberately leaves alone: the value
+/// there is the `0`.
+///
+/// Its own function because two unwrappers need it and neither can call the other: [`peel`]
+/// answers "what value is this" and `invoked_callee` answers the same question while tracking
+/// whether a comma discarded the reference on the way, so it keeps its own loop. The statement
+/// side has read `statically_selected` for as long; this is its expression twin.
+fn selected_arm<'b, 'a>(e: &'b Expression<'a>) -> &'b Expression<'a> {
+    match e {
+        Expression::ConditionalExpression(c) if always_true(&c.test) => &c.consequent,
+        Expression::ConditionalExpression(c) if always_false(&c.test) => &c.alternate,
+        Expression::LogicalExpression(l) if logical_right_is_certain(l) => &l.right,
+        other => other,
+    }
+}
+
+/// Through the wrappers that do not change which value an expression is — and no further.
+/// `invoked_callee` looks through `bind` as well, which is the wrong depth for anything asking
+/// what the receiver of a `bind` actually is.
+fn peel<'b, 'a>(mut e: &'b Expression<'a>) -> &'b Expression<'a> {
+    loop {
+        e = match e {
+            Expression::ParenthesizedExpression(p) => &p.expression,
+            Expression::SequenceExpression(s) if !s.expressions.is_empty() => {
+                s.expressions.last().expect("checked non-empty")
+            }
+            // A conditional no value of its test can decide is one of these wrappers too: `1 ?
+            // f : g` IS `f`. Every caller of this asks the same question — what value is this —
+            // so the answer belongs here rather than at the one reader that reported it, and
+            // `invoked_callee` reads the same helper because it cannot call this one.
+            other if !std::ptr::eq(selected_arm(other), other) => selected_arm(other),
+            other => return other,
+        };
+    }
+}
+
+/// The mapping so far, and whether it reached the end of the list rather than stopping at a
+/// spread. Nothing may be appended after a stop: where the next value lands is then unknown.
+fn mapped<'b, 'a>(args: &'b [Argument<'a>]) -> (Vec<Option<&'b Expression<'a>>>, bool) {
+    let mut out = Vec::new();
+    for a in args {
+        match a {
+            Argument::SpreadElement(_) => return (out, false),
+            other => out.push(other.as_expression()),
+        }
+    }
+    (out, true)
+}
+
+fn append<'b, 'a>(
+    (mut out, complete): (Vec<Option<&'b Expression<'a>>>, bool),
+    (trailing, trailing_complete): (Vec<Option<&'b Expression<'a>>>, bool),
+) -> (Vec<Option<&'b Expression<'a>>>, bool) {
+    // Nothing may be appended after a stop: where the next value lands is then unknown, and so
+    // is every position from there on — which is what the completeness flag carries out.
+    if complete {
+        out.extend(trailing);
+        (out, trailing_complete)
+    } else {
+        (out, false)
+    }
+}
+
+/// [`effective_arguments`], with a suffix that lands after whatever this callee contributes.
+///
+/// The suffix is what makes nesting come out in the right order. `f.bind(a).bind(b)()` binds
+/// `b` AFTER `a`, because the second `bind` extends the list the first one built — so the
+/// outer group is a suffix of the inner one, not a prefix. Building it the other way round
+/// produced `[b, a]`, which supplies the wrong parameter and, when the first bound value is
+/// `undefined`, suppresses a default that really runs.
+fn arguments_then<'b, 'a>(
+    callee_expr: &'b Expression<'a>,
+    arguments: &'b [Argument<'a>],
+    trailing: (Vec<Option<&'b Expression<'a>>>, bool),
+) -> (Vec<Option<&'b Expression<'a>>>, bool) {
+    let mut e = callee_expr;
+    loop {
+        e = match e {
+            Expression::ParenthesizedExpression(p) => &p.expression,
+            Expression::SequenceExpression(s) if !s.expressions.is_empty() => {
+                s.expressions.last().expect("checked non-empty")
+            }
+            // `f.bind(thisArg, ...bound)(...outer)` hands `f` the BOUND arguments first and the
+            // outer call's after them, which is as countable as an argument list. I answered
+            // "nothing readable" for the whole shape when the invocation was first recognized,
+            // and asserted so in a test; review was right that `.bind(null)(1)` supplies the
+            // first parameter as plainly as `(1)` does.
+            Expression::CallExpression(c) => {
+                let Some(receiver) = bind_member(&c.callee) else {
+                    return (Vec::new(), false);
+                };
+                // A spread in the RECEIVER slot moves every position after it, so which
+                // argument is the `thisArg` is not decidable — same reading `.call` takes.
+                if matches!(c.arguments.first(), Some(Argument::SpreadElement(_))) {
+                    return (Vec::new(), false);
+                }
+                // This bind's own group, then the outer call's, then whatever already followed:
+                // all of it lands after any group an INNER bind contributed, which is what the
+                // recursion below recovers.
+                let tail = append(
+                    mapped(c.arguments.get(1..).unwrap_or_default()),
+                    append(mapped(arguments), trailing),
+                );
+                // `(f.call).bind(…)` would need the receiver slot dropped from a list this has
+                // already flattened, so it is left unread rather than mapped wrongly. Anything
+                // else recurses: a receiver that is itself a bound function contributes its own
+                // group in front, and one that is not contributes nothing and hands `tail` back.
+                //
+                // Peeled rather than run through `invoked_callee`, which looks through `bind`
+                // itself — asking it here reported a nested bind as the function underneath and
+                // the inner group was dropped, which is the bug this recursion exists to fix.
+                return match named_member(peel(receiver)) {
+                    Some((name, _)) if matches!(name.as_ref(), "call" | "apply") => {
+                        (Vec::new(), false)
+                    }
+                    _ => arguments_then(receiver, &[], tail),
+                };
+            }
+            _ if named_member(e).is_some() => {
+                let (name, _) = named_member(e).expect("checked");
+                // A spread in the receiver slot contributes an unknown number of values, so
+                // neither slicing it off nor indexing past it identifies anything: `f.call(
+                // ...args, 1)` passes `1` as the receiver when `args` is empty and as the
+                // first argument when it holds one.
+                if matches!(name.as_ref(), "call" | "apply")
+                    && matches!(arguments.first(), Some(Argument::SpreadElement(_)))
+                {
+                    return (Vec::new(), false);
+                }
+                return match name.as_ref() {
+                    "call" => append(mapped(arguments.get(1..).unwrap_or_default()), trailing),
+                    "apply" => {
+                        // `f.apply(null)` and `f.apply(null, null)` both call `f` with NO
+                        // arguments, and that is a list this can read completely — `Vec::new()`
+                        // paired with `false` said "unknowable", so every parameter read as
+                        // possibly supplied and a binding certain to throw looked survivable.
+                        // The same two spellings `apply_list_throws` already tells apart, on the
+                        // other side of the same argument.
+                        let list = arguments.get(1).and_then(Argument::as_expression);
+                        if list.is_none_or(|l| certainly_nullish(l)) {
+                            return append((Vec::new(), true), trailing);
+                        }
+                        // Through the wrappers that do not change the value: `(([1]))` is the
+                        // same list `[1]` is, and matching the written node called it unreadable
+                        // — so a default the call really prevents was recorded as one that runs.
+                        let Some(Expression::ArrayExpression(arr)) = list.map(peel) else {
+                            return (Vec::new(), false);
+                        };
+                        let mut out = Vec::new();
+                        let mut complete = true;
+                        for el in &arr.elements {
+                            match el {
+                                oxc_ast::ast::ArrayExpressionElement::SpreadElement(_) => {
+                                    complete = false;
+                                    break;
+                                }
+                                other => out.push(other.as_expression()),
+                            }
+                        }
+                        append((out, complete), trailing)
+                    }
+                    _ => append(mapped(arguments), trailing),
+                };
+            }
+            _ => return append(mapped(arguments), trailing),
+        };
+    }
+}
+
+/// Everything such a callee evaluates on the way to the function it invokes.
+fn leading_parts<'b, 'a>(e: &'b Expression<'a>, out: &mut Vec<&'b Expression<'a>>) {
+    match e {
+        Expression::ParenthesizedExpression(p) => leading_parts(&p.expression, out),
+        Expression::SequenceExpression(s) => {
+            if let Some((last, rest)) = s.expressions.split_last() {
+                out.extend(rest);
+                leading_parts(last, out);
+            }
+        }
+        // Through the `.call`/`.apply` wrapper the callee unwrapper now looks through, or
+        // `(current = other, function(){}).call(null)` loses that assignment entirely — the
+        // function is found and the comma's leading element is not. Two readers of one shape,
+        // and only one of them was taught it.
+        _ if named_member(e).is_some_and(|(name, _)| matches!(name.as_ref(), "call" | "apply")) => {
+            let (_, object) = named_member(e).expect("checked");
+            leading_parts(object, out);
+            // …and the KEY, which is evaluated on the way to the member and can write on the
+            // way: `(function(){}) [(current = other, "call")](null)` names `call` and assigns
+            // first. `named_member` reads through the parentheses and the comma to the literal
+            // and hands back only the object, so everything the key evaluated was recorded
+            // nowhere at all. After the object, which is evaluated first.
+            out.extend(computed_key(e));
+        }
+        // `({ x: current = other, m(){} }).m()` builds the object before the call, so every
+        // computed key and property initializer in it has already run. The callee unwrapper
+        // looks through an ordinary member to the method it names and this reader did not, so
+        // the literal's own effects were recorded nowhere at all — the same two-readers-of-one-
+        // shape split as the `.call` arm above, for the third time.
+        //
+        // The whole literal, method bodies and all: a method is a function VALUE here and the
+        // walk that follows treats it as one, so nothing is entered twice.
+        _ if named_member(e).is_some_and(|(name, object)| {
+            matches!(peel(object), Expression::ObjectExpression(o)
+                if owned_property(o, name.as_ref()).is_some())
+        }) =>
+        {
+            let (_, object) = named_member(e).expect("checked");
+            out.push(object);
+            out.extend(computed_key(e));
+        }
+        // `(function(){ … }).bind(null, current = other)()` evaluates the bind call — receiver
+        // and arguments both — before the body it returns is ever entered. The callee unwrapper
+        // looks through this shape, and this reader did not, so the assignment beside the bound
+        // receiver was recorded nowhere and the helper's fields were published on a node the
+        // call had replaced. Same two-readers-of-one-shape split as the `.call` arm above.
+        Expression::CallExpression(c) => {
+            let Some(receiver) = bind_member(&c.callee) else {
+                return;
+            };
+            leading_parts(receiver, out);
+            // The same key, for the same reason: `f[(current = other, "bind")](null)()` resolves
+            // the member before it binds anything.
+            out.extend(computed_key(&c.callee));
+            out.extend(c.arguments.iter().map(|a| match a {
+                // A spread still evaluates what it spreads.
+                Argument::SpreadElement(s) => &s.argument,
+                other => other.to_expression(),
+            }));
+        }
+        _ => {}
+    }
+}
+
+/// Whether `t`'s finalizer can complete abruptly with something other than an error, in which
+/// case it hands that back whatever the block and handler did.
+///
+/// Anywhere inside it, not only at its top: `finally { if (retry) return fallback; }` discards
+/// the pending error on the path that returns. `break` and `continue` out of the finalizer
+/// discard it the same way, an unlabelled one belonging to a loop the finalizer opens itself
+/// does not, and a `return` inside a function the finalizer merely constructs is that
+/// function's — all three of which `exits_with_a_value` already decides.
+///
+/// Asked by `throws_out` about the try as a whole and by the visitor about the try's own reads.
+/// It was spelled inline for the first and not asked at all by the second.
+fn fin_leaves_with_a_value(t: &oxc_ast::ast::TryStatement<'_>) -> bool {
+    let Some(fin) = t.finalizer.as_ref() else {
+        return false;
+    };
+    // In order, stopping where control does: `finally { throw Error(); return fallback; }`
+    // never reaches that `return`, and asking `any` of the whole list called the finalizer one
+    // that hands a result back — so a `try` that really does throw counted as a value path and
+    // diluted the intersection around it. The same in-order reading the statement walks use.
+    for st in &fin.body {
+        if exits_with_a_value(st) {
+            return true;
+        }
+        if ends_the_statement_list(st) {
+            return false;
+        }
+    }
+    false
+}
+
+/// Whether `body` can neither complete nor raise — it hangs, so nothing after it runs and no
+/// handler around it is ever reached.
+///
+/// [`throws_out`] answers the question every caller but one asks: can this path hand a result
+/// back. A loop nothing leaves and a `throw` are the same answer there. They are not the same
+/// to a `try` — an error reaches the handler and a hang does not — so `try { for (;;); } catch
+/// (_) {}` was read as falling into a handler that completes, and therefore as a path that
+/// yields something.
+///
+/// Deliberately narrow. Any statement whose evaluation could raise ends the walk, because
+/// claiming a hang where a throw is possible hides a handler that does run — the direction that
+/// makes required what the parser leaves optional. It recognises the minifier's `for (;;);` and
+/// `while (!0) {}` and nothing that does work.
+fn hangs_forever(body: &[Statement<'_>]) -> bool {
+    for st in body {
+        if is_a_hang(st) {
+            return true;
+        }
+        if !is_quiet(st) {
+            return false;
+        }
+    }
+    false
+}
+
+/// A loop that is entered, cannot be left, and evaluates nothing that could raise.
+fn is_a_hang(st: &Statement<'_>) -> bool {
+    hangs_under(st, None)
+}
+
+/// The same, carrying the label the loop was written with — a `continue` naming it is one of
+/// this loop's own, so it spins rather than leaves.
+fn hangs_under(st: &Statement<'_>, label: Option<&str>) -> bool {
+    match st {
+        Statement::WhileStatement(w) => always_true(&w.test) && spins(&w.body, label),
+        Statement::DoWhileStatement(d) => always_true(&d.test) && spins(&d.body, label),
+        // A header that holds anything is a header that runs it: an init or an update can
+        // raise, and a test that is not a literal is not decidable here anyway.
+        Statement::ForStatement(f) => {
+            f.init.is_none()
+                && f.update.is_none()
+                && f.test.as_ref().is_none_or(always_true)
+                && spins(&f.body, label)
+        }
+        Statement::LabeledStatement(l) => hangs_under(&l.body, Some(l.label.name.as_str())),
+        Statement::BlockStatement(b) => hangs_forever(&b.body),
+        _ => false,
+    }
+}
+
+/// A loop body that goes round again and does nothing else: it evaluates nothing, so it cannot
+/// raise, and the only transfer it makes is back to the top of this same loop.
+///
+/// `while (!0) { continue; }` is as much a hang as `while (!0) {}`, and reading only the empty
+/// spelling left the `catch` around it counting as a path that yields something. A `break` is
+/// the opposite answer — it leaves — and anything evaluated at all could raise instead.
+fn spins(st: &Statement<'_>, label: Option<&str>) -> bool {
+    match st {
+        // `continue` starts the next pass; unlabelled it belongs to the nearest loop, which is
+        // this one, and labelled it has to name this one.
+        Statement::ContinueStatement(c) => match &c.label {
+            None => true,
+            Some(l) => label == Some(l.name.as_str()),
+        },
+        Statement::BlockStatement(b) => b.body.iter().all(|st| spins(st, label)),
+        other => is_quiet(other),
+    }
+}
+
+/// A statement that evaluates nothing and ends nothing: it can neither raise nor leave the
+/// construct around it. Everything else is assumed to be able to do both.
+///
+/// A `continue` is NOT one of these at the statement-list level, where it leaves the list —
+/// only inside the body of the loop it belongs to, which is what [`spins`] asks.
+fn is_quiet(st: &Statement<'_>) -> bool {
+    match st {
+        Statement::EmptyStatement(_) | Statement::DebuggerStatement(_) => true,
+        Statement::BlockStatement(b) => b.body.iter().all(is_quiet),
+        _ => false,
+    }
+}
+
+/// Where the part of an immediately invoked function that runs synchronously with the call
+/// ends: the first `await` it can reach, or all of it when there is none.
+///
+/// The first one in source order, not the first one every path reaches — a write past an
+/// `await` some execution performs is one the caller does not wait for, and the caller's own
+/// statements are all that this scanner reads.
+/// The regions of `f` that a CALL runs synchronously, whichever way the callee was resolved.
+///
+/// A generator builds an iterator and runs none of its body until something advances it; its
+/// PARAMETERS are still bound by the call, so a default there really does run. An `async`
+/// function is the same shape with a different cut, which [`synchronous_until`] draws.
+///
+/// One function because the callee arrives two ways. An inline `function*` expression has known
+/// this since the round it was reported for, and a class METHOD the resolution hands back read
+/// only `async` — so `(class { static *m(){ … } }).m()` had its whole body recorded as run.
+fn invoked_regions(f: &Function<'_>) -> Vec<Span> {
+    if f.generator {
+        vec![f.params.span]
+    } else {
+        synchronous_until(f.r#async, f.span, f.body.as_deref())
+    }
+}
+
+fn synchronous_until(
+    is_async: bool,
+    span: Span,
+    body: Option<&oxc_ast::ast::FunctionBody<'_>>,
+) -> Vec<Span> {
+    if !is_async {
+        return vec![span];
+    }
+    struct FirstAwait {
+        at: Option<u32>,
+        nested: u32,
+        /// Branches of an undecided `if` that contain no await of their own, and the
+        /// CONTINUATION after a branch some path bypasses. Whichever side suspends, the other
+        /// one still runs to its end without waiting for anything — and so does everything
+        /// after the branch, on that same path.
+        unsuspended: Vec<Span>,
+        /// Where the walked body ends, for naming that continuation.
+        body_end: u32,
+        /// Continuations still to be closed: a position past a branch some path bypasses. Each
+        /// runs synchronously until the next suspension EVERY surviving path reaches, which is
+        /// not known until the walk has gone past it.
+        pending: Vec<u32>,
+        /// Every await, in source order, for closing those continuations.
+        ///
+        /// Every one of them, rather than only the ones no branch can bypass. I wrote the
+        /// narrower rule first and no input separates the two: a construct that makes an await
+        /// skippable records its own continuation after itself, so closing an earlier
+        /// continuation at that await and closing it where the later continuation begins cover
+        /// the same ground. A gate no test can hold is one to remove.
+        unavoidable: Vec<u32>,
+    }
+    impl FirstAwait {
+        fn note(&mut self, at: u32) {
+            if self.nested == 0 {
+                self.at = Some(self.at.map_or(at, |a| a.min(at)));
+                self.unavoidable.push(at);
+            }
+        }
+        /// A branch some execution skips: what follows it is synchronous on that path, until
+        /// the next suspension every surviving path reaches.
+        fn bypassed_after(&mut self, at: u32) {
+            if self.nested == 0 {
+                self.pending.push(at);
+            }
+        }
+
+        /// The first await inside one statement, ignoring nested functions — asked of each side
+        /// of a branch separately, which is the whole point.
+        fn within(st: &Statement<'_>) -> Option<u32> {
+            let mut probe = FirstAwait {
+                at: None,
+                nested: 0,
+                unsuspended: Vec::new(),
+                body_end: 0,
+                pending: Vec::new(),
+                unavoidable: Vec::new(),
+            };
+            probe.visit_statement(st);
+            probe.at
+        }
+        /// The same, of one EXPRESSION — which a ternary's arms are.
+        fn within_expr(e: &Expression<'_>) -> Option<u32> {
+            let mut probe = FirstAwait {
+                at: None,
+                nested: 0,
+                unsuspended: Vec::new(),
+                body_end: 0,
+                pending: Vec::new(),
+                unavoidable: Vec::new(),
+            };
+            probe.visit_expression(e);
+            probe.at
+        }
+    }
+    impl<'a> Visit<'a> for FirstAwait {
+        // An `await` control never reaches suspends nothing, and a statement list stops at an
+        // unconditional transfer exactly as `walk_in_order` says it does. `try { throw 0; await
+        // 0; } catch (_) {} current = other;` runs the assignment before the call returns, and
+        // taking the unreachable await as the cutoff confined a write the caller does see.
+        //
+        // The list only. Whatever encloses it carries on — a `throw` ends the try's block and
+        // the handler still runs, so the walk reaches it by the ordinary route.
+        fn visit_statements(&mut self, stmts: &oxc_allocator::Vec<'a, Statement<'a>>) {
+            for st in stmts {
+                self.visit_statement(st);
+                if ends_the_statement_list(st) {
+                    break;
+                }
+            }
+        }
+        fn visit_await_expression(&mut self, e: &oxc_ast::ast::AwaitExpression<'a>) {
+            self.note(e.span.start);
+            walk::walk_await_expression(self, e);
+        }
+        /// A handler a protected block cannot ENTER suspends nothing: `try {} catch (_) { await
+        /// 0; }` leaves what follows as synchronous as it looks. The generic walk read the
+        /// handler's await as the cutoff and confined a write the caller really sees.
+        ///
+        /// The FINALIZER always runs and is walked whatever the block does, which is what keeps
+        /// this about the handler rather than about the statement.
+        fn visit_try_statement(&mut self, st: &oxc_ast::ast::TryStatement<'a>) {
+            self.visit_block_statement(&st.block);
+            if let Some(handler) = st.handler.as_ref()
+                && block_can_raise(&st.block)
+            {
+                self.visit_catch_clause(handler);
+            }
+            if let Some(finalizer) = st.finalizer.as_ref() {
+                self.visit_block_statement(finalizer);
+            }
+        }
+        /// An optional call that certainly short-circuits evaluates no argument, so an `await`
+        /// written there suspends nothing: `null?.(await 0); current = other;` completes the
+        /// assignment synchronously. Noting the skipped await as the cutoff confined a write
+        /// the caller really sees.
+        ///
+        /// The callee is evaluated and may suspend on its own, so it is still walked.
+        fn visit_call_expression(&mut self, c: &CallExpression<'a>) {
+            let short = if c.optional && certainly_nullish(&c.callee) {
+                Some(&c.callee)
+            } else {
+                short_circuit_base(&c.callee)
+            };
+            if let Some(base) = short {
+                self.visit_expression(base);
+                return;
+            }
+            walk::walk_call_expression(self, c);
+        }
+        // `for await (const x of xs)` suspends on every pass, and it is not an await EXPRESSION.
+        //
+        // The ITERABLE is not part of that: it is evaluated synchronously, and only drawing the
+        // first result from it suspends. Noting the suspension at the head of the whole
+        // statement put the iterable's own writes past the cutoff, so a write the caller does
+        // see was confined to the function and the helper's fields were published on a node it
+        // had replaced.
+        fn visit_for_of_statement(&mut self, st: &oxc_ast::ast::ForOfStatement<'a>) {
+            if !st.r#await {
+                walk::walk_for_of_statement(self, st);
+                return;
+            }
+            // …and the prefix this builds is SPAN-based, so noting the cutoff at the iterable's
+            // end swept the loop TARGET in with it — the target is written above the iterable and
+            // assigned only once the first result has been awaited. The suspension is noted at
+            // the head of the statement, which excludes the target and the body, and the
+            // iterable's own span is added back as a region that suspends nothing.
+            //
+            // Added back only when the iterable holds no await of its own: past one, the rest of
+            // the iterable is the continuation's like anything else.
+            let inner = FirstAwait::within_expr(&st.right);
+            self.visit_expression(&st.right);
+            if inner.is_none() && self.nested == 0 {
+                self.unsuspended.push(st.right.span());
+            }
+            self.note(st.span.start);
+            self.visit_for_statement_left(&st.left);
+            self.visit_statement(&st.body);
+        }
+        // An `await` under a test no value can change is one control never reaches, so it
+        // suspends nothing: `if (0) await x;` leaves the statements after it as synchronous as
+        // they look. Taking the first TEXTUAL await confined a write the caller does see, and
+        // the helper's fields were published on the node it had moved away from.
+        //
+        // And the two sides of an UNDECIDED `if` are alternatives, not a sequence. One side's
+        // await says nothing about the other, which runs to its end without waiting — taking
+        // the minimum across both confined a write that really is synchronous whenever its own
+        // side is selected, and the field came out required on a node half the executions had
+        // replaced. Each side is asked separately and the one that does not suspend is kept.
+        /// A case a readable discriminant does not select is never entered, so an `await` in it
+        /// suspends nothing. The `if`, the short circuit and the ternary have been pruned here
+        /// for as long; the switch beside them was walked case by case whatever the
+        /// discriminant said, and an unreachable await became the synchronous prefix's cutoff.
+        ///
+        /// From the SELECTED case onward, because control falls through: the arm that matched
+        /// and every arm after it can run, and the tests are evaluated only up to the match.
+        fn visit_switch_statement(&mut self, st: &oxc_ast::ast::SwitchStatement<'a>) {
+            self.visit_expression(&st.discriminant);
+            let Some(selected) = statically_selected_case(&st.discriminant, &st.cases) else {
+                walk::walk_switch_statement(self, st);
+                return;
+            };
+            // Two passes, because the tests are a phase of their own: the switch evaluates them
+            // in order and stops at the match, and only then enters an arm. Reading both in one
+            // loop let the `break` that ends the fallthrough cut off a test that runs before any
+            // arm is entered at all.
+            //
+            // Up to the match — unless the match is the DEFAULT, which is entered only after
+            // every test has been evaluated and found not to match, including the ones written
+            // after it. `statically_selected_case` answers with the default's index there, and
+            // reading it as a stopping point skipped a test that runs.
+            let all_tests = st.cases[selected].test.is_none();
+            for (i, case) in st.cases.iter().enumerate() {
+                if let Some(test) = &case.test
+                    && (all_tests || i <= selected)
+                {
+                    self.visit_expression(test);
+                }
+            }
+            for case in st.cases.iter().skip(selected) {
+                // …and the fallthrough STOPS at a `break`, which is what makes "from the
+                // selected case onward" a reachability claim rather than a range.
+                let mut left = false;
+                for stmt in &case.consequent {
+                    self.visit_statement(stmt);
+                    if ends_the_statement_list(stmt) {
+                        left = true;
+                        break;
+                    }
+                }
+                if left {
+                    break;
+                }
+            }
+        }
+
+        fn visit_if_statement(&mut self, st: &oxc_ast::ast::IfStatement<'a>) {
+            self.visit_expression(&st.test);
+            if let Some((taken, _dead)) =
+                statically_selected(&st.test, &st.consequent, st.alternate.as_ref())
+            {
+                if let Some(taken) = taken {
+                    self.visit_statement(taken);
+                }
+                return;
+            }
+            let sides: Vec<(&Statement<'a>, Option<u32>)> = std::iter::once(&st.consequent)
+                .chain(st.alternate.as_ref())
+                .map(|s| (s, FirstAwait::within(s)))
+                .collect();
+            // A one-sided `if` has an implicit empty alternate, which suspends nothing — so a
+            // path bypasses the await whenever the alternate is missing OR some side holds no
+            // await of its own.
+            let suspends = sides.iter().any(|(_, o)| o.is_some());
+            let bypassed =
+                suspends && (st.alternate.is_none() || sides.iter().any(|(_, o)| o.is_none()));
+            for (side, first) in &sides {
+                match first {
+                    Some(at) => self.note(*at),
+                    // Only when a SIBLING suspends is this worth recording: with no await
+                    // anywhere in the `if`, the statements after it are synchronous too and the
+                    // ordinary cutoff already covers this side.
+                    None if suspends && self.nested == 0 => {
+                        self.unsuspended.push(side.span());
+                    }
+                    None => {}
+                }
+                self.visit_statement(side);
+            }
+            // And the CONTINUATION. The sides were recorded from round nineteen and what comes
+            // after them was not, so `if (flag) await 0; current = other;` — where a one-sided
+            // `if` supplies no non-suspending sibling span at all — made the await a global
+            // cutoff and confined a write that runs synchronously whenever `flag` is false. Two
+            // executions disagree about whether the caller sees it, and the model owes the
+            // answer that declines rather than the one that publishes under a node half of them
+            // replaced.
+            //
+            // To the end of the body, which over-reaches past a LATER unconditional await. That
+            // direction only marks more writes as seen, which loses fields rather than filing
+            // them under the wrong node — the same asymmetry every other choice in this probe is
+            // made on.
+            if bypassed {
+                self.bypassed_after(st.span.end);
+            }
+        }
+        // A ternary is the decided branch the `if` arm already prunes, one syntactic level over.
+        // `1 ? 0 : await 0` never evaluates that await, so the statements after it are as
+        // synchronous as they look — and the generic walk took it as the cutoff.
+        fn visit_conditional_expression(&mut self, e: &oxc_ast::ast::ConditionalExpression<'a>) {
+            self.visit_expression(&e.test);
+            if let Some((taken, _dead)) =
+                statically_selected(&e.test, &e.consequent, Some(&e.alternate))
+            {
+                if let Some(taken) = taken {
+                    self.visit_expression(taken);
+                }
+                return;
+            }
+            // The two arms are ALTERNATIVES, not a sequence: one's await says nothing about the
+            // other, which runs to its end without waiting. Visiting them in order let the
+            // consequent's `await` become the cutoff for the alternate as well, and a write that
+            // really is synchronous whenever its own arm is selected was confined to the
+            // function. The `if` arm has recorded that since round nineteen; this one merged
+            // them, which is the same half-a-rule the ternary keeps being reported for.
+            let sides = [&e.consequent, &e.alternate].map(|s| (s, FirstAwait::within_expr(s)));
+            let suspends = sides.iter().any(|(_, o)| o.is_some());
+            for (side, first) in &sides {
+                match first {
+                    Some(at) => self.note(*at),
+                    None if suspends && self.nested == 0 => {
+                        self.unsuspended.push(side.span());
+                    }
+                    None => {}
+                }
+                self.visit_expression(side);
+            }
+            // And the continuation, exactly as the `if` records it: when one arm suspends and
+            // the other does not, everything after the ternary is synchronous on the arm that
+            // did not. The `if` was given this a round ago and its expression form was not,
+            // which is the half-a-rule these two keep trading.
+            if suspends && sides.iter().any(|(_, o)| o.is_none()) {
+                self.bypassed_after(e.span.end);
+            }
+        }
+        // A short-circuit operator is the same decided branch in expression form. `0 && await 0`
+        // never evaluates its right side, so the await in it suspends nothing and the statements
+        // after it are as synchronous as they look — the pruning was written for `if` and left
+        // out here, so the probe took an unreachable await as the cutoff and confined a write
+        // the caller does see. `??` prunes on the same answer: a value this calls certainly
+        // truthy is certainly not nullish.
+        fn visit_logical_expression(&mut self, e: &oxc_ast::ast::LogicalExpression<'a>) {
+            self.visit_expression(&e.left);
+            let dead = match e.operator {
+                oxc_syntax::operator::LogicalOperator::And => always_false(&e.left),
+                oxc_syntax::operator::LogicalOperator::Or => always_true(&e.left),
+                // `??` asks whether the left side is nullish, not whether it is falsy, and the
+                // two part company at `0` — which is non-nullish, so `0 ?? await 0` never
+                // reaches that await. Grouping it with `||` answered the narrower question.
+                oxc_syntax::operator::LogicalOperator::Coalesce => never_nullish(&e.left),
+            };
+            if dead {
+                return;
+            }
+            // The right side runs only when the left side allowed it, so an await inside it is
+            // one some execution skips — and everything AFTER the operator is synchronous on
+            // that path. Same rule as the `if` and the ternary, and the third place it had to
+            // be written because each was reported after the previous one was closed.
+            let bypassable = !logical_right_is_certain(e);
+            if bypassable {
+                let before = self.at;
+                self.visit_expression(&e.right);
+                if self.at != before {
+                    self.bypassed_after(e.span.end);
+                }
+            } else {
+                self.visit_expression(&e.right);
+            }
+        }
+        // An `await` inside a nested function is that function's suspension, not this one's.
+        fn visit_function(&mut self, f: &Function<'a>, flags: ScopeFlags) {
+            self.nested += 1;
+            walk::walk_function(self, f, flags);
+            self.nested -= 1;
+        }
+        fn visit_arrow_function_expression(
+            &mut self,
+            f: &oxc_ast::ast::ArrowFunctionExpression<'a>,
+        ) {
+            self.nested += 1;
+            walk::walk_arrow_function_expression(self, f);
+            self.nested -= 1;
+        }
+    }
+    let mut probe = FirstAwait {
+        at: None,
+        nested: 0,
+        unsuspended: Vec::new(),
+        body_end: span.end,
+        pending: Vec::new(),
+        unavoidable: Vec::new(),
+    };
+    if let Some(body) = body {
+        probe.visit_function_body(body);
+    }
+    // Each continuation runs until the next suspension EVERY surviving path reaches. Recording
+    // it to the end of the body — which is how it was first written — treated a write past a
+    // LATER unconditional await as synchronous, and that direction loses fields rather than
+    // filing them under the wrong node, but it loses them all the same.
+    let body_end = probe.body_end;
+    let unavoidable = probe.unavoidable;
+    let mut unsuspended = probe.unsuspended;
+    unsuspended.extend(probe.pending.into_iter().filter_map(|start| {
+        let end = unavoidable
+            .iter()
+            .copied()
+            .filter(|h| *h > start)
+            .min()
+            .unwrap_or(body_end);
+        (end > start).then(|| Span::new(start, end))
+    }));
+    let Some(cutoff) = probe.at else {
+        return vec![span];
+    };
+    let mut regions = vec![Span::new(span.start, cutoff)];
+    // A side that suspends nothing, but only past the cutoff — before it the first region
+    // already covers the same ground.
+    regions.extend(unsuspended.into_iter().filter(|r| r.end > cutoff));
+    regions
+}
+
+/// Whether every path through `body` leaves by throwing, so it can produce no result at all.
+///
+/// A `switch` arm like `default: throw Error()` is not a path a successful parse can have
+/// taken, so it has nothing to say about which fields such a parse read.
+///
+/// EVERY path, which is why this walks in order and stops rather than asking `any`. In
+/// `{ if (flag) break; throw Error(); }` the throw is reachable but so is the break, and
+/// calling that arm non-completing let `entry_paths_throw` promote a later case test the
+/// breaking path never evaluates. Anything that can leave without throwing ends the question
+/// where it stands.
+fn throws_out(body: &[Statement<'_>]) -> bool {
+    for st in body {
+        let throws = match st {
+            Statement::ThrowStatement(_) => true,
+            // …and a statement whose EXPRESSION certainly raises leaves the same way. This
+            // predicate read statement KINDS and never their expressions, so `else {
+            // (function(){ throw 0; })(); }` counted as a path that yields a value and diluted
+            // the intersection with an empty side. `expression_throws` peels a sequence, so
+            // `(0, (throws)())` is the same statement said another way.
+            //
+            // Round sixty-eight asked exactly this question inside `class_constructor_throws`,
+            // for its own statements. It reads this one now — the rule belongs to statements,
+            // not to constructors.
+            Statement::ExpressionStatement(x) => expression_throws(&x.expression),
+            Statement::BlockStatement(b) => throws_out(&b.body),
+            // Both ways out are still out: `if (flag) throw A(); else throw B();` produces no
+            // result on any path it can take. Matching only the bare and braced forms let a
+            // handler spelled this way count as a path that yields something, so it diluted the
+            // intersection with an empty side — `exits_unconditionally` already reads a
+            // two-sided `if` this way and this did not.
+            Statement::IfStatement(i) => i.alternate.as_ref().is_some_and(|alt| {
+                throws_out(std::slice::from_ref(&i.consequent))
+                    && throws_out(std::slice::from_ref(alt))
+            }),
+            Statement::LabeledStatement(l) => throws_out(std::slice::from_ref(&l.body)),
+            // A `try` can be non-completing too, and asking only about bare throws called this
+            // handler a path that yields something. `try { throw } finally { … }` throws: the
+            // finalizer runs and the error carries on. With a handler it throws only if BOTH
+            // sides do — a `catch` that returns swallows it — unless the finalizer itself
+            // throws, which overrides whatever the block and handler did.
+            Statement::TryStatement(t) => {
+                // A block that neither completes nor raises reaches neither the handler nor
+                // the finalizer. Reading the hang as a throw handed the question to a handler
+                // that completes, and `try { for (;;); } catch (_) {}` became a path that
+                // yields something.
+                if hangs_forever(&t.block.body) {
+                    return true;
+                }
+                let block = throws_out(&t.block.body);
+                let body = match &t.handler {
+                    Some(h) => block && throws_out(&h.body.body),
+                    None => block,
+                };
+                // A `finally` that completes abruptly wins over however the block and handler
+                // left: `finally { return fallback; }` hands back a result whatever was thrown,
+                // so the whole `try` is a value path. Only its throwing case was considered.
+                //
+                !fin_leaves_with_a_value(t)
+                    && (body || t.finalizer.as_ref().is_some_and(|f| throws_out(&f.body)))
+            }
+            // A loop whose first pass is guaranteed and whose body throws never comes round
+            // again: `while (!0) { throw Error(); }` is the minifier's spelling of an
+            // unconditional raise, and reading it as a path that yields something left a write
+            // before it live and both branches of an enclosing `if` in the intersection. The
+            // body's own answer decides, so a `break` anywhere in it still makes the loop
+            // completable — `throws_out` stops at the first statement control can leave by.
+            Statement::WhileStatement(w) if always_true(&w.test) => {
+                !leaves_the_loop_with_a_value(&w.body)
+            }
+            Statement::ForStatement(f) if f.test.as_ref().is_none_or(always_true) => {
+                !leaves_the_loop_with_a_value(&f.body)
+            }
+            // A `do` runs its body before any test, so a throwing body throws whatever the test
+            // says — but a body nothing can leave diverges only when the test cannot end the
+            // loop either. `do { continue; } while (c)` comes round again and then stops.
+            Statement::DoWhileStatement(d) => {
+                throws_out(std::slice::from_ref(&d.body))
+                    || (always_true(&d.test) && !leaves_the_loop_with_a_value(&d.body))
+            }
+            // And a `switch` every arm of which throws, with a `default` so no value escapes
+            // by matching nothing. The same `entry_paths_throw` the visitor uses.
+            Statement::SwitchStatement(sw) => {
+                sw.cases.iter().any(|c| c.test.is_none())
+                    && entry_paths_throw(&sw.cases).iter().all(|t| *t)
+            }
+            _ => false,
+        };
+        if throws {
+            return true;
+        }
+        if contains_exit(st) {
+            return false;
+        }
+    }
+    false
+}
+
+/// For each case, whether an EARLIER case tests the same literal, so nothing can enter here
+/// directly: a switch matches with strict equality and takes the first case that matches.
+///
+/// `case "a": parse(e); break; case "a": break;` can only ever run the first, so the empty
+/// second one is not an entry path — folding it into the intersection left the payload optional
+/// against a switch every reachable entry of which reads it. Reached by FALLTHROUGH it still
+/// runs, and that is already carried by the entry before it.
+fn shadowed_case_tests(cases: &oxc_allocator::Vec<'_, oxc_ast::ast::SwitchCase<'_>>) -> Vec<bool> {
+    let mut seen: Vec<String> = Vec::new();
+    cases
+        .iter()
+        .map(|c| {
+            let Some(key) = c.test.as_ref().and_then(literal_case_key) else {
+                return false;
+            };
+            let seen_before = seen.contains(&key);
+            seen.push(key);
+            seen_before
+        })
+        .collect()
+}
+
+/// The value a case test names, when reading it settles the question. Only the literal forms:
+/// anything computed — including a negated literal or a member lookup, which is what 4831 of
+/// this corpus's case tests are — is left unkeyed rather than guessed at, and an unkeyed test
+/// shadows nothing.
+fn literal_case_key(e: &Expression<'_>) -> Option<String> {
+    match e {
+        Expression::StringLiteral(l) => Some(format!("s{}", l.value)),
+        Expression::NumericLiteral(l) => Some(format!("n{}", l.value)),
+        Expression::BooleanLiteral(l) => Some(format!("b{}", l.value)),
+        Expression::NullLiteral(_) => Some("null".to_string()),
+        _ => None,
+    }
+}
+
+/// Which case a `switch` on a readable literal actually enters, when the source settles it.
+///
+/// The minifier writes `switch ("a") { case "a": … case "b": … }` where a constant folded into
+/// the discriminant; a switch is strict equality taken in source order, so exactly one entry
+/// runs and the rest are dead. Both halves matter: the switch is EXHAUSTIVE — some entry runs
+/// on every execution, `default` or no — and the entries that are not selected are not entry
+/// paths at all, so folding their empty consequents into the intersection left the payload
+/// optional against a switch whose only live arm reads it.
+///
+/// Every test up to the match has to be readable: one this cannot key might match first, and
+/// selecting past it would name an arm that never runs. `default` is not tested — the switch
+/// reaches it only after every case has been compared and missed — so it is the answer only
+/// once the whole list has been read.
+fn statically_selected_case(
+    discriminant: &Expression<'_>,
+    cases: &oxc_allocator::Vec<'_, oxc_ast::ast::SwitchCase<'_>>,
+) -> Option<usize> {
+    let want = literal_case_key(peel(discriminant))?;
+    let mut fallback = None;
+    for (i, c) in cases.iter().enumerate() {
+        match c.test.as_ref() {
+            None => fallback = Some(i),
+            Some(test) => {
+                if literal_case_key(peel(test))? == want {
+                    return Some(i);
+                }
+            }
+        }
+    }
+    fallback
+}
+
+/// For each case, whether ENTERING there leaves the switch by throwing on every path — its
+/// own consequent throws, or it falls through into a chain that does.
+///
+/// Which is what says whether a later case's test can be skipped by anything that still
+/// produces a value: a case that throws is not one of those paths.
+fn entry_paths_throw(cases: &oxc_allocator::Vec<'_, oxc_ast::ast::SwitchCase<'_>>) -> Vec<bool> {
+    let mut out = vec![false; cases.len()];
+    for i in (0..cases.len()).rev() {
+        let body = &cases[i].consequent;
+        out[i] =
+            throws_out(body) || (!leaves_switch(body, false) && i + 1 < cases.len() && out[i + 1]);
+    }
+    out
+}
+
+/// Whether an arm can end the switch rather than falling into the next one. Both passes over
+/// the cases ask this, and asking it twice in two spellings is how the fallthrough model
+/// drifts.
+///
+/// CAN, not must: what the next arm establishes is only guaranteed for an entry path that
+/// certainly reaches it, so `case "a": if (flag) break;` must not borrow the default's reads
+/// either. And matching only a top-level `BreakStatement` missed `case "a": { break; }`,
+/// which leaves exactly as the bare form does — `contains_exit_where` already answers both,
+/// including attributing an unlabelled `break` to a nested loop or switch rather than to
+/// this one.
+///
+/// `throwing_counts` picks WHICH ending is being asked about, because the two callers want
+/// different ones and giving them one answer was wrong for one of them:
+///
+/// - Folding what an entry path READS asks about endings that hand something back. `case "a": if
+///   (bad) throw Error(); default: parse(e);` reaches `parse` on every execution that returns
+///   anything, because the only path skipping the fallthrough throws — counting that throw as an
+///   ending left the payload optional and its guards unpublished.
+/// - Deciding whether an arm's declaration can shadow a LATER arm's asks about endings of any
+///   kind: a throw never reaches the next arm either.
+fn leaves_switch(body: &[Statement<'_>], throwing_counts: bool) -> bool {
+    body.iter()
+        .any(|st| contains_exit_where(st, throwing_counts, true))
+}
+
+/// Whether `stmt` transfers control out of the statement list it sits in, so nothing after it in
+/// that list runs.
+///
+/// Deliberately NOT [`exits_unconditionally`], which answers a different question for the dispatch
+/// chain: there an unlabelled `break` leaves only the nearest loop or switch and says nothing about
+/// the arms after it, so it does not count. Here the list IS that loop's or switch's body, and an
+/// unlabelled `break` or `continue` ends it — `do { break; current = other; } while (0)` can never
+/// run that assignment, and recording it as effective refused a descent for a node nothing had
+/// moved. Reusing the dispatch predicate covered `return` and `throw` and left both transfers out.
+fn ends_the_statement_list(stmt: &Statement<'_>) -> bool {
+    ends_the_list_but_for(stmt, &mut Vec::new(), true)
+}
+
+/// Whether a loop with this body can start another pass at all.
+///
+/// `do { parse(current); current = other; break; } while (flag)` cannot: the `break` is reached
+/// on every path, so no next iteration sees that write and `parse` is handed the original node
+/// every time. Treating the write as loop-carried anyway refused a valid alias and dropped the
+/// helper's fields. A `continue` is the one transfer that does start another pass, which is why
+/// it does not count as leaving here.
+fn can_come_round_again(body: &Statement<'_>) -> bool {
+    !ends_the_list_but_for(body, &mut Vec::new(), false)
+}
+
+/// The same question, carrying the labels declared INSIDE the statement being asked about.
+///
+/// `local: { break local; }` lands at the end of its own labelled block and the list carries on:
+/// counting it as an exit marked the next statement unreachable, gave the write in it no effective
+/// position at all, and the descent was refused for a node that really had been moved. A `break`
+/// naming a label from OUTSIDE does leave, which is the whole reason the two cannot be told apart
+/// without carrying the set. [`contains_exit_where`] has scoped its labels this way since the
+/// round that fixed the dispatch chain; this predicate was written after it and did not.
+fn ends_the_list_but_for(
+    stmt: &Statement<'_>,
+    inside: &mut Vec<String>,
+    continue_counts: bool,
+) -> bool {
+    match stmt {
+        Statement::ReturnStatement(_) | Statement::ThrowStatement(_) => true,
+        // Control does not continue past an expression that certainly raises, whatever the
+        // statement is spelled as — the other half of the same sentence `throws_out` states.
+        Statement::ExpressionStatement(x) => expression_throws(&x.expression),
+        // A labelled transfer to a label opened within this statement is consumed by it.
+        Statement::BreakStatement(b) => b
+            .label
+            .as_ref()
+            .is_none_or(|l| !inside.iter().any(|k| k == l.name.as_str())),
+        // `continue` ends the list it sits in, but it does not leave the LOOP — it starts the
+        // next pass. Which of those two questions is being asked is the flag.
+        Statement::ContinueStatement(c) => {
+            continue_counts
+                && c.label
+                    .as_ref()
+                    .is_none_or(|l| !inside.iter().any(|k| k == l.name.as_str()))
+        }
+        Statement::BlockStatement(b) => b
+            .body
+            .iter()
+            .any(|st| ends_the_list_but_for(st, inside, continue_counts)),
+        Statement::LabeledStatement(l) => {
+            inside.push(l.label.name.as_str().to_string());
+            let ends = ends_the_list_but_for(&l.body, inside, continue_counts);
+            inside.pop();
+            ends
+        }
+        // Both sides, or neither: a one-sided `if` falls through and the rest of the list runs.
+        Statement::IfStatement(i) => i.alternate.as_ref().is_some_and(|alt| {
+            ends_the_list_but_for(&i.consequent, inside, continue_counts)
+                && ends_the_list_but_for(alt, inside, continue_counts)
+        }),
+        // A `try` hands on however its parts left: `try { break; } finally {}` breaks, and the
+        // statement after it never runs. Falling into the catch-all recorded a write there as
+        // effective and refused a descent for a node the parser had not reached — the same
+        // propagation `throws_out` does for the value question, on the reachability one.
+        Statement::TryStatement(t) => {
+            let ends = |body: &oxc_allocator::Vec<'_, Statement<'_>>, inside: &mut Vec<String>| {
+                body.iter()
+                    .any(|st| ends_the_list_but_for(st, inside, continue_counts))
+            };
+            // A finalizer that leaves of its own overrides whatever the block and handler did,
+            // the way its `return` overrides a pending throw.
+            if t.finalizer.as_ref().is_some_and(|f| ends(&f.body, inside)) {
+                return true;
+            }
+            let block = ends(&t.block.body, inside);
+            match &t.handler {
+                // With a handler, the block's exit is not the only outcome — a `catch` that
+                // completes normally carries on into the statements after the `try`.
+                //
+                // Unless the block leaves by something a handler cannot intercept. A `catch`
+                // takes exceptions and nothing else, so `try { break; } catch (_) {}` breaks
+                // and the handler is never entered — demanding that the handler leave too
+                // called that reachable and refused the descent. I had asserted the opposite
+                // in this file one round ago; the test that said so is corrected below.
+                Some(h) => {
+                    leaves_without_raising(&t.block.body, inside, continue_counts)
+                        || (block && ends(&h.body.body, inside))
+                }
+                None => block,
+            }
+        }
+        // A loop or a switch CONSUMES an unlabelled transfer, so one inside it says nothing about
+        // the list this statement sits in.
+        _ => false,
+    }
+}
+
+/// The two phases a class definition runs in, as the spans that make each of them up: every
+/// computed key is evaluated before any static initializer or static block, whatever their
+/// source order. Carried together because each half is only correct beside the other — saying
+/// that an initializer follows the keys, and not that a key precedes the initializers, is a
+/// rule shipped one direction at a time.
+#[derive(Clone, Copy)]
+struct ClassPhases<'s> {
+    keys: &'s [Span],
+    statics: &'s [Span],
+    /// Where the static phase stops, when a static block before this element throws: nothing
+    /// static written past that point is evaluated at all.
+    static_phase_ends: Option<u32>,
+    /// The same for the INSTANCE phase this `new` performs: where it stops, when an instance
+    /// initializer before this element throws. `None` when nothing throws — or when the fields
+    /// do not initialize at all, in which case there is no phase to stop.
+    instance_phase_ends: Option<u32>,
+    /// A derived constructor's prefix up to and including its `super()` call. Its INSTANCE
+    /// fields initialize only once that call returns, so a read anywhere in here precedes
+    /// every one of them.
+    pre_super: Option<Span>,
+}
+
+/// Whether this call is a `.apply` whose argument list cannot be one: `Function.prototype.apply`
+/// takes `null`, `undefined` or an object, and throws a `TypeError` on anything else before the
+/// receiver's body is entered.
+///
+/// Only a spelling that settles it. An identifier, a call, anything this cannot read is left
+/// alone — claiming a throw where none happens would confine a write the caller does see.
+fn apply_list_throws(callee_expr: &Expression<'_>, arguments: &[Argument<'_>]) -> bool {
+    let Some((name, _)) = named_member(peel(callee_expr)) else {
+        return false;
+    };
+    if name != "apply" {
+        return false;
+    }
+    let Some(list) = arguments.get(1).and_then(Argument::as_expression) else {
+        return false;
+    };
+    match peel(list) {
+        // `null` and `void 0` are the two spellings that mean "no arguments".
+        Expression::NullLiteral(_) => false,
+        Expression::UnaryExpression(u) => u.operator != oxc_syntax::operator::UnaryOperator::Void,
+        Expression::BooleanLiteral(_)
+        | Expression::NumericLiteral(_)
+        | Expression::BigIntLiteral(_)
+        | Expression::StringLiteral(_)
+        | Expression::TemplateLiteral(_) => true,
+        _ => false,
+    }
+}
+
+/// Whether `new` can call this callee at all. A class and a plain function can be constructed;
+/// an arrow, an async function and a generator cannot, and `new` on one throws before its
+/// parameters or body are evaluated.
+fn is_constructible(callee: &Expression<'_>) -> bool {
+    match callee {
+        Expression::ClassExpression(_) => true,
+        Expression::FunctionExpression(f) => !f.generator && !f.r#async,
+        _ => false,
+    }
+}
+
+/// Whether `new` over this callee certainly raises, because it is certainly not a constructor.
+///
+/// The other side of [`is_constructible`], and NOT its negation: that one declines everything it
+/// cannot read, which is right where a wrong `true` would approve a body nothing runs. Here a
+/// wrong `true` claims a raise that does not happen, so the spellings are listed again from the
+/// certain end — an arrow, an async function and a generator have no `[[Construct]]`, and
+/// neither does any primitive or plain object literal. An identifier settles nothing either way.
+///
+/// `walk_invocation` asks the first question to decide whether to walk a body. This is the
+/// second: `new (() => { … })()` raises before the arrow is entered, so the arm it sits in
+/// completes abruptly and must not dilute what the arms that do produce a value require.
+fn certainly_not_constructible(callee: &Expression<'_>) -> bool {
+    match peel(callee) {
+        Expression::ArrowFunctionExpression(_) => true,
+        Expression::FunctionExpression(f) => f.generator || f.r#async,
+        Expression::ObjectExpression(_)
+        | Expression::ArrayExpression(_)
+        | Expression::NumericLiteral(_)
+        | Expression::StringLiteral(_)
+        | Expression::BooleanLiteral(_)
+        | Expression::NullLiteral(_)
+        | Expression::BigIntLiteral(_)
+        | Expression::RegExpLiteral(_)
+        | Expression::TemplateLiteral(_) => true,
+        _ => false,
+    }
+}
+
+/// Whether a class with this heritage throws the moment it is DEFINED.
+///
+/// `class C extends (() => {})` evaluates the arrow and then rejects it: a heritage has to be
+/// `null` or a constructor, and an arrow, an async function and a generator are none of them —
+/// nor is any primitive or a plain object. The class body never runs, so a static initializer
+/// in it writes nothing.
+///
+/// Only a spelling that settles it. An identifier is left alone, because claiming a throw where
+/// none happens confines a write the caller does see.
+fn heritage_throws(super_class: &Expression<'_>) -> bool {
+    match peel(super_class) {
+        // `extends null` is legal and makes a base-like class with no prototype parent.
+        //
+        // The fallback below answers this too, so no mutation can tell the arm from its absence
+        // — said rather than left implied. It stays because the list it sits above is a list of
+        // LITERALS that reject the class, and `null` is the one literal that must never join
+        // it; an arm is a cheaper guard against that edit than a comment alone.
+        Expression::NullLiteral(_) => false,
+        Expression::ClassExpression(_) => false,
+        Expression::FunctionExpression(f) => f.generator || f.r#async,
+        Expression::ArrowFunctionExpression(_)
+        | Expression::BooleanLiteral(_)
+        | Expression::NumericLiteral(_)
+        | Expression::BigIntLiteral(_)
+        | Expression::StringLiteral(_)
+        | Expression::TemplateLiteral(_)
+        | Expression::ObjectExpression(_)
+        // An object, and never a constructor — the one literal of that kind, which is why the
+        // list of "certainly not constructible" spellings had it missing.
+        | Expression::RegExpLiteral(_)
+        // EVERY unary operator produces a primitive — `void x` `undefined`, `!x` and `delete x`
+        // a boolean, `-x`/`+x`/`~x` a number, `typeof x` a string — and none of them produces
+        // `null`, which is the one primitive a heritage accepts. So `extends void 0` rejects
+        // the class the moment it is defined and its static initializers write nothing.
+        // `certainly_a_primitive` states the same fact one round earlier for what a constructor
+        // returns; this list had the literal forms and not the operator that makes them.
+        | Expression::UnaryExpression(_)
+        | Expression::ArrayExpression(_) => true,
+        _ => false,
+    }
+}
+
+/// Whether constructing this class runs its instance field initializers at all.
+///
+/// A DERIVED class installs them the moment `super()` returns, so a constructor that leaves
+/// before calling it never runs a single one — `constructor(){ return {}; }` is legal in a
+/// derived class and completes construction with the returned object. A base class installs
+/// them before its constructor body, so leaving early there changes nothing, and an implicit
+/// constructor is `constructor(...a){ super(...a) }`, which always calls it.
+///
+/// Only a `super()` this can find declines nothing: seeing one anywhere on the way keeps
+/// today's answer, and the fields are treated as skipped only when an unconditional exit is
+/// reached with none seen. Guessing the other way suppresses a write that really happens.
+fn instance_fields_initialize(class: &oxc_ast::ast::Class<'_>) -> bool {
+    let Some(heritage) = class.super_class.as_ref() else {
+        return true;
+    };
+    // `extends null` is a legal class and an impossible construction: the derived constructor's
+    // `super()` — implicit or written — calls `null`, which throws a `TypeError` before a single
+    // field initializes. The one derived shape that survives it is a constructor returning an
+    // object without calling `super()`, and that already answers `false` below. So a statically
+    // null heritage settles the whole question here, and the implicit-constructor shortcut
+    // underneath it — which reads a missing constructor as `super(...a)` and therefore as
+    // successful — no longer runs for the one heritage where that call cannot return.
+    if matches!(peel(heritage), Expression::NullLiteral(_)) {
+        return false;
+    }
+    let ctor = class.body.body.iter().find_map(|el| match el {
+        oxc_ast::ast::ClassElement::MethodDefinition(m)
+            if m.kind == oxc_ast::ast::MethodDefinitionKind::Constructor =>
+        {
+            Some(m)
+        }
+        _ => None,
+    });
+    let Some(body) = ctor.and_then(|m| m.value.body.as_ref()) else {
+        return true;
+    };
+    for st in &body.statements {
+        if calls_super(st) {
+            // …and every path through this statement has to REACH it. `if (flag) super(); else
+            // return {};` installs the fields only when `flag` is true — the other path returns
+            // an object and legally initializes nothing — so reading "some statement contains a
+            // `super()`" as construction recorded a write that half the executions do not
+            // perform. Only an unconditional call settles it: a statement that IS the call, or
+            // one whose every path makes it.
+            // A `super()` only some paths reach was reported as making the field writes
+            // unconditional, and it does — but flipping it to "no fields" is the opposite error,
+            // not the fix. `if (flag) super(); else return {};` installs them when `flag` holds
+            // and not otherwise, so neither answer this boolean can give is true; the accurate
+            // one is CONDITIONAL, which needs the write recorded through `skippable` rather than
+            // gated here. `every_other_construction_still_runs_its_fields` argues the current
+            // direction and I agree with it: keeping a write that happens publishes the helper's
+            // reads under the node the parser really moved to, and dropping one loses them under
+            // the node it moved away from. Declined with the reason rather than reversed, and
+            // the conditional version is one commit on request.
+            //
+            // Note the shape it is NOT: falling off the end of a derived constructor without
+            // calling `super()` throws, so among constructions that SUCCEED those fields always
+            // install — which is why `if (c) super();` alone is not this question at all.
+            //
+            // …and it has to RETURN. `super((function(){ throw 0; })())` never reaches the
+            // parent constructor, so the fields it would install are installed on no path.
+            // Presence of the call was read as success, which recorded a write that never
+            // happens. Only the argument spelling that settles it, the same
+            // `expression_throws` the ternary and the static phase read.
+            return !super_argument_throws(st);
+        }
+        if ends_the_statement_list(st) {
+            return false;
+        }
+    }
+    // Reaching the end without one is the same answer as leaving before one: a derived
+    // constructor that never calls `super()` throws a `ReferenceError` on return, so not a field
+    // initializes. Answering `true` here read `constructor(){}` as ordinary construction and
+    // recorded a write that happens on no path.
+    false
+}
+
+/// Whether a `super(...)` in this statement is handed an argument that certainly raises, so the
+/// call never returns and the fields it would install are installed on no path.
+///
+/// Asked only of a statement [`calls_super`] has already accepted, and only of the arguments —
+/// whether the PARENT constructor throws is a call-graph question this scanner does not answer,
+/// and reading one as throwing would drop the fields of a construction that succeeds.
+fn super_argument_throws(st: &Statement<'_>) -> bool {
+    struct Seen(bool);
+    impl<'a> Visit<'a> for Seen {
+        fn visit_call_expression(&mut self, c: &CallExpression<'a>) {
+            if matches!(c.callee, Expression::Super(_))
+                && c.arguments
+                    .iter()
+                    .filter_map(oxc_ast::ast::Argument::as_expression)
+                    .any(expression_throws)
+            {
+                self.0 = true;
+            }
+            walk::walk_call_expression(self, c);
+        }
+        fn visit_function(&mut self, _f: &Function<'a>, _flags: ScopeFlags) {}
+    }
+    let mut seen = Seen(false);
+    seen.visit_statement(st);
+    seen.0
+}
+
+/// Whether evaluating this statement can call `super(...)`.
+///
+/// An arrow inherits the constructor's own `super`, so one WRITTEN here counts — but only when
+/// this statement evaluates its body. `const f = () => super();` creates a function and calls
+/// nothing, so `constructor(){ const f = () => super(); return {}; }` completes without ever
+/// running the super constructor and installs not a field. Descending into every deferred body
+/// read that as a call and recorded writes that happen on no path.
+///
+/// So: an arrow reached by an immediate invocation is followed, and a body merely defined is
+/// not. A `function` of any kind has its own `super` binding and can never call this one; a
+/// nested CLASS has its own too, and its constructor's `super()` belongs to that class.
+fn calls_super(st: &Statement<'_>) -> bool {
+    struct Seen {
+        found: bool,
+        /// Arrow bodies whose invocation this walk has seen, by span — an arrow is followed
+        /// only when the call that runs it is here too.
+        invoked: Vec<Span>,
+        deferred: u32,
+    }
+    impl<'a> Visit<'a> for Seen {
+        fn visit_call_expression(&mut self, c: &CallExpression<'a>) {
+            if matches!(c.callee, Expression::Super(_)) && self.deferred == 0 {
+                self.found = true;
+            }
+            // `(() => super())()` runs its body here, so what it calls this statement calls.
+            if let Expression::ArrowFunctionExpression(f) = invoked_callee(&c.callee) {
+                self.invoked.push(f.span);
+            }
+            walk::walk_call_expression(self, c);
+        }
+        fn visit_arrow_function_expression(
+            &mut self,
+            f: &oxc_ast::ast::ArrowFunctionExpression<'a>,
+        ) {
+            let deferred = !self.invoked.contains(&f.span);
+            self.deferred += u32::from(deferred);
+            walk::walk_arrow_function_expression(self, f);
+            self.deferred -= u32::from(deferred);
+        }
+        // A `function` has its own `super` binding, so a `super()` inside one is never this
+        // constructor's however it is reached.
+        //
+        // That covers a nested CLASS as well, and a separate `visit_class` guard beside it was
+        // inert: every body of a class that could hold a `super()` is a method, which is a
+        // `Function` and stops here. A computed key or a static initializer is evaluated in the
+        // enclosing scope, and `super()` is a syntax error in either. One rule rather than a
+        // rule and a redundant sibling — the mutation that removed the second changed no answer.
+        fn visit_function(&mut self, _f: &Function<'a>, _flags: ScopeFlags) {}
+    }
+    let mut seen = Seen {
+        found: false,
+        invoked: Vec::new(),
+        deferred: 0,
+    };
+    seen.visit_statement(st);
+    seen.found
+}
+
+/// The spans of `callee` whose evaluation happens at CONSTRUCTION, so the arguments precede them.
+///
+/// For a function it is the whole callee: everything in the body runs after the arguments. For
+/// `new (class { … })()` it is not — the class is DEFINED first, so its heritage, computed keys,
+/// static initializers and static blocks all run before the arguments are evaluated, and only the
+/// constructor body and the instance field initializers come after. Naming the whole class span
+/// had `new (class { static x = parse(current); })(current = other)` read the static initializer
+/// as seeing a write it precedes, and the helper's fields were lost from a shape that has them.
+fn construction_regions(callee: &Expression<'_>, constructs: bool) -> Vec<Span> {
+    let Expression::ClassExpression(c) = callee else {
+        return vec![callee.span()];
+    };
+    if !constructs {
+        return vec![callee.span()];
+    }
+    let mut out = Vec::new();
+    for el in &c.body.body {
+        match el {
+            oxc_ast::ast::ClassElement::MethodDefinition(m)
+                if m.kind == oxc_ast::ast::MethodDefinitionKind::Constructor =>
+            {
+                out.push(m.value.span);
+            }
+            oxc_ast::ast::ClassElement::PropertyDefinition(p) if !p.r#static => {
+                out.extend(p.value.as_ref().map(GetSpan::span));
+            }
+            oxc_ast::ast::ClassElement::AccessorProperty(p) if !p.r#static => {
+                out.extend(p.value.as_ref().map(GetSpan::span));
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+/// The parameter defaults this invocation's own arguments prevent from running.
+///
+/// A default is evaluated only when its argument is missing or `undefined`, so a call that
+/// supplies a value at that position never runs it. Reading a literal `1` as "definitely not
+/// undefined" is the whole judgement: anything whose value has to be computed could be
+/// `undefined`, and claiming otherwise would drop a write that really happens — which is the
+/// direction that files a helper's fields under a node the parser has already replaced.
+///
+/// A spread argument makes every position after it unknowable, so it ends the mapping.
+///
+/// `implicit_leading` counts positions the call supplies with a value that has no expression to
+/// read and cannot be `undefined` — a tagged template's strings object. Their parameters' own
+/// defaults are prevented exactly as a written argument prevents one, and the pattern they bind
+/// is taken apart from a value this cannot read, so nothing nested is claimed.
+fn suppressed_defaults(
+    params: Option<&oxc_ast::ast::FormalParameters<'_>>,
+    arguments: &[Option<&Expression<'_>>],
+    implicit: Option<&oxc_ast::ast::TemplateLiteral<'_>>,
+) -> Vec<Span> {
+    let implicit_leading = usize::from(implicit.is_some());
+    // `new (class { constructor(x = (current = other)) {} })(1)` passes its arguments to that
+    // constructor exactly as a call passes them to a function, so the same defaults are
+    // prevented — which is why `callee_params` answers for the class shape too, and why the
+    // getter walk beside it reads the very same list rather than a second copy of this match.
+    //
+    // The list is resolved by the CALLER now: a static method's parameters are a `Function`'s,
+    // which `callee_params` cannot reach through an `Expression`, and every check on this page
+    // has to see the same list or the invocation is judged on parameters it does not have.
+    let Some(params) = params else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for (i, param) in params.items.iter().enumerate() {
+        // A position supplied without an expression: the parameter's own default is prevented.
+        // Not "and nothing more" — a tagged template's strings object is an array whose entries
+        // this CAN read, so a pattern taking it apart has its own defaults settled too.
+        if i < implicit_leading {
+            if let Some(init) = param.initializer.as_ref() {
+                out.push(init.span());
+            }
+            if let Some(q) = implicit {
+                suppress_in_strings(&param.pattern, q, &mut out);
+            }
+            continue;
+        }
+        // Past the end of what the call supplies: every remaining default runs.
+        let Some(slot) = arguments.get(i - implicit_leading).copied() else {
+            break;
+        };
+        // An array ELISION in an `.apply` list — `f.apply(null, [, 1])` — is a position that
+        // certainly holds `undefined`. It supplies nothing, so this parameter's default runs;
+        // but the positions after it have NOT moved, so the mapping goes on. Ending it here
+        // dropped the `1` that really does reach the next parameter, and its default was
+        // recorded as a write the call prevents. A spread is the other answer and never
+        // reaches this loop: `mapped` stops the list at one.
+        let Some(supplied) = slot else {
+            continue;
+        };
+        // The parameter's OWN default, then whatever the pattern it binds destructures. When
+        // the default runs, the pattern takes the default's value apart, not the argument's —
+        // so the recursion carries `None` on that side rather than the argument.
+        let reached = match param.initializer.as_ref() {
+            Some(init) if definitely_defined(supplied) => {
+                out.push(init.span());
+                Some(supplied)
+            }
+            // Indistinguishable from carrying `supplied` through, as it happens: any value the
+            // pattern walk can read off the source is one `definitely_defined` accepts, so this
+            // arm is only reached with an argument that suppresses nothing anyway. Kept as
+            // `None` because it states the rule — when the default runs, the pattern takes THAT
+            // apart — rather than relying on the coincidence. No test separates the two, and
+            // saying so is better than implying one does.
+            Some(_) => None,
+            None => Some(supplied),
+        };
+        suppress_in_pattern(&param.pattern, reached, &mut out);
+    }
+    out
+}
+
+/// The getter bodies that BINDING these parameters will invoke.
+///
+/// `(function ({x}) {})({ get x() { current = other; return 1; } })` runs that getter while the
+/// parameters are bound — before the body is entered and before anything after the call reads
+/// what it wrote. `suppress_in_pattern` already knows the getter's RESULT is unreadable and
+/// leaves the default running, which is right; nothing knew its BODY runs at all, so a write
+/// inside it stayed confined to a function nobody was known to call.
+///
+/// Deliberately shallow: a property named at the top level of a parameter's own object pattern,
+/// over a literal object argument, taking the LAST property of that name — the same reading the
+/// suppression lookup takes, for the same reason. A nested pattern, a computed key or a spread
+/// leaves the getter unclaimed, which loses a write rather than inventing one.
+///
+/// `implicit_leading` is as in [`suppressed_defaults`]: a position supplied by a value with no
+/// expression to read holds no getter this can name, and it is not the parameter's default that
+/// the binding takes apart either.
+fn bound_getters<'b, 'a>(
+    params: Option<&'b oxc_ast::ast::FormalParameters<'a>>,
+    arguments: &[Option<&'b Expression<'a>>],
+    implicit_leading: usize,
+) -> Vec<Span> {
+    let Some(params) = params else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for (i, param) in params.items.iter().enumerate() {
+        let oxc_ast::ast::BindingPattern::ObjectPattern(pat) = &param.pattern else {
+            continue;
+        };
+        if i < implicit_leading {
+            continue;
+        }
+        let supplied_arg = arguments.get(i - implicit_leading).copied().flatten();
+        // What the pattern actually takes apart. The argument when the call supplies one — and
+        // the parameter's OWN default object when it does not, which is the object
+        // `(function ({x} = { get x() { … } }) {})()` destructures and whose getter the binding
+        // therefore invokes. Reading only the argument skipped that shape entirely.
+        //
+        // ONE of them: whichever object the binding actually takes apart. The default is taken
+        // apart only when the argument does not supply the parameter, which is the very question
+        // `suppressed_defaults` answers, with the same predicate.
+        //
+        // I removed that guard two rounds ago as inert, on the reasoning that a suppressed
+        // initializer is never walked so the getter inside it is unreachable whatever this list
+        // says. Unreachable, and not harmless: with BOTH objects listed, the lookup below found
+        // the DEFAULT's getter first and stopped, so the supplied getter — the one that really
+        // runs — was never claimed. The claim was wrong and no mutation of mine could show it,
+        // because no test named the same property in both objects. It is one of the claims of
+        // mine review has had to reverse — they are listed on the PR rather than numbered here,
+        // because I had two overlapping tallies running and they had already double-booked
+        // "sixth" by the time anyone could check.
+        let objects: Vec<&oxc_ast::ast::ObjectExpression<'a>> = match supplied_arg {
+            Some(supplied) if definitely_defined(supplied) => match supplied {
+                Expression::ObjectExpression(o) => vec![o],
+                _ => Vec::new(),
+            },
+            _ => match param.initializer.as_deref() {
+                Some(Expression::ObjectExpression(o)) => vec![o],
+                _ => Vec::new(),
+            },
+        };
+        for object in objects.iter().rev() {
+            getters_in_pattern(pat, object, &mut out);
+        }
+    }
+    out
+}
+
+/// Whether binding these parameters must fail, so the body is entered on no path.
+///
+/// A pattern destructures its value, and `null` and `undefined` have no properties: `function
+/// ({x}) {}` called with either throws a `TypeError` before the first statement. Only the
+/// spellings that settle it — `null`, `void 0` and a bare `undefined` this scan can read — and
+/// only against a pattern that really takes the value apart, which a plain identifier parameter
+/// does not.
+///
+/// A missing argument is `undefined` too, so `(function ({x}) {})()` throws as surely as
+/// passing it: the position past the end of the list counts.
+fn binding_certainly_throws(
+    params: Option<&oxc_ast::ast::FormalParameters<'_>>,
+    effective: &[Option<&Expression<'_>>],
+    implicit_leading: usize,
+    complete: bool,
+    undefined_is_the_global: bool,
+) -> bool {
+    let Some(params) = params else {
+        return false;
+    };
+    params.items.iter().enumerate().any(|(i, param)| {
+        // A position supplied without an expression — a tagged template's strings object — is
+        // an array, which destructures perfectly well.
+        let Some(slot) = i.checked_sub(implicit_leading) else {
+            return false;
+        };
+        // A parameter's own default runs for `undefined` and for NOTHING else — an explicit
+        // `null` reaches the pattern and throws there. I exempted every parameter carrying a
+        // default, which read `(function ({x} = {}) { … })(null)` as a call that enters its
+        // body.
+        //
+        // An elision holds `undefined`; past the end of a COMPLETE list, so does the position.
+        // A list stopped by a spread says nothing about what lands here, and that is the one
+        // case with no answer at all.
+        let absent = match effective.get(slot) {
+            Some(Some(a)) => is_undefined_spelling(a, undefined_is_the_global),
+            Some(None) => true,
+            None if complete => true,
+            None => return false,
+        };
+        // What the pattern actually takes apart: the default when the position is undefined and
+        // one is written, the argument otherwise. Reading the ARGUMENT in both cases is what
+        // made `(function ({x} = { get x(){ … } }) {})(void 0)` a binding failure — the value
+        // that reaches the pattern there is the default object, and it destructures perfectly.
+        let bound_value = match (absent, param.initializer.as_deref()) {
+            (true, Some(init)) => Some(init),
+            (true, None) => None,
+            (false, _) => effective.get(slot).copied().flatten(),
+        };
+        pattern_binding_throws(&param.pattern, bound_value, undefined_is_the_global)
+    })
+}
+
+/// Whether destructuring `value` with `pat` must fail, at this level or below it.
+///
+/// `null` and `undefined` have no properties, so a pattern that takes either apart throws. A
+/// NESTED pattern takes apart the value of the property above it, and that value can be nullish
+/// while the argument as a whole is not — `({a: {x}})` against `{a: null}` throws while binding
+/// `a`, which asking only about the whole argument missed.
+///
+/// `None` for the value means `undefined` — a missing argument or a missing property, which is
+/// the same thing to a pattern. Every step down needs both sides written out; anything this
+/// cannot read answers `false` and loses the decline rather than inventing one.
+fn pattern_binding_throws(
+    pat: &oxc_ast::ast::BindingPattern<'_>,
+    value: Option<&Expression<'_>>,
+    undefined_is_the_global: bool,
+) -> bool {
+    use oxc_ast::ast::BindingPattern as BP;
+    match pat {
+        // A default here catches `undefined` only, exactly as a parameter's does — and what the
+        // left pattern then takes apart is the DEFAULT's value, which can throw on its own:
+        // `([{x} = null])([void 0])` supplies `null` to `{x}` and raises there. Answering
+        // `false` the moment a default appeared read every one of those as a binding that
+        // succeeds, which is the same over-broad exemption the parameter level had two rounds
+        // ago, one level in.
+        BP::AssignmentPattern(p) => {
+            let bound = match value {
+                None => Some(&p.right),
+                Some(v) if is_undefined_spelling(v, undefined_is_the_global) => Some(&p.right),
+                Some(_) => None,
+            };
+            match bound {
+                Some(init) => pattern_binding_throws(&p.left, Some(init), undefined_is_the_global),
+                None => pattern_binding_throws(&p.left, value, undefined_is_the_global),
+            }
+        }
+        BP::BindingIdentifier(_) => false,
+        BP::ObjectPattern(o) => {
+            match value {
+                None => return true,
+                Some(v) if certainly_nullish(v) => return true,
+                Some(_) => {}
+            }
+            let Some(Expression::ObjectExpression(obj)) = value else {
+                return false;
+            };
+            o.properties.iter().any(|prop| {
+                prop.key.static_name().is_some_and(|name| {
+                    let owned = owned_property(obj, name.as_ref());
+                    // A property this cannot resolve says nothing; one it can carries its own
+                    // value down. An ACCESSOR's own text is not that value — it is a function,
+                    // which is neither nullish nor a literal object, so descending through one
+                    // used to answer exactly what refusing to would and the kind test beside it
+                    // was removed as inert. Inert is not the same as unnecessary: a property
+                    // the object ends up holding with a SETTER and no getter reads back
+                    // `undefined`, whatever the setter stores, so a nested pattern over it
+                    // throws. That decline is what the missing test cost, stated on the line
+                    // last round and claimed here.
+                    //
+                    // `undefined` is exactly what `None` means one level down, so the existing
+                    // no-value path answers it — including its own bound, that a plain
+                    // identifier binds `undefined` perfectly well.
+                    // A property the object is PROVEN not to have reads as `undefined`, and
+                    // the no-value path already knows what a pattern does with that — including
+                    // its own bound, that a plain identifier binds it perfectly well.
+                    // `owned_property` answers `None` for "absent" and for "cannot say" alike,
+                    // which is right for every other caller and loses this decline.
+                    if owned.is_none() && property_certainly_absent(obj, name.as_ref()) {
+                        return pattern_binding_throws(&prop.value, None, undefined_is_the_global);
+                    }
+                    owned.is_some_and(|op| match op.kind {
+                        oxc_ast::ast::PropertyKind::Init => pattern_binding_throws(
+                            &prop.value,
+                            Some(&op.value),
+                            undefined_is_the_global,
+                        ),
+                        // A getter supplies the value by RUNNING, and what it hands back is
+                        // unreadable — the pair matters, because `{ get x(){…}, set x(v){} }`
+                        // ends up with both and reading it calls the getter. `owned_property`
+                        // hands back the LAST property of the name, which for that literal is
+                        // the setter, so the question cannot be asked of it alone.
+                        _ => {
+                            setter_without_getter(obj, name.as_ref())
+                                && pattern_binding_throws(
+                                    &prop.value,
+                                    None,
+                                    undefined_is_the_global,
+                                )
+                        }
+                    })
+                })
+            })
+        }
+        BP::ArrayPattern(a) => {
+            match value {
+                None => return true,
+                // Not merely nullish: an array pattern needs an ITERABLE, and a number, a
+                // boolean or a plain object is none. `([x])(0)` throws exactly as `([x])(null)`
+                // does, and only the nullish half was recognized. A string IS iterable, which
+                // is the bound this must not cross.
+                Some(v) if certainly_not_iterable(v) => return true,
+                Some(_) => {}
+            }
+            // …and one level in, which the object arm has done since it was written and this
+            // one did not: `([{x}])([null])` throws while binding the ELEMENT. Only a literal
+            // with no spread, where every position is where it is written — past a spread the
+            // positions shift by an amount nothing here can read.
+            let Some(Expression::ArrayExpression(arr)) = value else {
+                return false;
+            };
+            if arr
+                .elements
+                .iter()
+                .any(|el| matches!(el, oxc_ast::ast::ArrayExpressionElement::SpreadElement(_)))
+            {
+                return false;
+            }
+            a.elements.iter().enumerate().any(|(i, el)| {
+                let Some(el) = el.as_ref() else { return false };
+                // An elision, and a position past the end of the literal, both hold
+                // `undefined` — `([{x}])([])` throws exactly as `([{x}])([undefined])` does.
+                let at = arr.elements.get(i).and_then(|e| e.as_expression());
+                pattern_binding_throws(el, at, undefined_is_the_global)
+            })
+        }
+    }
+}
+
+/// The function a class's own STATIC method of this name holds, when it has one.
+///
+/// A static method is a property of the class object itself, so `(class { static m(){ … } }).m`
+/// names it. An instance method is on the prototype and a construction away; a getter is
+/// invoked rather than called, which the leading-effects reader handles instead.
+fn static_method<'b, 'a>(
+    class: &'b oxc_ast::ast::Class<'a>,
+    name: &str,
+) -> Option<&'b oxc_ast::ast::Function<'a>> {
+    static_definition(class, name)
+        .filter(|m| m.kind == oxc_ast::ast::MethodDefinitionKind::Method)
+        .map(|m| &*m.value)
+}
+
+/// The static getter a class expression names, when reading the property invokes one.
+///
+/// The class-object twin of the object-literal getter the invocation core recognizes: `(class {
+/// static get m(){ … } }).m()` runs that body to obtain the callee, before the arguments and
+/// before whatever it returned is called. `static_method` declines the shape — what the getter
+/// hands back is unreadable — and declining is not enough on its own, because a write the getter
+/// performs really does happen and leaving it deferred publishes a helper's reads under a node
+/// the parser has already replaced.
+///
+/// A getter only. A setter of the name supplies no value — reading it yields `undefined` — and
+/// its body does not run on a read at all.
+fn static_getter<'b, 'a>(
+    class: &'b oxc_ast::ast::Class<'a>,
+    name: &str,
+) -> Option<&'b oxc_ast::ast::Function<'a>> {
+    static_definition(class, name)
+        .filter(|m| m.kind == oxc_ast::ast::MethodDefinitionKind::Get)
+        .map(|m| &*m.value)
+}
+
+/// The method or accessor an INSTANCE of this class ends up holding under `name`.
+///
+/// `(new (class { m(){ … } })).m()` runs that body as immediately as an IIFE does: the class is
+/// written here, the instance is built here, and nothing between the two can substitute another
+/// `m`. An instance FIELD of the name is set on the object by the constructor and takes the
+/// property from the prototype's method — the same overwrite rule the class object has one level
+/// up — and a key this cannot read might be that name.
+///
+/// A class with a HERITAGE declines: its constructor may `return` an object that is not this
+/// instance at all, and an inherited member could supply the name where nothing here can follow
+/// it. `instance_fields_initialize` answers the first half already and is the same question.
+fn instance_definition<'b, 'a>(
+    class: &'b oxc_ast::ast::Class<'a>,
+    name: &str,
+) -> Option<&'b oxc_ast::ast::MethodDefinition<'a>> {
+    if class.super_class.is_some() || !instance_fields_initialize(class) {
+        return None;
+    }
+    // …and there has to BE an instance. A constructor that leaves by throwing builds nothing, so
+    // the member is never reached and recording its body's writes describes a call that happens
+    // on no path — the same reachability question `expression_throws` answers for the `new`
+    // itself, read from one place.
+    if class_constructor_throws(class) {
+        return None;
+    }
+    // …and the instance has to be THIS one. A constructor may `return` an object, which `new`
+    // hands back in place of what it built — and that object has no prototype method of ours,
+    // so the call throws. The heritage test above covers the derived shape; a BASE constructor
+    // can replace the instance exactly as readily, and only a returned PRIMITIVE is ignored.
+    // Anything this cannot read as a primitive declines.
+    if constructor_may_replace_the_instance(class) {
+        return None;
+    }
+    let overwritten = class.body.body.iter().any(|el| match el {
+        oxc_ast::ast::ClassElement::PropertyDefinition(p) => {
+            !p.r#static && p.key.static_name().as_deref().is_none_or(|k| k == name)
+        }
+        oxc_ast::ast::ClassElement::AccessorProperty(p) => {
+            !p.r#static && p.key.static_name().as_deref().is_none_or(|k| k == name)
+        }
+        _ => false,
+    });
+    if overwritten {
+        return None;
+    }
+    class.body.body.iter().rev().find_map(|el| match el {
+        oxc_ast::ast::ClassElement::MethodDefinition(m)
+            if !m.r#static
+                && m.kind != oxc_ast::ast::MethodDefinitionKind::Constructor
+                && m.key.static_name().as_deref() == Some(name) =>
+        {
+            Some(&**m)
+        }
+        _ => None,
+    })
+}
+
+/// Whether a parameter evaluates a default that certainly raises, at any depth of its pattern.
+///
+/// A default nested inside the pattern runs while the binding happens exactly as the parameter's
+/// own does: `(function ({x = (throws)()}) { … })({})` never reaches the first statement. Reading
+/// only the top-level initializer is the same rule stated at one level of a structure and not at
+/// depth, which is the shallow relative of the split this file keeps paying for.
+///
+/// `suppressed` is what the call PREVENTS — `suppressed_defaults` answers it at every depth
+/// already, so a default the arguments supply is skipped here for free.
+fn default_raises(
+    pat: &oxc_ast::ast::BindingPattern<'_>,
+    initializer: Option<&Expression<'_>>,
+    suppressed: &[Span],
+) -> bool {
+    if let Some(init) = initializer
+        && expression_throws(init)
+        && !suppressed.contains(&init.span())
+    {
+        return true;
+    }
+    match pat {
+        oxc_ast::ast::BindingPattern::AssignmentPattern(p) => {
+            default_raises(&p.left, Some(&p.right), suppressed)
+        }
+        oxc_ast::ast::BindingPattern::ObjectPattern(o) => o
+            .properties
+            .iter()
+            .any(|p| default_raises(&p.value, None, suppressed)),
+        oxc_ast::ast::BindingPattern::ArrayPattern(a) => a
+            .elements
+            .iter()
+            .flatten()
+            .any(|el| default_raises(el, None, suppressed)),
+        _ => false,
+    }
+}
+
+/// Whether the value an assignment computes never arrives, so its target is never written.
+///
+/// `try { e = (function(){ throw 0; })(); } catch (_) {}` leaves `e` exactly as it was: the
+/// right-hand side is evaluated first and completes abruptly, so the write is performed on no
+/// path. Recording it anyway marked the parser's own parameter as replaced, and the helper
+/// descent was refused for a node nothing had moved.
+///
+/// The right-hand side's OWN effects still happen — it performs them before it leaves — so only
+/// the target's records are suppressed and the walk of the value is untouched.
+fn assignment_never_completes(rhs: Option<&Expression<'_>>) -> bool {
+    rhs.is_some_and(expression_throws)
+}
+
+/// Whether this class's own constructor leaves by throwing, so `new` on it builds nothing.
+fn class_constructor_throws(class: &oxc_ast::ast::Class<'_>) -> bool {
+    class.body.body.iter().any(|el| match el {
+        oxc_ast::ast::ClassElement::MethodDefinition(m)
+            if m.kind == oxc_ast::ast::MethodDefinitionKind::Constructor =>
+        {
+            m.value.body.as_ref().is_some_and(|b| {
+                // A `return` whose ARGUMENT raises never returns, which is the one half
+                // `throws_out` cannot state for itself: it reads a `return` as an exit and does
+                // not read what the exit computes. The expression-statement half was written
+                // here too and belongs to `throws_out`, which asks it in EXECUTION order — so
+                // an unreachable throw after `return;` stops counting for free.
+                // In EXECUTION order, stopping where the constructor has already completed:
+                // `return {}; return (throws)()` hands back the first object and never reaches
+                // the second, and reading every `return` with `any` called the construction
+                // certain to raise — excluding an arm that really produces a value. The list is
+                // taken up to and INCLUDING the statement that ends it, which is the `return`
+                // whose own argument still has to be judged.
+                let mut reached = Vec::new();
+                for st in &b.statements {
+                    reached.push(st);
+                    if ends_the_statement_list(st) {
+                        break;
+                    }
+                }
+                throws_out(&b.statements)
+                    || reached.iter().any(|st| {
+                        matches!(st, Statement::ReturnStatement(r)
+                            if r.argument.as_ref().is_some_and(expression_throws))
+                    })
+            })
+        }
+        _ => false,
+    })
+}
+
+/// Whether this class's constructor can hand back something other than the instance it built.
+///
+/// `new` returns what the constructor returns when that is an OBJECT, and the object it built
+/// otherwise — so `constructor(){ return {}; }` yields a plain object with none of the class's
+/// methods on it. A returned primitive is discarded and changes nothing, which is why only a
+/// return this can read as one is exempt; a bare `return;` is not a value at all.
+///
+/// Anywhere in the constructor, not only at its top: the return may sit under a condition, and a
+/// path this pass cannot rule out is a path that replaces the instance.
+fn constructor_may_replace_the_instance(class: &oxc_ast::ast::Class<'_>) -> bool {
+    struct Seen(bool);
+    impl<'a> Visit<'a> for Seen {
+        fn visit_return_statement(&mut self, r: &oxc_ast::ast::ReturnStatement<'a>) {
+            if let Some(arg) = r.argument.as_ref()
+                && !certainly_a_primitive(arg)
+            {
+                self.0 = true;
+            }
+            walk::walk_return_statement(self, r);
+        }
+        // …and a branch no value of its test can take is not a path this constructor has.
+        // `if (false) return {};` returns nothing on every execution, and counting it declined
+        // a construction that always keeps its instance. The same `statically_selected` the
+        // requiredness walk reads, which is where this question is already answered.
+        fn visit_if_statement(&mut self, stmt: &oxc_ast::ast::IfStatement<'a>) {
+            if let Some(taken) =
+                statically_selected(&stmt.test, &stmt.consequent, stmt.alternate.as_ref())
+            {
+                if let Some(t) = taken.0 {
+                    self.visit_statement(t);
+                }
+                return;
+            }
+            walk::walk_if_statement(self, stmt);
+        }
+        // A `return` inside a nested function belongs to that function, not to the constructor.
+        fn visit_function(&mut self, _f: &Function<'a>, _flags: ScopeFlags) {}
+        fn visit_arrow_function_expression(
+            &mut self,
+            _f: &oxc_ast::ast::ArrowFunctionExpression<'a>,
+        ) {
+        }
+    }
+    let Some(ctor) = class.body.body.iter().find_map(|el| match el {
+        oxc_ast::ast::ClassElement::MethodDefinition(m)
+            if m.kind == oxc_ast::ast::MethodDefinitionKind::Constructor =>
+        {
+            m.value.body.as_ref()
+        }
+        _ => None,
+    }) else {
+        return false;
+    };
+    let mut seen = Seen(false);
+    for st in &ctor.statements {
+        seen.visit_statement(st);
+    }
+    seen.0
+}
+
+/// Whether this expression certainly evaluates to a primitive, which `new` discards on return.
+///
+/// Only the spellings that settle it. Anything else — an identifier, a call, a conditional — may
+/// be an object, and reading it as a primitive would approve a member lookup on an instance the
+/// constructor replaced.
+fn certainly_a_primitive(e: &Expression<'_>) -> bool {
+    matches!(
+        peel(e),
+        Expression::NumericLiteral(_)
+            | Expression::StringLiteral(_)
+            | Expression::BooleanLiteral(_)
+            | Expression::NullLiteral(_)
+            | Expression::BigIntLiteral(_)
+            | Expression::TemplateLiteral(_)
+            // EVERY unary operator produces a primitive, whatever it is applied to: `-x` and
+            // `+x` a number, `!x` and `delete x` a boolean, `~x` a number, `typeof x` a string,
+            // `void x` `undefined`. Listing the literal forms alone read `return -1` as
+            // something that could be an object, and a construction that keeps its instance
+            // was declined. Whether the OPERAND completes is a different question, asked of
+            // the constructor rather than of the value it hands back.
+            | Expression::UnaryExpression(_)
+    ) || is_undefined_spelling(peel(e), true)
+}
+
+/// The member an instance CONSTRUCTED on the spot supplies under `name`, of the kind asked for.
+fn instance_member<'b, 'a>(
+    object: &'b Expression<'a>,
+    name: &str,
+    kind: oxc_ast::ast::MethodDefinitionKind,
+) -> Option<&'b oxc_ast::ast::Function<'a>> {
+    let Expression::NewExpression(n) = peel(object) else {
+        return None;
+    };
+    let Expression::ClassExpression(c) = peel(&n.callee) else {
+        return None;
+    };
+    instance_definition(c, name)
+        .filter(|m| m.kind == kind)
+        .map(|m| &*m.value)
+}
+
+/// The method or accessor the class OBJECT ends up holding under `name`, or `None` when nothing
+/// here can say what it holds.
+///
+/// A static FIELD of the same name takes the property, and not by source position: the two
+/// belong to different phases of class definition. Every method is installed on the class object
+/// first, and only then do the static initializers run — so `class { static m(){ … } static m =
+/// 0 }` and `class { static m = 0; static m(){ … } }` both end up with `m` set to `0`. A static
+/// BLOCK declines for the same reason one step further out: its `this` is the class, so `static
+/// { this.m = 0 }` replaces the property where nothing here can name it. An INSTANCE field is
+/// not this question — it belongs to the object `new` builds, and the class object never sees it.
+///
+/// One resolver, because the two callers are one rule. `static_getter` was written as a mirror
+/// of `static_method` in the same commit that gave `static_method` the overwrite check, and did
+/// not carry it — the shape this branch keeps paying for, this time inside a single commit.
+fn static_definition<'b, 'a>(
+    class: &'b oxc_ast::ast::Class<'a>,
+    name: &str,
+) -> Option<&'b oxc_ast::ast::MethodDefinition<'a>> {
+    let overwritten = class.body.body.iter().any(|el| match el {
+        oxc_ast::ast::ClassElement::StaticBlock(_) => true,
+        // …and a key this cannot READ might be that name. A computed static field is installed
+        // in the same phase whatever its key spells, so `class { static m(){ … } static [k] = 0 }`
+        // takes the property whenever `k` is `"m"` — and the scan cannot tell that it is not.
+        // The same three-way answer the property lookup beside it needed: absent, present, and
+        // unknowable are three, and treating the third as the first invents a body that runs.
+        oxc_ast::ast::ClassElement::PropertyDefinition(p) => {
+            p.r#static && p.key.static_name().as_deref().is_none_or(|k| k == name)
+        }
+        oxc_ast::ast::ClassElement::AccessorProperty(p) => {
+            p.r#static && p.key.static_name().as_deref().is_none_or(|k| k == name)
+        }
+        _ => false,
+    });
+    if overwritten {
+        return None;
+    }
+    // Found first, judged after — answering `None` for the wrong KIND here would go on searching
+    // and hand back the definition below it, which is not the property the class has.
+    // …and a computed METHOD key this cannot read might be that name too. Methods are installed
+    // in source order, so one written below the match replaces it — the same three-way answer
+    // the field check above needed, on the other kind of element. Found first, judged after:
+    // answering `None` for the wrong kind here would go on searching and hand back a definition
+    // the class no longer has.
+    class
+        .body
+        .body
+        .iter()
+        .rev()
+        .find_map(|el| match el {
+            oxc_ast::ast::ClassElement::MethodDefinition(m)
+                if m.r#static
+                    && m.kind != oxc_ast::ast::MethodDefinitionKind::Constructor
+                    && m.key.static_name().as_deref().is_none_or(|k| k == name) =>
+            {
+                Some(&**m)
+            }
+            _ => None,
+        })
+        .filter(|m| m.key.static_name().as_deref() == Some(name))
+}
+
+/// Whether `e` plainly has an own enumerable property, so `for-in` over it runs its body.
+///
+/// Only an object literal, and only a property that really creates one: `{ __proto__: null }`
+/// sets the prototype and enumerates nothing, and a spread contributes an unknown number of
+/// keys. Reading a literal as nonempty when it can be empty would require reads the parser can
+/// skip, which is why nothing else answers `true` here.
+fn enumerates_at_least_once(e: &Expression<'_>) -> bool {
+    let Expression::ObjectExpression(o) = peel(e) else {
+        return false;
+    };
+    // The object has to be BUILT before anything can enumerate it, and a literal completes
+    // abruptly if any part of it does: `{ x: (function(){ throw 0 })() }` never becomes an
+    // object at all, so the loop reaches its handler rather than its body. Anywhere in the
+    // literal, not only before the qualifying property — a throw written after one still stops
+    // the whole expression. Written out here when the rule arrived; `expression_throws` states
+    // it for every composite now, so this reads the one predicate.
+    !expression_throws(e)
+        && o.properties.iter().any(|p| match p {
+            oxc_ast::ast::ObjectPropertyKind::SpreadProperty(_) => false,
+            // …and the key has to become an enumerable STRING. `for-in` never enumerates a
+            // symbol, so `{ [Symbol.iterator]: 1 }` has an own property and iterates zero
+            // times — and a computed key this cannot read might be one, which is the same
+            // answer for a different reason. A key written plainly is a string or a number,
+            // and a number is a string here; only a computed one raises the question at all.
+            oxc_ast::ast::ObjectPropertyKind::ObjectProperty(op) => {
+                !sets_the_prototype(op) && (!op.computed || op.key.static_name().is_some())
+            }
+        })
+}
+
+/// Whether reading `name` off this literal yields `undefined` because the object ends up with a
+/// SETTER for it and no getter.
+///
+/// The descriptor is built by every property of that name in order, not just the last one: a
+/// plain value replaces the accessor pair outright, while `get`/`set` each fill their own half
+/// and leave the other standing. So `{ get x(){…}, set x(v){} }` reads through the GETTER even
+/// though the setter is written last, and only a literal that names a setter with no getter
+/// after the last data property reads back `undefined`.
+///
+/// A spread that could contribute the name settles nothing, the same cut `owned_property` makes.
+fn setter_without_getter(obj: &oxc_ast::ast::ObjectExpression<'_>, name: &str) -> bool {
+    let mut saw_setter = false;
+    for p in obj.properties.iter().rev() {
+        match p {
+            oxc_ast::ast::ObjectPropertyKind::SpreadProperty(s) => {
+                if spread_may_define(&s.argument, name) {
+                    return false;
+                }
+            }
+            oxc_ast::ast::ObjectPropertyKind::ObjectProperty(op) => {
+                if op.key.static_name().as_deref() != Some(name) || sets_the_prototype(op) {
+                    continue;
+                }
+                match op.kind {
+                    // A data property — a concise method included — replaces the whole
+                    // accessor pair, so nothing written ABOVE it is part of what the object
+                    // holds and the scan stops. It does not answer the question, though: an
+                    // accessor written BELOW it replaces the data property right back, so
+                    // `{ x: 1, set x(v){} }` reads `undefined` too. Returning a flat `false`
+                    // here said the opposite, and the mutation that changed this arm to fall
+                    // through is what turned the case up.
+                    //
+                    // `saw_setter` is always true where this arm is reached from the one caller
+                    // — it asks only when the LAST property of the name is an accessor, and a
+                    // getter would have returned above — so `true` would pass every test here.
+                    // Kept anyway, and said rather than hidden: the flag is what makes this
+                    // function state its own rule, and `true` would make it correct only by the
+                    // caller's precondition. No mutation of mine can tell them apart.
+                    oxc_ast::ast::PropertyKind::Init => return saw_setter,
+                    oxc_ast::ast::PropertyKind::Get => return false,
+                    oxc_ast::ast::PropertyKind::Set => saw_setter = true,
+                }
+            }
+        }
+    }
+    saw_setter
+}
+
+/// A byte count a payload length could actually equal, from the numeric literal that spells it.
+///
+/// `as u32` is a saturating truncation, so `contentBytes(1.5)` recorded a one-byte constraint and
+/// `contentBytes(-1)` a zero-byte one — two accessor contracts no payload can satisfy, described
+/// as two that plenty of payloads do. A count has to be a nonnegative whole number in range or
+/// the accessor is not one this pass read, and saying so leaves the field unconstrained rather
+/// than constrained wrongly. `content_length_index` has taken the checked conversion all along;
+/// this is the other reader of the same argument.
+fn exact_byte_count(v: f64) -> Option<u32> {
+    (v.fract() == 0.0 && v >= 0.0 && v <= f64::from(u32::MAX)).then_some(v as u32)
+}
+
+/// What position `i` of an array literal hands to a positional pattern.
+#[derive(Clone, Copy)]
+enum Supplied<'b, 'a> {
+    /// The expression written at that position.
+    Written(&'b Expression<'a>),
+    /// `undefined` — which a HOLE evaluates to, and which a position past the end of the literal
+    /// receives: `[a, {}] = [1]` hands the object pattern nothing at all, and coercing
+    /// `undefined` for it raises exactly as `null` would.
+    Undefined,
+    /// A spread at or before the position contributes an unknown NUMBER of elements, so nothing
+    /// from there on keeps its place and the pairing stops rather than guessing.
+    Unknown,
+}
+
+fn supplied_at<'b, 'a>(a: &'b oxc_ast::ast::ArrayExpression<'a>, i: usize) -> Supplied<'b, 'a> {
+    if a.elements
+        .iter()
+        .take(i + 1)
+        .any(|el| matches!(el, oxc_ast::ast::ArrayExpressionElement::SpreadElement(_)))
+    {
+        return Supplied::Unknown;
+    }
+    match a.elements.get(i) {
+        None | Some(oxc_ast::ast::ArrayExpressionElement::Elision(_)) => Supplied::Undefined,
+        Some(other) => other
+            .as_expression()
+            .map_or(Supplied::Unknown, Supplied::Written),
+    }
+}
+
+/// Whether handing `supplied` to this element of a destructuring pattern certainly raises.
+///
+/// Only the two ways a binding step itself can: an array pattern needs an ITERABLE, and an
+/// object pattern needs something `undefined` and `null` are not — everything else it coerces.
+/// A plain target (`current`, `a.b`) binds whatever it is given and raises on no path.
+///
+/// A DEFAULT stands in for exactly one value. `undefined` takes it and everything else — `null`
+/// included — reaches the pattern untouched, so `[{} = {}] = [null]` converts `null` for the
+/// object pattern and raises with the default never taken. I declined the whole shape instead,
+/// and wrote the decline into the source as if it were the rule: a default does not make the
+/// step unanswerable, it makes the answer depend on which of the two values arrives. Where that
+/// is decidable the element is judged against whichever one it really receives, and where it is
+/// not — an ordinary expression, which may be `undefined` or may not — it declines.
+fn binding_step_raises(
+    t: &oxc_ast::ast::AssignmentTargetMaybeDefault<'_>,
+    supplied: Supplied<'_, '_>,
+) -> bool {
+    let (target, supplied) = match t {
+        oxc_ast::ast::AssignmentTargetMaybeDefault::AssignmentTargetWithDefault(d) => {
+            let taken = match supplied {
+                // Nothing supplied IS `undefined`, so the initializer is what the pattern gets
+                // — and it is an expression like any other, judged in the value's place.
+                Supplied::Undefined => Supplied::Written(&d.init),
+                Supplied::Written(v) if certainly_undefined(v) => Supplied::Written(&d.init),
+                Supplied::Written(v) if certainly_not_undefined(v) => Supplied::Written(v),
+                // A value that may be `undefined` and may not: which of the two the pattern
+                // receives is undecidable, so the element declines.
+                //
+                // No input reaches this today. [`certainly_not_undefined`] recognizes every
+                // form the two pattern predicates below can decide — every literal, every
+                // function, every class, every object — so a value that falls past the arms
+                // above is one they both answer `false` for anyway. The clause is here for
+                // what it STATES rather than for what it currently changes: teach
+                // `certainly_not_iterable` or `certainly_nullish` one more spelling without
+                // teaching this one, and without it that value would quietly be judged as
+                // though the default could not apply. A mutation removing it is caught by no
+                // test, and it is kept deliberately.
+                _ => return false,
+            };
+            (Some(&d.binding), taken)
+        }
+        other => (other.as_assignment_target(), supplied),
+    };
+    match (target, supplied) {
+        (_, Supplied::Unknown) => false,
+        (Some(oxc_ast::ast::AssignmentTarget::ArrayAssignmentTarget(_)), Supplied::Undefined) => {
+            true
+        }
+        (Some(oxc_ast::ast::AssignmentTarget::ArrayAssignmentTarget(_)), Supplied::Written(v)) => {
+            certainly_not_iterable(v)
+        }
+        (Some(oxc_ast::ast::AssignmentTarget::ObjectAssignmentTarget(_)), Supplied::Undefined) => {
+            true
+        }
+        (Some(oxc_ast::ast::AssignmentTarget::ObjectAssignmentTarget(_)), Supplied::Written(v)) => {
+            certainly_nullish(v)
+        }
+        _ => false,
+    }
+}
+
+/// Whether a call inside an optional chain certainly raises.
+///
+/// The short circuit is the whole difference: a link that certainly declines builds no argument
+/// list and enters no body, so it yields `undefined` however its arguments are spelled. Anything
+/// else is an ordinary call and answers as one.
+fn chain_call_throws(c: &CallExpression<'_>) -> bool {
+    call_throws(c)
+}
+
+/// Whether this call certainly completes abruptly, however its callee was spelled.
+///
+/// Three phases, in the order the engine takes them: the callee, the arguments, and the BINDING
+/// of the parameters — a default that raises does so before the first statement, so
+/// `(function(x = (throws)()){})()` yields no value at all. Only the body was read, which had a
+/// call that cannot possibly return dilute the arm it sits in.
+///
+/// The short circuit comes first and answers for the whole chain: `null?.m((throws)())` builds
+/// no argument list and enters nothing, so it hands back `undefined` however its arguments read.
+/// A check on `c.optional` alone missed the spelling that carries the flag one link earlier.
+fn call_throws(c: &CallExpression<'_>) -> bool {
+    if expression_throws(&c.callee) {
+        return true;
+    }
+    if (c.optional && certainly_nullish(&c.callee)) || short_circuit_base(&c.callee).is_some() {
+        return false;
+    }
+    if c.arguments.iter().any(argument_raises) {
+        return true;
+    }
+    let callee = invoked_callee(&c.callee);
+    let params = match callee {
+        Expression::FunctionExpression(f) => Some(&f.params),
+        Expression::ArrowFunctionExpression(f) => Some(&f.params),
+        _ => None,
+    };
+    // A default the call SUPPLIES a value for never runs, so the ones that raise are only those
+    // past the written arguments — the same question `walk_invocation` asks, spelled for the
+    // arguments this call really has.
+    //
+    // A SPREAD is not one position. `f(...[1, 2])` supplies two, and counting the written
+    // arguments read the second parameter as unsupplied and its default as one that runs — so a
+    // call that completes was called certain to raise, and the arm beside it was promoted.
+    // Which positions a spread fills is not a question this can answer, so certainty ends there.
+    let complete = !c
+        .arguments
+        .iter()
+        .any(|a| matches!(a, Argument::SpreadElement(_)));
+    if complete
+        && let Some(p) = params
+        && p.items
+            .iter()
+            .skip(c.arguments.len())
+            .any(|param| default_raises(&param.pattern, param.initializer.as_deref(), &[]))
+    {
+        return true;
+    }
+    match callee {
+        Expression::FunctionExpression(f) if !f.generator && !f.r#async => {
+            f.body.as_ref().is_some_and(|b| throws_out(&b.statements))
+        }
+        Expression::ArrowFunctionExpression(f) if !f.r#async => throws_out(&f.body.statements),
+        _ => false,
+    }
+}
+
+/// Whether anything in this protected block could raise, so its handler can be entered.
+///
+/// Deliberately narrow in one direction only: an EMPTY block certainly cannot, and anything with
+/// a statement in it is left alone. Claiming a block cannot raise where it can would prune a
+/// handler executions really reach, and the empty spelling is the one that settles it — a `try
+/// {}` written for its `finally`, whose handler is unreachable by construction.
+fn block_can_raise(block: &oxc_ast::ast::BlockStatement<'_>) -> bool {
+    !block.body.is_empty()
+}
+
+/// The object of the first optional link in a chain that certainly SHORT-CIRCUITS.
+///
+/// `null?.[e.attrString("late")]()` evaluates the `null` and nothing else: the optional flag sits
+/// on the computed member rather than on the call, so a check for `call.optional` alone missed
+/// it and the key was walked as a read the parser performs. Everything up to and including the
+/// nullish base really is evaluated — `void f()` is nullish and calls `f` — so the base is handed
+/// back rather than the whole chain being dropped.
+fn short_circuit_base<'b, 'a>(e: &'b Expression<'a>) -> Option<&'b Expression<'a>> {
+    let link = |optional: bool, object: &'b Expression<'a>| {
+        if optional && certainly_nullish(object) {
+            Some(object)
+        } else {
+            short_circuit_base(object)
+        }
+    };
+    // NOT through parentheses. They terminate an optional chain: `(null?.m)(…)` evaluates its
+    // argument and then throws on calling `undefined`, where `null?.m(…)` short-circuits and
+    // evaluates nothing. Peeling them reported the inner link and skipped an argument the source
+    // really reads.
+    match e {
+        Expression::ChainExpression(c) => match &c.expression {
+            oxc_ast::ast::ChainElement::CallExpression(inner) => {
+                link(inner.optional, &inner.callee)
+            }
+            oxc_ast::ast::ChainElement::ComputedMemberExpression(m) => link(m.optional, &m.object),
+            oxc_ast::ast::ChainElement::StaticMemberExpression(m) => link(m.optional, &m.object),
+            oxc_ast::ast::ChainElement::PrivateFieldExpression(m) => link(m.optional, &m.object),
+            _ => None,
+        },
+        Expression::ComputedMemberExpression(m) => link(m.optional, &m.object),
+        Expression::StaticMemberExpression(m) => link(m.optional, &m.object),
+        Expression::PrivateFieldExpression(m) => link(m.optional, &m.object),
+        Expression::CallExpression(c) => link(c.optional, &c.callee),
+        _ => None,
+    }
+}
+
+/// Whether completing this assignment TARGET certainly raises, whatever the value stored.
+///
+/// Storing through a nullish base is the way: `null.x = 1` and `(void 0)[k] = 1` raise a
+/// `TypeError` when the write happens, and a call they are an argument to never runs. Reading
+/// only the right side had the assignment report the raise of the value and none of the write's,
+/// so an argument that certainly fails read as one that yields.
+///
+/// The object and a computed key are ordinary expressions evaluated on the way, so each carries
+/// its own answer. A plain identifier target is not this: assigning to an unbound name throws
+/// only under strict mode, which is a question about the enclosing source and not the syntax.
+fn assignment_target_raises(t: &oxc_ast::ast::AssignmentTarget<'_>) -> bool {
+    match t {
+        oxc_ast::ast::AssignmentTarget::ComputedMemberExpression(m) => {
+            expression_throws(&m.object)
+                || certainly_nullish(&m.object)
+                || expression_throws(&m.expression)
+        }
+        oxc_ast::ast::AssignmentTarget::StaticMemberExpression(m) => {
+            expression_throws(&m.object) || certainly_nullish(&m.object)
+        }
+        oxc_ast::ast::AssignmentTarget::PrivateFieldExpression(m) => {
+            expression_throws(&m.object) || certainly_nullish(&m.object)
+        }
+        _ => false,
+    }
+}
+
+/// Whether evaluating this ARGUMENT certainly raises, so nothing after it in the list runs.
+///
+/// A spread raises two ways and the readers here only ever asked about one. `...f()` still CALLS
+/// `f`, so a spread of something that certainly throws stops the list exactly as a bare argument
+/// does — the half every reader had, by looking THROUGH the spread to what it evaluates. The
+/// other half is the spread itself: `f(...null, e.attrString("late"))` raises while the argument
+/// list is being BUILT, as `[...null]` does while an array literal is, and looking through it
+/// answers a question about `null` that was never the one being asked.
+///
+/// One predicate for all three readers — the argument walk that suppresses what follows a raise,
+/// the invocation that declines a callee the list never reaches, and the analyser walk that must
+/// not publish those reads. They answered it apart, and no two of them agreed.
+fn argument_raises(a: &Argument<'_>) -> bool {
+    match a {
+        Argument::SpreadElement(sp) => {
+            expression_throws(&sp.argument) || certainly_not_iterable(&sp.argument)
+        }
+        other => other.as_expression().is_some_and(expression_throws),
+    }
+}
+
+/// Whether `e` is certainly not iterable, so an array pattern taking it apart must throw.
+///
+/// Only the spellings that settle it. A string, an array and a nullish value all have their own
+/// answers — a string iterates by code point and an array by element, so neither belongs here —
+/// and anything this cannot read may hold an iterator.
+fn certainly_not_iterable(e: &Expression<'_>) -> bool {
+    if certainly_nullish(e) {
+        return true;
+    }
+    match peel(e) {
+        Expression::NumericLiteral(_)
+        | Expression::BooleanLiteral(_)
+        | Expression::BigIntLiteral(_)
+        | Expression::RegExpLiteral(_) => true,
+        // An object literal has no `Symbol.iterator` — unless it WRITES one. `{ *[Symbol
+        // .iterator]() { yield 1; } }` is a perfectly ordinary iterable, and calling the whole
+        // node kind non-iterable marked an invoked body unreachable and discarded the writes it
+        // really performs. A key this can read is not that symbol, whatever brackets it is
+        // spelled with, so only an unreadable computed key leaves the question open — and a
+        // spread does too, since it copies own symbol-keyed properties along with the rest.
+        Expression::ObjectExpression(o) => !o.properties.iter().any(|p| match p {
+            oxc_ast::ast::ObjectPropertyKind::SpreadProperty(_) => true,
+            // The `__proto__:` spelling installs a PROTOTYPE, and `Symbol.iterator` is found
+            // through one as readily as on the object itself: `{__proto__: {*[Symbol
+            // .iterator](){ … }}}` destructures by array pattern perfectly well. Reading only
+            // the literal's own keys called it non-iterable and marked a body that runs
+            // unreachable. `{__proto__: null}` is the one spelling that settles it the other
+            // way — a prototype-less object inherits nothing at all.
+            oxc_ast::ast::ObjectPropertyKind::ObjectProperty(op) if sets_the_prototype(op) => {
+                !certainly_nullish(&op.value)
+            }
+            oxc_ast::ast::ObjectPropertyKind::ObjectProperty(op) => {
+                op.computed && op.key.static_name().is_none()
+            }
+        }),
+        // A function is an object with no `Symbol.iterator` and no way to be given one in the
+        // expression that writes it. A CLASS is not: its own STATIC members are properties of
+        // the class object, so `class { static *[Symbol.iterator](){ … } }` iterates. An
+        // instance member is on the prototype and reaches the class object never, which is why
+        // only the static ones are asked — and a static block, whose `this` is the class, can
+        // install one where nothing here could name it.
+        // An ARROW is an object with no `Symbol.iterator` and no way to be given one either.
+        // Only the `function` spelling was listed, so `([x]) => …` over an inline arrow read as
+        // a binding that succeeds and the body it never enters was walked as one that runs.
+        Expression::FunctionExpression(_) | Expression::ArrowFunctionExpression(_) => true,
+        // A DERIVED class inherits its base's static members through the constructor's own
+        // prototype chain, so `class extends (class { static *[Symbol.iterator](){ … } }) {}`
+        // iterates without naming an iterator anywhere in its own body. Reading only its own
+        // elements marked an invoked body unreachable and discarded the writes it performs.
+        //
+        // `extends null` is the exception and keeps its answer: the constructor's prototype is
+        // `Function.prototype`, which has no iterator, so nothing is inherited.
+        Expression::ClassExpression(c)
+            if c.super_class
+                .as_ref()
+                .is_some_and(|h| !certainly_nullish(h)) =>
+        {
+            false
+        }
+        Expression::ClassExpression(c) => !c.body.body.iter().any(|el| match el {
+            oxc_ast::ast::ClassElement::StaticBlock(_) => true,
+            oxc_ast::ast::ClassElement::MethodDefinition(m) => {
+                m.r#static && m.computed && m.key.static_name().is_none()
+            }
+            oxc_ast::ast::ClassElement::PropertyDefinition(p) => {
+                p.r#static && p.computed && p.key.static_name().is_none()
+            }
+            oxc_ast::ast::ClassElement::AccessorProperty(p) => {
+                p.r#static && p.computed && p.key.static_name().is_none()
+            }
+            oxc_ast::ast::ClassElement::TSIndexSignature(_) => false,
+        }),
+        _ => false,
+    }
+}
+
+/// Whether `e` is a spelling of `undefined` — the one value a default answers.
+fn is_undefined_spelling(e: &Expression<'_>, global: bool) -> bool {
+    match e {
+        Expression::UnaryExpression(u) => u.operator == oxc_syntax::operator::UnaryOperator::Void,
+        Expression::Identifier(i) => i.name == "undefined" && global,
+        Expression::ParenthesizedExpression(p) => is_undefined_spelling(&p.expression, global),
+        _ => false,
+    }
+}
+
+/// The getters binding `pat` against `object` will invoke, at every depth of the pattern.
+///
+/// A nested pattern destructures the value of the property above it, and binding it invokes
+/// that property's getter too: `(function ({a: {x}}) {})({a: {get x(){ … }}})` runs the getter
+/// before the body is entered. Reading only the pattern's top level left it deferred, and the
+/// helper's fields were published on the node the write had moved away from.
+///
+/// Still shallow in the ways that matter: a computed key names nothing this can read, and a
+/// property whose value is not a literal object ends the descent, which loses a getter rather
+/// than inventing one.
+fn getters_in_pattern<'a>(
+    pat: &oxc_ast::ast::ObjectPattern<'a>,
+    object: &oxc_ast::ast::ObjectExpression<'a>,
+    out: &mut Vec<Span>,
+) {
+    // A REST binding copies what the named properties left behind, and copying performs a `Get`
+    // on each one — so `var {...copy} = { get x(){ … } }` runs that getter with no property
+    // named anywhere in the pattern. The named list was the whole of what this read, so a
+    // rest-only pattern claimed nothing at all.
+    //
+    // Every getter the literal has. Excluding the ones the pattern NAMES would be more faithful
+    // to what the rest actually copies, and it is not a rule this list can hold: the loop below
+    // claims those anyway, and the same span twice is the same claim. A condition no test can
+    // hold is one to remove.
+    if pat.rest.is_some() {
+        // The property the object ENDS UP with, name by name — a getter a later definition
+        // replaced is never read, so `{ get x(){ … }, x: 1 }` copies the data property and that
+        // body runs on no path. The named-property walk below has resolved through
+        // `owned_property` all along; this loop read every getter as written, which is the same
+        // rule with one of its two readers missing it.
+        let mut seen: Vec<String> = Vec::new();
+        for p in &object.properties {
+            let oxc_ast::ast::ObjectPropertyKind::ObjectProperty(op) = p else {
+                continue;
+            };
+            let Some(name) = op.key.static_name() else {
+                continue;
+            };
+            if seen.iter().any(|k| k == name.as_ref()) {
+                continue;
+            }
+            seen.push(name.to_string());
+            if let Some(owned) = owned_property(object, name.as_ref())
+                && owned.kind == oxc_ast::ast::PropertyKind::Get
+                && let Expression::FunctionExpression(f) = &owned.value
+            {
+                out.push(f.span);
+            }
+        }
+    }
+    for prop in &pat.properties {
+        let Some(name) = prop.key.static_name() else {
+            continue;
+        };
+        // The property the object ends up with, which a spread may have replaced: `{ get
+        // x(){ … }, ...{x: 1} }` binds `x` to the data property and the getter body is
+        // dead, so marking it immediate recorded a write that happens on no path. One that
+        // demonstrably cannot hold the name — `...{y: 1}` — leaves the getter standing,
+        // which is the half a blanket cut at the last spread was losing.
+        let Some(op) = owned_property(object, name.as_ref()) else {
+            continue;
+        };
+        {
+            if op.kind == oxc_ast::ast::PropertyKind::Get
+                && let Expression::FunctionExpression(f) = &op.value
+            {
+                out.push(f.span);
+            }
+        }
+        // …and one level further in, for as far as both sides are written out. The pattern
+        // below this property takes apart the value of THIS one, so a getter there is invoked
+        // by the same binding.
+        // No `PropertyKind::Init` test beside the match: a getter's or setter's value is a
+        // FUNCTION, never an object literal, so the pattern below already excludes them. The
+        // mutation dropping it changed no answer, and the redundancy is visible right here.
+        if let oxc_ast::ast::BindingPattern::ObjectPattern(inner) = &prop.value
+            && let Expression::ObjectExpression(o) = &op.value
+        {
+            getters_in_pattern(inner, o, out);
+        }
+    }
+}
+
+/// The same, for the ASSIGNMENT spelling of a destructuring read.
+///
+/// `({x} = { get x(){ … } })` invokes that getter as surely as `var {x} = …` does — reading a
+/// property is reading a property, however the target is written. The declaration form is an
+/// `ObjectPattern` and this one an `ObjectAssignmentTarget`, two AST shapes for one rule, which
+/// is why only the property question is shared and each walker reads its own nodes.
+fn getters_in_assignment_target<'a>(
+    pat: &oxc_ast::ast::ObjectAssignmentTarget<'a>,
+    object: &oxc_ast::ast::ObjectExpression<'a>,
+    out: &mut Vec<Span>,
+) {
+    for prop in &pat.properties {
+        // The name this property reads and the pattern it hands the value to, from either
+        // spelling — `({x} = …)` names its target and `({x: y} = …)` names them apart. My first
+        // draft answered the getter question once per spelling, and the mutation that widened
+        // one arm to accept setters passed because the shorthand went through the other: two
+        // copies of one rule inside a function written to remove exactly that, in the same
+        // commit. The name is read per spelling now and the property judged once.
+        let (name, nested) = match prop {
+            oxc_ast::ast::AssignmentTargetProperty::AssignmentTargetPropertyIdentifier(id) => {
+                (id.binding.name.to_string(), None)
+            }
+            oxc_ast::ast::AssignmentTargetProperty::AssignmentTargetPropertyProperty(p) => {
+                let Some(n) = p.name.static_name() else {
+                    continue;
+                };
+                (n.to_string(), p.binding.as_assignment_target())
+            }
+        };
+        let Some(op) = owned_property(object, &name) else {
+            continue;
+        };
+        if op.kind == oxc_ast::ast::PropertyKind::Get
+            && let Expression::FunctionExpression(f) = &op.value
+        {
+            out.push(f.span);
+        }
+        // …and one level in, for as far as both sides are written out — the pattern below this
+        // property takes apart the value of THIS one, so a getter there is invoked by the same
+        // read. The nesting the parameter-binding walker already has, on the other spelling.
+        if let Some(oxc_ast::ast::AssignmentTarget::ObjectAssignmentTarget(inner)) = nested
+            && let Expression::ObjectExpression(o) = &op.value
+        {
+            getters_in_assignment_target(inner, o, out);
+        }
+    }
+}
+
+/// The formals a call binds, for the callee shapes that have any.
+fn callee_params<'b, 'a>(
+    callee: &'b Expression<'a>,
+    constructs: bool,
+) -> Option<&'b oxc_ast::ast::FormalParameters<'a>> {
+    match callee {
+        Expression::FunctionExpression(f) => Some(&f.params),
+        Expression::ArrowFunctionExpression(f) => Some(&f.params),
+        Expression::ClassExpression(c) if constructs => {
+            c.body.body.iter().find_map(|el| match el {
+                oxc_ast::ast::ClassElement::MethodDefinition(m)
+                    if m.kind == oxc_ast::ast::MethodDefinitionKind::Constructor =>
+                {
+                    Some(&*m.value.params)
+                }
+                _ => None,
+            })
+        }
+        _ => None,
+    }
+}
+
+/// The defaults inside `pat` that the value it destructures already supplies.
+///
+/// A default nested in a pattern is the same rule one level in: `function ({x = (current =
+/// other)}) {}` called with `{x: 1}` never evaluates that initializer. Checking only
+/// `FormalParameter::initializer` left every destructured spelling of it recording a write the
+/// call prevents — the direction that files a helper's fields under a node still standing.
+///
+/// `value` is what this pattern takes apart, when reading the source settles what that is. It
+/// is `None` wherever it does not — an argument that is not a literal object or array, a
+/// property this call does not name, a spread, a computed key. Every one of those leaves the
+/// default running, which is the conservative side.
+fn suppress_in_pattern(
+    pat: &oxc_ast::ast::BindingPattern<'_>,
+    value: Option<&Expression<'_>>,
+    out: &mut Vec<Span>,
+) {
+    use oxc_ast::ast::BindingPattern as BP;
+    match pat {
+        BP::BindingIdentifier(_) => {}
+        BP::AssignmentPattern(p) => {
+            let supplied = value.is_some_and(definitely_defined);
+            if supplied {
+                out.push(p.right.span());
+            }
+            // Bound to the argument when the default did not run, and to the default's own
+            // value when it did — which this does not read, so the inner side gets nothing.
+            suppress_in_pattern(&p.left, if supplied { value } else { None }, out);
+        }
+        BP::ObjectPattern(o) => {
+            // Only a literal object — and only the properties written after every spread in
+            // it. A spread can supply a name or shadow one, so nothing before or between them
+            // settles anything; a property written after the LAST of them is the value the
+            // object ends up with whatever the spreads held, so it settles the question exactly
+            // as it would in an object with no spread at all. Discarding the whole literal the
+            // moment one appeared threw those away too.
+            // Peeled, for the reason the `.apply` list is: `({x: 1})` is the object `{x: 1}`
+            // is, and matching the written node discarded properties that really are supplied.
+            let obj = match value.map(peel) {
+                Some(Expression::ObjectExpression(obj)) => Some(obj),
+                _ => None,
+            };
+            for prop in &o.properties {
+                // `static_name` is the predicate, on both sides. Testing `!computed` as well
+                // excluded `{["x"]: v}` — a computed key whose name IS readable — while adding
+                // nothing, because `static_name` already answers `None` for a key that is not:
+                // an inert gate that only cost precision. Removed rather than documented.
+                let named = prop.key.static_name().and_then(|name| {
+                    // The LAST property of that name, which is the one the object ends up with,
+                    // and only when no spread could have replaced it. Taking the first had `{x:
+                    // 1, ["x"]: undefined}` read as supplying `x`, suppressing a default the
+                    // effective `undefined` really does run; cutting at the last spread
+                    // regardless discarded a property `...{y: 1}` cannot touch. `owned_property`
+                    // answers both, and the getter walk beside it reads the very same function
+                    // rather than a second copy of this rule.
+                    owned_property(obj?, name.as_ref())
+                        // `{get x(){ … }}` supplies `x` by INVOKING that function, whose result
+                        // this cannot read — and `{set x(v){}}` supplies no getter at all, so
+                        // reading `x` yields `undefined` and the default runs. The property's own
+                        // text is the value only for a plain one; a shorthand METHOD is plain in
+                        // that sense, its value being the function itself.
+                        .and_then(|op| {
+                            (op.kind == oxc_ast::ast::PropertyKind::Init).then_some(&op.value)
+                        })
+                });
+                suppress_in_pattern(&prop.value, named, out);
+            }
+        }
+        BP::ArrayPattern(a) => {
+            // By position, and only for a literal array — up to its FIRST spread. A spread
+            // contributes an unknown number of elements, so every position from there on
+            // shifts by an amount nothing here can read; the positions BEFORE it are exactly
+            // where they are written. Discarding the whole literal the moment one appeared
+            // threw those away too. The mirror of the object rule, which keeps what comes
+            // after the last spread because there names shift and positions do not.
+            let items: Option<&[oxc_ast::ast::ArrayExpressionElement<'_>]> = match value {
+                Some(Expression::ArrayExpression(arr)) => {
+                    let until = arr
+                        .elements
+                        .iter()
+                        .position(|el| {
+                            matches!(el, oxc_ast::ast::ArrayExpressionElement::SpreadElement(_))
+                        })
+                        .unwrap_or(arr.elements.len());
+                    Some(&arr.elements[..until])
+                }
+                _ => None,
+            };
+            for (i, el) in a.elements.iter().enumerate() {
+                let Some(el) = el.as_ref() else { continue };
+                let at = items
+                    .and_then(|arr| arr.get(i))
+                    .and_then(|e| e.as_expression());
+                suppress_in_pattern(el, at, out);
+            }
+        }
+    }
+}
+
+/// The property this object ends up with for `name` — the last one written with that name,
+/// stopping at any spread that could have supplied it.
+///
+/// A spread contributes an unknown set of names, so a property above one is only the answer
+/// when the spread demonstrably cannot hold that name. `{ get x(){ … }, ...{y: 1} }` still ends
+/// up with the getter, and cutting at the last spread regardless discarded it — a loss both
+/// this and the suppression walk were taking, and one of them was reported.
+///
+/// Only a literal object settles a spread. Anything else — an identifier, a call — may hold
+/// anything, and so may a literal carrying a key this cannot read.
+fn owned_property<'b, 'a>(
+    obj: &'b oxc_ast::ast::ObjectExpression<'a>,
+    name: &str,
+) -> Option<&'b oxc_ast::ast::ObjectProperty<'a>> {
+    for p in obj.properties.iter().rev() {
+        match p {
+            oxc_ast::ast::ObjectPropertyKind::SpreadProperty(s) => {
+                if spread_may_define(&s.argument, name) {
+                    return None;
+                }
+            }
+            oxc_ast::ast::ObjectPropertyKind::ObjectProperty(op) => {
+                if op.key.static_name().as_deref() == Some(name) && !sets_the_prototype(op) {
+                    return Some(op);
+                }
+                // A computed key this cannot read might BE that name, and it is written past
+                // whatever the scan would otherwise hand back — `{x: 1, [k]: undefined}` ends
+                // up with `x` holding `undefined` when `k` is `"x"`, and answering the earlier
+                // `x: 1` suppressed a default the call really runs. A spread stopped the scan
+                // for exactly this reason and a computed key did not, which is the same rule
+                // with one of its two spellings missing.
+                if op.computed && op.key.static_name().is_none() {
+                    return None;
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Whether reading `name` off this literal certainly yields `undefined` — a property the object
+/// is PROVEN not to have, as against one this pass merely cannot resolve.
+///
+/// `owned_property` answers `None` for both, which is right for every caller asking "may I read
+/// this value" and wrong for the one asking "does this binding throw": `(function ({x: {y}}) { …
+/// })({__proto__: null})` reads `x` as `undefined` and the nested pattern raises before the body,
+/// and reporting no failure recorded writes for a body entered on no path.
+///
+/// Only the prototype-less spelling settles it. An ordinary literal inherits from
+/// `Object.prototype`, where `toString` and `constructor` and the rest really are found, so
+/// "not written here" is not "absent" for it. Nothing may leave the key set open either — a
+/// spread or a computed key this cannot read could supply the very name.
+fn property_certainly_absent(obj: &oxc_ast::ast::ObjectExpression<'_>, name: &str) -> bool {
+    let prototype_less = obj.properties.iter().any(|p| match p {
+        oxc_ast::ast::ObjectPropertyKind::ObjectProperty(op) => {
+            sets_the_prototype(op) && certainly_nullish(&op.value)
+        }
+        oxc_ast::ast::ObjectPropertyKind::SpreadProperty(_) => false,
+    });
+    if !prototype_less {
+        return false;
+    }
+    obj.properties.iter().all(|p| match p {
+        oxc_ast::ast::ObjectPropertyKind::SpreadProperty(s) => {
+            !spread_may_define(&s.argument, name)
+        }
+        oxc_ast::ast::ObjectPropertyKind::ObjectProperty(op) => {
+            if sets_the_prototype(op) {
+                return true;
+            }
+            // The name test is unobservable from the one caller, which asks only after
+            // `owned_property` answered `None` — and where nothing unreadable is present, that
+            // answer already means no property of the name exists. Kept anyway, and said rather
+            // than hidden: it is what makes this function state its own rule instead of being
+            // correct by its caller's precondition. The same judgement round sixty-one made for
+            // `setter_without_getter`, and no mutation of mine can tell the two apart.
+            match op.key.static_name() {
+                Some(k) => k != name,
+                None => false,
+            }
+        }
+    })
+}
+
+/// Whether this callee names a concise method of an object literal — `({ m(){ … } }).m` — which
+/// is a function with no `[[Construct]]`.
+fn callee_is_a_concise_method(callee_expr: &Expression<'_>) -> bool {
+    named_member(peel(callee_expr)).is_some_and(|(name, object)| {
+        matches!(peel(object), Expression::ObjectExpression(o)
+            if owned_property(o, name.as_ref()).is_some_and(|op| op.method))
+    })
+}
+
+/// Whether this property sets the object's PROTOTYPE rather than creating an own property.
+///
+/// `{ __proto__: null }` has no `__proto__` of its own — the name is special only in that
+/// spelling, so `{ ["__proto__"]: null }` and `{ __proto__(){} }` both do create one. Reading
+/// the prototype setter as an own property had `(function ({__proto__: x = …}) {})({__proto__:
+/// null})` suppress a default that really runs.
+fn sets_the_prototype(op: &oxc_ast::ast::ObjectProperty<'_>) -> bool {
+    !op.computed
+        && !op.method
+        && !op.shorthand
+        && op.kind == oxc_ast::ast::PropertyKind::Init
+        && op.key.static_name().as_deref() == Some("__proto__")
+}
+
+/// Whether spreading `e` could supply `name`.
+///
+/// `true` unless this can read every key the spread contributes and none of them is `name`.
+/// A key the pass cannot read is one that might be it, and so is anything that is not a
+/// literal object — the direction that keeps a property above the spread from being trusted.
+fn spread_may_define(e: &Expression<'_>, name: &str) -> bool {
+    let Expression::ObjectExpression(o) = peel(e) else {
+        return true;
+    };
+    o.properties.iter().any(|p| match p {
+        oxc_ast::ast::ObjectPropertyKind::SpreadProperty(s) => spread_may_define(&s.argument, name),
+        oxc_ast::ast::ObjectPropertyKind::ObjectProperty(op) => {
+            op.key.static_name().is_none_or(|n| n == name)
+        }
+    })
+}
+
+/// The defaults a tagged template's strings object prevents inside the pattern its first
+/// parameter binds.
+///
+/// That object is an array-like: index `i` holds the template's `i`th COOKED string, and there
+/// are as many as the template has quasis. So an array pattern's leading elements are supplied
+/// and a default beside one of them runs for nobody — while an element past the last quasi is
+/// `undefined` and its default does run, which is where this stops.
+///
+/// Deliberately shallow, in the direction that loses a suppression rather than inventing one:
+/// the top level of an array pattern, and only where the cooked string exists — a template with
+/// an invalid escape carries `undefined` there and keeps the text in `raw` alone. Anything below
+/// an element destructures a STRING, and an object pattern over the array names `raw` or
+/// `length`; neither is modelled, so neither is claimed.
+fn suppress_in_strings(
+    pat: &oxc_ast::ast::BindingPattern<'_>,
+    quasi: &oxc_ast::ast::TemplateLiteral<'_>,
+    out: &mut Vec<Span>,
+) {
+    use oxc_ast::ast::BindingPattern as BP;
+    match pat {
+        // The strings object is never `undefined`, so a default on the parameter's own pattern
+        // is prevented and what that pattern binds is still the array.
+        BP::AssignmentPattern(p) => {
+            out.push(p.right.span());
+            suppress_in_strings(&p.left, quasi, out);
+        }
+        BP::ArrayPattern(a) => {
+            for (i, el) in a.elements.iter().enumerate() {
+                // Past the end of the array: every remaining element is `undefined` and its
+                // default runs. That is the only reason to stop.
+                let Some(q) = quasi.quasis.get(i) else { break };
+                // An invalid escape makes THIS slot `undefined` — and only this one. The
+                // positions do not shift, so the elements after it are still supplied and
+                // their defaults still run for nobody. Stopping here read one bad escape as
+                // the end of the array and recorded every later default as a write.
+                if q.value.cooked.is_none() {
+                    continue;
+                }
+                if let Some(BP::AssignmentPattern(p)) = el.as_ref() {
+                    out.push(p.right.span());
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Whether reading `e` settles that it is not `undefined`. Deliberately only the forms that
+/// carry their value in the source — a call, a member lookup or a bare identifier can all be
+/// `undefined` at run time, and this answers `false` for every one of them.
+fn definitely_defined(e: &Expression<'_>) -> bool {
+    // Parentheses change nothing about the value, and reading only the bare spelling called
+    // `(-1)` unreadable. Nor does a comma expression, whose value is its LAST element: `(0, 1)`
+    // supplies a parameter as plainly as `1` does, and falling through on the node kind
+    // recorded a default the call always prevents. `peel` answers both, and is what every other
+    // value question here already reads.
+    let peeled = peel(e);
+    if !std::ptr::eq(peeled, e) {
+        return definitely_defined(peeled);
+    }
+    // Every unary operator but one produces a value: `-1` and `+x` a number, `!0` a boolean,
+    // `~x` a number, `typeof x` a string, `delete x` a boolean. `void` is the exception, and
+    // it is the spelling minifiers use FOR `undefined` — so excluding the whole node kind
+    // turned the minifier's own `-1` into a value this could not read.
+    if let Expression::UnaryExpression(u) = e {
+        return u.operator != oxc_syntax::operator::UnaryOperator::Void;
+    }
+    matches!(
+        e,
+        Expression::StringLiteral(_)
+            | Expression::NumericLiteral(_)
+            | Expression::BigIntLiteral(_)
+            | Expression::BooleanLiteral(_)
+            | Expression::NullLiteral(_)
+            | Expression::RegExpLiteral(_)
+            | Expression::TemplateLiteral(_)
+            | Expression::ObjectExpression(_)
+            | Expression::ArrayExpression(_)
+            | Expression::FunctionExpression(_)
+            | Expression::ArrowFunctionExpression(_)
+            | Expression::ClassExpression(_)
+            | Expression::NewExpression(_)
+    )
+}
+
+/// Whether `body` leaves its statement list by a transfer NO exception can be raised before,
+/// so a `catch` wrapped around it is bypassed rather than entered.
+///
+/// `try { break; } catch (_) {}` breaks. `try { f(); break; } catch (_) {}` does not answer
+/// yes, because `f()` can throw and the handler then completes normally — and this walk stops
+/// at the first statement that could raise rather than looking past it. Everything is assumed
+/// able to raise except the few forms that evaluate nothing, which is the same conservative
+/// reading `is_quiet` makes for the hang question.
+fn leaves_without_raising(
+    body: &[Statement<'_>],
+    inside: &mut Vec<String>,
+    continue_counts: bool,
+) -> bool {
+    for st in body {
+        match st {
+            // The transfers themselves evaluate nothing. A bare `return` is one too; `return
+            // expr` runs `expr`, which can raise, and falls to the catch-all below.
+            Statement::BreakStatement(_) | Statement::ContinueStatement(_) => {
+                return ends_the_list_but_for(st, inside, continue_counts);
+            }
+            Statement::ReturnStatement(r) if r.argument.is_none() => return true,
+            Statement::BlockStatement(b) => {
+                if leaves_without_raising(&b.body, inside, continue_counts) {
+                    return true;
+                }
+                // A block that neither left nor is quiet could have raised inside it.
+                if !is_quiet(st) {
+                    return false;
+                }
+            }
+            _ if is_quiet(st) => {}
+            _ => return false,
+        }
+    }
+    false
 }
 
 /// Whether `stmt` ends the body on every path it can take. A bare `return`/`throw`, or a
@@ -2483,6 +6733,164 @@ fn presence_tested(test: &Expression<'_>) -> Vec<(String, String)> {
 /// Every name a source binds, at any depth — `var` hoists and functions are declared
 /// wherever, so this is a pre-pass rather than something the walk can accumulate.
 #[derive(Default)]
+/// One assignment to a bare name: which function it sits in (`None` = the top of the
+/// analysed source, so it covers all of it), what it writes, where, and the innermost loop
+/// that repeats it.
+#[derive(Debug, Clone)]
+struct Write {
+    scope: Option<Span>,
+    name: String,
+    at: Span,
+    /// Where the write has taken effect by, which is not where the TARGET is written. `e =
+    /// parse(e)` calls `parse` with the original node and only then rebinds `e`, so ordering
+    /// the write from the target identifier reported it as already effective and the descent
+    /// was refused — losing every field the helper reads and recording a drop that did not
+    /// happen. `at` still identifies the write, so a `Given` recorded at the same target keeps
+    /// pairing with it.
+    effective: u32,
+    repeats_in: Option<Span>,
+    runs_before: Vec<Span>,
+    runs_after: Vec<Span>,
+    lands_at: Option<(Span, u32)>,
+}
+
+impl Write {
+    /// Whether this write is in a scope reaching `at`.
+    fn covers(&self, at: Span) -> bool {
+        self.scope.is_none_or(|e| covers(e, at))
+    }
+}
+
+/// Whether a record made at `effective` has already taken effect at `at`.
+///
+/// Three ways it can have: textual position, repetition — a write below the call runs before it
+/// on the next pass — and a region the record precedes whatever its position, which is how a
+/// call's arguments relate to its callee's body. The rule was spelled out at each of its five
+/// askers, which is how the first two came to be asked in four places and the third in none.
+fn in_effect_at(
+    effective: u32,
+    repeats_in: Option<Span>,
+    runs_before: &[Span],
+    runs_after: &[Span],
+    lands_at: Option<(Span, u32)>,
+    at: Span,
+) -> bool {
+    // A path that cannot produce a result never made this record effective for anything.
+    if effective == u32::MAX {
+        return false;
+    }
+    // A region this record FOLLOWS however early it is written — the mirror of `runs_before`,
+    // and the thing the class two-phase note on the PR said this model had no place for. Every
+    // computed key of a class is evaluated before any static initializer, so a read in a key
+    // does not see a write in an initializer written above it. Position alone answered that
+    // with the source order.
+    if runs_after.iter().any(|r| covers(*r, at)) {
+        return false;
+    }
+    // Written inside an invoked body: it happened where it is written for anything in that
+    // same body, and at the call for everything else — which is what puts it after the
+    // arguments, that being the whole reason the invocation is recorded at all.
+    if let Some((body, call_end)) = lands_at {
+        return if covers(body, at) {
+            // Position, or a region this record declares it precedes — a class's instance field
+            // initializers all run before its constructor body however they are written, and
+            // both sit inside the one invoked body, so short-circuiting on position alone
+            // answered that ordering with source order.
+            effective <= at.start || runs_before.iter().any(|r| covers(*r, at))
+        } else {
+            call_end <= at.start
+        };
+    }
+    effective <= at.start
+        || repeats_in.is_some_and(|l| covers(l, at))
+        || runs_before.iter().any(|r| covers(*r, at))
+}
+
+/// The names a statement list declares with `var`, at any depth inside it.
+///
+/// Function-scoped, so `case "a": { var t = e.child("inner"); }` rebinds `t` for everything
+/// after it exactly as the unbraced form does — and reading only the top level of each
+/// consequent missed it, so the arm-shadow diagnostic stayed silent about an ambiguity it
+/// exists to report. Not into a nested function, whose own `var`s are its business.
+fn hoisted_names<'a>(body: &[Statement<'a>]) -> Vec<String> {
+    struct Hoisted {
+        names: Vec<String>,
+        nested: u32,
+    }
+    impl<'a> Visit<'a> for Hoisted {
+        fn visit_variable_declaration(&mut self, d: &VariableDeclaration<'a>) {
+            if self.nested == 0 && !d.kind.is_lexical() {
+                for decl in &d.declarations {
+                    for id in decl.id.get_binding_identifiers() {
+                        self.names.push(id.name.as_str().to_string());
+                    }
+                }
+            }
+            walk::walk_variable_declaration(self, d);
+        }
+        fn visit_function(&mut self, f: &Function<'a>, flags: ScopeFlags) {
+            self.nested += 1;
+            walk::walk_function(self, f, flags);
+            self.nested -= 1;
+        }
+        fn visit_arrow_function_expression(
+            &mut self,
+            f: &oxc_ast::ast::ArrowFunctionExpression<'a>,
+        ) {
+            self.nested += 1;
+            walk::walk_arrow_function_expression(self, f);
+            self.nested -= 1;
+        }
+    }
+    let mut probe = Hoisted {
+        names: Vec::new(),
+        nested: 0,
+    };
+    for st in body {
+        probe.visit_statement(st);
+    }
+    probe.names
+}
+
+/// Whether `outer` contains `inner`.
+fn covers(outer: Span, inner: Span) -> bool {
+    inner.start >= outer.start && inner.end <= outer.end
+}
+
+/// One value a name is GIVEN — a declarator initializer or an assignment.
+#[derive(Debug, Clone)]
+struct Given {
+    scope: Span,
+    /// Whether something could have skipped this assignment — see [`AllBindings::skippable`].
+    conditional: bool,
+    name: String,
+    /// The name it was copied from, when the right-hand side was a bare identifier.
+    from: Option<String>,
+    at: Span,
+    /// Where this value has taken effect by — see [`Write::effective`]. The same position for
+    /// the same reason: an assignment's right-hand side runs before the name is rebound, and
+    /// the two records of one assignment must not disagree about when it happened.
+    effective: u32,
+    repeats_in: Option<Span>,
+    /// The invoked body this record sits in, with the end of its call — it happened where it
+    /// is written for anything in that body, and at the call for everything outside it.
+    lands_at: Option<(Span, u32)>,
+    /// A region this record precedes however late it is written. Every argument of a call runs
+    /// before the callee's body is entered, so `(function(){ parse(current); })(current = e)`
+    /// hands `parse` what the ARGUMENT assigned — and the argument is textually after the body
+    /// that reads it. Position alone had that read seeing the older value, and it filed the
+    /// helper's fields under a node the parser had already replaced.
+    ///
+    /// A LIST, because the parts a record precedes are not always one span: the arguments of
+    /// `new (class { … })()` run after the class is defined and before it is constructed, so
+    /// they precede the constructor body and every instance field initializer while preceding
+    /// no static one — three regions inside one class, of which a single span can name at most
+    /// the wrong union.
+    runs_before: Vec<Span>,
+    runs_after: Vec<Span>,
+}
+
+#[derive(Default)]
 struct AllBindings {
     /// Bound at the top of the analysed source, so in scope throughout it.
     names: std::collections::HashSet<String>,
@@ -2492,13 +6900,1002 @@ struct AllBindings {
     scoped: Vec<(Span, String)>,
     fns: Vec<Span>,
     blocks: Vec<Span>,
+    /// Loop bodies currently open, each with whether that loop can start another pass. A write
+    /// inside one that cannot is not loop-carried, however far below the call it sits.
+    loops: Vec<(Span, bool)>,
+    /// How many blocks deep the walk is, so the outermost one can be told apart from a
+    /// genuinely nested scope.
+    block_depth: u32,
+    /// Where the assignment currently being walked ends, so a write inside it can say it takes
+    /// effect after the right-hand side rather than at the target.
+    assign_end: Option<u32>,
+    /// How many enclosing statements cannot be left with a result. A write in one of those
+    /// never takes effect for anything a later call can observe.
+    dead: u32,
+    /// How many enclosing statements control cannot reach at all — everything after an
+    /// unconditional `return`, `throw` or labelled `break` in the same list.
+    ///
+    /// Distinct from [`Self::dead`], and it outranks `caught`: a handler makes a THROWING path
+    /// resume, so a write before the throw really did happen, but nothing makes a statement after
+    /// the transfer run. `try { throw Error(); current = other; } catch (_) {}` recorded that
+    /// assignment as effective and refused the descent for a node nothing had moved.
+    unreachable: u32,
+    /// Parameter lists already taken in binding order by an invocation, so the callee walk that
+    /// follows does not record their effects a second time.
+    walked_params: Vec<Span>,
+    /// The regions whose evaluation a record made here precedes, innermost last. A write in a
+    /// call's arguments precedes everything in the callee's body, however far after it the
+    /// argument is written — and for a constructed class the region is several spans, because
+    /// the arguments precede the construction without preceding the definition.
+    runs_before: Vec<Vec<Span>>,
+    /// Regions a record made here FOLLOWS, whatever its position — see [`in_effect_at`].
+    runs_after: Vec<Vec<Span>>,
+    /// Invocations being walked, as `(the callee's span, the end of the call)`, outermost
+    /// first. What the body writes lands at the call for anything OUTSIDE it — the arguments
+    /// ran first and the statements after it run later — while inside that same body the write
+    /// happened where it is written. Pinning it for every observer alike was the mistake:
+    /// `(function(){ current = other; parse(current); })()` hands `parse` the new node, and
+    /// reading the write as not-yet-effective there published the helper's fields on the old
+    /// one.
+    ///
+    /// One of them so far: every argument of a call is evaluated before the callee's body is
+    /// entered, so `(function(){ current = other; })(parse(current))` hands `parse` the original
+    /// node. Ordering that write by its own span had it look already effective, and the descent
+    /// was refused for a node still standing.
+    /// One entry per invocation in progress: the regions whose writes land at that call, the
+    /// whole invoked body those regions sit in, and where the call ends. Regions PLURAL because
+    /// a class under `new` has several and they are not contiguous — see
+    /// [`ParserAnalyzer::lands_at`].
+    effects_land_at: Vec<(Vec<Span>, Span, u32)>,
+    /// Function bodies that are immediately invoked, each with the REGIONS of it that run
+    /// synchronously with the call: a write inside one of those has certainly run by the time
+    /// anything after the call reads it.
+    ///
+    /// Regions rather than one cutoff, because the two sides of an undecided `if` are
+    /// alternatives: `if (flag) { await x; } else { current = other; }` suspends on one side and
+    /// not on the other, and a single position across both confined a write that really is
+    /// synchronous whenever its own side is selected.
+    ///
+    /// Not the whole body, because calling a function is not always running it. A generator
+    /// call builds an iterator and runs nothing, and an `async` body runs only as far as its
+    /// first `await` before handing control back — so `(async function(){ await x; current =
+    /// other; })()` had a write the callback returns before recorded as one that already
+    /// happened.
+    iife: Vec<(Span, Vec<Span>)>,
+
+    /// Getter bodies that the parameter binding of a call in progress will invoke, with the end
+    /// of that call. Registered while the arguments are walked and applied only around the
+    /// getter's OWN body, because binding happens after every argument has been evaluated: a
+    /// blanket push would have deferred the arguments' own writes past the call too.
+    binding_getters: Vec<(Span, u32)>,
+    /// The target whose write is suppressed, by the span of its identifier: its right-hand side
+    /// certainly raises, so the write happens on no path and neither its `Write` nor its `Given`
+    /// is recorded.
+    ///
+    /// A SPAN rather than a counter. A counter raised over the target's walk suppressed every
+    /// nested write inside it too — and a computed target has a reference to evaluate, so
+    /// `({})[(current = other)] = …` writes `current` on the way to the place it assigns.
+    never_written: Vec<Span>,
+
+    /// How many enclosing constructs could have skipped the part being walked. A value assigned
+    /// down such a path is not certainly the one a later read sees, however textually early it
+    /// is: `var current; if (flag) current = e; parse(current)` hands `parse` the element only
+    /// when `flag` held.
+    ///
+    /// Per PART of a construct, not per construct: an `if` test, a loop header and a `switch`
+    /// discriminant all run whatever happens, and calling those skippable would relax reads the
+    /// parser always performs. A test no value can change is not a branch at all, and the side it
+    /// selects runs always — the same `statically_selected` the requiredness walk reads, so the
+    /// two cannot disagree about one `if`.
+    ///
+    /// What remains deliberately conservative is a loop body whose first pass is guaranteed: a
+    /// `do`/`while`, a `for (;;)` or a `while (!0)` really does run the top of its body, but WHICH
+    /// part of the body that covers is the whole `walk_guaranteed_pass` question, and answering it
+    /// wrong here would call an uncertain value certain. Being wrong the other way only leaves a
+    /// field optional.
+    skippable: u32,
+    /// How many enclosing `try` BLOCKS have a handler. A throw inside one of those does not end
+    /// anything, so nothing under it is a dead path however it leaves.
+    caught: u32,
+    /// Per enclosing `catch` being walked: whether its block fails on every path, so the handler
+    /// is not a branch at all. See [`ParserAnalyzer::visit_try_statement`].
+    handler_is_certain: Vec<bool>,
     /// Whether the binding being collected reaches past its block: a parameter, a `var`,
     /// or a function declaration. `let`, `const`, a class and a `catch` parameter stop at
     /// the block — the same split `BoundNames` keeps, which this collector was missing.
     hoists: bool,
+    /// Names ASSIGNED somewhere in the source: the function extent the write sits in, the
+    /// name, the write's OWN span, and the innermost loop enclosing it if any. Being bound
+    /// and still meaning what you were bound to are different questions, and only the first
+    /// one was collected.
+    writes: Vec<Write>,
+    /// Every value a name is GIVEN — a declarator's initializer or an assignment — with the
+    /// function extent it happens in, and the name it was copied from when the value was a
+    /// bare identifier. `None` is any other right-hand side.
+    ///
+    /// Copies and overwrites have to be counted together, because `current = row` is both:
+    /// it makes `current` an alias, and it is a write to `current`. Tracking the two
+    /// separately had the aliasing assignment invalidate the alias it had just created.
+    ///
+    /// The extent matters and I claimed otherwise. A nested `function f() { var current =
+    /// row; }` records into the same collection as the enclosing body, so an outer
+    /// `parse(current)` followed it as though it had been handed `row` and filed the helper's
+    /// fields under the wrong node. My attempt to disprove that used two sibling MAPPED
+    /// callbacks, which are analysed over their own sources and never share a collection — a
+    /// nested plain function does.
+    given: Vec<Given>,
+    /// Class expressions being constructed in place, by span. `new (class { constructor(){ … }
+    /// })()` runs that constructor and every instance field initializer synchronously, which is
+    /// the same decidable-from-syntax case an IIFE is — and the fallback treated both as a
+    /// method body nobody calls, so a write there stayed confined and the helper's fields were
+    /// published on the node the constructor had moved away from.
+    constructing: Vec<Span>,
+    /// Parameter defaults an immediate invocation's own arguments prevent from running.
+    ///
+    /// `(function(x = (current = other)){})(1)` never evaluates that initializer, because a
+    /// default runs only for a missing or `undefined` argument. Walking the callee wholesale
+    /// recorded the write anyway, so the node looked moved and the helper's fields were
+    /// dropped from a shape the parser does read them in.
+    suppressed_defaults: Vec<Span>,
 }
 
 impl AllBindings {
+    /// Record that `name` was given a value, scoped to the extent the value can be read
+    /// through. A top-level one covers the whole analysed source, the same split
+    /// `names`/`scoped` keeps.
+    ///
+    /// `lexical` is for a `let`/`const` DECLARATOR, whose value dies with its block: after
+    /// `{ let current = row; }` the name `current` at the call site is a different binding
+    /// entirely, and giving the copy the whole function extent had `names_for` follow the
+    /// expired one and file the helper's reads under `<row>`. `bind` already kept this split
+    /// and this collector did not. An ASSIGNMENT is not this — `current = row` inside a block
+    /// writes through whatever binding is in scope, which reaches as far as that binding
+    /// does, so the function extent stays the conservative answer for it.
+    fn given_value(&mut self, name: &str, from: Option<&str>, at: Span, lexical: bool) {
+        // The write happens on no path, so neither record of it exists. Read here rather than at
+        // each caller: the `Write` was already gated on this flag and the `Given` on its own
+        // local test, and two conditions for one fact is how the two halves of an assignment
+        // came to disagree before. The mutation that raised the flag over the right-hand side's
+        // own walk is what showed they still could.
+        if self.never_written.contains(&at) {
+            return;
+        }
+        let extent = if lexical {
+            self.blocks
+                .last()
+                .copied()
+                .or_else(|| self.fns.last().copied())
+                .unwrap_or_else(|| Span::new(0, u32::MAX))
+        } else {
+            // An assignment reaches as far as the binding it targets, which is not the whole
+            // function when something nearer shadows the name — `{ let current; current = row; }
+            // parse(current)` copies into the block-local one, and treating it as function-wide
+            // made `current` an alias of `row` at a call the block does not reach.
+            self.binding_extent(name, at)
+                .unwrap_or_else(|| Span::new(0, u32::MAX))
+        };
+        self.given.push(Given {
+            scope: extent,
+            conditional: self.skippable > 0,
+            name: name.to_string(),
+            from: from.map(|s| s.to_string()),
+            at,
+            effective: self.effect_position(at.end),
+            runs_before: self.runs_before.last().cloned().unwrap_or_default(),
+            runs_after: self.runs_after.last().cloned().unwrap_or_default(),
+            lands_at: self.lands_at(at),
+            repeats_in: self.innermost_repeating(),
+        });
+    }
+
+    /// Where a record written at `at` lands for observers outside the body it sits in.
+    ///
+    /// One region per invoked body rather than one span for the whole callee, because a class
+    /// under `new` has several and they are not contiguous: its constructor and its instance
+    /// initializers run at the construction, while its computed keys and STATIC initializers ran
+    /// when the class was defined — before the arguments, not after them. Handing the whole
+    /// class span to this ordered a static write after an argument it in fact precedes, so
+    /// `new (class { static x = (current = other); })(parse(current))` read the argument against
+    /// a node the class definition had already replaced.
+    ///
+    /// A record outside every region answers `None` and is ordered by position, which is the
+    /// right answer for the definition phase: the class is written above the arguments.
+    ///
+    /// The regions decide only whether this record lands at the call. What comes back is the
+    /// whole invoked BODY, because that is the question the ordering asks of a reader — a field
+    /// initializer and the constructor that follows it are two regions and one body, and
+    /// handing back the initializer alone made a read in the constructor an outside observer of
+    /// a write it certainly sees.
+    fn lands_at(&self, at: Span) -> Option<(Span, u32)> {
+        let (regions, body, call_end) = self.effects_land_at.first()?;
+        regions
+            .iter()
+            .any(|r| covers(*r, at))
+            .then_some((*body, *call_end))
+    }
+
+    /// The extent of the binding `name` refers to at `at`: the tightest recorded scope for
+    /// that name containing it, falling back to the enclosing function.
+    ///
+    /// A write and an assigned value both reach exactly as far as the binding they target, and
+    /// recording them against the whole function ignored shadowing — in `{ let row; row = other;
+    /// } parse(row)` the assignment touches only the block-local `row`, while the argument is
+    /// the untouched callback parameter. Blamed on the parameter, the descent was discarded and
+    /// a `reassignedNodeHandedOn` recorded for a node nothing had moved.
+    ///
+    /// A declaration's own `bind` runs before the walk reaches its initializer or any later
+    /// assignment, so the entry is there to be found.
+    fn binding_extent(&self, name: &str, at: Span) -> Option<Span> {
+        if let Some(e) = self
+            .scoped
+            .iter()
+            .filter(|(e, n)| n == name && covers(*e, at))
+            .map(|(e, _)| *e)
+            .min_by_key(|e| e.end - e.start)
+        {
+            return Some(e);
+        }
+        // A name bound at the TOP of the analysed source lives in `names`, not `scoped`, and it
+        // reaches all of it — including out of a nested function that assigns to it. Falling
+        // back to the innermost function gave `var current = e; (function(){ current =
+        // e.child("detail"); })(); parse(current)` the IIFE's extent, so the write and the value
+        // looked expired at the call and `names_for` followed the stale `current = e` alias to
+        // the response root.
+        if self.names.contains(name) {
+            // It reaches all of the source — but only if it RUNS before the read. Inside an
+            // immediately invoked function it does. Inside a function that may never be called
+            // it may not, and `var current = e; function mutate(){ current = other; }
+            // parse(current)` then refused a still-valid alias and lost the helper's fields
+            // silently. Deciding that in general is call-graph work this scanner does not do; an
+            // IIFE is the case syntax decides, so it is the only one that escapes. Narrowed from
+            // "always escapes", which is what I shipped one commit earlier.
+            // EVERY function on the chain, not just the innermost: an IIFE inside a function
+            // nobody calls has not run either. `function unused(){ (function(){ current = other;
+            // })(); } parse(current)` had the inner write escape to all of the source, so the
+            // still-valid alias was refused and the helper's fields were lost silently — the same
+            // rule the narrowing was written for, applied to one level of nesting instead of all
+            // of them.
+            let certainly_runs = self.fns.iter().all(|g| self.runs_before(*g, at));
+            return match self.fns.last() {
+                Some(f) if !certainly_runs => Some(*f),
+                _ => None,
+            };
+        }
+        self.fns.last().copied()
+    }
+
+    /// Whether `f` is immediately invoked AND the part of it that runs synchronously with the
+    /// call reaches `at`. Everything after an `await` is the continuation's, which no later
+    /// statement of the caller waits for.
+    fn runs_before(&self, f: Span, at: Span) -> bool {
+        self.iife
+            .iter()
+            .any(|(g, regions)| *g == f && regions.iter().any(|r| covers(*r, at)))
+    }
+
+    /// Where a record made here has taken effect by. An assignment's own end, so its
+    /// right-hand side is ordered before it — and `u32::MAX` on a path that cannot produce a
+    /// result, which no call site can be after.
+    fn effect_position(&self, default_end: u32) -> u32 {
+        // Unreachable first, because a handler cannot rescue it.
+        if self.unreachable > 0 {
+            return u32::MAX;
+        }
+        if self.dead > 0 && self.caught == 0 {
+            return u32::MAX;
+        }
+        self.assign_end.unwrap_or(default_end)
+    }
+
+    /// The target and body of a `for-of`/`for-in`, walked as what they are: everything that
+    /// FOLLOWS the one evaluation of the iterable.
+    ///
+    /// `for (current of (parse(current), []))` hands `parse` the node, because JavaScript
+    /// evaluates the iterable before it ever assigns the target. Two things had said
+    /// otherwise. The target's write is written above the iterable, so position alone called
+    /// it effective there; and the write repeats with the loop, whose span covers the
+    /// iterable textually, so even ordering it after would have been overruled by the
+    /// next-pass rule. The iterable is evaluated ONCE and no pass returns to it, which is a
+    /// region every write in here follows — the same mirror the class keys use, and the only
+    /// spelling that answers both halves at once.
+    fn after_the_iterable(&mut self, iterable: Span, f: impl FnOnce(&mut Self)) {
+        let mut after = self.runs_after.last().cloned().unwrap_or_default();
+        after.push(iterable);
+        self.runs_after.push(after);
+        f(self);
+        self.runs_after.pop();
+    }
+
+    /// The innermost enclosing loop that can actually come round again — a write inside one
+    /// that cannot is carried by whichever loop outside it can.
+    fn innermost_repeating(&self) -> Option<Span> {
+        self.loops
+            .iter()
+            .rev()
+            .find(|(_, repeats)| *repeats)
+            .map(|(span, _)| *span)
+    }
+
+    /// Walk an invocation whose callee is a function written in place, returning whether it
+    /// did. Everything that body writes lands at the invocation, everything an argument writes
+    /// precedes the body, and what a comma callee evaluates on the way precedes both.
+    /// Walk an argument list left to right, stopping the EVALUATION after the first argument
+    /// that certainly raises: nothing written past it runs, so its writes are recorded nowhere
+    /// and the scopes it opens still are.
+    ///
+    /// The raising argument's own writes DO happen — it performs them before it leaves — so it
+    /// is walked normally and only what follows is unreachable. A tagged template's
+    /// substitutions continue the same list after the strings object the tag is handed first; a
+    /// quasi is text and evaluates nothing, so walking the expressions is the whole of what
+    /// `visit_template_literal` would have done.
+    ///
+    /// One rule, and one place for it. It was written inline for the throwing branch and the
+    /// getter branch had its own flat walk beside it, which is the split this file keeps paying
+    /// for — a getter's arguments stop at a throw exactly as any others do.
+    fn walk_arguments_to_the_throw<'a>(
+        &mut self,
+        arguments: &[oxc_ast::ast::Argument<'a>],
+        template: Option<&oxc_ast::ast::TemplateLiteral<'a>>,
+    ) {
+        let mut raised = false;
+        for arg in arguments {
+            if raised {
+                self.unreachable += 1;
+                self.visit_argument(arg);
+                self.unreachable -= 1;
+                continue;
+            }
+            self.visit_argument(arg);
+            raised = argument_raises(arg);
+        }
+        if let Some(q) = template {
+            for sub in &q.expressions {
+                if raised {
+                    self.unreachable += 1;
+                    self.visit_expression(sub);
+                    self.unreachable -= 1;
+                    continue;
+                }
+                self.visit_expression(sub);
+                raised = expression_throws(sub);
+            }
+        }
+    }
+
+    /// Walk a destructuring target in binding order, suppressing what a failing step never
+    /// reaches. The argument rule above, on the other list that is taken element by element.
+    ///
+    /// Taking the value apart is itself a step and it comes before every target: an array
+    /// pattern iterates and an object pattern coerces, so `[a] = null` and `({a} = null)` raise
+    /// with nothing bound at all. Past that, an array literal on the right supplies the
+    /// positions one by one, and a target whose own binding raises ends the list —
+    /// `[{}, current] = [null, other]` converts `null` for the empty object pattern and leaves
+    /// before `current` is assigned. Walking every target regardless recorded that write, which
+    /// invalidated the alias `current` held and dropped the helper fields read through it: the
+    /// parser demands them and the generated one no longer would.
+    ///
+    /// The failing target is walked normally — the reference side of `a[k()] = …` is evaluated
+    /// before the value is fetched, so what it reads it reads — and only what follows is
+    /// unreachable.
+    fn walk_target_to_the_throw<'a>(
+        &mut self,
+        target: &oxc_ast::ast::AssignmentTarget<'a>,
+        value: &Expression<'a>,
+    ) {
+        let value = peel(value);
+        let opens = match target {
+            oxc_ast::ast::AssignmentTarget::ArrayAssignmentTarget(_) => {
+                !certainly_not_iterable(value)
+            }
+            oxc_ast::ast::AssignmentTarget::ObjectAssignmentTarget(_) => !certainly_nullish(value),
+            _ => true,
+        };
+        if !opens {
+            self.unreachable += 1;
+            self.visit_assignment_target(target);
+            self.unreachable -= 1;
+            return;
+        }
+        // Positional pairing, which only an array pattern over an array LITERAL can supply. Every
+        // other shape is walked whole, exactly as before.
+        let (
+            oxc_ast::ast::AssignmentTarget::ArrayAssignmentTarget(pat),
+            Expression::ArrayExpression(values),
+        ) = (target, value)
+        else {
+            self.visit_assignment_target(target);
+            return;
+        };
+        let mut raised = false;
+        for (i, el) in pat.elements.iter().enumerate() {
+            let Some(el) = el else {
+                // An elision names no target, so there is nothing to walk — but it still
+                // consumes its position, which the index already accounts for.
+                continue;
+            };
+            if raised {
+                self.unreachable += 1;
+                self.visit_assignment_target_maybe_default(el);
+                self.unreachable -= 1;
+                continue;
+            }
+            self.visit_assignment_target_maybe_default(el);
+            raised = binding_step_raises(el, supplied_at(values, i));
+        }
+        if let Some(rest) = &pat.rest {
+            self.unreachable += u32::from(raised);
+            self.visit_assignment_target_rest(rest);
+            self.unreachable -= u32::from(raised);
+        }
+    }
+
+    fn walk_invocation<'a>(
+        &mut self,
+        callee_expr: &Expression<'a>,
+        arguments: &[oxc_ast::ast::Argument<'a>],
+        template: Option<&oxc_ast::ast::TemplateLiteral<'a>>,
+        span: Span,
+        constructs: bool,
+    ) -> bool {
+        // An immediately invoked function has certainly run by the time anything after it reads
+        // what it wrote — the one case where "does this nested function execute" is decidable
+        // from the syntax alone.
+        let callee = invoked_callee(callee_expr);
+        // `f.apply(thisArg, 1)` throws a `TypeError` before `f` is entered: the argument list
+        // has to be `null`, `undefined` or an object, and a non-null primitive is none of them.
+        // Unwrapping `.apply` unconditionally marked the body immediate for a call that runs it
+        // on no path at all.
+        if apply_list_throws(callee_expr, arguments) {
+            return false;
+        }
+        // `({ get m(){ … } }).m()` invokes that GETTER to obtain the callee, so its body runs
+        // here — before the arguments, and before whatever it returned is called. The callee
+        // unwrapper stops at a getter and is right to: what the getter hands back is unreadable,
+        // so the invoked function stays unknown. Its body is not unknown, and leaving it to the
+        // ordinary walk confined the write to a function nobody was known to call.
+        //
+        // Answered before every question below about whether the callee is callable or
+        // constructible: the getter has already run by the time any of those throw, so `new ({
+        // get m(){ … } }).m()` performs it too. Only the arguments and the getter are walked —
+        // the result is never entered, which is the whole reason this shape needs its own branch.
+        if let Some((name, object)) = named_member(peel(callee_expr))
+            && let Some(f) = match peel(object) {
+                Expression::ObjectExpression(o) => match owned_property(o, name.as_ref()) {
+                    Some(op) if op.kind == oxc_ast::ast::PropertyKind::Get => match &op.value {
+                        Expression::FunctionExpression(f) => Some(&**f),
+                        _ => None,
+                    },
+                    _ => None,
+                },
+                // …and a class's STATIC getter is the same shape on the class object. The
+                // method lookup declines it, correctly — what it returns is unreadable — and
+                // declining alone left the body deferred, which is the very defect that was
+                // reported for the object literal.
+                Expression::ClassExpression(c) => static_getter(c, name.as_ref()),
+                // …and an instance getter of a class constructed here, which runs on the read
+                // exactly as the class object's does.
+                _ => instance_member(
+                    object,
+                    name.as_ref(),
+                    oxc_ast::ast::MethodDefinitionKind::Get,
+                ),
+            }
+        {
+            let restore = self.binding_getters.len();
+            self.binding_getters.push((f.span, span.end));
+            self.visit_expression(callee_expr);
+            self.binding_getters.truncate(restore);
+            // …and a getter that leaves by THROWING never lets the arguments begin: obtaining
+            // the callee is the first thing the call does, so `({ get m(){ throw 0; } })
+            // .m(current = other)` performs no assignment at all. The arguments are still walked
+            // — as unreachable, so the scopes they open stay recorded and their writes do not —
+            // which is the same shape `walk_arguments_to_the_throw` gives what follows a
+            // raising argument, one phase earlier.
+            let raises = f.body.as_ref().is_some_and(|b| throws_out(&b.statements));
+            if raises {
+                self.unreachable += 1;
+            }
+            self.walk_arguments_to_the_throw(arguments, template);
+            if raises {
+                self.unreachable -= 1;
+            }
+            return true;
+        }
+        // `new (f).call(null)` constructs `Function.prototype.call`, which has no [[Construct]]
+        // — a `TypeError` before `f` is ever reached. The callee unwrapper looks through
+        // `.call`/`.apply` because an ordinary call there really does run the receiver's body;
+        // under `new` the member itself is the target, so unwrapping it approved a body that
+        // runs on no path. `.bind` is the other answer and keeps its unwrap: `new (f.bind(x))()`
+        // constructs the bound function, which is constructible exactly when `f` is.
+        if constructs
+            && named_member(peel(callee_expr))
+                .is_some_and(|(name, _)| matches!(name.as_ref(), "call" | "apply"))
+        {
+            return false;
+        }
+        // A concise METHOD has no `[[Construct]]`, so `new ({ m(){ … } }).m()` throws before the
+        // body is entered. The unwrapper hands back the method's function expression, which
+        // reads as constructible and approved a body that runs on no path — the provenance is
+        // lost by the time `is_constructible` sees it, so the question is asked here instead.
+        // `{ m: function(){ … } }` is an ordinary function value and really is constructible.
+        if constructs && callee_is_a_concise_method(callee_expr) {
+            return false;
+        }
+        // `new` needs a CONSTRUCTOR. An arrow, an async function and a generator are none of
+        // them, so `new (() => { … })()` throws a TypeError with the body never entered — and
+        // recording its writes published a helper's reads under a node nothing had moved. The
+        // arguments are evaluated before the throw and still run, which declining here leaves
+        // to the ordinary walk.
+        if constructs && !is_constructible(callee) {
+            return false;
+        }
+
+        // `(class { static m(){ … } }).m()` selects that method and runs it here exactly as an
+        // object literal's does — a static method is a property of the class OBJECT, so the call
+        // reaches it without constructing anything. The callee unwrapper cannot hand it back (it
+        // returns an `Expression` and a method's value is a `Function`), so it is resolved here
+        // instead. A getter is a different question, answered by the leading-effects reader.
+        //
+        // Resolved, and then routed through everything below rather than walked on the spot.
+        // Round fifty-nine gave this shape its own miniature walk, and the walk skipped the
+        // parameter mapping with it: a supplied argument no longer prevented a default, and a
+        // binding certain to throw no longer stopped the body, nor did an argument that raises.
+        // One shape recognized in two places is the split this branch keeps paying for — so the
+        // second place is a resolution now and there is only one walk.
+        // No `!constructs` test beside it. `new (class { static m(){ … } }).m()` never reaches
+        // here: the callee is the member expression, which `is_constructible` refuses, and the
+        // decline above returns first. The gate was inert — the mutation removing it changed
+        // nothing — so it is gone rather than kept as a claim nothing checks.
+        let static_called =
+            named_member(peel(callee_expr)).and_then(|(name, object)| match peel(object) {
+                Expression::ClassExpression(c) => static_method(c, name.as_ref()),
+                // …and the same question of an INSTANCE built right here. `(new (class { m(){ …
+                // } })).m()` runs that body as immediately as a static method's, and the
+                // `NewExpression` fell through to the deferred walk with its write confined.
+                _ => instance_member(
+                    object,
+                    name.as_ref(),
+                    oxc_ast::ast::MethodDefinitionKind::Method,
+                ),
+            });
+        // What this invocation binds, from whichever of the two the callee turned out to be.
+        // Every check below reads this one list, or the call is judged against parameters it
+        // does not have.
+        let params = match static_called {
+            Some(f) => Some(&*f.params),
+            None => callee_params(callee, constructs),
+        };
+        // The regions whose writes land at the call, and the invoked body they land from.
+        let (regions, body_span) = match static_called {
+            Some(f) => (vec![f.span], f.span),
+            None => (construction_regions(callee, constructs), callee.span()),
+        };
+        let runs_now = if let Some(f) = static_called {
+            self.iife.push((f.span, invoked_regions(f)));
+            true
+        } else {
+            match callee {
+                // A generator call runs none of the BODY — it builds an iterator, and whether
+                // anything ever draws from it is the call-graph question this scanner does not
+                // answer. Its PARAMETERS are another matter: binding them is part of the call,
+                // so a default runs before the iterator is handed back and the caller does see
+                // it. Declining the whole callee confined that write with the body's.
+                //
+                // Exactly the same shape as `async`, which runs synchronously as far as its
+                // first `await` — a synchronous region that is a prefix of the callee rather
+                // than all of it, which is what this list is for.
+                Expression::FunctionExpression(f) if f.generator => {
+                    self.iife.push((f.span, vec![f.params.span]));
+                    true
+                }
+                Expression::FunctionExpression(f) => {
+                    self.iife.push((
+                        f.span,
+                        synchronous_until(f.r#async, f.span, f.body.as_deref()),
+                    ));
+                    true
+                }
+                Expression::ArrowFunctionExpression(f) => {
+                    self.iife
+                        .push((f.span, synchronous_until(f.r#async, f.span, Some(&f.body))));
+                    true
+                }
+                // `new (class { constructor(){ … } })()` runs user code now, exactly as an
+                // IIFE does. Only under `new`: calling a class throws, so the body runs on no
+                // path.
+                Expression::ClassExpression(c) if constructs => {
+                    self.constructing.push(c.span);
+                    true
+                }
+                _ => false,
+            }
+        };
+        if !runs_now {
+            return false;
+        }
+        // Every argument is evaluated before the body is entered, so what the body writes takes
+        // effect at the CALL. Ordering it by its position inside the callee had
+        // `(function(){ current = other; })(parse(current))` record the write before the
+        // argument that reads the node, and the descent was refused for a node still standing.
+        //
+        // Around the callee only: an argument that writes runs where it is written, and pinning
+        // that to the call would order it after a body it precedes.
+        let (effective, implicit_leading, mapped_complete) = match template {
+            Some(q) => (
+                q.expressions.iter().map(Some).collect::<Vec<_>>(),
+                // The strings object, and only it: the substitutions follow it one for one.
+                1,
+                // A template's list is the strings object and the substitutions, all of them
+                // written out: nothing can shift a position.
+                true,
+            ),
+            None => {
+                let (list, complete) = effective_arguments(callee_expr, arguments);
+                (list, 0, complete)
+            }
+        };
+        // Destructuring `null` or `undefined` throws while the parameters are bound, before the
+        // body is entered — `(function ({x}) { … })(null)` runs none of it. The invocation was
+        // approved on the callee alone, so the body's writes were recorded for a call that
+        // performs them on no path. Declining here leaves the ARGUMENTS to the ordinary walk,
+        // which is right: they are evaluated before the binding and their own writes happen.
+        //
+        // Asked of the EFFECTIVE list, so a tagged template's strings object counts as the
+        // value it supplies at position 0 — my first draft asked it of the written arguments
+        // alone and read every tagged template as a binding failure.
+        // From the EFFECTIVE list, not the written one. `.apply(null, [1, ...xs])` is a
+        // two-argument call with no spread in it, so asking the outer arguments said "complete"
+        // while the list the callee really receives stops at the spread inside the array — and
+        // every parameter past it was read as absent, which made a binding that succeeds look
+        // certain to throw and marked a running body unreachable.
+        let complete = mapped_complete;
+        // `undefined` is an ordinary identifier and a source may bind it, so its spelling alone
+        // does not settle that a position is missing. Where it is bound, the shortcut that
+        // substitutes a parameter's default for it is unsound in BOTH directions — with
+        // `(function (undefined) { (function ({x} = null) { … })(undefined) })({})` it declined
+        // an invocation whose body really runs. `void 0` is an operator and cannot be rebound.
+        let undefined_is_the_global = !self.binds_here("undefined", span);
+        // An ARGUMENT that certainly raises stops the call before the callee is entered:
+        // `(function(){ … })((function(){ throw 0; })())` runs none of the outer body. The
+        // invocation was approved on the callee and the binding alone, so the body's writes
+        // were recorded for a call that performs them on no path. The arguments up to and
+        // including the throwing one still run, and the walk below records them.
+        // A tagged template's SUBSTITUTIONS are arguments in every sense that matters here:
+        // each is evaluated before the tag is called, so one that certainly raises stops the
+        // call exactly as an ordinary argument does. Round sixty read this list alone and left
+        // the template out, so ``(function(){ current = other; })`${(function(){throw 0})()}` ``
+        // recorded a write for a tag that is never invoked. I named that gap when I drew the
+        // rule and shipped without it; it came back as the next round's finding, which is the
+        // argument against leaving a half-stated rule for later.
+        //
+        // …and neither the arguments nor the substitutions are the whole prelude. Everything the
+        // CALLEE evaluates on the way to the function runs before them — `((function(){ throw 0
+        // })(), function(){ … })()` never reaches the body — and so does every parameter default
+        // the call does not prevent, which is evaluated while the binding happens and before the
+        // first statement. Reading only the written argument list approved a body entered on no
+        // path in both shapes: one rule about what precedes the body, stated for one of the
+        // three things that do.
+        let suppressed = suppressed_defaults(params, &effective, template);
+        let mut leading_before_the_call = Vec::new();
+        leading_parts(callee_expr, &mut leading_before_the_call);
+        let leading_raises = leading_before_the_call
+            .iter()
+            .any(|part| expression_throws(part));
+        let defaults_raise = params.is_some_and(|p| {
+            p.items.iter().any(|param| {
+                default_raises(&param.pattern, param.initializer.as_deref(), &suppressed)
+            })
+        });
+        let prelude_raises = leading_raises || defaults_raise;
+        //
+        // Read from `argument_raises`, the one predicate that also knows a spread of something
+        // non-iterable raises while the list is BUILT. Asking `argument_expression` here looked
+        // through the spread to what it evaluates — right for `...f()`, which really calls `f`,
+        // and blind to `...null`, which never reaches the callee at all.
+        let an_argument_raises = prelude_raises
+            || arguments.iter().any(argument_raises)
+            || template.is_some_and(|q| q.expressions.iter().any(expression_throws));
+        if an_argument_raises
+            || binding_certainly_throws(
+                params,
+                &effective,
+                implicit_leading,
+                complete,
+                undefined_is_the_global,
+            )
+        {
+            // The arguments are evaluated BEFORE the binding — and before an argument that
+            // raises — so their own writes happen and are walked here. The body is entered on
+            // no path, so it is walked as unreachable
+            // — declining the invocation and leaving it to the ordinary walk was not enough:
+            // a deferred body's writes are still recorded, and one of them counted as a live
+            // value for the name, which refused the alias just as surely.
+            //
+            // Up to and INCLUDING the one that raises, and no further: arguments are evaluated
+            // left to right, so nothing written past a throw is evaluated at all. Recording the
+            // whole list gave the name a second live value that never exists, and the alias was
+            // refused as ambiguous — the same loss this branch was written to prevent, one
+            // position further along. The raising argument's own writes DO happen, before it
+            // leaves, so it is walked rather than skipped; what follows it is walked as
+            // unreachable, so the scopes it opens stay recorded and its writes do not.
+            // …and when the PRELUDE is what raises, the callee is not uniformly unreachable:
+            // everything it evaluates before the throw really happens. `((current = other,
+            // (throws)()), function(){})()` performs that assignment and then leaves, and
+            // marking the whole callee expression unreachable discarded it — the same
+            // left-to-right prefix the argument list gets, on the phase that precedes it.
+            //
+            // The arguments are the other half: once a callee-leading expression has thrown,
+            // they are never reached at all, so they are walked as unreachable rather than
+            // walked to their own first throw.
+            // On a LEADING failure only. `prelude_raises` also covers a parameter default that
+            // throws, and that happens while the call binds — after every argument has already
+            // been evaluated. Marking them unreachable for it discarded writes that really
+            // happen: `(function(x, y = (throws)()){})(current = other)` assigns `other` and
+            // then leaves. The two failures share the decision to skip the BODY and nothing
+            // else, which is what merging them into one flag hid.
+            if leading_raises {
+                let mut leading = Vec::new();
+                leading_parts(callee_expr, &mut leading);
+                let mut raised = false;
+                for part in leading {
+                    if raised {
+                        self.unreachable += 1;
+                        self.visit_expression(part);
+                        self.unreachable -= 1;
+                        continue;
+                    }
+                    self.visit_expression(part);
+                    raised = expression_throws(part);
+                }
+                self.unreachable += 1;
+                for arg in arguments {
+                    self.visit_argument(arg);
+                }
+                if let Some(q) = template {
+                    self.visit_template_literal(q);
+                }
+                self.visit_expression(callee);
+                self.unreachable -= 1;
+                return true;
+            }
+            self.walk_arguments_to_the_throw(arguments, template);
+            // Binding happens in ORDER, and stops at the default that raises — the ones before
+            // it have already run. `(function(x = (current = other), y = (throws)()){})()`
+            // performs that assignment and then leaves, and walking the whole callee as
+            // unreachable discarded it. The same left-to-right prefix the argument list and the
+            // callee's leading parts each get, on the third phase that has one.
+            //
+            // The parameters are walked here and the callee is then walked with them SUPPRESSED,
+            // so nothing is recorded twice: `binding_getters` is not the mechanism for that, a
+            // span is. Only where a default really raises — every other call reaches this line
+            // with nothing to order and is emitted exactly as before.
+            if let Some(p) = params.filter(|_| defaults_raise) {
+                let mut raised = false;
+                for param in &p.items {
+                    self.unreachable += u32::from(raised);
+                    self.visit_formal_parameter(param);
+                    self.unreachable -= u32::from(raised);
+                    raised = raised
+                        || default_raises(
+                            &param.pattern,
+                            param.initializer.as_deref(),
+                            &suppressed,
+                        );
+                }
+                self.walked_params.push(p.span);
+            }
+            self.unreachable += 1;
+            self.visit_expression(callee_expr);
+            self.unreachable -= 1;
+            if defaults_raise && params.is_some() {
+                self.walked_params.pop();
+            }
+            return true;
+        }
+        self.effects_land_at
+            .push((regions.clone(), body_span, span.end));
+        // A tagged template hands its tag the strings object and then the substitutions, so the
+        // mapping is the substitutions shifted one place — and position 0 is supplied by a value
+        // that is certainly not `undefined`, whatever the template says. Handing this an empty
+        // list, which is what the round that taught it tagged templates did, read parameter 0 as
+        // unsupplied and recorded a default the call always prevents. Computed above, because
+        // the binding check reads it too.
+        // Registered before the callee is walked, not only around the arguments: a getter the
+        // binding invokes may live in the PARAMETER's own default object, which is inside the
+        // callee. It is matched by span in `visit_function`, so widening the window reaches
+        // nothing else.
+        let restore_getters = self.binding_getters.len();
+        self.binding_getters.extend(
+            bound_getters(params, &effective, implicit_leading)
+                .into_iter()
+                .map(|g| (g, span.end)),
+        );
+        let restore = self.suppressed_defaults.len();
+        self.suppressed_defaults.extend(suppressed);
+        self.visit_expression(callee);
+        self.suppressed_defaults.truncate(restore);
+        self.effects_land_at.pop();
+        // Whatever a callee evaluates on the way to that function runs before the arguments and
+        // before the body — so it declares that it PRECEDES the body, exactly as the arguments
+        // below do. Position alone answered this only while the shape was a comma expression,
+        // whose leading elements are written above the function; a `bind` call's arguments are
+        // written BELOW it, so `(function(){ parse(current); }).bind(null, current = other)()`
+        // read the body against a write that had already run. Half a swap again: the round that
+        // taught this reader the shape did not give it the ordering the shape needs.
+        let mut leading = Vec::new();
+        leading_parts(callee_expr, &mut leading);
+        if !leading.is_empty() {
+            self.runs_before.push(regions.clone());
+            for part in leading {
+                self.visit_expression(part);
+            }
+            self.runs_before.pop();
+        }
+        // And the arguments run before that body, whatever their position relative to it:
+        // `(function(){ parse(current); })(current = e)` reads what the argument assigned.
+        // Only the callee's own span, so a read in another argument still orders normally
+        // against this write — the arguments run in their own order.
+        // A getter the parameter binding invokes runs as certainly as the body does — but AFTER
+        // every argument has been evaluated, not where it is written. `(function ({x}, y) {})({
+        // get x() { current = other; } }, parse(current))` hands `parse` the original node and
+        // calls the getter afterwards; marking it immediate for the whole argument walk recorded
+        // its write at the getter's own offset, above a later argument that precedes it. So the
+        // registration is carried and applied around the getter's own body alone, where it also
+        // declares that its effects land at the CALL.
+        self.runs_before.push(regions);
+        for arg in arguments {
+            self.visit_argument(arg);
+        }
+        // A template's substitutions are arguments like any other: every one is evaluated before
+        // the tag is called. Visiting the quasi AFTER this region closed ordered them by their
+        // own position, which is below the tag — so `(function(){ parse(current); })`t${current =
+        // other}`` read the body against a write that had in fact already run.
+        if let Some(q) = template {
+            self.visit_template_literal(q);
+        }
+        self.runs_before.pop();
+        self.binding_getters.truncate(restore_getters);
+        true
+    }
+
+    /// Walk the statements of one list, marking everything after an unconditional exit as
+    /// unreachable. Nothing else models "the rest of this block does not run".
+    ///
+    /// `first_pass` adds the guaranteed-entry loop body's asymmetry: everything up to the first
+    /// statement that could jump past what follows runs whatever happens, and only what comes
+    /// after that could have been skipped. [`ParserAnalyzer::walk_guaranteed_pass`] is the
+    /// requiredness side of the same rule; this collector called the whole body skippable, so
+    /// `do { current = e; break; } while (0)` — the minifier's one-shot block — left `current`
+    /// uncertain and the helper it was handed came out optional.
+    fn walk_in_order<'a>(&mut self, body: &[Statement<'a>], first_pass: bool) {
+        let mut past_the_exit = false;
+        let mut past_a_jump = false;
+        for st in body {
+            if past_the_exit {
+                self.unreachable += 1;
+                self.visit_statement(st);
+                self.unreachable -= 1;
+            } else if past_a_jump {
+                self.maybe_skipped(|s| s.visit_statement(st));
+            } else {
+                self.visit_statement(st);
+            }
+            past_the_exit = past_the_exit || ends_the_statement_list(st);
+            // Only an exit that hands back a RESULT, the same cut the requiredness side makes:
+            // no execution that produced one continued past a `throw`, so what follows one is
+            // not a write some successful path skipped.
+            past_a_jump = past_a_jump || (first_pass && exits_with_a_value(st));
+        }
+    }
+
+    /// The parts of a class field the class evaluates when it is DEFINED: a computed key
+    /// always, an initializer only when it is `static`. An instance initializer runs per `new`,
+    /// of which there may be none.
+    fn visit_field_at_definition<'a>(
+        &mut self,
+        computed: bool,
+        is_static: bool,
+        key: &oxc_ast::ast::PropertyKey<'a>,
+        value: Option<&Expression<'a>>,
+        constructed: bool,
+        phases: ClassPhases<'_>,
+    ) {
+        let (keys, statics) = (phases.keys, phases.statics);
+        // The key first, and OUTSIDE the declaration below: keys run in their own source order
+        // among themselves, and only the initializers follow all of them. What a key writes
+        // does precede every one of those initializers, whichever way round they are written.
+        if computed {
+            let declared = !statics.is_empty();
+            if declared {
+                self.runs_before.push(statics.to_vec());
+            }
+            self.visit_property_key(key);
+            if declared {
+                self.runs_before.pop();
+            }
+        }
+        // A static initializer runs when the class is defined. An INSTANCE one runs per `new`,
+        // of which there may be none — unless this very class is being constructed in place,
+        // where there is exactly one and it happens now.
+        // A static element written past a static block that throws is never evaluated: class
+        // definition stops at the abrupt completion, so the class binding is never created and
+        // nothing below it in the second phase runs. Walking them all recorded a write that
+        // happens on no path, which publishes a helper's reads under a node nothing had moved.
+        // Its computed KEY still runs — every key is evaluated in the first phase, before any
+        // initializer or block — which is why this gates the value alone.
+        // …and the instance phase stops the same way, for the fields that belong to it. Its
+        // computed key still runs: keys are evaluated in the first phase, when the class is
+        // defined, long before any `new` reaches an initializer that throws.
+        let skipped = if is_static {
+            phases
+                .static_phase_ends
+                .is_some_and(|end| key.span().start >= end)
+        } else {
+            phases
+                .instance_phase_ends
+                .is_some_and(|end| key.span().start >= end)
+        };
+        if skipped {
+            self.unreachable += 1;
+        }
+        if (is_static || constructed)
+            && let Some(v) = value
+        {
+            let mut after = keys.to_vec();
+            // A STATIC initializer runs when the class is defined, long before any constructor;
+            // only an instance one waits for `super()`.
+            if !is_static && let Some(pre) = phases.pre_super {
+                after.push(pre);
+            }
+            let declared = !after.is_empty();
+            if declared {
+                self.runs_after.push(after);
+            }
+            self.visit_expression(v);
+            if declared {
+                self.runs_after.pop();
+            }
+        }
+        if skipped {
+            self.unreachable -= 1;
+        }
+    }
+
+    /// A loop body whose first pass is guaranteed, walked with that asymmetry — and with the
+    /// scope its braces open, which is why it cannot simply hand the list to `walk_in_order`.
+    fn walk_first_pass<'a>(&mut self, body: &Statement<'a>) {
+        let Statement::BlockStatement(b) = body else {
+            // Nothing precedes a single statement, so the guaranteed pass reaches it.
+            self.visit_statement(body);
+            return;
+        };
+        self.block_depth += 1;
+        self.blocks.push(b.span);
+        self.walk_in_order(&b.body, true);
+        self.blocks.pop();
+        self.block_depth -= 1;
+    }
+
+    /// Walk a part of a statement that control can reach past — the requiredness side's
+    /// `in_skipped_path`, on the binding side and for the same reason.
+    fn maybe_skipped(&mut self, f: impl FnOnce(&mut Self)) {
+        self.skippable += 1;
+        f(self);
+        self.skippable -= 1;
+    }
+
+    /// Whether `name` is bound by this source anywhere covering `at` — asked of `undefined`,
+    /// which is an ordinary identifier a source may rebind. Mirrors [`Bindings::shadows`]; the
+    /// collector answers it mid-walk because an enclosing binding is recorded when its scope is
+    /// entered, which is before anything inside it is walked.
+    fn binds_here(&self, name: &str, at: Span) -> bool {
+        self.names.contains(name)
+            || self
+                .scoped
+                .iter()
+                .any(|(e, n)| n == name && at.start >= e.start && at.end <= e.end)
+    }
+
     fn bind(&mut self, name: &str, hoists: bool) {
         let extent = if hoists {
             self.fns.last().copied()
@@ -2522,17 +7919,628 @@ impl<'a> Visit<'a> for AllBindings {
         self.bind(id.name.as_str(), self.hoists);
     }
 
+    /// The same for a default nested inside a destructuring pattern, which is a real
+    /// `AssignmentPattern` node — a formal parameter's own default is not, and reaching only
+    /// that one left `function ({x = …})` recording a write its call prevents.
+    fn visit_assignment_pattern(&mut self, pat: &oxc_ast::ast::AssignmentPattern<'a>) {
+        if !self.suppressed_defaults.contains(&pat.right.span()) {
+            walk::walk_assignment_pattern(self, pat);
+            return;
+        }
+        self.visit_binding_pattern(&pat.left);
+        self.unreachable += 1;
+        self.visit_expression(&pat.right);
+        self.unreachable -= 1;
+    }
+
+    /// A parameter default whose argument was supplied never runs, so the name it binds is
+    /// still bound and whatever the initializer would have written is not.
+    fn visit_formal_parameters(&mut self, params: &oxc_ast::ast::FormalParameters<'a>) {
+        // Already taken in binding order by the invocation that walks up to the default which
+        // raises. Walking them again from inside the callee would record every effect twice.
+        if self.walked_params.contains(&params.span) {
+            return;
+        }
+        walk::walk_formal_parameters(self, params);
+    }
+
+    fn visit_formal_parameter(&mut self, param: &oxc_ast::ast::FormalParameter<'a>) {
+        let Some(init) = param.initializer.as_ref() else {
+            walk::walk_formal_parameter(self, param);
+            return;
+        };
+        if !self.suppressed_defaults.contains(&init.span()) {
+            walk::walk_formal_parameter(self, param);
+            return;
+        }
+        self.visit_binding_pattern(&param.pattern);
+        self.unreachable += 1;
+        self.visit_expression(init);
+        self.unreachable -= 1;
+    }
+
+    fn visit_simple_assignment_target(
+        &mut self,
+        target: &oxc_ast::ast::SimpleAssignmentTarget<'a>,
+    ) {
+        // `row = row.child("detail")` and `row++` alike: after either, the name no longer
+        // stands for what it was bound to.
+        if let oxc_ast::ast::SimpleAssignmentTarget::AssignmentTargetIdentifier(id) = target {
+            let w = Write {
+                scope: self.binding_extent(id.name.as_str(), id.span),
+                name: id.name.as_str().to_string(),
+                at: id.span,
+                effective: self.effect_position(id.span.end),
+                runs_before: self.runs_before.last().cloned().unwrap_or_default(),
+                runs_after: self.runs_after.last().cloned().unwrap_or_default(),
+                lands_at: self.lands_at(id.span),
+                // A loop whose body throws does not come round again, so a dead write must not
+                // claim repetition either — that is the other half of `effective`.
+                repeats_in: (self.dead == 0 || self.caught > 0)
+                    .then(|| self.innermost_repeating())
+                    .flatten(),
+            };
+            if !self.never_written.contains(&id.span) {
+                self.writes.push(w);
+            }
+        }
+        walk::walk_simple_assignment_target(self, target);
+    }
+
+    fn visit_assignment_expression(&mut self, e: &oxc_ast::ast::AssignmentExpression<'a>) {
+        // The target is written only once the right-hand side has been evaluated, so BOTH
+        // records of this assignment — the value and the write — take effect at its end.
+        // `e = parse(e)` hands `parse` the original node; ordering either record from the
+        // target had it look already effective, and the descent was refused with a drop
+        // recorded for a node nothing had moved yet. Set before the value is recorded, not
+        // just around the walk that records the write: having it cover one and not the other
+        // is how the two halves of one assignment came to disagree.
+        // What that end was standing in for is "the write follows the right-hand side", and the
+        // end says it only because a simple target is written ABOVE its right-hand side. A
+        // DESTRUCTURING pattern is not: it assigns its targets one at a time, in pattern order,
+        // with each default evaluated after the target above it is written, so
+        // `[current, x = parse(current)] = [other]` hands `parse` the NEW `current` — and one
+        // shared end delayed every target past that default.
+        //
+        // So the rule is stated directly instead: each target is written where it stands, and
+        // the whole pattern declares that it FOLLOWS the right-hand side. That is what
+        // `runs_after` is for, and it is the same answer for a simple target — where position
+        // and the region agree, no input separates the two, and I first wrote it as a gated
+        // special case before finding that out. A condition no test can hold is one to remove.
+        let outer = self.assign_end.take();
+        // Added to whatever this already follows rather than replacing it: an assignment can sit
+        // inside a region that has already declared one — a derived class's field initializer,
+        // which follows everything up to its `super()` — and pushing a fresh list dropped that.
+        // Which is a defect my first draft had, and the mutation that reinstates it is what says
+        // so.
+        // A MEMBER target has a reference to evaluate, and that reference is not a target: the
+        // object and the computed key of `a[k] = v` run before `v` does, so a write inside one
+        // precedes the value rather than following it. Walked before the region below is pushed
+        // — `({})[(current = other)] = parse(current)` hands `parse` what the key assigned, and
+        // declaring the whole left side to follow the value put that write after the read.
+        //
+        // Only this shape. A destructuring pattern's targets really are written after the value,
+        // which is what the region is for, and a plain identifier has no reference at all.
+        let reference_first = matches!(
+            &e.left,
+            oxc_ast::ast::AssignmentTarget::ComputedMemberExpression(_)
+                | oxc_ast::ast::AssignmentTarget::StaticMemberExpression(_)
+                | oxc_ast::ast::AssignmentTarget::PrivateFieldExpression(_)
+        );
+        if reference_first {
+            self.visit_assignment_target(&e.left);
+        }
+        let mut after = self.runs_after.last().cloned().unwrap_or_default();
+        after.push(e.right.span());
+        self.runs_after.push(after);
+        // `current = row` makes an alias as much as `var current = row` does; recording only
+        // the declarator form left the plain one matching no argument position and losing the
+        // helper with nothing said. The accumulator search in this file already reads both,
+        // so taking only one here was a narrowing rather than a decision.
+        let never = assignment_never_completes(Some(&e.right));
+        if never {
+            self.never_written.push(e.left.span());
+        }
+        if let oxc_ast::ast::AssignmentTarget::AssignmentTargetIdentifier(t) = &e.left {
+            let from = match (&e.right, e.operator) {
+                (Expression::Identifier(src), oxc_syntax::operator::AssignmentOperator::Assign) => {
+                    Some(src.name.as_str())
+                }
+                // `+=` and friends compute from the old value, so the name is not a copy.
+                _ => None,
+            };
+            self.given_value(t.name.as_str(), from, t.span, false);
+        }
+        // A destructuring READ invokes the accessors it selects: `({x} = { get x(){ … } })`
+        // runs that getter right here, before anything after the assignment reads what it
+        // wrote. The parameter-binding walker has known this since the round it was reported
+        // for; a destructuring assignment reads properties in exactly the same way and its
+        // getters were left deferred, so a write inside one stayed confined to a function
+        // nobody was known to call.
+        let restore_getters = self.binding_getters.len();
+        if let oxc_ast::ast::AssignmentTarget::ObjectAssignmentTarget(pat) = &e.left
+            && let Expression::ObjectExpression(o) = peel(&e.right)
+        {
+            let mut found = Vec::new();
+            getters_in_assignment_target(pat, o, &mut found);
+            self.binding_getters
+                .extend(found.into_iter().map(|g| (g, e.span.end)));
+        }
+        // The TARGET first and the value second, which is the order JavaScript takes them: the
+        // object and the computed key of `a[k] = v` are evaluated before `v` is, and only the
+        // write itself waits for the value. Round sixty-seven inverted this pair to give the
+        // suppression a seam, which put a key's own assignment after the value that reads it —
+        // the seam is the span above instead, and the order is back to what it describes.
+        if !reference_first {
+            self.walk_target_to_the_throw(&e.left, &e.right);
+        }
+        self.visit_expression(&e.right);
+        if never {
+            self.never_written.pop();
+        }
+        self.binding_getters.truncate(restore_getters);
+        self.runs_after.pop();
+        self.assign_end = outer;
+    }
+
     fn visit_variable_declaration(&mut self, decl: &VariableDeclaration<'a>) {
-        let outer = self.hoists;
+        let outer_hoists = self.hoists;
         self.hoists = !decl.kind.is_lexical();
-        walk::walk_variable_declaration(self, decl);
-        self.hoists = outer;
+        for d in &decl.declarations {
+            // The binding first, THEN its value. `binding_extent` reads the recorded scopes to
+            // decide how far a value reaches, and a declaration's own scope is the one it must
+            // find — recording first left the lookup to whatever else answered to that name,
+            // so `var current = e; var current = current.child("detail")` scoped the second
+            // value by the first and the child it names was never filed. The doc comment on
+            // `binding_extent` claimed this order already held; it held for a later assignment
+            // and never for the declarator itself.
+            // …and the DECLARATION spelling of the same read invokes the same accessors.
+            // `var {x} = { get x(){ … } }` is `({x} = …)` with a binding attached, and the two
+            // spellings of one rule is the split this file keeps paying for.
+            let restore_getters = self.binding_getters.len();
+            if let oxc_ast::ast::BindingPattern::ObjectPattern(pat) = &d.id
+                && let Some(Expression::ObjectExpression(o)) = d.init.as_ref().map(peel)
+            {
+                let mut found = Vec::new();
+                getters_in_pattern(pat, o, &mut found);
+                self.binding_getters
+                    .extend(found.into_iter().map(|g| (g, d.span.end)));
+            }
+            // The INITIALIZER first, then the pattern. `var [x = (current = other)] =
+            // [(parse(current), undefined)]` evaluates the whole right side — the `parse` call
+            // included — before binding initialization runs `x`'s default, and the generic
+            // declarator walk takes the pattern first. The default's write was then recorded at
+            // its earlier source position and read as already in effect at `parse`, which filed
+            // the helper's fields under a node the parser had not yet moved to.
+            //
+            // Only for a DESTRUCTURING declarator: a plain `var x = …` has no pattern effects to
+            // order against, and its emission is untouched.
+            if matches!(
+                &d.id,
+                oxc_ast::ast::BindingPattern::ArrayPattern(_)
+                    | oxc_ast::ast::BindingPattern::ObjectPattern(_)
+            ) && d.init.is_some()
+            {
+                self.effects_land_at
+                    .push((vec![d.id.span()], d.id.span(), d.span.end));
+                self.visit_variable_declarator(d);
+                self.effects_land_at.pop();
+            } else {
+                self.visit_variable_declarator(d);
+            }
+            self.binding_getters.truncate(restore_getters);
+            // A destructuring declarator ASSIGNS what it takes apart: `var [e] = [other]`
+            // rebinds the parser's own parameter, and `for (var [e] of xs)` does it per pass.
+            // Only the single-identifier form recorded anything, so the name still looked like
+            // the response node and the helper's reads were filed at the root while the parser
+            // reads something else — the wrong node, silently. The ASSIGNMENT spelling of this
+            // was fixed six rounds ago; the declaration spelling records the same write now.
+            //
+            // Both kinds, because the extent does the scoping: a `let` pattern binds its own
+            // names, and a write recorded against one of those reaches exactly as far as that
+            // binding does — which is what `binding_extent` answers for every other write. I
+            // first gated this on `var` and could not construct a case where the gate changed
+            // an answer, so it is one rule rather than one rule and a condition.
+            // …and the DECLARATION spelling records nothing either when its initializer
+            // raises. `var current = (function(){ throw 0; })()` binds the name and leaves it
+            // `undefined`; it does not bind it to a value, and the pattern form assigns nothing
+            // at all. Two spellings of one rule, which is the split this file keeps paying for.
+            let never = assignment_never_completes(d.init.as_ref());
+            if never && let Some(id) = d.id.get_binding_identifier() {
+                self.never_written.push(id.span);
+            }
+            if d.id.get_binding_identifier().is_none() && !never {
+                for id in d.id.get_binding_identifiers() {
+                    let w = Write {
+                        scope: self.binding_extent(id.name.as_str(), id.span),
+                        name: id.name.as_str().to_string(),
+                        at: id.span,
+                        effective: self.effect_position(d.span.end),
+                        runs_before: self.runs_before.last().cloned().unwrap_or_default(),
+                        runs_after: self.runs_after.last().cloned().unwrap_or_default(),
+                        lands_at: self.lands_at(id.span),
+                        repeats_in: (self.dead == 0 || self.caught > 0)
+                            .then(|| self.innermost_repeating())
+                            .flatten(),
+                    };
+                    self.writes.push(w);
+                }
+            }
+            if let (Some(id), Some(init)) = (d.id.get_binding_identifier(), d.init.as_ref()) {
+                let from = match init {
+                    Expression::Identifier(src) => Some(src.name.as_str()),
+                    _ => None,
+                };
+                // After the initializer, not at the binding identifier: `var e = parse(e)`
+                // evaluates `parse` against the original parameter and only then rebinds. I gave
+                // the ASSIGNMENT form this last round and left the declarator on the
+                // identifier's span — the same rule in two places with one copy missing it,
+                // which is the shape of half the findings on this branch.
+                let outer = self.assign_end.replace(d.span.end);
+                self.given_value(id.name.as_str(), from, id.span, decl.kind.is_lexical());
+                self.assign_end = outer;
+            }
+            if never && d.id.get_binding_identifier().is_some() {
+                self.never_written.pop();
+            }
+        }
+        self.hoists = outer_hoists;
+    }
+
+    fn visit_statement(&mut self, st: &Statement<'a>) {
+        // A write on a path that cannot hand back a result is invisible to every execution that
+        // does: `if (bad) { e = other; throw Error(); } parse(e)` reaches `parse` with the
+        // untouched node on every path producing one, and blaming that write refused the
+        // descent and reported a node nothing had moved. The same "which paths can produce a
+        // value" rule the requiredness side asks, on the binding side.
+        let dead = throws_out(std::slice::from_ref(st));
+        self.dead += u32::from(dead);
+        walk::walk_statement(self, st);
+        self.dead -= u32::from(dead);
+    }
+
+    fn visit_try_statement(&mut self, t: &oxc_ast::ast::TryStatement<'a>) {
+        // A throw inside a block a handler CATCHES does not end anything: the handler runs and
+        // execution carries on, so a write before that throw is as effective as any other.
+        // Asking `throws_out` without the enclosing catch marked those writes dead, and the
+        // descent then went ahead against a node the parser had already moved — the wrong-node
+        // direction, introduced by the dead-path rule one commit earlier.
+        // A SUPPRESSION, not a reset: zeroing `dead` here achieved nothing, because
+        // `visit_statement` recomputes it from the very statement that throws. The flag has to
+        // outrank the computation.
+        //
+        // Raised around the block only. A throw in the handler is not caught by its own `try`,
+        // and one in the finalizer is not either.
+        self.caught += u32::from(t.handler.is_some());
+        self.visit_block_statement(&t.block);
+        self.caught -= u32::from(t.handler.is_some());
+        if let Some(h) = &t.handler {
+            // A handler runs only when the block failed — unless the block fails on EVERY path,
+            // and then it runs on every path there is. `try { throw 0; } catch (_) { current =
+            // e; }` hands `parse` nothing but `e`, and calling that write skippable kept the
+            // pre-`try` value live beside it, so two values answered to the name and the alias
+            // was refused for an ambiguity no execution has.
+            //
+            // Not a block that HANGS: `throws_out` answers true for one, because a loop nothing
+            // leaves produces no result either — but it reaches no handler at all, so claiming
+            // its handler certain would be the same error pointing the other way. The whole-try
+            // classification has drawn that distinction since round thirty; this is the same
+            // question asked of the handler alone.
+            //
+            // No input can hold that clause, and it stays anyway. If the block hangs, the
+            // handler does not run and neither does anything after the `try`, so there is no
+            // reader anywhere to observe which answer this gave — the mutation that drops it
+            // breaks nothing and cannot. That is unobservable rather than equivalent: dropping
+            // it would leave the model asserting something false and waiting for the first
+            // reader that can see it. Round twenty's clause is recorded the same way, and this
+            // says so rather than implying a coverage it does not have.
+            self.handler_is_certain
+                .push(throws_out(&t.block.body) && !hangs_forever(&t.block.body));
+            self.visit_catch_clause(h);
+            self.handler_is_certain.pop();
+        }
+        if let Some(f) = &t.finalizer {
+            self.visit_block_statement(f);
+        }
+    }
+
+    fn visit_sequence_expression(&mut self, seq: &oxc_ast::ast::SequenceExpression<'a>) {
+        // The same rule the argument list takes, one level down: a comma list stops at an
+        // element that certainly raises. The tail is still walked, as unreachable, so the scopes
+        // it opens stay recorded and its writes do not.
+        let mut raised = false;
+        for e in &seq.expressions {
+            self.unreachable += u32::from(raised);
+            self.visit_expression(e);
+            self.unreachable -= u32::from(raised);
+            raised = raised || expression_throws(e);
+        }
+    }
+
+    fn visit_call_expression(&mut self, call: &CallExpression<'a>) {
+        // `null?.(current = other)` short-circuits before its argument list exists, so the write
+        // happens on no path. The arguments are still walked — as unreachable, so the scopes
+        // they open stay recorded and their writes do not — which is the shape every other
+        // never-evaluated region in this visitor takes.
+        if call.optional && certainly_nullish(&call.callee) {
+            // The CALLEE is evaluated before the short circuit — `(void (current = other))?.()`
+            // performs that assignment and then declines to call. Only the arguments and the
+            // invocation are skipped, and walking the whole call as unreachable discarded a
+            // write that really happens.
+            self.visit_expression(&call.callee);
+            self.unreachable += 1;
+            for arg in &call.arguments {
+                self.visit_argument(arg);
+            }
+            self.unreachable -= 1;
+            return;
+        }
+        if !self.walk_invocation(&call.callee, &call.arguments, None, call.span, false) {
+            walk::walk_call_expression(self, call);
+        }
+    }
+
+    /// A tagged template calls its tag as immediately as `()` does — ``(function(){ … })`x` ``
+    /// runs that body before the next statement. Only calls and `new` were read as invocations,
+    /// so the write inside it stayed confined and the helper's fields were published on the node
+    /// it had moved away from.
+    ///
+    /// The tag is handed the strings object and then the substitutions, which is the argument
+    /// list `walk_invocation` maps onto its parameters — with the strings object standing in
+    /// position 0 as a value nothing can make `undefined`.
+    ///
+    /// Only when the tag IS the function. A tag reached through `.call`/`.apply`/`.bind` is
+    /// handed the strings object in a position those reshape, and not the way an argument list
+    /// is reshaped: ``f.call`x` `` invokes `Function.prototype.call`, which reaches `f` only by
+    /// forwarding and with the strings object as its receiver, while ``f.bind(null, 1)`x` ``
+    /// puts the strings object AFTER bind's own arguments. Mapping either as if the substitutions
+    /// began at parameter 0 would suppress a default that really runs, so the invocation is
+    /// declined there and the body's write is lost rather than invented.
+    fn visit_tagged_template_expression(&mut self, t: &oxc_ast::ast::TaggedTemplateExpression<'a>) {
+        let direct = invoked_callee(&t.tag).span() == peel(&t.tag).span();
+        if direct && self.walk_invocation(&t.tag, &[], Some(&t.quasi), t.span, false) {
+            return;
+        }
+        walk::walk_tagged_template_expression(self, t);
+    }
+
+    /// `new (function(){ … })()` runs that body before the next statement exactly as a call
+    /// does, and only calls were read that way — so the write inside it stayed confined and the
+    /// helper's fields were published on the node it had moved away from. One method answers
+    /// for both spellings rather than the second learning it a round later.
+    fn visit_new_expression(&mut self, new: &oxc_ast::ast::NewExpression<'a>) {
+        if !self.walk_invocation(&new.callee, &new.arguments, None, new.span, true) {
+            walk::walk_new_expression(self, new);
+        }
     }
 
     fn visit_block_statement(&mut self, block: &oxc_ast::ast::BlockStatement<'a>) {
-        self.blocks.push(block.span);
-        walk::walk_block_statement(self, block);
-        self.blocks.pop();
+        // The outermost braces ARE the analysed callback body, not a scope inside it, so a
+        // `let` at the top of them lives for all of it. Recording that span as a scope made
+        // `bound_inside` answer true for every read in the body, so `let detail =
+        // e.child("detail")` followed by a mapped callback reading `detail` had the read
+        // refused as one an inner scope accounts for — and both dispatch-arm reads vanished
+        // with nothing recorded at all. `var` binds through `names` and worked, which is the
+        // asymmetry that located it. `ParserAnalyzer::visit_block_statement` already draws
+        // this same line for its own restore; this collector did not.
+        let body_itself = self.block_depth == 0 && self.fns.is_empty();
+        self.block_depth += 1;
+        if !body_itself {
+            self.blocks.push(block.span);
+        }
+        self.walk_in_order(&block.body, false);
+        if !body_itself {
+            self.blocks.pop();
+        }
+        self.block_depth -= 1;
+    }
+
+    fn visit_while_statement(&mut self, stmt: &oxc_ast::ast::WhileStatement<'a>) {
+        self.loops
+            .push((stmt.span, can_come_round_again(&stmt.body)));
+        // The test runs before the first pass, so it runs even when the body does not.
+        self.visit_expression(&stmt.test);
+        // Unless it cannot be false, in which case the pass happens: `while (!0)` is how this
+        // corpus spells `for (;;)`, and both start their body whatever else they do.
+        if always_true(&stmt.test) {
+            self.walk_first_pass(&stmt.body);
+        } else if always_false(&stmt.test) {
+            // …and a test that cannot be TRUE never starts a pass at all: `while (0) { … }` is
+            // dead code, and reading its body as merely skippable kept the write in it as a
+            // second value the binding could not settle against. The `if` and the short-circuit
+            // have read this predicate for as long; the loop beside them had only its opposite.
+            self.unreachable += 1;
+            self.visit_statement(&stmt.body);
+            self.unreachable -= 1;
+        } else {
+            self.maybe_skipped(|s| s.visit_statement(&stmt.body));
+        }
+        self.loops.pop();
+    }
+
+    fn visit_do_while_statement(&mut self, stmt: &oxc_ast::ast::DoWhileStatement<'a>) {
+        self.loops
+            .push((stmt.span, can_come_round_again(&stmt.body)));
+        // The first pass is guaranteed, so a write at the top of the body really does run. That
+        // was declined here as "which part of the body" being the whole `walk_guaranteed_pass`
+        // question — but it is the same question with the same answer, and leaving it unasked
+        // is not neutral: the requiredness walk read `do { current = e; break; } while (0)` as
+        // one statement that always runs and this collector called the value it assigns
+        // uncertain, so the helper came out optional either way.
+        self.walk_first_pass(&stmt.body);
+        // And the test is reached only by a pass that did not leave first: `do { break; } while
+        // (current = f())` assigns nothing on the path it takes.
+        if leaves_the_loop_with_a_value(&stmt.body) {
+            self.maybe_skipped(|s| s.visit_expression(&stmt.test));
+        } else {
+            self.visit_expression(&stmt.test);
+        }
+        self.loops.pop();
+    }
+
+    fn visit_if_statement(&mut self, stmt: &oxc_ast::ast::IfStatement<'a>) {
+        // The test runs whichever way the branch goes; the sides are what control skips.
+        self.visit_expression(&stmt.test);
+        // Unless the test decides which side runs, in which case that side runs always and what
+        // it assigns is assigned always. The requiredness walk learned this one round ago and
+        // this collector — added the round after — did not, so the two disagreed about the same
+        // `if`: `var current; if (!0) current = e; parse(current)` had the call read as
+        // unconditional and the VALUE read as conditional, and the helper's fields came out
+        // optional anyway. One rule, two places, one copy missing it, for the fifth time on this
+        // branch; both read the one selector now.
+        if let Some((taken, dead)) =
+            statically_selected(&stmt.test, &stmt.consequent, stmt.alternate.as_ref())
+        {
+            if let Some(taken) = taken {
+                self.visit_statement(taken);
+            }
+            // Unreachable, not skippable: a write on the side a decided test never selects
+            // cannot happen at all, and calling it merely conditional made it a second live
+            // value for the name — so the alias was refused and the helper's fields left the
+            // shape with nothing said. `if (0) { … }` with no `else` is the same answer, which
+            // is why the selector now reports that nothing is taken rather than declining.
+            if let Some(dead) = dead {
+                self.unreachable += 1;
+                self.visit_statement(dead);
+                self.unreachable -= 1;
+            }
+            return;
+        }
+        let before = self.given.len();
+        let mut split = before;
+        self.maybe_skipped(|s| {
+            s.visit_statement(&stmt.consequent);
+            split = s.given.len();
+            if let Some(alt) = &stmt.alternate {
+                s.visit_statement(alt);
+            }
+        });
+        // Both arms exist and both give a name the same value, so every execution performs that
+        // assignment however the test went: `if (flag) current = e; else current = e;` names
+        // the node on every path. Walking the two inside one skippable region left both records
+        // conditional, and the helper's fields came back optional against a parser that reads
+        // them always — the "same value on complementary paths" half of the ambiguity item on
+        // the PR, which I had said needed a branch intersection the collector does not have. It
+        // needs one over the records the arms just produced, which is here.
+        //
+        // Only at the outermost branch: nested inside another skippable region the pair is
+        // still skippable as a whole, and clearing the flag there would claim a write an
+        // enclosing test can bypass.
+        //
+        // No test for "there is an `else`" beside it: with no alternate the second range is
+        // empty, so nothing pairs and nothing is cleared. I wrote that condition first and the
+        // mutation dropping it changed no answer, which is the kind of redundancy visible at
+        // the site — so it is gone rather than documented.
+        //
+        // The `from` comparison below is the other kind. Two records naming the same name and
+        // DIFFERENT values are not one assignment on two paths, and pairing them would say they
+        // were; no input separates the two today because `settled_value` refuses disagreeing
+        // values before their conditionality is ever read. That redundancy rests on a rule in
+        // another function, so the comparison stays.
+        if self.skippable == 0 {
+            // Each arm's FINAL assignment to a name, not every assignment in it. An arm that
+            // gives `current` the node and then overwrites it leaves the node behind, so the
+            // two arms do not agree at all — clearing the flag on every matching record made
+            // the else-arm's copy unconditional and let it dominate the then-arm's overwrite,
+            // publishing the helper's reads as required against a path that passes something
+            // else. What an arm establishes is what it ends with.
+            let end = self.given.len();
+            let last_from = |range: std::ops::Range<usize>, name: &str| -> Option<Option<String>> {
+                self.given[range]
+                    .iter()
+                    .rev()
+                    .find(|g| g.name == name)
+                    .map(|g| g.from.clone())
+            };
+            let names: Vec<(String, Option<String>)> = (before..split)
+                .map(|i| self.given[i].name.clone())
+                .collect::<std::collections::BTreeSet<_>>()
+                .into_iter()
+                .filter_map(|name| {
+                    let then_from = last_from(before..split, &name)?;
+                    let else_from = last_from(split..end, &name)?;
+                    // Both arms end on the same COPY of the same name. Two records that
+                    // computed their values are two values however alike they look, which is
+                    // the rule `settled_value` keeps for the same reason.
+                    (then_from.is_some() && then_from == else_from).then_some((name, then_from))
+                })
+                .collect();
+            // Recorded as an effect of the WHOLE `if`, not by clearing the flag on the arms'
+            // own records. The agreement holds only once both arms have finished: in
+            // `if (flag) { current = e; } else { parse(current); current = e; }` the call in
+            // the else arm runs BEFORE that arm's assignment and is handed the older value, and
+            // making the then-arm's record unconditional put it in effect there — publishing
+            // the helper's reads as required against a path that passes something else.
+            //
+            // A record of its own says exactly what is true: after this statement the name
+            // holds that value on every path. Inside either arm the two records are still the
+            // conditional ones they were, so a read there answers as it did before.
+            let after = Span::new(stmt.span.end, stmt.span.end);
+            let template = self.given[before..]
+                .iter()
+                .map(|g| (g.scope, g.repeats_in, g.lands_at))
+                .next_back();
+            if let Some((scope, repeats_in, lands_at)) = template {
+                for (name, from) in names {
+                    self.given.push(Given {
+                        scope,
+                        conditional: false,
+                        name,
+                        from,
+                        at: after,
+                        effective: stmt.span.end,
+                        repeats_in,
+                        lands_at,
+                        runs_before: Vec::new(),
+                        runs_after: Vec::new(),
+                    });
+                }
+            }
+        }
+    }
+
+    fn visit_logical_expression(&mut self, expr: &oxc_ast::ast::LogicalExpression<'a>) {
+        // `flag && (current = e)` assigns only when the left side allowed it — and `!0 && …`
+        // always allows it.
+        self.visit_expression(&expr.left);
+        // A left side that settles the operator makes its right side dead, not merely
+        // skippable: `0 && (current = other)` evaluates nothing there, so that assignment is
+        // not a second live value for the name and the alias beside it stands. Walking it as a
+        // conditional write kept both values live and the descent was refused for an ambiguity
+        // no execution has — the same pruning `if` and the ternary have had since round
+        // thirty-seven, in the spelling that never got it.
+        if logical_right_is_dead(expr) {
+            self.unreachable += 1;
+            self.visit_expression(&expr.right);
+            self.unreachable -= 1;
+            return;
+        }
+        if logical_right_is_certain(expr) {
+            self.visit_expression(&expr.right);
+            return;
+        }
+        self.maybe_skipped(|s| s.visit_expression(&expr.right));
+    }
+
+    fn visit_conditional_expression(&mut self, expr: &oxc_ast::ast::ConditionalExpression<'a>) {
+        self.visit_expression(&expr.test);
+        if let Some((taken, dead)) =
+            statically_selected(&expr.test, &expr.consequent, Some(&expr.alternate))
+        {
+            if let Some(taken) = taken {
+                self.visit_expression(taken);
+            }
+            if let Some(dead) = dead {
+                self.unreachable += 1;
+                self.visit_expression(dead);
+                self.unreachable -= 1;
+            }
+            return;
+        }
+        self.maybe_skipped(|s| {
+            s.visit_expression(&expr.consequent);
+            s.visit_expression(&expr.alternate);
+        });
     }
 
     fn visit_function(&mut self, func: &Function<'a>, flags: ScopeFlags) {
@@ -2548,12 +8556,27 @@ impl<'a> Visit<'a> for AllBindings {
                 self.scoped.push((func.span, id.name.as_str().to_string()));
             }
         }
+        // A getter this call's parameter binding invokes: its body runs, and it runs at the
+        // call rather than where it is written.
+        let bound = self
+            .binding_getters
+            .iter()
+            .find(|(g, _)| *g == func.span)
+            .copied();
+        if let Some((g, call_end)) = bound {
+            self.iife.push((g, vec![g]));
+            self.effects_land_at.push((vec![g], g, call_end));
+        }
         self.fns.push(func.span);
         let outer = self.hoists;
         self.hoists = true;
         walk::walk_function(self, func, flags);
         self.hoists = outer;
         self.fns.pop();
+        if bound.is_some() {
+            self.effects_land_at.pop();
+            self.iife.pop();
+        }
     }
 
     fn visit_arrow_function_expression(
@@ -2577,7 +8600,14 @@ impl<'a> Visit<'a> for AllBindings {
         self.blocks.push(clause.span);
         let outer = self.hoists;
         self.hoists = false;
-        walk::walk_catch_clause(self, clause);
+        // A handler runs only when the block failed, so what it assigns is assigned on that
+        // path alone — unless the block fails on every path, which `visit_try_statement`
+        // decides and records here.
+        if self.handler_is_certain.last().copied().unwrap_or(false) {
+            walk::walk_catch_clause(self, clause);
+        } else {
+            self.maybe_skipped(|s| walk::walk_catch_clause(s, clause));
+        }
         self.hoists = outer;
         self.blocks.pop();
     }
@@ -2588,26 +8618,168 @@ impl<'a> Visit<'a> for AllBindings {
             Span::new(first.span.start, stmt.span.end)
         });
         self.blocks.push(body);
-        walk::walk_switch_statement(self, stmt);
+        // The discriminant is evaluated to choose a case, so it runs whichever case wins; a
+        // case's own test and consequent run only for the values that reach them.
+        self.visit_expression(&stmt.discriminant);
+        // The FIRST case test is evaluated on every execution, before any consequent is
+        // chosen — and so is each test after it until one that could match, because the switch
+        // works down the list. Only the leading run of them is decidable here: past a test this
+        // pass cannot compare, whether the next is reached depends on the value. Wrapping every
+        // case including its test in one skippable region marked those assignments conditional,
+        // so `switch (k) { case (current = e): … }` left the helper's fields optional though
+        // every execution performs the write.
+        let mut guaranteed = stmt
+            .cases
+            .iter()
+            .position(|c| c.test.is_some())
+            .map_or(0, |first| first + 1);
+        // …and where a readable discriminant SELECTS a case, every test up to and including that
+        // one is evaluated on every path — the switch tests in order and stops at the match, so
+        // the match's own test is as certain as the first. Marking only the tests after it dead
+        // left it merely conditional, so a write there could not supersede an earlier one and
+        // the alias it restores never settled.
+        //
+        // Read before the loop below, which uses the same index to mark what follows dead: one
+        // selection, both of its consequences.
+        let matched = statically_selected_case(&stmt.discriminant, &stmt.cases)
+            .filter(|&i| stmt.cases[i].test.is_some());
+        if let Some(m) = matched {
+            guaranteed = guaranteed.max(m + 1);
+        }
+        for case in stmt.cases.iter().take(guaranteed) {
+            if let Some(test) = &case.test {
+                self.visit_expression(test);
+            }
+        }
+        // The switch stops TESTING once a case matches, so a test written after the one that
+        // certainly matches is evaluated on no path: `switch ('a') { case 'a': break; case
+        // (current = other): break; }` performs no assignment. Reading every test as merely
+        // conditional made the binding ambiguous and dropped the reads through it.
+        //
+        // Only where a test really matched. `statically_selected_case` also answers with the
+        // DEFAULT when none does, and that is the case where every test was evaluated — so the
+        // index is taken only when it names a case that has one. The consequents are untouched:
+        // a later arm is still reachable by falling through from the matched one.
+        self.maybe_skipped(|s| {
+            for (i, case) in stmt.cases.iter().enumerate() {
+                if i < guaranteed {
+                    // Its test has run above; only the consequent is a path a value may skip.
+                    for st in &case.consequent {
+                        s.visit_statement(st);
+                    }
+                    continue;
+                }
+                if let Some(test) = &case.test {
+                    let never = matched.is_some_and(|m| i > m);
+                    s.unreachable += u32::from(never);
+                    s.visit_expression(test);
+                    s.unreachable -= u32::from(never);
+                }
+                for st in &case.consequent {
+                    s.visit_statement(st);
+                }
+            }
+        });
         self.blocks.pop();
     }
 
     fn visit_for_statement(&mut self, stmt: &oxc_ast::ast::ForStatement<'a>) {
+        self.loops
+            .push((stmt.span, can_come_round_again(&stmt.body)));
         self.blocks.push(stmt.span);
-        walk::walk_for_statement(self, stmt);
+        // Initializer and test run before the first pass; body and update only after one that
+        // happened.
+        if let Some(init) = &stmt.init {
+            self.visit_for_statement_init(init);
+        }
+        if let Some(test) = &stmt.test {
+            self.visit_expression(test);
+        }
+        // No test, or one that cannot be false: either way the body necessarily starts, so it
+        // gets the guaranteed pass the requiredness side gives it. The update runs only after
+        // a pass that completed, so it stays skippable whichever way the test went.
+        if stmt.test.as_ref().is_none_or(always_true) {
+            self.walk_first_pass(&stmt.body);
+            // …and only if a pass can reach it. `for (;; current = other) { parse(current);
+            // break; }` runs its body once and leaves, so that update never evaluates — but it
+            // is written in the HEADER, before the body, so recording it at all had it look
+            // effective at a call below it and the descent was refused for a node nothing had
+            // moved. The same `can_come_round_again` the loop-carried rule reads.
+            if let Some(update) = &stmt.update
+                && can_come_round_again(&stmt.body)
+            {
+                self.maybe_skipped(|s| s.visit_expression(update));
+            }
+        } else {
+            self.maybe_skipped(|s| {
+                s.visit_statement(&stmt.body);
+                if let Some(update) = &stmt.update {
+                    s.visit_expression(update);
+                }
+            });
+        }
         self.blocks.pop();
+        self.loops.pop();
     }
 
     fn visit_for_in_statement(&mut self, stmt: &oxc_ast::ast::ForInStatement<'a>) {
+        self.loops
+            .push((stmt.span, can_come_round_again(&stmt.body)));
         self.blocks.push(stmt.span);
-        walk::walk_for_in_statement(self, stmt);
+        // The object is evaluated to be enumerated, however few keys it turns out to have; the
+        // binding and body run once per key, of which there may be none.
+        self.visit_expression(&stmt.right);
+        self.after_the_iterable(stmt.right.span(), |s| {
+            s.maybe_skipped(|s| {
+                s.visit_for_statement_left(&stmt.left);
+                s.visit_statement(&stmt.body);
+            });
+        });
         self.blocks.pop();
+        self.loops.pop();
     }
 
     fn visit_for_of_statement(&mut self, stmt: &oxc_ast::ast::ForOfStatement<'a>) {
+        self.loops
+            .push((stmt.span, can_come_round_again(&stmt.body)));
         self.blocks.push(stmt.span);
-        walk::walk_for_of_statement(self, stmt);
+        self.visit_expression(&stmt.right);
+        // One iterable whose length is decidable here: `for (const x of [a, b])` runs its body,
+        // the same guaranteed pass the requiredness side gives it. An arbitrary expression
+        // keeps its zero-iteration path.
+        if iterates_at_least_once(&stmt.right) {
+            self.after_the_iterable(stmt.right.span(), |s| {
+                s.visit_for_statement_left(&stmt.left);
+                s.walk_first_pass(&stmt.body);
+            });
+            self.blocks.pop();
+            self.loops.pop();
+            return;
+        }
+        // …and a value that cannot be iterated at all raises while the ITERATOR is obtained,
+        // before the target is bound and before the body is entered. `for (current of null) {}`
+        // writes nothing, and recording the target write invalidated the alias `current` held —
+        // the same predicate the array-literal spread and the array pattern already read, on the
+        // third construct that has to obtain an iterator.
+        if certainly_not_iterable(&stmt.right) {
+            self.after_the_iterable(stmt.right.span(), |s| {
+                s.unreachable += 1;
+                s.visit_for_statement_left(&stmt.left);
+                s.visit_statement(&stmt.body);
+                s.unreachable -= 1;
+            });
+            self.blocks.pop();
+            self.loops.pop();
+            return;
+        }
+        self.after_the_iterable(stmt.right.span(), |s| {
+            s.maybe_skipped(|s| {
+                s.visit_for_statement_left(&stmt.left);
+                s.visit_statement(&stmt.body);
+            });
+        });
         self.blocks.pop();
+        self.loops.pop();
     }
 
     fn visit_class(&mut self, class: &oxc_ast::ast::Class<'a>) {
@@ -2620,7 +8792,338 @@ impl<'a> Visit<'a> for AllBindings {
                 self.scoped.push((class.span, id.name.as_str().to_string()));
             }
         }
-        self.visit_class_body(&class.body);
+        // `class C extends (current = other, Base) {}` runs that assignment before anything
+        // after the class does, so a write there is as effective as any other — and this walked
+        // only the body, so `parse(current)` afterwards followed the stale alias and filed the
+        // helper's fields under the response root. The wrong-node direction, from a hand-written
+        // visitor that enumerated the parts of a class it happened to think of.
+        if let Some(heritage) = class.super_class.as_ref() {
+            self.visit_expression(heritage);
+            // …and a heritage that is not a constructor rejects the class the moment it is
+            // DEFINED, so nothing in the body runs — not a computed key, not a static
+            // initializer, not a static block. The heritage itself is evaluated first and keeps
+            // whatever it wrote; the same constructibility rule `new` reads, at the other place
+            // that needs it.
+            if heritage_throws(heritage) {
+                self.unreachable += 1;
+                walk::walk_class_body(self, &class.body);
+                self.unreachable -= 1;
+                return;
+            }
+        }
+        // And only what the class evaluates when it is DEFINED. An instance field initializer
+        // runs per `new`, of which there may be none: `class C { value = (current = other) }`
+        // writes nothing by existing, and recording it refused a descent for a node nothing had
+        // moved. A computed key and a static initializer do run here, and a method body is a
+        // function like any other — deferred, and confined by the extent rule above.
+        //
+        // In source order, which is not the order the two phases run in: every computed key is
+        // evaluated before any static initializer, so a key written after one reads what the
+        // initializer has not yet written. Saying that needs a clock this model does not have —
+        // see the note on the PR.
+        // Whether THIS class is the one being constructed in place. Taken out of the list, so
+        // the walk of its own body cannot see it again and a class nested inside it is judged
+        // on its own span.
+        let constructed = if let Some(i) = self.constructing.iter().position(|s| *s == class.span) {
+            self.constructing.remove(i);
+            true
+        } else {
+            false
+        };
+        // Every instance field initializes BEFORE the constructor body runs, wherever the field
+        // is written. Walking the elements in source order got `class { constructor(){ … } x =
+        // (current = other); }` backwards — the constructor read the node the field had already
+        // replaced. Held back and visited last, so source order decides among the fields and the
+        // constructor still comes after all of them.
+        //
+        // A DERIVED class is not this: its instance fields initialize when `super()` returns,
+        // which is somewhere inside the constructor body, and nothing here can say where. Source
+        // order stays the answer there, as it was.
+        // Every computed key of a class is evaluated when the class is DEFINED, before any
+        // static initializer runs — whatever their source order. A key written below an
+        // initializer therefore reads what that initializer has not yet written, and walking
+        // the elements in order answered it with the initializer.
+        //
+        // Declared rather than reordered. Repositioning the writes was what I tried when this
+        // was first reported, and it broke two neighbours: pushing them past the keys pushes
+        // them past each other. Saying "this write follows the keys" leaves every other
+        // ordering, including between two initializers, exactly where it was.
+        let key_spans: Vec<Span> = class
+            .body
+            .body
+            .iter()
+            .filter_map(|el| match el {
+                oxc_ast::ast::ClassElement::MethodDefinition(m) if m.computed => Some(m.key.span()),
+                oxc_ast::ast::ClassElement::PropertyDefinition(p) if p.computed => {
+                    Some(p.key.span())
+                }
+                oxc_ast::ast::ClassElement::AccessorProperty(p) if p.computed => Some(p.key.span()),
+                _ => None,
+            })
+            .collect();
+        // The same ordering read the other way. Saying only that an initializer FOLLOWS the
+        // keys left a key written below one still at its own offset, so `class C { static x =
+        // parse(current); [(current = other)]() {} }` had the initializer read a node the key
+        // had in fact already replaced. Both halves of one rule, and shipping the first alone
+        // is the shape this branch keeps finding — so the key's own writes declare that they
+        // PRECEDE every static initializer and block.
+        let static_spans: Vec<Span> = class
+            .body
+            .body
+            .iter()
+            .filter_map(|el| match el {
+                oxc_ast::ast::ClassElement::PropertyDefinition(p) if p.r#static => {
+                    p.value.as_ref().map(GetSpan::span)
+                }
+                oxc_ast::ast::ClassElement::AccessorProperty(p) if p.r#static => {
+                    p.value.as_ref().map(GetSpan::span)
+                }
+                oxc_ast::ast::ClassElement::StaticBlock(b) => Some(b.span),
+                _ => None,
+            })
+            .collect();
+        // The second phase runs static blocks and static initializers in source order, and stops
+        // at the first one that completes abruptly. Only a block that certainly throws is
+        // decidable here: a static block ending its own statement list. An INITIALIZER that
+        // throws ends the phase exactly as much, and asking whether an arbitrary expression can
+        // throw is a question this pass does not answer, so that half is left — it loses the
+        // stop rather than inventing one.
+        let static_phase_ends: Option<u32> = class.body.body.iter().find_map(|el| match el {
+            oxc_ast::ast::ClassElement::StaticBlock(b)
+                if b.body.iter().any(ends_the_statement_list) =>
+            {
+                Some(b.span.end)
+            }
+            // …and an INITIALIZER that certainly raises ends the phase exactly as much. Round
+            // forty-eight left this half out because asking whether an arbitrary expression
+            // throws was a question this pass could not answer; round fifty gave it
+            // `expression_throws` for the ternary, and the same predicate closes it here. Still
+            // only the spelling that settles it — a body invoked on the spot whose statements
+            // all leave by throwing.
+            oxc_ast::ast::ClassElement::PropertyDefinition(p)
+                if p.r#static && p.value.as_ref().is_some_and(expression_throws) =>
+            {
+                Some(p.span.end)
+            }
+            oxc_ast::ast::ClassElement::AccessorProperty(p)
+                if p.r#static && p.value.as_ref().is_some_and(expression_throws) =>
+            {
+                Some(p.span.end)
+            }
+            _ => None,
+        });
+        // A class whose static phase ends abruptly is never DEFINED: the class expression itself
+        // throws, so the `new` around it is never reached and nothing it would have performed
+        // happens — no instance initializer, no constructor body. `new (class { static y =
+        // (function(){ throw 0 })(); constructor(){ current = other; } })()` was still recording
+        // that write as certainly effective. The same rule `heritage_throws` states above, at
+        // the other point where defining the class can leave abruptly; there nothing in the body
+        // runs at all, here the static phase up to the throw does, which is why this cancels the
+        // CONSTRUCTION rather than the walk.
+        //
+        // Every use of `constructed` below is a question about what `new` performs, so shadowing
+        // it here is the whole answer. Found by a bound written for the instance-phase rule
+        // beside it — the near-miss case, not the motivating one.
+        let constructed = constructed && static_phase_ends.is_none();
+        // Constructing it does not, on its own, run its instance field initializers. A DERIVED
+        // constructor installs them when `super()` returns, and one that leaves before calling
+        // it — `constructor(){ return {}; }`, which is legal and completes construction — runs
+        // none of them. Treating construction alone as enough recorded a write that never
+        // happens, and the descent was refused for a node still standing. The constructor body
+        // itself does run either way, so only the field gate moves.
+        let instance_fields = constructed && instance_fields_initialize(class);
+        // Instance initializers run in source order, and construction stops at the first one
+        // that completes abruptly — exactly the rule `static_phase_ends` states for the static
+        // phase, on the other half of the clock. `new (class { x = (function(){ throw 0 })();
+        // constructor(){ current = other; } })()` never enters that constructor, and recording
+        // its write as certainly effective refused a descent for a node still standing.
+        //
+        // SOURCE order among the fields, but the constructor is not in that order at all: every
+        // instance field initializes before a base class's constructor body whichever way round
+        // they are written, so a field below the constructor stops it just as surely. That is
+        // why the constructor consults the flag rather than its own position.
+        let instance_phase_ends: Option<u32> = instance_fields
+            .then(|| {
+                class.body.body.iter().find_map(|el| match el {
+                    oxc_ast::ast::ClassElement::PropertyDefinition(p)
+                        if !p.r#static && p.value.as_ref().is_some_and(expression_throws) =>
+                    {
+                        Some(p.span.end)
+                    }
+                    oxc_ast::ast::ClassElement::AccessorProperty(p)
+                        if !p.r#static && p.value.as_ref().is_some_and(expression_throws) =>
+                    {
+                        Some(p.span.end)
+                    }
+                    _ => None,
+                })
+            })
+            .flatten();
+        let ctor_last = constructed && class.super_class.is_none();
+        // Reordering the WALK is not enough on its own: effectiveness is decided by position,
+        // and a field written after the constructor is textually after the read inside it. So
+        // everything else in the class also declares that it precedes the part of the
+        // constructor the fields really do precede.
+        // The other half of that ordering, and the half only a DERIVED class has. Its fields
+        // initialize when `super()` RETURNS, so a read in the constructor BEFORE that call sees
+        // none of them — and the fields are written above the constructor, so position alone
+        // called them already effective there. The post-`super` region below says what the
+        // fields precede; this says what they follow, and neither is right without the other.
+        let mut pre_super: Option<Span> = None;
+        let ctor_body = constructed
+            .then(|| {
+                let ctor = class.body.body.iter().find_map(|el| match el {
+                    oxc_ast::ast::ClassElement::MethodDefinition(m)
+                        if m.kind == oxc_ast::ast::MethodDefinitionKind::Constructor =>
+                    {
+                        Some(m)
+                    }
+                    _ => None,
+                })?;
+                if class.super_class.is_none() {
+                    return Some(ctor.value.span);
+                }
+                // A DERIVED class initializes its fields the moment `super()` returns, so they
+                // precede everything after that call and nothing before it. Keeping source
+                // order for the whole constructor — which is what excluding derived classes
+                // outright did — read a `parse` after the `super()` against a field written
+                // below it. Only an unconditional call at the top of the body is decidable;
+                // one under an `if` runs somewhere this cannot name, so that declines.
+                let body = ctor.value.body.as_ref()?;
+                // Through the parentheses that change nothing: `(super());` calls it exactly
+                // as `super();` does, and matching the bare spelling alone left the fields
+                // ordered by source position against a read that follows them.
+                let super_call = body.statements.iter().find_map(|st| match st {
+                    Statement::ExpressionStatement(e) => match peel(&e.expression) {
+                        Expression::CallExpression(c)
+                            if matches!(peel(&c.callee), Expression::Super(_)) =>
+                        {
+                            Some(c.span)
+                        }
+                        _ => None,
+                    },
+                    _ => None,
+                })?;
+                pre_super = Some(Span::new(ctor.value.span.start, super_call.end));
+                Some(Span::new(super_call.end, ctor.value.span.end))
+            })
+            .flatten();
+        if let Some(body) = ctor_body {
+            self.runs_before.push(vec![body]);
+        }
+        let mut held_ctor = None;
+        for el in &class.body.body {
+            match el {
+                // A constructor invoked by `new` right here runs as certainly as an IIFE body,
+                // so a write in it escapes to everything after the construction rather than
+                // staying confined to a method nobody was known to call.
+                oxc_ast::ast::ClassElement::MethodDefinition(m)
+                    if constructed && m.kind == oxc_ast::ast::MethodDefinitionKind::Constructor =>
+                {
+                    // …unless an instance initializer throws first. A BASE class runs them all
+                    // before the constructor body, so none of it is entered; a DERIVED one runs
+                    // them when `super()` returns, so the part above that call runs and nothing
+                    // below it does. The same prefix shape `synchronous_until` gives an `async`
+                    // body, for the same reason: the region is a decidable head of the body
+                    // rather than all of it. With no readable `super()` the head cannot be
+                    // named, so nothing is claimed — that loses a write instead of inventing
+                    // one.
+                    let region = match instance_phase_ends {
+                        None => vec![m.value.span],
+                        Some(_) => pre_super.into_iter().collect(),
+                    };
+                    self.iife.push((m.value.span, region));
+                    if ctor_last {
+                        held_ctor = Some(el);
+                    } else {
+                        self.visit_class_element(el);
+                    }
+                }
+                // A computed METHOD key is evaluated in the same phase as any other, and it is
+                // the spelling the reported case used — the field walk below never sees one.
+                oxc_ast::ast::ClassElement::MethodDefinition(m)
+                    if m.computed && !static_spans.is_empty() =>
+                {
+                    self.runs_before.push(static_spans.clone());
+                    self.visit_property_key(&m.key);
+                    self.runs_before.pop();
+                    self.visit_function(&m.value, ScopeFlags::Function);
+                }
+                oxc_ast::ast::ClassElement::PropertyDefinition(p) => {
+                    self.visit_field_at_definition(
+                        p.computed,
+                        p.r#static,
+                        &p.key,
+                        p.value.as_ref(),
+                        instance_fields,
+                        ClassPhases {
+                            keys: &key_spans,
+                            statics: &static_spans,
+                            pre_super,
+                            static_phase_ends,
+                            instance_phase_ends,
+                        },
+                    );
+                }
+                // `accessor value = …` is a field with a getter and a setter generated for it,
+                // and its initializer runs per `new` exactly as a plain one does. Only the two
+                // spellings this visitor happened to think of were listed, so the third fell
+                // through to the generic walk and a write in an instance initializer was
+                // recorded as effective at class definition — a descent refused for a node
+                // nothing had moved, which is what enumerating the parts of a class by hand
+                // costs each time one is missed.
+                oxc_ast::ast::ClassElement::AccessorProperty(p) => {
+                    self.visit_field_at_definition(
+                        p.computed,
+                        p.r#static,
+                        &p.key,
+                        p.value.as_ref(),
+                        instance_fields,
+                        ClassPhases {
+                            keys: &key_spans,
+                            statics: &static_spans,
+                            pre_super,
+                            static_phase_ends,
+                            instance_phase_ends,
+                        },
+                    );
+                }
+                // Its braces are a scope: `static { let current = other; }` binds a NEW
+                // `current` that dies with the block, and walking it generically recorded that
+                // value against the OUTER binding — a second live value for the name, so the
+                // alias was refused and the helper's fields left the shape with nothing said.
+                oxc_ast::ast::ClassElement::StaticBlock(b) => {
+                    self.blocks.push(b.span);
+                    self.block_depth += 1;
+                    let declared = !key_spans.is_empty();
+                    if declared {
+                        self.runs_after.push(key_spans.clone());
+                    }
+                    // …and a block written past an earlier one that throws is not evaluated,
+                    // the same rule the initializers above are given.
+                    let skipped = static_phase_ends.is_some_and(|end| b.span.start >= end);
+                    if skipped {
+                        self.unreachable += 1;
+                    }
+                    self.walk_in_order(&b.body, false);
+                    if skipped {
+                        self.unreachable -= 1;
+                    }
+                    if declared {
+                        self.runs_after.pop();
+                    }
+                    self.block_depth -= 1;
+                    self.blocks.pop();
+                }
+                other => self.visit_class_element(other),
+            }
+        }
+        if ctor_body.is_some() {
+            self.runs_before.pop();
+        }
+        if let Some(el) = held_ctor {
+            self.visit_class_element(el);
+        }
     }
 }
 
@@ -2629,6 +9132,9 @@ impl<'a> Visit<'a> for AllBindings {
 struct Bindings {
     names: std::collections::HashSet<String>,
     scoped: Vec<(Span, String)>,
+    /// Names the source assigns to, with where the write is and whether it repeats.
+    writes: Vec<Write>,
+    given: Vec<Given>,
 }
 
 impl Bindings {
@@ -2637,6 +9143,274 @@ impl Bindings {
     /// nested function reused the name is a silent loss of its fields.
     fn shadows(&self, name: &str, at: Span) -> bool {
         self.names.contains(name) || self.bound_inside(name, at)
+    }
+
+    /// Whether `name` is written anywhere in the function containing `at`.
+    ///
+    /// Being in scope is not the same as still naming what you were bound to. The
+    /// helper-descent filter asked only about lexical shadowing, so `row =
+    /// row.child("detail"); parse(row)` still counted `row` as the callback's own node and
+    /// merged the helper's reads at the element root instead of under `<detail>`. Any write
+    /// in the extent disqualifies the name: which side of the call it lands on is a
+    /// question this pre-scan cannot order, and guessing puts fields under the wrong node.
+    fn written_in_scope(&self, name: &str, at: Span) -> bool {
+        self.writes.iter().any(|w| {
+            w.name == name
+                && w.covers(at)
+                // Order matters and I said a pre-scan could not judge it. It can, for the
+                // part that is textual: a write AFTER the call did not affect what the call
+                // was handed, so `parse(row); row = row.child("detail")` is a valid descent
+                // and rejecting it lost recoverable fields.
+                //
+                // The part that is not textual is repetition — a write below the call runs
+                // before it on the next pass — so a write inside a loop that also contains
+                // the call still counts.
+                && in_effect_at(w.effective, w.repeats_in, &w.runs_before, &w.runs_after, w.lands_at, at)
+        })
+    }
+
+    /// Every name that still stands for `node` at `at`: `node` itself plus anything
+    /// declared as a bare copy of it, transitively, with nothing on the chain written since.
+    ///
+    /// A mapped callback that aliases its node before delegating — `var current = row;
+    /// parse(current)` — matched no argument position, so the helper was never entered and
+    /// its fields left the shape with no drop recorded. Recognizing the alias is the same
+    /// work as resolving it, so it is resolved rather than merely counted.
+    /// Paired with the subset of them that stand for `node` only on SOME path: a value assigned
+    /// inside a branch, and anything copied from one. `var current; if (flag) current = e;
+    /// parse(current)` hands `parse` the element only when `flag` held, so what it reads there is
+    /// not read on every execution — and one in-scope value ordered before the call looked as
+    /// definite as any other. Carried alongside rather than filtered out, because the fields ARE
+    /// recoverable; they are just not required.
+    fn names_for(
+        &self,
+        node: &str,
+        at: Span,
+    ) -> (
+        std::collections::HashSet<String>,
+        std::collections::HashSet<String>,
+    ) {
+        let mut out: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut uncertain: std::collections::HashSet<String> = std::collections::HashSet::new();
+        // The records the walk has accepted, by identity. A NAME is not enough to seed a copy:
+        // the copy took what its source held at its own position, and the same name can hold
+        // two values at two points. The `given` list is not touched while this runs, so the
+        // addresses stay valid for the length of the fixed point.
+        let mut admitted: std::collections::HashSet<usize> = std::collections::HashSet::new();
+        out.insert(node.to_string());
+        // To a fixed point, not a fixed count. Each pass adds at least one name or stops, and
+        // a name is never added twice, so `a = b; b = a` terminates on the set alone — the
+        // cap it was paired with only made a chain of nine copies lose the helper silently.
+        loop {
+            let more: Vec<(String, bool, usize)> = self
+                .given
+                .iter()
+                .filter(|g| {
+                    // Copied from a name that already stands for the node, and given a value
+                    // exactly once in the scopes covering the call. Given twice it is not a
+                    // copy of anything in particular — `current = row; current =
+                    // row.child("detail")` names the detail node by the time the helper is
+                    // called, and following it to `row` would file the reads under the wrong
+                    // node. `settled_given_in` reads only what is in scope, which is also what
+                    // keeps a nested function's copy from answering out here; checking the
+                    // extent again alongside it said the same thing twice.
+                    !out.contains(g.name.as_str())
+                        // …and the source must still name the SAME value at the call as it did
+                        // when the copy ran. `out` is what the names stand for at the call, and
+                        // a copy took whatever its source held at its own position: with `var
+                        // source = e; source = other; var current = source; source = e;` the
+                        // set reaches `source` through the last write and then admits `current`,
+                        // which in fact holds `other`. The reads were filed under `e` and the
+                        // shape rejected roots that carry only what `other` supplies.
+                        //
+                        // Asked at the COPY's position, which is the whole of the correction:
+                        // `var original = row; row = row.child("detail"); parse(original)` has
+                        // `original` still naming the row precisely because the source moved
+                        // afterwards. My first draft required the source to name the same value
+                        // at both points and threw that case away — the two questions are "what
+                        // did this copy take" and "what does the source hold now", and only the
+                        // first belongs to a copy.
+                        //
+                        // Nothing in effect there means the name is still whatever its scope
+                        // gave it, which is how the callback's own parameter reads; a record in
+                        // effect there has to be one this walk already admitted, so a value
+                        // reached through a write that no longer stands cannot seed the set.
+                        && g.from.as_deref().is_some_and(|f| {
+                            match self.settled_given_in(f, g.at) {
+                                None => out.contains(f),
+                                Some(then) => admitted.contains(&std::ptr::from_ref(then).addr()),
+                            }
+                        })
+                        // And THIS record is one that can already have taken effect. The count
+                        // below is about the name; it says nothing about which value was
+                        // selected, so `var current = other; parse(current); current = row`
+                        // counted the one value in scope, then picked the LATER record because
+                        // its source was already in the set — filing the helper's fields under
+                        // `row` at a call where `current` still holds `other`. Same rule the
+                        // count uses: textual position, unless a loop repeats it.
+                        && in_effect_at(g.effective, g.repeats_in, &g.runs_before, &g.runs_after, g.lands_at, at)
+                        // …and it must be the record that HOLDS the name there, not merely one
+                        // of several the count admits. Asking only "is this settled" would let
+                        // an earlier record win once a later one superseded it — `var current =
+                        // e; current = other; parse(current)` has `other` in effect and `e` in
+                        // the set, and the first record would have filed the reads under the
+                        // node the second replaced.
+                        && self
+                            .settled_given_in(&g.name, at)
+                            .is_some_and(|d| std::ptr::eq(d, *g))
+                        && !self.written_without_a_value(&g.name, at)
+                })
+                .map(|g| {
+                    // Uncertain if this assignment itself could have been skipped, or if what it
+                    // copied from was already only conditionally the node — `if (flag) a = e; b =
+                    // a; parse(b)` passes `b`, whose own assignment is unconditional, and asking
+                    // only about the last link would have called it certain.
+                    let via = g.from.as_deref().unwrap_or_default();
+                    (
+                        g.name.clone(),
+                        g.conditional || uncertain.contains(via),
+                        std::ptr::from_ref::<Given>(g).addr(),
+                    )
+                })
+                .collect();
+            if more.is_empty() {
+                return (out, uncertain);
+            }
+            for (name, cond, id) in more {
+                if cond {
+                    uncertain.insert(name.clone());
+                }
+                out.insert(name);
+                admitted.insert(id);
+            }
+        }
+    }
+
+    /// Whether `name` is written at `at` by something that recorded no value for it.
+    ///
+    /// `current = row` is BOTH an alias and a write to `current`, which is why copies are
+    /// tracked as `Given` rather than as writes — asking `written_in_scope` here rejected the
+    /// very form it was meant to follow. But a destructuring write,
+    /// `[current] = [row.child("detail")]`, reaches the write collector and records no value,
+    /// so counting values alone still called `current` a copy of `row` and filed the helper's
+    /// reads at the row root. A write whose span matches no recorded value is one whose effect
+    /// the value list cannot see, and that is what invalidates the alias.
+    fn written_without_a_value(&self, name: &str, at: Span) -> bool {
+        self.writes.iter().any(|w| {
+            w.name == name
+                && w.covers(at)
+                && in_effect_at(
+                    w.effective,
+                    w.repeats_in,
+                    &w.runs_before,
+                    &w.runs_after,
+                    w.lands_at,
+                    at,
+                )
+                && !self.given.iter().any(|g| g.name == name && g.at == w.at)
+        })
+    }
+
+    /// Whether `name` is given a value that can already have taken effect at `at`.
+    ///
+    /// `var row = row.child("detail")` REDECLARES the callback's parameter and assigns
+    /// through it, so afterwards `row` names the detail node. A declaration is not a write to
+    /// an existing binding in general — treating every initialized `var` as one disqualified
+    /// every tracked child in the file — but for a name that was ALREADY bound, which is what
+    /// the parameter is, the initializer moves it. Ordering is the same question as for a
+    /// write: textual position, unless a loop repeats it.
+    fn given_before(&self, name: &str, at: Span) -> bool {
+        self.given.iter().any(|g| {
+            g.name == name
+                && covers(g.scope, at)
+                && in_effect_at(
+                    g.effective,
+                    g.repeats_in,
+                    &g.runs_before,
+                    &g.runs_after,
+                    g.lands_at,
+                    at,
+                )
+        })
+    }
+
+    /// WHICH record holds `name` at a call, among those that can already have taken effect.
+    ///
+    /// One record, or several that copy the same name — and otherwise the LAST one, when it
+    /// certainly overwrites the rest. `var current = other; current = e; parse(current)` hands
+    /// `parse` nothing but `e`, and reading every in-scope value as simultaneously live refused
+    /// the alias and dropped the helper's fields with nothing recorded. That refusal was on the
+    /// open list for eleven rounds as "nothing supersedes"; this is it.
+    ///
+    /// Dominating means all three: the last write is not one a branch can skip, no live record
+    /// repeats in a loop that could bring it back afterwards, and every other live record has
+    /// already taken effect where that last one is WRITTEN — which is the same `in_effect_at`
+    /// the liveness filter uses, asked at a different position. A record this cannot order
+    /// against the others leaves the answer `None` and the alias refused, exactly as before.
+    fn settled_value<'g>(live: &[&'g Given]) -> Option<&'g Given> {
+        let (first, rest) = live.split_first()?;
+        if rest.is_empty() {
+            return Some(first);
+        }
+        let last = live.iter().copied().max_by_key(|g| g.effective)?;
+        let dominates = !last.conditional
+            && live.iter().all(|g| g.repeats_in.is_none())
+            && live.iter().all(|g| {
+                std::ptr::eq(*g, last)
+                    || in_effect_at(
+                        g.effective,
+                        g.repeats_in,
+                        &g.runs_before,
+                        &g.runs_after,
+                        g.lands_at,
+                        last.at,
+                    )
+            });
+        if dominates {
+            return Some(last);
+        }
+        // The dominating record FIRST, and only then equivalent copies. `if (flag) current = e;
+        // current = e; parse(current)` gives the name one value by two records, and returning
+        // the first of them handed `names_for` the CONDITIONAL one — so the helper's fields came
+        // back optional though every execution reads them from `e`. The shortcut answers "which
+        // value", and the question here is "which record", which is not the same when one of
+        // them supersedes the other. That was a defect in the rule I added last round: I put
+        // this branch above the dominance test and it shadowed it.
+        //
+        // `if (flag) current = e; else current = e;` writes twice and means one thing, and
+        // counting records refused the alias and dropped the helper's fields with nothing
+        // recorded. Records that COPY A NAME are comparable that way; two that computed their
+        // values are two values however alike they look — `current = row; current =
+        // row.child("detail")` — and neither the test above nor this one settles those. Whether
+        // the paths are exhaustive is a separate question, and the answer is already carried:
+        // each record's own `conditional` travels to `names_for`, so a value only some path
+        // assigns still reaches the shape as an optional one.
+        if first.from.is_some() && rest.iter().all(|g| g.from == first.from) {
+            return Some(first);
+        }
+        None
+    }
+
+    /// The record [`Self::settled_value`] selects for `name` at `at`, or `None` when the name
+    /// holds no value this can settle on.
+    fn settled_given_in(&self, name: &str, at: Span) -> Option<&Given> {
+        let live: Vec<&Given> = self
+            .given
+            .iter()
+            .filter(|g| {
+                g.name == name
+                    && covers(g.scope, at)
+                    && in_effect_at(
+                        g.effective,
+                        g.repeats_in,
+                        &g.runs_before,
+                        &g.runs_after,
+                        g.lands_at,
+                        at,
+                    )
+            })
+            .collect();
+        Self::settled_value(&live)
     }
 
     /// Whether `name` is bound by a scope strictly inside this source that contains `at` —
@@ -2679,6 +9453,8 @@ fn all_bindings(program: &oxc_ast::ast::Program<'_>) -> Bindings {
     Bindings {
         names: c.names,
         scoped: c.scoped,
+        writes: c.writes,
+        given: c.given,
     }
 }
 
@@ -2722,7 +9498,7 @@ impl<'a> Visit<'a> for DiscriminatorFinder<'_> {
                 && let Some(wire) = arg_str(call, 0)
             {
                 let mut discard = Vec::new();
-                let mut f = field_from_call(method, call, self.module, &mut discard);
+                let mut f = field_from_call(method, call, self.module, false, &mut discard);
                 f.name = wire.to_string();
                 f.wire_name = None;
                 let extent = self.blocks.last().copied();
@@ -3698,10 +10474,525 @@ fn returned_candidates(e: &Expression<'_>, out: &mut Vec<String>) {
 /// break; t.value = second; } while (…)` runs its body once, but not all of it, so the
 /// write is no more certain than one behind an `if`.
 fn contains_exit(stmt: &Statement<'_>) -> bool {
+    contains_exit_where(stmt, true, true)
+}
+
+/// Whether `stmt` can end the construct being asked about *and hand back a result* — so a
+/// `throw` does not count.
+///
+/// This is the question a guaranteed pass wants. `do { if (bad) throw Error(); } while
+/// (parse(e))` reaches the test on every execution that produces a value, because the only
+/// path skipping it produces none; treating every exit alike weakened the test and called
+/// `parse`'s reads optional where every successful parse performs them. Same for what follows
+/// a possible throw inside a `do` body or a testless `for`.
+fn exits_with_a_value(stmt: &Statement<'_>) -> bool {
+    contains_exit_where(stmt, false, true)
+}
+
+/// Whether `stmt` can leave the loop it is the body of *carrying a result* — a `return`, a
+/// `break`, or a labelled jump out of it.
+///
+/// Not a `throw`, which leaves handing nothing back, and not a `continue`, which starts the next
+/// pass rather than leaving at all. Contrast [`exits_with_a_value`], where a `continue` counts
+/// because the question there is what the rest of a guaranteed pass can be skipped by.
+///
+/// Two callers, and they turn out to be one question. A `do`/`while` reaches its test only if
+/// the body did not leave first — `do { continue; } while (parse(e))` evaluates `parse` on every
+/// execution that leaves the loop at all. And a loop whose test cannot end it produces a value
+/// only by being left this way: `while (!0) { if (bad) throw Error(); }` either throws or runs
+/// forever, so it hands nothing back on any path. That case was missed by asking two questions
+/// instead — "does every path throw" was false, and "is there no way out" counted the throw as
+/// one — and their disjunction covered each pure case while missing the mixture. Asking once
+/// covers all three, and one fewer predicate is the point rather than a side effect.
+///
+/// A LABELLED continue is counted as leaving even when it names this loop — recovering that
+/// would need the loop's own label threaded in from the `LabeledStatement` above it, and
+/// over-weakening is the safe direction.
+fn leaves_the_loop_with_a_value(stmt: &Statement<'_>) -> bool {
+    contains_exit_where(stmt, false, false)
+}
+
+/// Whether a logical operator's right side runs whatever its left side evaluated to: `!0 && x`
+/// and `0 || x` both reach `x` always.
+///
+/// `??` reaches its right side when the left one IS nullish, which `null` and `void …` both
+/// are. Read by the requiredness walk and by the binding collector, which have to agree about
+/// the same expression — so a read there came out optional against a parser that always
+/// performs it, and the shape accepted responses the source rejects.
+fn logical_right_is_certain(expr: &oxc_ast::ast::LogicalExpression<'_>) -> bool {
+    match expr.operator {
+        oxc_syntax::operator::LogicalOperator::And => always_true(&expr.left),
+        oxc_syntax::operator::LogicalOperator::Or => always_false(&expr.left),
+        oxc_syntax::operator::LogicalOperator::Coalesce => certainly_nullish(&expr.left),
+    }
+}
+
+/// Whether `t` is certainly `null` or `undefined` — the complement [`never_nullish`] declines
+/// to answer, and no more available for an arbitrary expression than its opposite is.
+///
+/// `void <anything>` is `undefined` whatever it evaluates, side effects included. A bare
+/// `undefined` is an identifier nothing here resolves, so it declines with everything else.
+/// Whether `t` is certainly `undefined` — the half of [`certainly_nullish`] a DEFAULT reacts to.
+///
+/// `null` is nullish and is NOT this: a default stands in for `undefined` alone, so `null` runs
+/// straight into the pattern it was written beside. `void <anything>` is `undefined` whatever it
+/// evaluates, and a bare `undefined` is an identifier a source may rebind, which is why the
+/// spelling settles nothing on its own.
+fn certainly_undefined(t: &Expression<'_>) -> bool {
+    matches!(peel(t), Expression::UnaryExpression(u)
+        if u.operator == oxc_syntax::operator::UnaryOperator::Void)
+}
+
+/// Whether `t` is certainly NOT `undefined`, so a default written beside it is never taken.
+///
+/// The complement of [`certainly_undefined`] over the spellings that settle it, which is every
+/// literal — `null` among them — and every value-constructing form. Anything this cannot read
+/// may evaluate to `undefined` and leaves the question open.
+fn certainly_not_undefined(t: &Expression<'_>) -> bool {
+    matches!(
+        peel(t),
+        Expression::NullLiteral(_)
+            | Expression::NumericLiteral(_)
+            | Expression::StringLiteral(_)
+            | Expression::BooleanLiteral(_)
+            | Expression::BigIntLiteral(_)
+            | Expression::RegExpLiteral(_)
+            | Expression::TemplateLiteral(_)
+            | Expression::ObjectExpression(_)
+            | Expression::ArrayExpression(_)
+            | Expression::FunctionExpression(_)
+            | Expression::ArrowFunctionExpression(_)
+            | Expression::ClassExpression(_)
+    )
+}
+
+fn certainly_nullish(t: &Expression<'_>) -> bool {
+    match t {
+        Expression::NullLiteral(_) => true,
+        Expression::ParenthesizedExpression(p) => certainly_nullish(&p.expression),
+        Expression::UnaryExpression(u) => u.operator == oxc_syntax::operator::UnaryOperator::Void,
+        _ => false,
+    }
+}
+
+/// Which side of a branch a statically decidable test selects, as `(taken, unreachable)`.
+///
+/// `None` when the test is anything a value could change, which is every test in this corpus —
+/// the point is that a minifier's `!0`/`0` spelling is not a branch and must not be read as one.
+fn statically_selected<'s, T>(
+    test: &Expression<'_>,
+    consequent: &'s T,
+    alternate: Option<&'s T>,
+) -> Option<(Option<&'s T>, Option<&'s T>)> {
+    if always_true(test) {
+        return Some((Some(consequent), alternate));
+    }
+    // The taken side is optional because `if (0) { … }` with no `else` takes NOTHING — and
+    // answering `None` for it, as though the test were undecided, left the dead consequent
+    // walked as merely skippable. A write there is not skippable; it cannot happen.
+    if always_false(test) {
+        return Some((alternate, Some(consequent)));
+    }
+    None
+}
+
+/// Whether iterating `e` necessarily produces at least one element.
+///
+/// Only an array literal holding something other than a spread: `[0]` and `[a, b]` iterate, `[]`
+/// does not, and `[...xs]` may or may not — deliberately narrow, because reading an iterable as
+/// nonempty when it can be empty would require reads the parser can skip. A hole counts: `[,]`
+/// yields one `undefined`.
+///
+/// A spread is only unknown while its OPERAND is. `[...[1]]` and `[..."a"]` copy something this
+/// can see is nonempty, so the literal is nonempty too and the question is the same one asked of
+/// the operand — this predicate, on the argument. Treating every spread as unanswerable had a
+/// body that always runs called skippable and every read in it came back optional, which is the
+/// failure this whole predicate exists to avoid.
+///
+/// A STRING is iterable too, one code point at a time, so a nonempty literal yields at least
+/// one pass and the empty one yields none. Only the array spelling was read, so `for (const x
+/// of "a")` had its body called skippable and every read in it came back optional. A template
+/// with nothing substituted into it is the same string; one with a substitution is whatever
+/// that evaluates to.
+fn iterates_at_least_once(e: &Expression<'_>) -> bool {
+    match e {
+        Expression::ParenthesizedExpression(p) => iterates_at_least_once(&p.expression),
+        // …and the array has to be BUILT before an iterator over it exists. An element that
+        // raises stops the whole literal, so `for (const x of [(throws)()])` reaches its
+        // handler rather than its body — the same rule `for-in` over an object literal was
+        // given two rounds ago, on the other loop, read from the same predicate.
+        Expression::ArrayExpression(a) if expression_throws(e) => {
+            let _ = a;
+            false
+        }
+        Expression::ArrayExpression(a) => a.elements.iter().any(|el| match el {
+            oxc_ast::ast::ArrayExpressionElement::SpreadElement(sp) => {
+                iterates_at_least_once(&sp.argument)
+            }
+            _ => true,
+        }),
+        Expression::StringLiteral(l) => !l.value.is_empty(),
+        Expression::TemplateLiteral(t) => single_quasi(t).is_some_and(|c| !c.is_empty()),
+        _ => false,
+    }
+}
+
+/// Whether the left side settles the operator, so the right side is evaluated on no path.
+///
+/// The mirror of [`logical_right_is_certain`]: `&&` skips its right side when the left is
+/// falsy, `||` when it is truthy, and `??` when it is neither `null` nor `undefined`.
+fn logical_right_is_dead(e: &oxc_ast::ast::LogicalExpression<'_>) -> bool {
+    use oxc_syntax::operator::LogicalOperator as L;
+    match e.operator {
+        L::And => always_false(&e.left),
+        L::Or => always_true(&e.left),
+        L::Coalesce => never_nullish(&e.left),
+    }
+}
+
+/// Whether this discriminant can only be `true` or `false`, so listing both covers it.
+///
+/// Deliberately narrow: the spellings that PRODUCE a boolean whatever their operand holds — a
+/// literal, a `!` (so `!x` and the minifier's `!!x` alike), and the comparison and equality
+/// operators, plus `in` and `instanceof`. Anything else, including a call, is left alone:
+/// reading a discriminant as boolean when it is not would call a switch exhaustive that an
+/// unlisted value falls straight through, and require of every element what such an execution
+/// never reads.
+fn statically_boolean(d: &Expression<'_>) -> bool {
+    use oxc_syntax::operator::BinaryOperator as B;
+    match peel(d) {
+        Expression::BooleanLiteral(_) => true,
+        Expression::UnaryExpression(u) => {
+            u.operator == oxc_syntax::operator::UnaryOperator::LogicalNot
+        }
+        Expression::BinaryExpression(b) => matches!(
+            b.operator,
+            B::Equality
+                | B::Inequality
+                | B::StrictEquality
+                | B::StrictInequality
+                | B::LessThan
+                | B::LessEqualThan
+                | B::GreaterThan
+                | B::GreaterEqualThan
+                | B::In
+                | B::Instanceof
+        ),
+        _ => false,
+    }
+}
+
+/// Whether these cases list `true` and `false` both, which covers a boolean discriminant.
+///
+/// The switch matches with STRICT equality, so only the boolean literals themselves count —
+/// `case 1:` never matches `true` however truthy it looks.
+fn both_booleans_listed(cases: &[oxc_ast::ast::SwitchCase<'_>]) -> bool {
+    let listed = |want: bool| {
+        cases.iter().any(|c| {
+            c.test.as_ref().is_some_and(
+                |t| matches!(peel(t), Expression::BooleanLiteral(b) if b.value == want),
+            )
+        })
+    };
+    listed(true) && listed(false)
+}
+
+/// Whether evaluating this EXPRESSION certainly raises, so no execution takes its value.
+///
+/// [`throws_out`] answers this for statements; a ternary arm is an expression, and the only
+/// spelling that settles it here is a body invoked on the spot whose statements all leave by
+/// throwing — `(function(){ throw Error(); })()`, which is how a minifier writes an
+/// unconditional raise in expression position. Anything else, including a call to a function
+/// this cannot see, is left alone: claiming a raise where none happens would drop the reads of
+/// an arm executions really do take.
+fn expression_throws(e: &Expression<'_>) -> bool {
+    // Before peeling, not after. `peel` hands back a sequence's VALUE — its last element — and
+    // an earlier operand that raises is dropped on the way: `((throws)(), 0)` completes
+    // abruptly and read as the `0`. Every element is evaluated, so the sequence raises when any
+    // of them does. Parentheses change nothing and are peeled either way.
+    if let Expression::SequenceExpression(seq) = peel_parens(e) {
+        return seq.expressions.iter().any(expression_throws);
+    }
+    // The LEFT of a short-circuit is evaluated whichever side supplies the value, and [`peel`]
+    // hands back the right once the operator is decided — so ask here, before that happens, for
+    // the same reason the sequence above is asked before it. `(void (throws)()) ?? f` is
+    // certainly nullish AND certainly raises, and peeling first would have kept only the `f`.
+    if let Expression::LogicalExpression(l) = peel_parens(e)
+        && expression_throws(&l.left)
+    {
+        return true;
+    }
+    let peeled = peel(e);
+    // `new (class { constructor(){ throw 0; } })()` completes abruptly as surely as an IIFE
+    // whose body throws: the constructor IS the body, invoked right here. Only the direct call
+    // spelling was read, so a construction that raises read as an argument evaluating to a
+    // value and the call it stops was walked as one that happens.
+    //
+    // The same question `instance_definition` asks before resolving a member of the instance,
+    // which is where I first wrote it — one predicate now, so the two cannot disagree.
+    if let Expression::NewExpression(n) = peeled {
+        // The callee is evaluated first and the arguments after it, both before anything is
+        // constructed — the same order, and the same rule, an ordinary call is read by.
+        if expression_throws(&n.callee) || n.arguments.iter().any(argument_raises) {
+            return true;
+        }
+        return match peel(&n.callee) {
+            Expression::ClassExpression(c) => class_constructor_throws(c),
+            // …and `new` over something with no `[[Construct]]` raises before any body is
+            // entered. `walk_invocation` has declined to WALK such a body since the round it
+            // was reported for, which was only half the answer: the arm still counted as one
+            // that produces a value, so `flag ? new (() => { parse(e); })() : parse(e)` kept
+            // an impossible arm in the intersection and left the read optional.
+            other => certainly_not_constructible(other),
+        };
+    }
+    // An expression whose PARTS are evaluated on the way to its value raises when one of them
+    // does: a template builds its string from substitutions taken in order, and a literal builds
+    // itself from its elements. Reading only the outermost node had `return `${(throws)()}``
+    // taken for a value that arrives, and left two hand-rolled per-part scans elsewhere saying
+    // the same thing in their own words.
+    let a_part_raises = match peeled {
+        Expression::TemplateLiteral(t) => t.expressions.iter().any(expression_throws),
+        // An operator computes from operands taken BEFORE it, so a raise in one of them stops
+        // the whole expression: `(throws)() + 1` never reaches the addition, and an argument
+        // spelled that way stops the call it belongs to. Only a bare call was recognized, so
+        // wrapping the very same IIFE in an operator hid it and the call was walked as one that
+        // happens — with the writes in its body recorded.
+        //
+        // Both sides of a binary, the single operand of a unary (`typeof` and `delete` included:
+        // whether the operator itself would raise is a different question, but an operand that
+        // raises settles it first), and the TEST of a conditional, which is evaluated before
+        // either arm is chosen. A decided conditional never gets here — [`peel`] has already
+        // replaced it with the arm — and its test is a literal, which raises on no path.
+        Expression::BinaryExpression(b) => {
+            expression_throws(&b.left) || expression_throws(&b.right)
+        }
+        Expression::UnaryExpression(u) => expression_throws(&u.argument),
+        Expression::ConditionalExpression(c) => expression_throws(&c.test),
+        // …and an ASSIGNMENT evaluates its right side on the way to the value it yields, so
+        // `f(x = (throws)())` never reaches `f`. Not the logical spellings: `x ||= (throws)()`
+        // evaluates the right on one path only, and which one is a question about `x`.
+        Expression::AssignmentExpression(a) if !a.operator.is_logical() => {
+            expression_throws(&a.right) || assignment_target_raises(&a.left)
+        }
+        Expression::ArrayExpression(a) => a.elements.iter().any(|el| match el {
+            // …and building the array from a spread needs the spread value to be ITERABLE.
+            // `[...null]` and `[...1]` raise a `TypeError` while the literal is constructed, so
+            // the call they are an argument to never happens. Asking only whether evaluating
+            // the operand raises read the construction itself as always succeeding.
+            //
+            // An OBJECT literal's spread is not this: `{...null}` is legal and copies nothing,
+            // which is why the arm below it stays as it was.
+            oxc_ast::ast::ArrayExpressionElement::SpreadElement(sp) => {
+                expression_throws(&sp.argument) || certainly_not_iterable(&sp.argument)
+            }
+            oxc_ast::ast::ArrayExpressionElement::Elision(_) => false,
+            other => other.as_expression().is_some_and(expression_throws),
+        }),
+        Expression::ObjectExpression(o) => o.properties.iter().any(|p| match p {
+            oxc_ast::ast::ObjectPropertyKind::SpreadProperty(sp) => expression_throws(&sp.argument),
+            oxc_ast::ast::ObjectPropertyKind::ObjectProperty(op) => {
+                (op.computed && expression_throws(op.key.as_expression().unwrap_or(&op.value)))
+                    || expression_throws(&op.value)
+            }
+        }),
+        _ => false,
+    };
+    if a_part_raises {
+        return true;
+    }
+    // An optional chain is a `ChainExpression` wrapping the call, so asking for a bare
+    // `CallExpression` answered "raises on no path" for every `a?.b(…)` — including one whose
+    // argument certainly does. Unwrapped here rather than in `peel`, which answers what an
+    // expression EVALUATES and would then have to say what a short circuit evaluates to.
+    let peeled = match peeled {
+        Expression::ChainExpression(ch) => match &ch.expression {
+            oxc_ast::ast::ChainElement::CallExpression(inner) => {
+                return chain_call_throws(inner);
+            }
+            _ => return false,
+        },
+        other => other,
+    };
+    // A TAGGED template is an invocation with its argument list spelled another way: the
+    // substitutions are evaluated and then the tag is called. Falling through left
+    // ``(function(){ throw 0; })`x` `` reading as a value that arrives, so the arm it sits in
+    // diluted the intersection with the side that really produces one.
+    if let Expression::TaggedTemplateExpression(t) = peeled {
+        if expression_throws(&t.tag) || t.quasi.expressions.iter().any(expression_throws) {
+            return true;
+        }
+        return match invoked_callee(&t.tag) {
+            Expression::FunctionExpression(f) if !f.generator && !f.r#async => {
+                f.body.as_ref().is_some_and(|b| throws_out(&b.statements))
+            }
+            Expression::ArrowFunctionExpression(f) if !f.r#async => throws_out(&f.body.statements),
+            _ => false,
+        };
+    }
+    let Expression::CallExpression(c) = peeled else {
+        return false;
+    };
+    // The callee is evaluated first and the arguments after it, both before any body is
+    // entered — so a raise in either settles the call whatever its callee turns out to be.
+    // Only the inline body was read, which had `f(g((throws)()))` report the intermediate
+    // call as a value that arrives. `new` was given exactly this a round ago and the ordinary
+    // call spelling beside it was not: one rule, two places, one copy missing it, again.
+    if expression_throws(&c.callee) {
+        return true;
+    }
+    // …and an optional call that certainly short-circuits builds no argument list and enters no
+    // body, so it yields `undefined` however its arguments are spelled. Reading them anyway made
+    // `flag ? null?.((throws)()) : parse(e)` a throwing arm, and the intersection then ignored
+    // the side that really produces a value.
+    call_throws(c)
+}
+
+/// The text of a template with nothing substituted into it, which is a string literal spelled
+/// another way. `None` for one carrying a substitution — that names whatever it evaluates to —
+/// and for one whose cooked value an invalid escape has removed.
+fn single_quasi<'b>(t: &'b oxc_ast::ast::TemplateLiteral<'_>) -> Option<&'b str> {
+    if !t.expressions.is_empty() || t.quasis.len() != 1 {
+        return None;
+    }
+    t.quasis
+        .first()
+        .and_then(|q| q.value.cooked.as_ref())
+        .map(|c| c.as_str())
+}
+
+/// Whether `t` is a test no value of it can make false, so the loop it controls necessarily
+/// runs its body. Deliberately narrow: only the spellings a minifier emits, because reading a
+/// test as always-true when it is not would require reads the parser can skip.
+fn always_true(t: &Expression<'_>) -> bool {
+    match t {
+        Expression::BooleanLiteral(b) => b.value,
+        Expression::NumericLiteral(n) => n.value != 0.0,
+        // `1n` is truthy and `0n` is not, exactly as their numeric twins are — the pair read
+        // every numeric spelling and no bigint one, so `1n && parse(e)` was a branch and the
+        // read inside it came out optional against a side that does not exist. The value is
+        // base ten with no underscores, so "is it zero" is "is every digit a zero".
+        Expression::BigIntLiteral(b) => b.value.as_str().bytes().any(|c| c != b'0'),
+        // A string is decided by whether it holds anything, exactly as a number is decided by
+        // whether it is zero. This pair read every numeric spelling and no textual one, so
+        // `if ("x")` was a branch and the read inside it came out optional against a side that
+        // does not exist. A template with nothing substituted into it is the same string
+        // spelled another way — one with a substitution is whatever that evaluates to, which is
+        // not a question for a syntactic pass.
+        Expression::StringLiteral(l) => !l.value.is_empty(),
+        Expression::TemplateLiteral(t) => single_quasi(t).is_some_and(|c| !c.is_empty()),
+        Expression::ParenthesizedExpression(p) => always_true(&p.expression),
+        // `while (!0)`, which is how this corpus spells it 74 times over.
+        Expression::UnaryExpression(u)
+            if u.operator == oxc_syntax::operator::UnaryOperator::LogicalNot =>
+        {
+            always_false(&u.argument)
+        }
+        _ => false,
+    }
+}
+
+/// Whether `t` is a value that is certainly neither `null` nor `undefined`.
+///
+/// Not the same question as [`always_true`], and `??` asks this one: `0` is falsy and perfectly
+/// non-nullish, so `0 ?? x` never evaluates `x`. Reading truthiness there answered a narrower
+/// question and left the right side of a coalesce walked when nothing reaches it.
+///
+/// Literals and the expressions whose result type is fixed by their spelling. `void 0` IS
+/// undefined, and a bare `undefined` is an identifier this cannot resolve, so both decline.
+fn never_nullish(t: &Expression<'_>) -> bool {
+    match t {
+        Expression::NullLiteral(_) => false,
+        Expression::BooleanLiteral(_)
+        | Expression::NumericLiteral(_)
+        | Expression::BigIntLiteral(_)
+        | Expression::StringLiteral(_)
+        | Expression::TemplateLiteral(_)
+        | Expression::RegExpLiteral(_)
+        | Expression::ObjectExpression(_)
+        | Expression::ArrayExpression(_)
+        | Expression::FunctionExpression(_)
+        | Expression::ArrowFunctionExpression(_)
+        | Expression::ClassExpression(_) => true,
+        Expression::ParenthesizedExpression(p) => never_nullish(&p.expression),
+        // Every unary operator but `void` yields a primitive that is not nullish — `typeof`
+        // a string, `delete` a boolean, `!`/`-`/`+`/`~` a boolean or a number.
+        Expression::UnaryExpression(u) => u.operator != oxc_syntax::operator::UnaryOperator::Void,
+        _ => false,
+    }
+}
+
+/// The negation of [`always_true`] for the literals `!` is applied to — not its complement,
+/// since neither answer is available for an arbitrary expression.
+fn always_false(t: &Expression<'_>) -> bool {
+    match t {
+        Expression::BooleanLiteral(b) => !b.value,
+        Expression::NumericLiteral(n) => n.value == 0.0,
+        // …and its bigint twin, the mirror of the clause in `always_true`.
+        Expression::BigIntLiteral(b) => b.value.as_str().bytes().all(|c| c == b'0'),
+        Expression::NullLiteral(_) => true,
+        // The mirror of the rule above: the empty string is the one falsy string.
+        Expression::StringLiteral(l) => l.value.is_empty(),
+        Expression::TemplateLiteral(t) => single_quasi(t).is_some_and(str::is_empty),
+        Expression::ParenthesizedExpression(p) => always_false(&p.expression),
+        // `while (!1)` and `if (!1)` are as decided as `!0` is, and this pair was written with
+        // the negation on one side only — so `if (!1) { … } else { parse(e); }` intersected the
+        // reads of a side nothing reaches, and left what the parser always performs optional.
+        // The two are each other's mirror and now say so.
+        Expression::UnaryExpression(u)
+            if u.operator == oxc_syntax::operator::UnaryOperator::LogicalNot =>
+        {
+            always_true(&u.argument)
+        }
+        _ => false,
+    }
+}
+
+fn contains_exit_where(stmt: &Statement<'_>, throw_counts: bool, continue_counts: bool) -> bool {
     struct Probe {
         found: bool,
+        /// Whether a `throw` is one of the ways out being counted. It leaves the construct
+        /// either way; whether that matters depends on whether the caller is asking about
+        /// control flow or about paths that can yield a result.
+        throw_counts: bool,
+        /// Whether an unlabelled `continue` counts. It skips the rest of the body but arrives
+        /// at a `do`/`while`'s test, so the two questions want different answers.
+        continue_counts: bool,
+        /// Nested loops open around the statement being looked at. A `break` inside one of
+        /// them leaves THAT loop, not the one being asked about — `do { while (f) { break; } }
+        /// while (…)` completes its guaranteed pass, and counting the inner break weakened a
+        /// test the parser always evaluates. `return`/`throw` leave regardless.
+        loops: u32,
+        /// Same for `switch`, which consumes an unlabelled `break` but not a `continue`.
+        switches: u32,
+        /// Labels declared INSIDE the statement being probed. A labelled jump naming one of
+        /// these lands back inside the probe, so it is no more a way out than an unlabelled
+        /// `break` inside a nested loop is: `do { local: { break local; } parse(e); … }` reaches
+        /// `parse` on every pass, and counting the jump called that read optional. Only a label
+        /// declared outside — the enclosing loop's own, say — genuinely leaves.
+        labels: Vec<String>,
+    }
+    impl Probe {
+        /// Whether the probed statement declares `label` itself.
+        fn names(&self, label: &str) -> bool {
+            self.labels.iter().any(|n| n == label)
+        }
     }
     impl<'a> Visit<'a> for Probe {
+        // Nothing after an unconditional transfer is reached, so an exit written there is not
+        // one this construct can take: `for (;;) { continue; break; }` never breaks, and
+        // counting the dead `break` said the loop can finish — which made a branch that hangs
+        // forever an empty value-producing side and relaxed the reads of the only branch that
+        // yields anything. A generic walk visits every node; this one has to walk a statement
+        // LIST the way control does.
+        fn visit_statements(&mut self, stmts: &oxc_allocator::Vec<'a, Statement<'a>>) {
+            for st in stmts {
+                self.visit_statement(st);
+                if ends_the_statement_list(st) {
+                    break;
+                }
+            }
+        }
         fn visit_function(&mut self, _f: &Function<'a>, _flags: ScopeFlags) {}
         fn visit_arrow_function_expression(
             &mut self,
@@ -3712,16 +11003,66 @@ fn contains_exit(stmt: &Statement<'_>) -> bool {
             self.found = true;
         }
         fn visit_throw_statement(&mut self, _t: &oxc_ast::ast::ThrowStatement<'a>) {
-            self.found = true;
+            self.found |= self.throw_counts;
         }
-        fn visit_break_statement(&mut self, _b: &oxc_ast::ast::BreakStatement<'a>) {
-            self.found = true;
+        fn visit_break_statement(&mut self, b: &oxc_ast::ast::BreakStatement<'a>) {
+            // A LABELLED break jumps out of whatever it names, which no nested construct
+            // swallows — unless what it names is itself inside the probe.
+            match &b.label {
+                Some(l) => self.found |= !self.names(l.name.as_str()),
+                None => self.found |= self.loops == 0 && self.switches == 0,
+            }
         }
-        fn visit_continue_statement(&mut self, _c: &oxc_ast::ast::ContinueStatement<'a>) {
-            self.found = true;
+        fn visit_continue_statement(&mut self, c: &oxc_ast::ast::ContinueStatement<'a>) {
+            match &c.label {
+                Some(l) => self.found |= !self.names(l.name.as_str()),
+                None => self.found |= self.loops == 0 && self.continue_counts,
+            }
+        }
+        fn visit_labeled_statement(&mut self, l: &oxc_ast::ast::LabeledStatement<'a>) {
+            self.labels.push(l.label.name.as_str().to_string());
+            walk::walk_labeled_statement(self, l);
+            self.labels.pop();
+        }
+        fn visit_while_statement(&mut self, st: &oxc_ast::ast::WhileStatement<'a>) {
+            self.loops += 1;
+            walk::walk_while_statement(self, st);
+            self.loops -= 1;
+        }
+        fn visit_do_while_statement(&mut self, st: &oxc_ast::ast::DoWhileStatement<'a>) {
+            self.loops += 1;
+            walk::walk_do_while_statement(self, st);
+            self.loops -= 1;
+        }
+        fn visit_for_statement(&mut self, st: &oxc_ast::ast::ForStatement<'a>) {
+            self.loops += 1;
+            walk::walk_for_statement(self, st);
+            self.loops -= 1;
+        }
+        fn visit_for_in_statement(&mut self, st: &oxc_ast::ast::ForInStatement<'a>) {
+            self.loops += 1;
+            walk::walk_for_in_statement(self, st);
+            self.loops -= 1;
+        }
+        fn visit_for_of_statement(&mut self, st: &oxc_ast::ast::ForOfStatement<'a>) {
+            self.loops += 1;
+            walk::walk_for_of_statement(self, st);
+            self.loops -= 1;
+        }
+        fn visit_switch_statement(&mut self, st: &oxc_ast::ast::SwitchStatement<'a>) {
+            self.switches += 1;
+            walk::walk_switch_statement(self, st);
+            self.switches -= 1;
         }
     }
-    let mut p = Probe { found: false };
+    let mut p = Probe {
+        found: false,
+        throw_counts,
+        continue_counts,
+        loops: 0,
+        switches: 0,
+        labels: Vec::new(),
+    };
     p.visit_statement(stmt);
     p.found
 }
@@ -6163,6 +13504,169 @@ mod tests {
     }
 
     #[test]
+    fn a_let_bound_child_in_a_switch_case_does_not_outlive_the_switch() {
+        // The cases share ONE lexical scope and it ends with the switch, so `switch (m) { case
+        // 1: let d = e.child("inner"); break; } d.attrString("outside")` reads the trailing
+        // attribute off whatever `d` is outside — not off `<inner>`. This visitor mutated
+        // `child_vars` and put nothing back, which is the wrong-node direction the block and
+        // loop-header restores already existed for.
+        let r = analyze_parser_ast(
+            r#"{ switch (m) { case 1: let d = e.child("inner"); d.attrString("in"); break; }
+                 d.attrString("outside"); }"#,
+            "e",
+        );
+        let inner = r.fields.iter().find(|f| f.name == "inner").expect("inner");
+        let kids: Vec<String> = inner
+            .children
+            .iter()
+            .flatten()
+            .map(|c| c.name.clone())
+            .collect();
+        assert!(
+            kids.iter().any(|n| n == "in") && !kids.iter().any(|n| n == "outside"),
+            "the case-local binding dies with the switch: {kids:?}"
+        );
+    }
+
+    #[test]
+    fn a_var_bound_child_in_a_switch_case_does_outlive_it() {
+        // The bound: `var` is function-scoped, so it hoists clear of the switch block and the
+        // trailing read really is off `<inner>`. Restoring every declaration would lose it.
+        let r = analyze_parser_ast(
+            r#"{ switch (m) { case 1: var d = e.child("inner"); d.attrString("in"); break; }
+                 d.attrString("outside"); }"#,
+            "e",
+        );
+        let inner = r.fields.iter().find(|f| f.name == "inner").expect("inner");
+        let kids: Vec<String> = inner
+            .children
+            .iter()
+            .flatten()
+            .map(|c| c.name.clone())
+            .collect();
+        assert!(
+            kids.iter().any(|n| n == "outside"),
+            "a hoisting binding survives the switch: {kids:?}"
+        );
+    }
+
+    #[test]
+    fn an_arm_no_fallthrough_reaches_starts_from_the_outer_bindings() {
+        // Entering at `case 2` runs `case 2` — `case 1` broke, so nothing it bound is in scope
+        // on that path, whatever `var` says about the rest of the function. The arms shared one
+        // `child_vars` regardless, so the second arm's read was filed under `<inner>`, a node
+        // that entry never reached: the wrong node, and with nothing recorded, since
+        // `SWITCH_ARM_SHADOW` fires only for an arm that FALLS THROUGH and redeclares a name
+        // the switch was entered with. Every way an arm can end on all its paths.
+        for tail in [
+            "break;",
+            "throw Error();",
+            "return t;",
+            "if (f) break; else break;",
+        ] {
+            let r = analyze_parser_ast(
+                &format!(
+                    r#"{{ switch (m) {{ case 1: var d = e.child("inner"); {tail}
+                         case 2: d.attrString("late"); break; }} }}"#
+                ),
+                "e",
+            );
+            let inner = r.fields.iter().find(|f| f.name == "inner").expect("inner");
+            let kids: Vec<String> = inner
+                .children
+                .iter()
+                .flatten()
+                .map(|c| c.name.clone())
+                .collect();
+            assert!(
+                !kids.iter().any(|n| n == "late"),
+                "`{tail}` seals the arm, so the next one never sees `d`: {kids:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_var_nested_inside_a_falling_through_arm_is_still_a_shadow() {
+        // `var` is function-scoped, so `case "a": { var t = e.child("inner"); }` rebinds `t` for
+        // every arm after it exactly as the unbraced form does. The shadow scan read only the
+        // top level of each consequent, so the ambiguity it exists to report went unrecorded —
+        // the tree still filed the next arm's read under `<inner>`, now silently, which is the
+        // one thing the counted half of this decline is supposed to prevent.
+        for arm in [
+            r#"{ var t = e.child("inner"); }"#,
+            r#"if (f) { var t = e.child("inner"); }"#,
+            r#"for (;;) { var t = e.child("inner"); break; }"#,
+        ] {
+            let r = analyze_parser_ast(
+                &format!(
+                    r#"{{ var t = e.child("outer");
+                         switch (mode) {{ case "a": {arm} case "b": t.attrString("id"); }} }}"#
+                ),
+                "e",
+            );
+            assert!(
+                r.unresolved.iter().any(|u| u == "arm-shadowed node@t"),
+                "`{arm}` rebinds `t` for the arms after it: {:?}",
+                r.unresolved
+            );
+        }
+    }
+
+    #[test]
+    fn a_binding_that_dies_with_its_block_is_not_a_shadow() {
+        // The bounds, and both are why this asks for `var` specifically rather than for every
+        // declaration it can find: a `let` inside a nested block ends with that block, and a
+        // `var` inside a nested FUNCTION belongs to that function. Neither reaches the arms
+        // after it, and reporting them would make the counter fire where nothing is ambiguous.
+        for arm in [
+            "{ let t = 1; }",
+            "(function(){ var t = 1; });",
+            "(() => { var t = 1; });",
+        ] {
+            let r = analyze_parser_ast(
+                &format!(
+                    r#"{{ var t = e.child("outer");
+                         switch (mode) {{ case "a": {arm} case "b": t.attrString("id"); }} }}"#
+                ),
+                "e",
+            );
+            assert!(
+                r.unresolved.is_empty(),
+                "`{arm}` rebinds nothing the next arm sees: {:?}",
+                r.unresolved
+            );
+        }
+    }
+
+    #[test]
+    fn an_arm_that_falls_through_does_hand_its_bindings_on() {
+        // The bound. Fallthrough is the one way the next arm runs with what this one bound, so
+        // the read really is off `<inner>` — restoring at every arm boundary would lose it and
+        // file the read against the outer node instead, which is the same wrong-node mistake
+        // pointing the other way. A `break` only SOME path takes leaves the fallthrough open.
+        for tail in ["", "if (f) break;", "if (f) { g(); } else { break; }"] {
+            let r = analyze_parser_ast(
+                &format!(
+                    r#"{{ switch (m) {{ case 1: var d = e.child("inner"); {tail}
+                         case 2: d.attrString("late"); break; }} }}"#
+                ),
+                "e",
+            );
+            let inner = r.fields.iter().find(|f| f.name == "inner").expect("inner");
+            let kids: Vec<String> = inner
+                .children
+                .iter()
+                .flatten()
+                .map(|c| c.name.clone())
+                .collect();
+            assert!(
+                kids.iter().any(|n| n == "late"),
+                "`{tail}` falls through carrying `d`: {kids:?}"
+            );
+        }
+    }
+
+    #[test]
     fn a_switch_case_binding_stays_in_the_switch() {
         let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
             function parse(p){ p.attrString("from_module"); }
@@ -6322,6 +13826,95 @@ mod tests {
         assert!(has_id, "`detail`'s `id` survives somewhere: {kids:?}");
     }
 
+    /// The tags a read landed under, as `parent/child` paths, for placement assertions.
+    fn placed_paths(r: &ParserResult) -> Vec<String> {
+        let mut out = Vec::new();
+        for f in &r.fields {
+            if let Some(kids) = &f.children {
+                for k in kids {
+                    out.push(format!("{}/{}", f.name, k.name));
+                }
+            }
+        }
+        out.sort();
+        out
+    }
+
+    #[test]
+    fn a_let_bound_child_at_the_top_of_the_body_reaches_the_dispatch_arms() {
+        // `let detail = e.child("detail")` followed by arms reading `detail` lost BOTH reads
+        // and recorded nothing — the outermost braces were registered as a scope, so
+        // `bound_inside` called every read in the body one an inner scope accounts for and the
+        // walk refused to place them. The same source with `var` recovered both, which is what
+        // showed the cause was the scope registration rather than the missing lexical model I
+        // had blamed on the review thread.
+        let arms = |decl: &str| {
+            let src = format!(
+                r#"{{ {decl} detail = e.child("detail");
+                     e.forEachChildWithTag("row", function(row){{
+                         var k = row.attrString("kind");
+                         if (k === "a") {{ t.one = detail.attrString("first"); }}
+                         if (k === "b") {{ t.two = detail.attrString("second"); }}
+                     }});
+                   }}"#
+            );
+            let r = analyze_parser_ast(&src, "e");
+            r.fields
+                .iter()
+                .find(|f| f.name == "detail")
+                .and_then(|f| f.children.as_ref())
+                .map(|k| k.iter().map(|c| c.name.clone()).collect::<Vec<_>>())
+                .unwrap_or_default()
+        };
+        for decl in ["let", "const", "var"] {
+            let kids = arms(decl);
+            assert!(
+                kids.iter().any(|n| n == "first") && kids.iter().any(|n| n == "second"),
+                "`{decl}` at the top of the body reaches the arms: {kids:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_child_shadowed_by_a_let_in_a_block_is_restored_after_it() {
+        // `let` dies with the block, so the read after it is off `<outer>`. Restoring
+        // `child_vars` per function only left the inner binding in place, and the trailing
+        // attribute was filed under a node the parser never reads it from — a tree that
+        // disagrees with the source about structure, not just about strictness.
+        let r = analyze_parser_ast(
+            r#"{ var x = e.child("outer");
+                 { let x = e.child("inner"); x.attrString("inside"); }
+                 x.attrString("outside"); }"#,
+            "e",
+        );
+        let paths = placed_paths(&r);
+        assert!(
+            paths.contains(&"outer/outside".to_string()),
+            "the trailing read is the outer child's: {paths:?}"
+        );
+        assert!(
+            !paths.contains(&"inner/outside".to_string()),
+            "and not the shadow's: {paths:?}"
+        );
+    }
+
+    #[test]
+    fn a_child_bound_by_var_in_a_block_outlives_it() {
+        // The other direction: `var` is function-scoped, so a child it binds inside a block
+        // is still that name afterwards. Snapshotting the whole map per block would restore
+        // this one too and lose the read.
+        let r = analyze_parser_ast(
+            r#"{ { var y = e.child("late"); }
+                 y.attrString("after"); }"#,
+            "e",
+        );
+        let paths = placed_paths(&r);
+        assert!(
+            paths.contains(&"late/after".to_string()),
+            "`var` outlives the block: {paths:?}"
+        );
+    }
+
     #[test]
     fn a_helper_formal_shadows_the_module_helper_of_that_name() {
         // `delegate(node, parse)` calls the `parse` it was handed, not the module's.
@@ -6357,6 +13950,7227 @@ mod tests {
         let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
         let id = p.fields.iter().find(|f| f.name == "id").expect("recovered");
         assert!(id.required, "every path reads it");
+    }
+
+    /// A module whose parser reaches `parse` only through `body`.
+    #[test]
+    fn a_tagged_template_supplies_its_strings_object() {
+        // A tag is called with the strings object and then the substitutions, so parameter 0 is
+        // ALWAYS supplied and its default runs for nobody. The round that taught this reader
+        // tagged templates handed the mapping an empty argument list and said in a comment that
+        // "a default this cannot rule out simply runs" — which recorded a write no execution
+        // performs, so `parse` was read against a node the model had moved on paper only.
+        let fields = helper_reached_via(
+            "var current = e; (function (x = (current = other)) {})`t`; parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the strings object supplies that parameter: {fields:?}"
+        );
+        // The bounds: only the positions the template really fills. A second parameter with no
+        // substitution behind it still runs its default, a substitution supplies the position
+        // after the strings object, and a substitution spelling `undefined` supplies nothing.
+        for body in [
+            "var current = e; (function (a, x = (current = other)) {})`t`; parse(current);",
+            "var current = e; (function (a, x = (current = other)) {})`t${void 0}`; parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that default still runs: {body}"
+            );
+        }
+        let fields = helper_reached_via(
+            "var current = e; (function (a, x = (current = other)) {})`t${1}`; parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the substitution fills that position: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn a_templates_substitutions_run_before_its_tag() {
+        // Every substitution is evaluated before the tag is called, so the body reads what they
+        // wrote. Visiting the quasi after the invocation ordered them by their own position,
+        // which is below the tag — the body was read against a write that had already run.
+        let fields = helper_reached_via(
+            "var current = e; (function () { parse(current); })`t${current = other}`;",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the substitution already replaced it: {fields:?}"
+        );
+        // The bound: the body's own write still lands at the call, as it does for a `()` call.
+        let fields = helper_reached_via(
+            "var current = e; (function () { current = other; })`t`; parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the tag body ran before `parse`: {fields:?}"
+        );
+        // And the second bound, which is a decline rather than an answer: a tag reached through
+        // `.call` invokes `Function.prototype.call`, whose reshaping of the strings object is
+        // not the reshaping an argument list gets. That is not modelled, so the invocation is
+        // declined and the write is lost — never inverted.
+        let fields = helper_reached_via(
+            "var current = e; (function () { current = other; }).call`t`; parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "declined rather than mapped wrongly: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn a_class_extending_null_initializes_no_fields() {
+        // `extends null` defines a legal class and constructs none: the derived constructor's
+        // `super()` — here the implicit one — calls `null` and throws before a field
+        // initializes. The implicit-constructor shortcut read a missing constructor as
+        // `super(...a)` and therefore as successful, recording a write that happens on no path.
+        let fields = helper_reached_via(
+            "var current = e; try { new (class extends null { x = (current = other) })() } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "that construction throws: {fields:?}"
+        );
+        // The bound: a heritage that really is a constructor still installs its fields.
+        let fields = helper_reached_via(
+            "var current = e; new (class extends (function(){}) { x = (current = other) })(); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "an ordinary derived class still runs them: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn a_static_block_that_throws_ends_the_static_phase() {
+        // Class definition evaluates static blocks and static initializers in source order and
+        // stops at the first abrupt completion, so nothing static below a block that throws is
+        // evaluated at all. The element loop walked every one of them.
+        let fields = helper_reached_via(
+            "var current = e; try { class C { static { throw 0 }; static x = (current = other) } } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the phase stopped above that initializer: {fields:?}"
+        );
+        // The bounds: a block that completes normally stops nothing, and an element written
+        // ABOVE the throwing block has already run.
+        for body in [
+            "var current = e; try { class C { static { 0 }; static x = (current = other) } } catch (_) {} parse(current);",
+            "var current = e; try { class C { static x = (current = other); static { throw 0 } } } catch (_) {} parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that initializer does run: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_binding_destructures_the_argument_when_one_is_supplied() {
+        // Parameter binding takes apart ONE object: the argument when the call supplies it, the
+        // parameter's own default only when it does not. Listing both and searching the default
+        // first selected a getter that never runs and left the supplied one — the one that does
+        // — deferred.
+        //
+        // I removed the guard that decided this two rounds ago, calling it inert on the
+        // reasoning that a suppressed initializer is never walked. Unreachable is not harmless:
+        // it still won the lookup. No mutation of mine could show it, because no test until this
+        // one named the same property in both objects.
+        let fields = helper_reached_via(
+            "var current = e; (function ({x} = {get x(){ current = third }}) {})({get x(){ current = other }}); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the supplied getter is the one that runs: {fields:?}"
+        );
+        // The bound, which is round forty-two's answer and still holds: with no argument at all
+        // the default object is the one taken apart, so ITS getter is the one that runs.
+        let fields = helper_reached_via(
+            "var current = e; (function ({x} = {get x(){ current = other }}) {})(); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the default's getter runs when nothing is supplied: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn a_computed_invocation_key_is_evaluated_on_the_way() {
+        // `named_member` reads through the parentheses and the comma to decide WHICH property is
+        // named, and hands back only the object — so everything the key evaluated on the way was
+        // recorded nowhere at all. It is evaluated between the object and the call, and it can
+        // write while it is there.
+        for body in [
+            "var current = e; (function () {})[(current = other, \"call\")](null); parse(current);",
+            "var current = e; (function () {})[(current = other, \"bind\")](null)(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "the key already replaced it: {body}"
+            );
+        }
+        // The bound: a key that evaluates nothing changes nothing, and the invocation it names
+        // is still recognized — this is the same unwrapping, not a new refusal.
+        let fields = helper_reached_via(
+            "var current = e; (function () { current = other; })[\"call\"](null); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the body still runs at the call: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn a_destructuring_assignment_writes_its_targets_in_order() {
+        // A pattern assigns one target at a time, and a default beside a target is evaluated
+        // after the target above it is written: `[current, x = parse(current)] = [other]` hands
+        // `parse` the NEW `current`. Pinning every target's write to the whole expression's end
+        // — which is what a simple `a = b` needs — delayed them all past that default.
+        let fields =
+            helper_reached_via("var current = e; [current, x = parse(current)] = [other];");
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the target above it was already written: {fields:?}"
+        );
+        // The bound, and the reason the ordering is a `runs_after` region rather than a
+        // position: the right-hand side is evaluated before ANY target is written, and it is
+        // written BELOW the pattern, so position alone would call the write already effective
+        // there. A read in the right-hand side still sees the old value.
+        let fields = helper_reached_via("var current = e; [current] = [parse(current)];");
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the right-hand side runs first: {fields:?}"
+        );
+        // And the simple form answers the same way, which is why it is the same rule rather
+        // than a rule and a condition: its target is written above its right-hand side, so the
+        // region and the old shared end agree about every read there is. This case does NOT
+        // separate the two versions — nothing does — and it is here to say that plainly rather
+        // than to imply a bound it does not hold.
+        let fields = helper_reached_via("var current = e; current = parse(current);");
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "`current = parse(current)` hands `parse` the original node: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn what_a_class_defines_precedes_the_arguments_it_is_constructed_with() {
+        // A class expression is evaluated — computed keys, static initializers and all — before
+        // the arguments of the `new` that constructs it. Handing the whole class span to the
+        // landing rule made a static write an effect of the CALL, which put it after an argument
+        // it in fact precedes. Only the constructor and the instance initializers land there.
+        let fields = helper_reached_via(
+            "var current = e; new (class { static x = (current = other); })(parse(current));",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the class was defined before that argument: {fields:?}"
+        );
+        // The bounds: what really does run at the construction still lands at the call, in both
+        // its spellings — and both are read from one run, because a constructor body and an
+        // instance initializer are two regions of one invoked body.
+        for body in [
+            "var current = e; new (class { constructor() { current = other; } })(parse(current));",
+            "var current = e; new (class { x = (current = other); })(parse(current));",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that write lands at the call, after the argument: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_await_control_cannot_reach_suspends_nothing() {
+        // The probe visited every statement of the body, so an `await` past an unconditional
+        // throw became the cutoff: `try { throw 0; await 0; } catch (_) {} current = other;`
+        // finishes the handler and the assignment before the call returns. The dead-branch rules
+        // this probe already had answer "which side is selected"; this is the other half of
+        // reachability, and `walk_in_order` has stated it for statement lists all along.
+        let fields = helper_reached_via(
+            "var current = e; (async function () { try { throw 0; await 0; } catch (_) {} current = other; })(); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "nothing suspended before that write: {fields:?}"
+        );
+        // The bounds: an await control DOES reach is still the cutoff, whether a throw follows
+        // it or there is no throw at all. The list stops at the transfer, not before it.
+        for body in [
+            "var current = e; (async function () { try { await 0; throw 0; } catch (_) {} current = other; })(); parse(current);",
+            "var current = e; (async function () { try { await 0; } catch (_) {} current = other; })(); parse(current);",
+            // The transfer itself is still visited: `throw await 0` suspends before it raises.
+            // Stopping the list ABOVE the statement that ends it is the over-broad mutation.
+            "var current = e; (async function () { try { throw await 0; } catch (_) {} current = other; })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "the caller does not wait for that write: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_tags_strings_object_supplies_the_pattern_it_binds() {
+        // Round forty-six settled that the strings object supplies parameter 0 and stopped
+        // there, suppressing the parameter's OWN default and skipping the pattern beneath it.
+        // The object is an array whose entries this can read: ``(function ([x = …]) {})`tag` ``
+        // binds `x` to `"tag"`, so that default runs for nobody either.
+        let fields = helper_reached_via(
+            "var current = e; (function ([x = (current = other)]) {})`tag`; parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the strings array supplied that element: {fields:?}"
+        );
+        // The bound: an element past the last quasi is `undefined`, so ITS default runs — which
+        // is where reading the array stops.
+        let fields = helper_reached_via(
+            "var current = e; (function ([x, y = (current = other)]) {})`tag`; parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "there is no second string, so that default runs: {fields:?}"
+        );
+        // And a case that has moved sides. I had this as a second bound, reasoning that a
+        // parameter past the strings object is supplied by nothing so its default runs. The
+        // default never gets the chance: destructuring `undefined` throws while the parameters
+        // are bound, before any element default is evaluated, so
+        // ``(function (a, [x = …]) {})`tag` `` performs that write on no path at all. Seventh
+        // test of mine to encode the wrong answer, and the first that a fix in a later round
+        // exposed rather than review.
+        let fields = helper_reached_via(
+            "var current = e; (function (a, [x = (current = other)]) {})`tag`; parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the binding throws before that default: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn a_handler_the_block_certainly_reaches_is_not_a_branch() {
+        // A `catch` runs only when the block failed — unless the block fails on EVERY path, and
+        // then it runs on every path there is. Wrapping every handler in `maybe_skipped`
+        // invented a path around `try { throw 0; } catch (_) { var current = e; }`, so the value
+        // it gives is recorded as only conditionally the node and the helper's read comes back
+        // optional.
+        let (required, guard) =
+            guards_and_field("try { throw 0; } catch (_) { var current = e; } parse(current);");
+        assert!(
+            required && guard,
+            "that handler runs on every path: required={required} guard={guard}"
+        );
+        // The bounds: a block that may complete leaves its handler a real branch, and so does
+        // one that throws only under a test.
+        for body in [
+            "try { f(); } catch (_) { var current = e; } parse(current);",
+            "try { if (flag) throw 0; } catch (_) { var current = e; } parse(current);",
+        ] {
+            let (required, _) = guards_and_field(body);
+            assert!(!required, "that handler is still skippable: {body}");
+        }
+    }
+
+    #[test]
+    fn one_invalid_quasi_does_not_end_the_strings_array() {
+        // An invalid escape leaves THAT slot of the strings array `undefined` and nothing else:
+        // the positions do not shift, so every element after it is still supplied and its
+        // default still runs for nobody. Round forty-eight read a cooked-`None` as the end of
+        // the array and recorded every later default as a write that happens.
+        //
+        // ``\u`` is an invalid unicode escape, so quasi 0 is `undefined` while quasi 1 is `ok`
+        // — the tag receives `[undefined, "ok"]` and `y` is bound to `"ok"`.
+        let fields = helper_reached_via(
+            "var current = e; (function ([x, y = (current = other)]) {})`\\u${1}ok`; parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the slot after the bad escape still supplies its element: {fields:?}"
+        );
+        // The bounds. Past the END of the array an element really is `undefined`, so its
+        // default runs — that is the only reason to stop; and a template with no invalid escape
+        // at all answers exactly as it did before.
+        let fields = helper_reached_via(
+            "var current = e; (function ([x, y, z = (current = other)]) {})`a${1}b`; parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "there is no third string: {fields:?}"
+        );
+        let fields = helper_reached_via(
+            "var current = e; (function ([x, y = (current = other)]) {})`a${1}b`; parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "both elements are supplied: {fields:?}"
+        );
+        // And the element AT the bad escape is `undefined`, so ITS default does run — skipping
+        // that slot is not the same as supplying it, and reading the two as one is the
+        // over-broad mutation this holds.
+        let fields = helper_reached_via(
+            "var current = e; (function ([x = (current = other), y]) {})`\\u${1}ok`; parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "that slot is undefined and its default runs: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn a_string_test_is_as_decided_as_a_numeric_one() {
+        // A string is decided by whether it holds anything, exactly as a number is decided by
+        // whether it is zero. This pair read every numeric spelling and no textual one, so
+        // `if ("x")` was a branch and the read inside it came out optional against a side that
+        // does not exist. A template with nothing substituted into it is the same string.
+        for body in [
+            r#"if ("x") { parse(e); }"#,
+            r#"if ("") { other(); } else { parse(e); }"#,
+            r#""x" ? parse(e) : other();"#,
+            r#""" ? other() : parse(e);"#,
+            "if (`x`) { parse(e); }",
+            "if (``) { other(); } else { parse(e); }",
+        ] {
+            assert_eq!(
+                guards_and_field(body),
+                (true, true),
+                "`{body}` always runs it"
+            );
+        }
+        // The bound: a template carrying a SUBSTITUTION names whatever that evaluates to, which
+        // is not a question for a syntactic pass — so it is still a branch, and so is a string
+        // this pass never sees the value of.
+        for body in [
+            // The first quasi of this one is NONEMPTY, which is what separates the two
+            // readings: `${flag}` alone has an empty leading quasi, so a version that ignored
+            // the substitution would call it FALSE and skip the branch — the same answer by a
+            // different route, and no bound at all. That was round forty-four's lesson and my
+            // first draft of this test repeated it.
+            "if (`x${flag}`) { parse(e); }",
+            "if (`${flag}`) { parse(e); }",
+            "if (s) { parse(e); }",
+        ] {
+            assert_eq!(
+                guards_and_field(body),
+                (false, false),
+                "`{body}` may skip it"
+            );
+        }
+    }
+
+    #[test]
+    fn a_ternary_arm_that_cannot_yield_does_not_dilute() {
+        // Every execution that hands a value back took an arm that produces one. The `if` has
+        // filtered its throwing side since the round that taught it; the ternary — the same
+        // choice spelled shorter — intersected against the empty arm, so `parse`'s payload came
+        // out optional and its guard unpublished, and the generated parser accepted a response
+        // the source parser always throws on.
+        for body in [
+            "flag ? parse(e) : (function () { throw Error(); })();",
+            "flag ? (function () { throw Error(); })() : parse(e);",
+            "flag ? parse(e) : (() => { throw Error(); })();",
+        ] {
+            assert_eq!(
+                guards_and_field(body),
+                (true, true),
+                "`{body}` calls it on every path that yields"
+            );
+        }
+        // The bounds. An arm that completes still dilutes, and a call this pass cannot see
+        // inside is not a raise it may claim — saying otherwise would drop the reads of an arm
+        // executions really do take.
+        for body in [
+            "flag ? parse(e) : other();",
+            "flag ? parse(e) : raise();",
+            "flag ? parse(e) : (function () { maybe(); })();",
+        ] {
+            assert_eq!(
+                guards_and_field(body),
+                (false, false),
+                "`{body}` has a second arm that yields"
+            );
+        }
+    }
+
+    #[test]
+    fn listing_both_booleans_covers_a_boolean_discriminant() {
+        // A `default` is not the only way the cases can cover every value. `switch (!!flag)`
+        // can only be `true` or `false`, so listing both runs one of them on every execution
+        // and the intersection belongs exactly as it does under a `default`.
+        for body in [
+            "switch (!!flag) { case true: parse(e); break; case false: parse(e); break; }",
+            "switch (!flag) { case false: parse(e); break; case true: parse(e); break; }",
+            "switch (a === b) { case true: parse(e); break; case false: parse(e); break; }",
+            "switch (k in o) { case true: parse(e); break; case false: parse(e); break; }",
+        ] {
+            assert_eq!(
+                guards_and_field(body),
+                (true, true),
+                "`{body}` covers every value"
+            );
+        }
+        // The bounds, and they matter more here than usual because this WIDENS what is
+        // required. A discriminant this cannot prove boolean is not covered by two cases; one
+        // of the two booleans left out leaves a value that runs nothing; and the switch matches
+        // with STRICT equality, so `case 1:` never matches `true` however truthy it looks.
+        for body in [
+            "switch (k) { case true: parse(e); break; case false: parse(e); break; }",
+            "switch (f()) { case true: parse(e); break; case false: parse(e); break; }",
+            "switch (!!flag) { case true: parse(e); break; }",
+            "switch (!!flag) { case true: parse(e); break; case 0: parse(e); break; }",
+        ] {
+            assert_eq!(
+                guards_and_field(body),
+                (false, false),
+                "`{body}` leaves a value uncovered"
+            );
+        }
+    }
+
+    #[test]
+    fn an_unconditional_reassignment_supersedes_what_it_replaces() {
+        // `var current = other; current = e; parse(current)` hands `parse` nothing but `e`.
+        // Reading every in-scope value as simultaneously live refused the alias and dropped the
+        // helper's fields with nothing recorded — the refusal that sat on the open list for
+        // eleven rounds as "nothing supersedes". The last write wins when it certainly
+        // overwrites the rest.
+        let fields = helper_reached_via("var current = other; current = e; parse(current);");
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the second assignment replaced the first: {fields:?}"
+        );
+        // …and in the direction that matters most: a later write to something ELSE must still
+        // move the node away, or the fix would file reads under a node the parser replaced.
+        let fields = helper_reached_via("var current = e; current = other; parse(current);");
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the node moved on: {fields:?}"
+        );
+        // The bounds. A last write a branch can skip settles nothing, because both values are
+        // still live; a write BELOW the call has not happened yet; and a write inside a loop
+        // can come round again after the one that looked final.
+        for body in [
+            "var current = other; if (flag) { current = e; } parse(current);",
+            "var current = other; parse(current); current = e;",
+            "var current = other; while (flag) { current = e; parse(current); current = other; }",
+            // A write BELOW the call that comes round again is in effect there on the second
+            // pass and not the first, so two values reach it. The `do` body's first pass is
+            // guaranteed, which is what keeps this from being answered by the conditional test
+            // instead — the loop guard is the only thing that holds it.
+            "var current = other; do { parse(current); current = e; } while (flag);",
+            // And a write nested INSIDE the one that looks last. `current = (current = e, row)`
+            // ends with `row`, and the outer record's own span covers the inner one — so the
+            // greatest `effective` belongs to a record the inner write has not preceded. The
+            // ordering test is the only thing that refuses here; without it the inner `e` is
+            // read as settled and the helper's fields are filed under a node the outer
+            // assignment replaced.
+            "var current = other; current = (current = e, row); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "nothing settles that name: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_static_initializer_that_throws_ends_the_phase_too() {
+        // Round forty-eight stopped class definition at a static BLOCK that certainly throws
+        // and left the initializer half open, because asking whether an arbitrary expression
+        // raises was a question this pass could not answer. Round fifty's `expression_throws`
+        // answers exactly the decidable part of it, and the same predicate closes this.
+        let fields = helper_reached_via(
+            "var current = e; try { class C { static x = (function () { throw 0 })(); static y = (current = other) } } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the phase stopped above that initializer: {fields:?}"
+        );
+        // The bounds: an initializer that completes stops nothing, and one this pass cannot see
+        // inside is not a raise it may claim.
+        for body in [
+            "var current = e; try { class C { static x = 1; static y = (current = other) } } catch (_) {} parse(current);",
+            "var current = e; try { class C { static x = raise(); static y = (current = other) } } catch (_) {} parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that initializer still runs: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_getter_a_later_spread_overwrites_does_not_run() {
+        // A spread can overwrite a name, so a getter written above one no longer owns the
+        // property and its body is dead: `{ get x(){ … }, ...{x: 1} }` binds `x` to the data
+        // property. Marking it immediate recorded a write that happens on no path. The rule is
+        // `suppress_in_pattern`'s, which has had it since round twenty-nine — one rule, two
+        // places, one copy missing it.
+        let fields = helper_reached_via(
+            "var current = e; (function ({x}) {})({get x(){ current = other }, ...{x: 1}}); parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the spread replaced that getter: {fields:?}"
+        );
+        // The bound: a getter written AFTER every spread is the one the object ends up with,
+        // and it still runs.
+        let fields = helper_reached_via(
+            "var current = e; (function ({x}) {})({...{x: 1}, get x(){ current = other }}); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the getter is what the object ends up with: {fields:?}"
+        );
+        // Between two spreads: the getter is found only if the lookup starts after the LAST
+        // one, and a later spread really does overwrite it here — so starting after the FIRST
+        // spread claims a getter that never runs, which is the over-broad mutation.
+        let fields = helper_reached_via(
+            "var current = e; (function ({x}) {})({...{a: 1}, get x(){ current = other }, ...{x: 1}}); parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the last spread overwrote it: {fields:?}"
+        );
+        // And the loss this had one round ago is closed rather than carried. `...{y: 1}` cannot
+        // touch `x`, so the getter above it is still the one the object ends up with and it
+        // still runs. I recorded that as a stated loss last round — "reading a spread's own
+        // keys to narrow it is a separate change to both" — and review asked for the change;
+        // `owned_property` is it, and both readers share it rather than one being taught.
+        let fields = helper_reached_via(
+            "var current = e; (function ({x}) {})({get x(){ current = other }, ...{y: 1}}); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "that spread cannot replace `x`: {fields:?}"
+        );
+        // The bounds on THAT: a spread this cannot read, and one carrying a key it cannot read,
+        // may both hold `x` — so the getter above them is not the answer.
+        for body in [
+            "var current = e; (function ({x}) {})({get x(){ current = other }, ...rest}); parse(current);",
+            "var current = e; (function ({x}) {})({get x(){ current = other }, ...{[k]: 1}}); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that spread may supply `x`: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn zz_probe_r52() {
+        for (tag, body, want) in [
+            (
+                "T1_disjoint_spread",
+                "var current = e; (function ({x}) {})({get x(){ current = other }, ...{y: 1}}); parse(current);",
+                false,
+            ),
+            (
+                "T2_overlapping_spread",
+                "var current = e; (function ({x}) {})({get x(){ current = other }, ...{x: 1}}); parse(current);",
+                true,
+            ),
+            (
+                "T3_unreadable_spread",
+                "var current = e; (function ({x}) {})({get x(){ current = other }, ...rest}); parse(current);",
+                true,
+            ),
+            (
+                "T4_computed_key_spread",
+                "var current = e; (function ({x}) {})({get x(){ current = other }, ...{[k]: 1}}); parse(current);",
+                true,
+            ),
+            (
+                "T5_default_disjoint",
+                "var current = e; (function ({x = (current = other)}) {})({x: 1, ...{y: 2}}); parse(current);",
+                true,
+            ),
+            (
+                "T6_default_overlapping",
+                "var current = e; (function ({x = (current = other)}) {})({x: 1, ...{x: void 0}}); parse(current);",
+                false,
+            ),
+        ] {
+            let f = helper_reached_via(body);
+            let got = f.iter().any(|f| f.name == "id");
+            println!(
+                "PROBE {tag:24} id={got:5} want={want}  {}",
+                if got == want { "OK" } else { "WRONG" }
+            );
+        }
+    }
+
+    #[test]
+    fn a_super_call_in_a_body_nothing_runs_is_not_a_super_call() {
+        // An arrow inherits the constructor's own `super`, so one written there counts — but
+        // only when the statement evaluates its body. `const f = () => super();` creates a
+        // function and calls nothing, so the constructor returns its object having installed no
+        // field. Descending into every deferred body read that as a call and recorded writes
+        // that happen on no path.
+        let fields = helper_reached_via(
+            "var current = e; new (class extends Base { x = (current = other); constructor(){ const f = () => super(); return {}; } })(); parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "that arrow was never invoked: {fields:?}"
+        );
+        // A nested class has its own `super`, and its constructor's call belongs to it.
+        let fields = helper_reached_via(
+            "var current = e; new (class extends Base { x = (current = other); constructor(){ class D extends Base2 { constructor(){ super(); } }; return {}; } })(); parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "that `super()` is the nested class's: {fields:?}"
+        );
+        // The bounds: a real call still installs the fields, in the bare spelling and under a
+        // test whose every side calls it — and an arrow INVOKED on the spot runs its body, so
+        // the `super()` inside it is this constructor's after all.
+        for body in [
+            "var current = e; new (class extends Base { x = (current = other); constructor(){ super(); } })(); parse(current);",
+            "var current = e; new (class extends Base { x = (current = other); constructor(){ if (flag) super(); else super(); } })(); parse(current);",
+            "var current = e; new (class extends Base { x = (current = other); constructor(){ (() => super())(); } })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that constructor does reach `super()`: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_later_unconditional_copy_clears_what_the_first_left_uncertain() {
+        // `if (flag) current = e; current = e;` gives the name one value by two records, and
+        // the shortcut for equivalent copies returned the FIRST of them — the conditional one —
+        // so the helper's fields came back optional though every execution reads them from `e`.
+        // That shortcut answers "which value"; the question here is "which record", and the two
+        // differ exactly when one supersedes the other. I put the shortcut above the dominance
+        // test when I added it last round, and it shadowed it.
+        let (required, _) = guards_and_field(
+            "var current; if (flag) { current = e; } current = e; parse(current);",
+        );
+        assert!(required, "the later assignment runs on every path");
+        // The bounds: with nothing to supersede it the conditional record still answers, and
+        // two conditional records still leave the value uncertain.
+        for body in [
+            "var current; if (flag) { current = e; } parse(current);",
+            "var current; if (flag) { current = e; } if (other) { current = e; } parse(current);",
+        ] {
+            let (required, _) = guards_and_field(body);
+            assert!(!required, "no path settles that name: {body}");
+        }
+    }
+
+    #[test]
+    fn a_super_call_that_cannot_return_installs_no_fields() {
+        // A derived class installs its fields when `super()` RETURNS, and
+        // `super((function(){ throw 0; })())` never reaches the parent constructor. Presence of
+        // the call was read as success, so a write that happens on no path was recorded.
+        let fields = helper_reached_via(
+            "var current = e; try { new (class extends (class {}) { constructor(){ super((function(){ throw 0; })()); } x = (current = other) })(); } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "that `super()` never returned: {fields:?}"
+        );
+        // The bounds: an ordinary argument still returns, and whether the PARENT constructor
+        // throws is a call-graph question this does not answer — reading one as throwing would
+        // drop the fields of a construction that succeeds.
+        for body in [
+            "var current = e; new (class extends (class {}) { constructor(){ super(1); } x = (current = other) })(); parse(current);",
+            "var current = e; new (class extends (class {}) { constructor(){ super(raise()); } x = (current = other) })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that construction installs its fields: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_statically_selected_object_method_runs_where_it_is_called() {
+        // `({ m(){ … } }).m()` selects that method and runs it here, as plainly as an IIFE
+        // does. Only the `call`/`apply` wrappers were unwrapped, so an ordinary named method
+        // was walked as a function nobody reaches and its write stayed confined.
+        let fields =
+            helper_reached_via("var current = e; ({m(){ current = other }}).m(); parse(current);");
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "that method already ran: {fields:?}"
+        );
+        // The bounds. A method the literal does not end up with is not selected, and neither is
+        // one on an object this cannot read.
+        //
+        // A GETTER of that name used to be listed here too, on the reasoning that reading `m`
+        // invokes it and calls whatever it returned, which this cannot follow. The second half
+        // is true and the first half is the point: the getter's BODY runs whether or not its
+        // result can be followed, so `({get m(){ current = other }}).m()` does perform that
+        // write. One more claim of mine review has had to reverse, and the second where I
+        // wrote down a bound for a rule that in fact reaches further than the rule I was
+        // bounding. `a_getter_supplying_a_callee_runs_before_the_call` holds it now.
+        for body in [
+            "var current = e; ({m(){ current = other }, ...{m: f}}).m(); parse(current);",
+            "var current = e; obj.m(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "nothing here runs that body: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_leading_switch_case_tests_run_on_every_execution() {
+        // A switch works down its list, so the FIRST case test is evaluated whatever the
+        // discriminant holds. Wrapping every case including its test in one skippable region
+        // marked that assignment conditional, and the helper's fields came back optional
+        // against a parser that performs the write always.
+        let (required, _) = guards_and_field(
+            "var current; switch (k) { case (current = e): break; default: break; } parse(current);",
+        );
+        assert!(required, "the first case test always runs");
+        // The bound: only the LEADING run of them. Past a test this pass cannot compare,
+        // whether the next is reached depends on the value.
+        let (required, _) = guards_and_field(
+            "var current; switch (k) { case f(): break; case (current = e): break; default: break; } parse(current);",
+        );
+        assert!(!required, "a later case test may never be reached");
+    }
+
+    #[test]
+    fn a_nonempty_string_iterates_at_least_once() {
+        // A string is iterable one code point at a time, so a nonempty literal yields at least
+        // one pass. Only the array spelling was read, so `for (const x of "a")` had its body
+        // called skippable and every read in it came back optional.
+        for body in [
+            "for (const x of \"a\") { parse(e); }",
+            "for (const x of `a`) { parse(e); }",
+        ] {
+            let (required, _) = guards_and_field(body);
+            assert!(required, "`{body}` runs its body at least once");
+        }
+        // The bounds: the empty string yields nothing, a template carrying a substitution is
+        // whatever that evaluates to, and an iterable this cannot read may be empty.
+        for body in [
+            "for (const x of \"\") { parse(e); }",
+            "for (const x of `${s}`) { parse(e); }",
+            "for (const x of xs) { parse(e); }",
+        ] {
+            let (required, _) = guards_and_field(body);
+            assert!(!required, "`{body}` may iterate no times");
+        }
+    }
+
+    #[test]
+    fn a_dead_logical_right_side_is_no_value_at_all() {
+        // A left side that settles the operator makes its right side dead, not merely
+        // skippable: `0 && (current = other)` evaluates nothing there, so that assignment is
+        // not a second live value for the name and the alias beside it stands. The `if` and the
+        // ternary have pruned their dead side since round thirty-seven; the short-circuit
+        // spelling of the same choice never got it.
+        for body in [
+            "var current = e; 0 && (current = other); parse(current);",
+            "var current = e; 1 || (current = other); parse(current);",
+            "var current = e; 0 ?? (current = other); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "nothing there runs: {body}"
+            );
+        }
+        // The bounds: a left side that lets the right through, and one this pass cannot decide.
+        // `0 ?? …` is dead and `null ?? …` is not, which is the predicate that asks about
+        // nullishness rather than truth.
+        for body in [
+            "var current = e; 1 && (current = other); parse(current);",
+            "var current = e; null ?? (current = other); parse(current);",
+            "var current = e; flag && (current = other); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that assignment is live: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_getter_below_a_nested_pattern_is_invoked_too() {
+        // A nested pattern destructures the value of the property above it, and binding it
+        // invokes that property's getter: `(function ({a: {x}}) {})({a: {get x(){ … }}})` runs
+        // the getter before the body is entered. Reading only the pattern's top level left it
+        // deferred, and the helper's fields were published on the node the write moved away
+        // from.
+        let fields = helper_reached_via(
+            "var current = e; (function ({a: {x}}) {})({a: {get x(){ current = other; return 1 }}}); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "that nested getter already ran: {fields:?}"
+        );
+        // The bounds: the descent stops where either side stops being written out, which loses
+        // a getter rather than inventing one.
+        for body in [
+            "var current = e; (function ({a: {x}}) {})({a: obj}); parse(current);",
+            "var current = e; (function ({[k]: {x}}) {})({a: {get x(){ current = other; return 1 }}}); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "nothing here names that getter: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_binding_that_must_throw_leaves_its_body_unrun() {
+        // A pattern destructures its value, and `null` has no properties: `(function ({x}) { …
+        // })(null)` throws while the parameters are bound and enters none of the body. The
+        // invocation was approved on the callee alone, so the body's writes were recorded for a
+        // call that performs them on no path.
+        let fields = helper_reached_via(
+            "var current = e; try { (function ({x}) { current = other; })(null); } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "that body was never entered: {fields:?}"
+        );
+        // The ARGUMENTS are evaluated before the binding, so their writes still happen —
+        // declining the invocation without walking them would have lost a write that does.
+        // `void (…)` because the argument has to be one this reads as certainly nullish AND one
+        // that writes: my first bound here was `(current = other, null)`, which `certainly_nullish`
+        // does not read through, so it never reached the path it was meant to hold.
+        let fields = helper_reached_via(
+            "var current = e; try { (function ({x}) {})(void (current = other)); } catch (_) {} parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the argument ran before the binding failed: {fields:?}"
+        );
+        // The bounds: an object binds fine, and a plain identifier parameter takes `null`
+        // without complaint.
+        for body in [
+            "var current = e; (function ({x}) { current = other; })({}); parse(current);",
+            "var current = e; (function (x) { current = other; })(null); parse(current);",
+            // A default DOES save an undefined position, and what the pattern then takes apart
+            // is the default's own value.
+            "var current = e; (function ({x} = {}) { current = other; })(); parse(current);",
+            "var current = e; (function ({x} = {}) { current = other; })(void 0); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that body does run: {body}"
+            );
+        }
+        // And a bound of mine that has moved sides. I wrote last round that "a pattern with its
+        // own default never fails to bind" and listed `(function ({x} = {}) { … })(null)` as a
+        // case where the body runs. A default answers `undefined` and nothing else: an explicit
+        // `null` goes straight to the pattern and throws there. Another test of mine encoding
+        // the wrong answer, and the second in two rounds where the case I chose to bound a rule
+        // was the case that rule had wrong.
+        let fields = helper_reached_via(
+            "var current = e; try { (function ({x} = {}) { current = other; })(null); } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "a default does not catch `null`: {fields:?}"
+        );
+        // Nested, where the argument as a whole is fine and a property below it is not.
+        let fields = helper_reached_via(
+            "var current = e; try { (function ({a: {x}}) { current = other; })({a: null}); } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "binding `a` throws: {fields:?}"
+        );
+        let fields = helper_reached_via(
+            "var current = e; (function ({a: {x}}) { current = other; })({a: {}}); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "that nested pattern binds fine: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn a_concise_method_is_not_a_constructor() {
+        // `new ({ m(){ … } }).m()` throws before the body is entered: a concise method has no
+        // `[[Construct]]`. The round that taught this reader object methods hands back the
+        // method's function expression, and by the time `is_constructible` sees one the
+        // provenance is gone — so it read as an ordinary function and approved a body that runs
+        // on no path.
+        let fields = helper_reached_via(
+            "var current = e; try { new ({m(){ current = other }}).m(); } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "constructing a method throws: {fields:?}"
+        );
+        // The bounds: CALLING it still runs the body, and a property whose value is an ordinary
+        // function expression really is constructible.
+        for body in [
+            "var current = e; ({m(){ current = other }}).m(); parse(current);",
+            "var current = e; new ({m: function(){ current = other }}).m(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that body does run: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_prototype_setter_is_not_an_own_property() {
+        // `{ __proto__: null }` sets the object's prototype and creates no `__proto__` of its
+        // own, so a pattern naming it reads `undefined` and its default runs. The lookup
+        // returned the setter like an ordinary field and suppressed a default that really runs.
+        let fields = helper_reached_via(
+            "var current = e; (function ({__proto__: x = (current = other)}) {})({__proto__: null}); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "there is no own `__proto__`, so the default ran: {fields:?}"
+        );
+        // The bounds: the name is special only in that one spelling. A computed key, a
+        // shorthand and a method all create an own property.
+        for body in [
+            "var current = e; (function ({[\"__proto__\"]: x = (current = other)}) {})({[\"__proto__\"]: 1}); parse(current);",
+            "var current = e; (function ({__proto__: x = (current = other)}) {})({__proto__(){}}); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that spelling does supply the property: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_array_pattern_can_fail_on_an_element() {
+        // The object arm has recursed since it was written and this one never did: `([{x}])`
+        // against `[null]` throws while binding the ELEMENT, not the argument. Only a literal
+        // with no spread, where every position is where it is written.
+        let fields = helper_reached_via(
+            "var current = e; try { (function ([{x}]) { current = other; })([null]); } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "binding that element throws: {fields:?}"
+        );
+        // A position past the end of the literal holds `undefined` and throws the same way —
+        // the case I only found by writing the bound before the fix.
+        let fields = helper_reached_via(
+            "var current = e; try { (function ([{x}]) { current = other; })([]); } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "there is no element 0: {fields:?}"
+        );
+        // The bounds: an element that binds fine, an element default that catches the missing
+        // position, and a spread, past which no position is where it is written.
+        for body in [
+            "var current = e; (function ([{x}]) { current = other; })([{}]); parse(current);",
+            "var current = e; (function ([{x} = {}]) { current = other; })([]); parse(current);",
+            "var current = e; (function ([{x}]) { current = other; })([...xs]); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that binding does not certainly throw: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_shadowed_undefined_does_not_stand_in_for_a_missing_argument() {
+        // `undefined` is an ordinary identifier and a source may bind it, so its spelling alone
+        // does not settle that a position is missing. Substituting the parameter's default for
+        // it is unsound where it is bound — here the shadow is `{}`, the default never runs,
+        // `{x} = {}` binds fine and the body DOES execute, while the shortcut read the default
+        // `null` and declined the whole invocation.
+        let fields = helper_reached_via(
+            "var current = e; (function (undefined) { (function ({x} = null) { current = other; })(undefined); })({}); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "that body runs: {fields:?}"
+        );
+        // The bounds: unshadowed, the identifier IS the global, and reading it as the missing
+        // value is what lets the parameter's own default take its place. A default of `null`
+        // then destructures `null` and throws, which only the global reading can see — that is
+        // the case that separates "always the global" from "never the global".
+        let fields = helper_reached_via(
+            "var current = e; try { (function ({x} = null) { current = other; })(undefined); } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the default ran and threw: {fields:?}"
+        );
+        let fields = helper_reached_via(
+            "var current = e; (function ({x} = {}) { current = other; })(undefined); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the default ran and the body with it: {fields:?}"
+        );
+        // A stated LOSS rather than an answer. When the shadow holds something that really does
+        // make the binding throw — `(function (undefined) { (function ({x} = {}) { … })
+        // (undefined) })(null)` passes `null`, so the default does not run and the pattern
+        // throws — this declines to decide and walks the body. Saying otherwise needs the
+        // identifier's VALUE, which is the alias machinery rather than a scope lookup, so it
+        // loses the decline rather than inventing one.
+        let fields = helper_reached_via(
+            "var current = e; try { (function (undefined) { (function ({x} = {}) { current = other; })(undefined); })(null); } catch (_) {} parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the shadow's value is not resolved, so the decline is lost: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn an_object_literal_is_built_before_its_method_runs() {
+        // `({ x: current = other, m(){} }).m()` builds the object before the call, so every
+        // property initializer in it has already run. The callee unwrapper looks through an
+        // ordinary member to the method it names, and the reader of what a callee evaluates on
+        // the way did not — the third time those two have been taught a shape separately.
+        let fields = helper_reached_via(
+            "var current = e; ({x: current = other, m(){}}).m(); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the literal was built first: {fields:?}"
+        );
+        // The bound: a literal with nothing to evaluate still runs its method body at the call,
+        // and nothing is walked twice.
+        let fields =
+            helper_reached_via("var current = e; ({m(){ current = other }}).m(); parse(current);");
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the method body still runs: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn an_array_pattern_needs_something_iterable() {
+        // Not merely non-nullish: an array pattern needs an ITERABLE, and a number, a boolean,
+        // a plain object or a function is none of them. `([x])(0)` throws exactly as
+        // `([x])(null)` does, and only the nullish half was recognized.
+        for body in [
+            "var current = e; try { (function ([x]) { current = other; })(0); } catch (_) {} parse(current);",
+            "var current = e; try { (function ([x]) { current = other; })({}); } catch (_) {} parse(current);",
+            "var current = e; try { (function ([x]) { current = other; })(/re/); } catch (_) {} parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that value is not iterable: {body}"
+            );
+        }
+        // The bounds, and the string is the one this must not cross: it iterates by code point.
+        for body in [
+            "var current = e; (function ([x]) { current = other; })(\"ab\"); parse(current);",
+            "var current = e; (function ([x]) { current = other; })([1]); parse(current);",
+            "var current = e; (function ([x]) { current = other; })(xs); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that value may well iterate: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_nested_default_is_destructured_in_its_turn() {
+        // A default inside a pattern catches `undefined` and hands its OWN value to the left
+        // side, which can throw there: `([{x} = null])([void 0])` supplies `null` to `{x}`.
+        // Answering "binds fine" the moment a default appeared is the same over-broad exemption
+        // the parameter level had two rounds ago, one level in.
+        let fields = helper_reached_via(
+            "var current = e; try { (function ([{x} = null]) { current = other; })([void 0]); } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the default itself throws: {fields:?}"
+        );
+        // The bounds: a default that destructures fine, and a position the default does not
+        // catch at all — an element that is present and non-nullish binds against ITS value.
+        for body in [
+            "var current = e; (function ([{x} = {}]) { current = other; })([void 0]); parse(current);",
+            "var current = e; (function ([{x} = null]) { current = other; })([{}]); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that binding succeeds: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_apply_list_stops_being_complete_at_its_own_spread() {
+        // `.apply(null, [1, ...xs])` is a two-argument call with no spread in it, so asking the
+        // WRITTEN arguments said "complete" while the list the callee receives stops at the
+        // spread inside the array. Every parameter past it was read as absent, which made a
+        // binding that succeeds look certain to throw and marked a running body unreachable.
+        let fields = helper_reached_via(
+            "var current = e; (function (x, {a}) { current = other; }).apply(null, [1, ...[{}]]); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "that body does run: {fields:?}"
+        );
+        // The bound: with no spread the list really is complete, so a parameter past its end is
+        // absent and its pattern throws.
+        let fields = helper_reached_via(
+            "var current = e; try { (function (x, {a}) { current = other; }).apply(null, [1]); } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the second parameter is absent: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn an_argument_that_raises_stops_the_call() {
+        // Arguments are evaluated before the callee is entered, so one that certainly raises
+        // runs none of the body. The invocation was approved on the callee and the binding
+        // alone.
+        let fields = helper_reached_via(
+            "var current = e; try { (function () { current = other; })((function(){ throw 0; })()); } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the argument raised first: {fields:?}"
+        );
+        // The bounds: an argument that completes leaves the body running, and the arguments
+        // evaluated BEFORE the raise still perform their own writes.
+        let fields = helper_reached_via(
+            "var current = e; (function () { current = other; })((function(){ return 1; })()); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "that argument completes: {fields:?}"
+        );
+        let fields = helper_reached_via(
+            "var current = e; try { (function () {})(current = other, (function(){ throw 0; })()); } catch (_) {} parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the first argument ran before the raise: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn a_sequence_supplies_the_parameter_its_last_element_is() {
+        // `(0, 1)` is an expression whose VALUE is `1`, so it supplies a parameter exactly as
+        // `1` does and the default beside it never runs. `definitely_defined` read the comma
+        // expression itself, which is none of the spellings it settles on, so the default was
+        // left running and a write it performs was recorded for a call that prevents it.
+        let fields = helper_reached_via(
+            "var current = e; (function (x = (current = other)) {})((0, 1)); parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "that default never runs: {fields:?}"
+        );
+        // The bounds, both halves of the same peel. A sequence ending in `void 0` supplies
+        // `undefined`, so the default DOES run — and one ending in anything this cannot read
+        // settles nothing, which is not the same as settling it the other way.
+        for body in [
+            "var current = e; (function (x = (current = other)) {})((0, void 0)); parse(current);",
+            "var current = e; (function (x = (current = other)) {})((0, f())); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that default runs: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_static_method_of_a_class_expression_runs_where_it_is_called() {
+        // `(class { static m(){ … } }).m()` selects that method and calls it here, exactly as an
+        // object literal's method does — a static method is a property of the class OBJECT, so
+        // nothing is constructed on the way. The callee unwrapper cannot hand it back, a
+        // method's value being a `Function` rather than an `Expression`, so it was walked as a
+        // body nobody reaches and its write stayed confined.
+        let fields = helper_reached_via(
+            "var current = e; (class { static m(){ current = other; } }).m(); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "that method already ran: {fields:?}"
+        );
+        // The bound: an INSTANCE method is not a property of the class object. `(class { m(){ …
+        // } }).m()` throws before any body is entered, so nothing it would have written happens.
+        let fields = helper_reached_via(
+            "var current = e; (class { m(){ current = other; } }).m(); parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "nothing calls that method: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn a_getter_supplying_a_callee_runs_before_the_call() {
+        // Reading `.m` off `{ get m(){ … } }` INVOKES that getter, then calls whatever it
+        // returned. The callee unwrapper stops at a getter and is right to — the returned
+        // function is unreadable — but the getter's own body runs whatever it hands back, and
+        // leaving it to the ordinary walk confined the write to a function nobody was known to
+        // call.
+        for body in [
+            "var current = e; ({ get m(){ current = other; return function(){} } }).m(); parse(current);",
+            // …and just as much when the result is not callable at all: the call throws, but
+            // only AFTER the getter has already run.
+            "var current = e; ({ get m(){ current = other; } }).m(); parse(current);",
+            // …and under `new`, where the same throw is a different one and lands just as late.
+            "var current = e; try { new ({ get m(){ current = other; } }).m(); } catch (_) {} parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that getter already ran: {body}"
+            );
+        }
+        // The bounds. Only the getter this call actually READS: another name reaches a different
+        // property, a SETTER of that name supplies no getter at all — reading `m` yields
+        // `undefined` — and a spread that may replace the property leaves it unclaimed.
+        for body in [
+            "var current = e; ({ get m(){ current = other; }, n: function(){} }).n(); parse(current);",
+            "var current = e; ({ set m(v){ current = other; } }).m(); parse(current);",
+            "var current = e; ({ get m(){ current = other; }, ...o }).m(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "nothing here runs that getter: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_throwing_instance_initializer_stops_the_construction() {
+        // Instance initializers run in source order and construction stops at the first one that
+        // completes abruptly, so the constructor below it is never entered — the instance-phase
+        // half of the rule `static_phase_ends` already stated for the other phase.
+        for body in [
+            "var current = e; try { new (class { x = (function(){throw 0})(); constructor(){ current = other; } })(); } catch (_) {} parse(current);",
+            // …and whichever way round they are written: every instance field of a base class
+            // initializes before its constructor body, so one written BELOW the constructor
+            // stops it just as surely. Source position answers the fields' order among
+            // themselves and says nothing about the constructor's place in it.
+            "var current = e; try { new (class { constructor(){ current = other; } x = (function(){throw 0})(); })(); } catch (_) {} parse(current);",
+            // A DERIVED class installs them when `super()` returns, so what follows that call is
+            // not reached either.
+            "var current = e; try { new (class extends Object { x = (function(){throw 0})(); constructor(){ super(); current = other; } })(); } catch (_) {} parse(current);",
+            // And a class whose STATIC phase throws is never defined at all, so the `new` around
+            // it is never reached: not one instance initializer runs and the constructor is not
+            // entered either.
+            "var current = e; try { new (class { static y = (function(){throw 0})(); constructor(){ current = other; } })(); } catch (_) {} parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that constructor is never entered: {body}"
+            );
+        }
+        // The bounds. An initializer that completes leaves the constructor running — and in a
+        // derived class the part ABOVE `super()` runs before the fields are installed at all,
+        // so a throwing field cannot reach back and cancel it.
+        for body in [
+            "var current = e; new (class { x = 1; constructor(){ current = other; } })(); parse(current);",
+            "var current = e; try { new (class extends Object { x = (function(){throw 0})(); constructor(){ current = other; super(); } })(); } catch (_) {} parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that constructor does run: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_switch_on_a_literal_enters_the_case_that_matches() {
+        // The minifier folds a constant into the discriminant and leaves the whole switch
+        // standing. Strict equality taken in source order settles which entry runs, so the
+        // switch is exhaustive — some entry runs on every execution, `default` or no — and the
+        // arms it cannot take are not entry paths. Intersecting over every arm folded in those
+        // empty ones and left the payload optional.
+        for body in [
+            r#"switch ("a") { case "a": parse(e); break; case "b": break; }"#,
+            // The fallthrough chain from the selected entry is part of it.
+            r#"switch ("a") { case "a": case "b": parse(e); break; }"#,
+            // `default` is not tested where it is written: the switch reaches it only after
+            // every case has been compared and missed, so a case BELOW it still wins…
+            r#"switch ("a") { default: break; case "a": parse(e); break; }"#,
+            // …and it is the answer when nothing matches.
+            r#"switch ("z") { case "a": break; default: parse(e); break; }"#,
+        ] {
+            let (required, _) = guards_and_field(body);
+            assert!(required, "that entry is the only one: {body}");
+        }
+        // The bounds. Nothing matching and no `default` runs no arm at all; a discriminant this
+        // cannot read selects nothing; a test this cannot read might match first, so nothing
+        // past it can be selected either; the comparison is STRICT, so `"1"` does not reach
+        // `case 1`; and a selected entry that throws yields no value, which promotes nothing.
+        for body in [
+            r#"switch ("z") { case "a": parse(e); break; case "b": break; }"#,
+            r#"switch (k) { case "a": parse(e); break; case "b": break; }"#,
+            r#"switch ("a") { case f(): break; case "a": parse(e); break; }"#,
+            r#"switch ("1") { case 1: parse(e); break; case "z": break; }"#,
+            r#"switch ("a") { case "a": throw 0; case "b": parse(e); break; }"#,
+        ] {
+            let (required, _) = guards_and_field(body);
+            assert!(!required, "no entry is settled here: {body}");
+        }
+    }
+
+    #[test]
+    fn a_for_in_over_a_literal_with_a_property_runs_its_body() {
+        // An object literal with an own enumerable property has at least one key, so the body
+        // runs at least once — the guaranteed-pass asymmetry `for-of` over a literal array
+        // already had. Wrapping every `for-in` in a skipped path relaxed reads every successful
+        // execution performs.
+        let (required, _) = guards_and_field("for (const k in { a: 1 }) { parse(e); }");
+        assert!(required, "that body runs at least once");
+        // The bounds. An empty literal enumerates nothing, and an object this cannot read may
+        // have no keys at all.
+        for body in [
+            "for (const k in {}) { parse(e); }",
+            "for (const k in o) { parse(e); }",
+        ] {
+            let (required, _) = guards_and_field(body);
+            assert!(!required, "that body may not run: {body}");
+        }
+    }
+
+    #[test]
+    fn an_object_that_writes_an_iterator_destructures() {
+        // `{ *[Symbol.iterator]() { yield 1; } }` is an ordinary iterable, so an array pattern
+        // over it binds rather than throwing. Calling the whole node kind non-iterable marked
+        // the invoked body unreachable and discarded the writes it really performs, so the
+        // helper's fields were published under a node the parser had already replaced.
+        for body in [
+            "var current = e; (function([x]) { current = other; })({ *[Symbol.iterator]() { yield 1; } }); parse(current);",
+            // A CLASS's static members are properties of the class object, so a static
+            // iterator makes the class itself iterable.
+            "var current = e; (function([x]) { current = other; })(class { static *[Symbol.iterator]() { yield 1; } }); parse(current);",
+            // And a spread copies own symbol-keyed properties along with the rest, so a
+            // literal built from one this cannot read settles nothing either.
+            "var current = e; (function([x]) { current = other; })({ ...o }); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that binding succeeds and the body runs: {body}"
+            );
+        }
+        // The bounds. A literal whose keys this can all read has no `Symbol.iterator` — the
+        // symbol is not a name, whatever brackets a key is spelled with — and neither has a
+        // plain class, whose instance members live on the prototype and reach the class object
+        // never. A number has none either, and an OBJECT pattern does not iterate at all, so
+        // none of this is its question.
+        for body in [
+            "var current = e; (function([x]) { current = other; })({}); parse(current);",
+            "var current = e; (function([x]) { current = other; })({ a: 1 }); parse(current);",
+            "var current = e; (function([x]) { current = other; })({ [\"a\"]: 1 }); parse(current);",
+            "var current = e; (function([x]) { current = other; })(class {}); parse(current);",
+            "var current = e; (function([x]) { current = other; })(class { *[Symbol.iterator]() { yield 1; } }); parse(current);",
+            "var current = e; (function([x]) { current = other; })(1); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that binding throws and the body runs on no path: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn nothing_written_past_a_throwing_argument_is_evaluated() {
+        // Arguments are evaluated left to right, so an argument after one that certainly raises
+        // is never reached. Recording the whole list gave `current` a second live value that
+        // never exists, the alias was refused as ambiguous, and the fields really read off the
+        // original node were dropped — the same loss this branch prevents one position earlier.
+        let fields = helper_reached_via(
+            "var current = e; try { (function(){})((function(){throw 0})(), current = other); } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "that assignment is never evaluated: {fields:?}"
+        );
+        // The bounds. Everything BEFORE the throw runs, including the raising argument's own
+        // writes; a call with nothing raising is untouched; and a binding that throws stops the
+        // BODY, not the arguments, every one of which is evaluated before the binding starts.
+        for body in [
+            "var current = e; try { (function(){})(current = other, (function(){throw 0})()); } catch (_) {} parse(current);",
+            "var current = e; (function(){})(current = other); parse(current);",
+            "var current = e; try { (function({x}){})(null, current = other); } catch (_) {} parse(current);",
+            "var current = e; try { (function(){})((function(){ current = other; throw 0 })()); } catch (_) {} parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that assignment does run: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_static_method_call_binds_its_parameters_like_any_other() {
+        // The round that taught this reader `(class { static m(){ … } }).m()` gave the shape its
+        // own miniature walk, and the walk skipped the parameter mapping with it: an argument
+        // that supplies a parameter no longer prevented its default. It is a resolution now,
+        // routed through the one invocation path, so every check that path performs applies.
+        let fields = helper_reached_via(
+            "var current = e; (class { static m(x = (current = other)) {} }).m(1); parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the argument supplies x and that default never runs: {fields:?}"
+        );
+        // And the rest of that path with it — a binding certain to throw stops the body, and so
+        // does an argument that raises before the call is made.
+        for body in [
+            "var current = e; try { (class { static m({x}){ current = other; } }).m(null); } catch (_) {} parse(current);",
+            "var current = e; try { (class { static m(){ current = other; } }).m((function(){throw 0})()); } catch (_) {} parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that body is entered on no path: {body}"
+            );
+        }
+        // The bounds. An unsupplied parameter still runs its default, and the method's own body
+        // still runs where it is called — which is the rule the resolution must not lose.
+        for body in [
+            "var current = e; (class { static m(x = (current = other)) {} }).m(); parse(current);",
+            "var current = e; (class { static m(){ current = other; } }).m(1); parse(current);",
+            // …and only the METHOD's writes are the ones the call relocates. A static
+            // initializer runs when the class is DEFINED, which is before the arguments, so a
+            // read in an argument sees what it wrote; widening the region to the whole callee
+            // moved that write to the call and put the read back in front of it.
+            "var current = e; (class { static y = (current = other); static m(){} }).m(parse(current));",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that write does happen: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_throwing_substitution_stops_the_tag() {
+        // A tagged template's substitutions are evaluated before the tag is called, so one that
+        // certainly raises stops the call exactly as an ordinary argument does. The round that
+        // drew the argument rule read the argument list alone and left the template out — a gap
+        // I named on the line and shipped anyway, which came back as the next round's finding.
+        for body in [
+            "var current = e; try { (function(){ current = other; })`${(function(){throw 0})()}`; } catch (_) {} parse(current);",
+            // …and a substitution written past the raising one is not evaluated either, which
+            // is the same left-to-right prefix the argument list gets.
+            "var current = e; try { (function(){})`${(function(){throw 0})()}${current = other}`; } catch (_) {} parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that tag is never invoked: {body}"
+            );
+        }
+        // The bounds, the same three the argument list has. A substitution written BEFORE the
+        // raising one is evaluated; the raising one's own writes happen before it leaves; and a
+        // template with nothing raising in it is untouched.
+        for body in [
+            "var current = e; try { (function(){})`${current = other}${(function(){throw 0})()}`; } catch (_) {} parse(current);",
+            "var current = e; try { (function(){})`${(function(){ current = other; throw 0 })()}`; } catch (_) {} parse(current);",
+            "var current = e; (function(){ current = other; })`${1}`; parse(current);",
+            // …and a substitution past one that does NOT raise is evaluated like any other.
+            // The raising one has to come third: this loop is only reached when something in
+            // the list raises, so a template with no throw in it never enters it at all.
+            "var current = e; try { (function(){})`${1}${current = other}${(function(){throw 0})()}`; } catch (_) {} parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that write does happen: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_setter_only_property_reads_back_undefined() {
+        // Whatever a setter stores, reading the property yields `undefined` — so a nested
+        // pattern over one throws while the parameters are bound and the body is entered on no
+        // path. The accessor kind test beside this lookup was removed a round ago as inert,
+        // because an accessor's own text is a function and descending through it answered what
+        // refusing to would; inert is not unnecessary, and this decline is what it cost.
+        let fields = helper_reached_via(
+            "var current = e; try { (function({x:{y}}){ current = other; })({ set x(v){} }); } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "that binding throws: {fields:?}"
+        );
+        // …and a setter written BELOW a data property replaces it, so that reads back
+        // `undefined` too. The last property of the name is the setter here and the data one
+        // above it is not what the object ends up holding — the mirror of the bound below.
+        let fields = helper_reached_via(
+            "var current = e; try { (function({x:{y}}){ current = other; })({ x: { y: 1 }, set x(v){} }); } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the setter replaced that value: {fields:?}"
+        );
+        // The bounds. A GETTER supplies the property by running, and what it returns is
+        // unreadable — including when a setter is written beside it, which is why the last
+        // property of the name cannot answer this alone. A plain value carries itself down. And
+        // a plain identifier binds `undefined` perfectly well, so the pattern has to be one that
+        // really takes the value apart.
+        for body in [
+            "var current = e; (function({x:{y}}){ current = other; })({ get x(){ return {y:1} } }); parse(current);",
+            "var current = e; (function({x:{y}}){ current = other; })({ get x(){ return {y:1} }, set x(v){} }); parse(current);",
+            "var current = e; (function({x:{y}}){ current = other; })({ x: { y: 1 } }); parse(current);",
+            "var current = e; (function({x:{y}}){ current = other; })({ set x(v){}, x: { y: 1 } }); parse(current);",
+            "var current = e; (function({x}){ current = other; })({ set x(v){} }); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that binding succeeds: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_read_before_a_caught_throw_is_still_required() {
+        // A block that leaves by THROWING has no path where it completes, so the handler
+        // continues the same execution rather than offering an alternative to it. `try {
+        // parse(e); throw 0; } catch (_) {}` calls `parse` on every execution that reaches the
+        // try, and intersecting the block against a handler that establishes nothing left
+        // optional a read the parser always performs.
+        for body in [
+            "try { parse(e); throw 0; } catch (_) {}",
+            // …and a handler that throws too changes nothing about the block's own prefix.
+            "try { parse(e); throw 0; } catch (_) { throw 0; }",
+        ] {
+            let (required, _) = guards_and_field(body);
+            assert!(required, "that read happens on every execution: {body}");
+        }
+        // The bounds. Nothing past the throw is reached — which needed the statement walk to
+        // stop at an unconditional exit, a cut the collector side has drawn all along and this
+        // one had not; a conditional INSIDE the block still relaxes its own reads; and a block
+        // that can complete is the two-sided intersection this arm does not touch.
+        for body in [
+            "try { throw 0; parse(e); } catch (_) {}",
+            "try { if (k) { parse(e); } throw 0; } catch (_) {}",
+            "try { parse(e); } catch (_) {}",
+        ] {
+            let (required, _) = guards_and_field(body);
+            assert!(!required, "that read is not on every path: {body}");
+        }
+    }
+
+    #[test]
+    fn a_byte_count_has_to_be_one_a_payload_could_equal() {
+        // `as u32` is a saturating truncation, so `contentBytes(1.5)` recorded a one-byte
+        // constraint and `contentBytes(-1)` a zero-byte one — two accessor contracts no payload
+        // can satisfy, described as two that plenty of payloads do. `content_length_index` has
+        // taken the checked conversion all along; this is the other reader of the same argument.
+        for src in [
+            r#"{ e.contentBytes(1.5); }"#,
+            r#"{ e.contentBytes(-1); }"#,
+            r#"{ e.contentBytes(1e12); }"#,
+            r#"{ e.contentBytesRange(1.5, 8); }"#,
+        ] {
+            let r = analyze_parser_ast(src, "e");
+            assert_eq!(
+                r.fields.first().and_then(|f| f.byte_length),
+                None,
+                "no payload length equals that: {src}"
+            );
+        }
+        // The bounds. A whole count in range is read exactly as before — zero included, which is
+        // a real constraint and not an absent one — and `contentUint` takes the same argument.
+        for (src, want) in [
+            (r#"{ e.contentBytes(32); }"#, Some(32u32)),
+            (r#"{ e.contentBytes(0); }"#, Some(0)),
+            (r#"{ e.contentUint(4); }"#, Some(4)),
+            (r#"{ e.contentBytesRange(4, 4); }"#, Some(4)),
+        ] {
+            let r = analyze_parser_ast(src, "e");
+            assert_eq!(
+                r.fields.first().and_then(|f| f.byte_length),
+                want,
+                "read as written: {src}"
+            );
+        }
+        // And no length at all is not an unreadable one: `contentBytes()` accepts a payload of
+        // any size and says so completely, so it records neither a constraint nor a drop. Only
+        // a length spelled in a way this cannot read is worth a diagnostic — the bundles write
+        // one as a module constant, and it is the single new drop in the manifest.
+        let r = analyze_parser_ast(r#"{ e.contentBytes(); }"#, "e");
+        assert_eq!(r.fields.first().and_then(|f| f.byte_length), None);
+        assert!(
+            !r.unresolved.iter().any(|u| u.starts_with("contentBytes")),
+            "a complete accessor is not a drop: {:?}",
+            r.unresolved
+        );
+        let r = analyze_parser_ast(r#"{ e.contentBytes(SOME.value); }"#, "e");
+        assert!(
+            r.unresolved.iter().any(|u| u.starts_with("contentBytes")),
+            "an unreadable length is: {:?}",
+            r.unresolved
+        );
+    }
+
+    #[test]
+    fn an_argument_list_stops_at_a_throw_wherever_it_is_walked() {
+        // Two shapes the left-to-right cutoff was missing. A GETTER-supplied callee had its own
+        // flat argument walk beside the rule rather than reading it, and a SPREAD is invisible
+        // to `Argument::as_expression` — `...f()` still calls `f`, so a spread of a call that
+        // certainly throws read as an argument evaluating nothing at all.
+        for body in [
+            "var current = e; try { ({ get m(){ return function(){} } }).m((function(){throw 0})(), current = other); } catch (_) {} parse(current);",
+            "var current = e; try { (function(){ current = other; })(...(function(){throw 0})()); } catch (_) {} parse(current);",
+            "var current = e; try { (function(){})(...(function(){throw 0})(), current = other); } catch (_) {} parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that assignment is never evaluated: {body}"
+            );
+        }
+        // The bounds, the same three the ordinary list has: everything before the throw runs, a
+        // spread that raises nothing is an ordinary argument, and a call with nothing raising is
+        // untouched.
+        for body in [
+            "var current = e; try { ({ get m(){ return function(){} } }).m(current = other, (function(){throw 0})()); } catch (_) {} parse(current);",
+            "var current = e; try { (function(){})(current = other, ...(function(){throw 0})()); } catch (_) {} parse(current);",
+            "var current = e; (function(){ current = other; })(...xs); parse(current);",
+            "var current = e; ({ get m(){ return function(){} } }).m(current = other); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that write does happen: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_static_field_takes_the_property_from_a_method_of_the_same_name() {
+        // Class definition installs every method on the class object first and runs the static
+        // initializers second, so a static FIELD of the name wins whichever side of the method
+        // it is written — calling it throws without entering the method at all. The lookup read
+        // the last method of the name and skipped everything else, recording that body's writes
+        // for a call that never reaches it.
+        for body in [
+            "var current = e; try { (class { static m(){ current = other; } static m = 0; }).m(); } catch (_) {} parse(current);",
+            "var current = e; try { (class { static m = 0; static m(){ current = other; } }).m(); } catch (_) {} parse(current);",
+            // A static BLOCK can install one where nothing here can name it…
+            "var current = e; try { (class { static m(){ current = other; } static { this.m = 0; } }).m(); } catch (_) {} parse(current);",
+            // …and a static ACCESSOR of the name occupies the property too, so reading it
+            // invokes the accessor and calls whatever that returned — not this body.
+            "var current = e; (class { static m(){ current = other; } static get m(){ return function(){} } }).m(); parse(current);",
+            // A static SETTER supplies no value at all: reading the property yields `undefined`
+            // and the call throws, with neither body entered — not the method it displaces, and
+            // not the setter itself, whose body runs on a WRITE and never on a read.
+            "var current = e; try { (class { static m(){ current = other; } static set m(v){} }).m(); } catch (_) {} parse(current);",
+            "var current = e; try { (class { static set m(v){ current = other; } }).m(); } catch (_) {} parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that method is not what the class holds: {body}"
+            );
+        }
+        // …and a static getter's own BODY runs when the property is read, whatever it hands
+        // back — the class-object twin of the object-literal rule, and the same defect it was
+        // reported for: leaving that write deferred publishes the helper's reads under a node
+        // the parser has already replaced.
+        let fields = helper_reached_via(
+            "var current = e; (class { static get m(){ current = other; return function(){} } }).m(); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "that getter already ran: {fields:?}"
+        );
+        // The bounds. A method nothing overwrites still runs where it is called; a field of a
+        // DIFFERENT name touches nothing; and an INSTANCE field belongs to the object `new`
+        // builds, which the class object never sees.
+        for body in [
+            "var current = e; (class { static m(){ current = other; } }).m(); parse(current);",
+            "var current = e; (class { static m(){ current = other; } static n = 0; }).m(); parse(current);",
+            "var current = e; (class { static m(){ current = other; } m = 0; }).m(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that method already ran: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_bind_whose_receiver_was_discarded_is_not_one() {
+        // `(0, f.bind)` is `Function.prototype.bind` with no receiver, so calling it throws
+        // before `f` is reached. `invoked_callee` refuses to unwrap `call`/`apply` through a
+        // comma for exactly that reason, and the bind reader re-applied `named_member` to its
+        // result — throwing the state away and walking a body the call never enters.
+        let fields = helper_reached_via(
+            "var current = e; try { (0, (function(){ current = other; }).bind)(null)(); } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "that body is entered on no path: {fields:?}"
+        );
+        // The bounds. Parentheses keep the reference; a comma applied to the RECEIVER is taken
+        // before the member and leaves an ordinary one; and a plain bind is untouched.
+        for body in [
+            "var current = e; ((function(){ current = other; }).bind)(null)(); parse(current);",
+            "var current = e; (0, function(){ current = other; }).bind(null)(); parse(current);",
+            "var current = e; (function(){ current = other; }).bind(null)(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that body does run: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_static_field_takes_the_property_from_a_getter_too() {
+        // The overwrite rule belongs to the property, not to the kind of thing that defines it.
+        // `static_getter` was written as a mirror of `static_method` in the same commit that
+        // gave `static_method` this check, and did not carry it — one rule in two places with
+        // one copy missing it, inside a single commit. Both read one resolver now.
+        for body in [
+            "var current = e; try { (class { static get m(){ current = other; return function(){} } static m = 0; }).m(); } catch (_) {} parse(current);",
+            "var current = e; try { (class { static m = 0; static get m(){ current = other; return function(){} } }).m(); } catch (_) {} parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that getter never runs: {body}"
+            );
+        }
+        // The bounds. A getter nothing overwrites still runs on the read; a field of a DIFFERENT
+        // name touches nothing; and an instance field belongs to the object `new` builds.
+        for body in [
+            "var current = e; (class { static get m(){ current = other; return function(){} } }).m(); parse(current);",
+            "var current = e; (class { static get m(){ current = other; return function(){} } static n = 0; }).m(); parse(current);",
+            "var current = e; (class { static get m(){ current = other; return function(){} } m = 0; }).m(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that getter runs: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_for_in_needs_the_literal_to_be_built_first() {
+        // A literal with an own property guarantees a pass only if the literal is CONSTRUCTED.
+        // Any part of it completing abruptly stops the whole expression, so the loop reaches its
+        // handler rather than its body — and claiming a guaranteed pass required of every
+        // response reads the parser performs on no path.
+        for body in [
+            "for (const k in { x: (function(){ throw 0; })() }) { parse(e); }",
+            // Anywhere in the literal, not only before the qualifying property: a throw written
+            // after one still stops the expression.
+            "for (const k in { x: 1, y: (function(){ throw 0; })() }) { parse(e); }",
+            // A computed key is evaluated on the way to its property and can leave first…
+            "for (const k in { [(function(){ throw 0; })()]: 1 }) { parse(e); }",
+            // …and so can what a spread spreads.
+            "for (const k in { ...(function(){ throw 0; })(), x: 1 }) { parse(e); }",
+        ] {
+            let (required, _) = guards_and_field(body);
+            assert!(!required, "that body is never reached: {body}");
+        }
+        // The bounds: a literal that plainly builds still guarantees its pass, spread and all.
+        for body in [
+            "for (const k in { x: 1 }) { parse(e); }",
+            "for (const k in { x: 1, ...o }) { parse(e); }",
+        ] {
+            let (required, _) = guards_and_field(body);
+            assert!(required, "that body runs at least once: {body}");
+        }
+    }
+
+    #[test]
+    fn a_copy_takes_what_its_source_held_where_the_copy_ran() {
+        // The set of names standing for the node is read at the CALL, and a copy took whatever
+        // its source held at its own position. With `var source = e; source = other; var
+        // current = source; source = e;` the set reached `source` through the last write and
+        // then admitted `current`, which in fact holds `other` — the reads were filed under `e`
+        // and the shape rejected roots carrying only what `other` supplies.
+        let fields = helper_reached_via(
+            "var source = e; source = other; var current = source; source = e; parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "that copy does not name the node: {fields:?}"
+        );
+        // The bounds — and the first is why the question is asked at the COPY's position rather
+        // than at both. A source that moves AFTERWARDS leaves the copy naming what it took:
+        // `var original = row; row = row.child("detail"); parse(original)` is the committed
+        // shape this whole rule exists for, and requiring the source to agree at both points
+        // threw it away.
+        for body in [
+            "var source = e; var current = source; parse(current);",
+            "var source = e; var current = source; parse(current); source = other;",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that copy still names the node: {body}"
+            );
+        }
+        // …and a copy of something that was never the node names nothing here either way.
+        let fields =
+            helper_reached_via("var source = other; var current = source; parse(current);");
+        assert!(!fields.iter().any(|f| f.name == "id"));
+    }
+
+    #[test]
+    fn a_for_in_enumerates_string_keys_only() {
+        // `for-in` never enumerates a symbol, so `{ [Symbol.iterator]: 1 }` has an own property
+        // and iterates zero times — and a computed key this cannot read might be one, which is
+        // the same answer for a different reason. Claiming the pass required of every response
+        // reads the parser performs on no path.
+        for body in [
+            "for (const k in { [Symbol.iterator]: 1 }) { parse(e); }",
+            "for (const k in { [k2]: 1 }) { parse(e); }",
+        ] {
+            let (required, _) = guards_and_field(body);
+            assert!(!required, "that key may not enumerate: {body}");
+        }
+        // The bounds. A key written plainly is a string, a number is a string here, and a
+        // computed key this CAN read is a string too.
+        for body in [
+            "for (const k in { x: 1 }) { parse(e); }",
+            "for (const k in { 1: 2 }) { parse(e); }",
+            "for (const k in { [\"x\"]: 1 }) { parse(e); }",
+        ] {
+            let (required, _) = guards_and_field(body);
+            assert!(required, "that key enumerates: {body}");
+        }
+    }
+
+    #[test]
+    fn a_literal_can_inherit_an_iterator_from_its_prototype() {
+        // `Symbol.iterator` is found through a PROTOTYPE as readily as on the object itself, and
+        // `__proto__:` is how a literal installs one. Reading only the literal's own keys called
+        // it non-iterable, so an array-pattern binding that succeeds was read as one that
+        // throws and the body it enters was marked unreachable.
+        let fields = helper_reached_via(
+            "var current = e; (function([x]) { current = other; })({ __proto__: { [Symbol.iterator]: function*(){ yield 1; } } }); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "that binding succeeds and the body runs: {fields:?}"
+        );
+        // The bounds. `{__proto__: null}` inherits nothing at all, so it settles the question
+        // the other way; a literal with no prototype property is unchanged; and the COMPUTED
+        // spelling creates an own property named `__proto__` rather than installing one, which
+        // leaves an ordinary non-iterable object.
+        for body in [
+            "var current = e; try { (function([x]) { current = other; })({ __proto__: null }); } catch (_) {} parse(current);",
+            "var current = e; try { (function([x]) { current = other; })({ a: 1 }); } catch (_) {} parse(current);",
+            "var current = e; try { (function([x]) { current = other; })({ [\"__proto__\"]: {} }); } catch (_) {} parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that binding throws: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_arrow_and_a_derived_class_get_their_own_iterability_answers() {
+        // An arrow is an object with no `Symbol.iterator` and no way to be given one — only the
+        // `function` spelling was listed, so a binding that throws read as one that succeeds.
+        let fields = helper_reached_via(
+            "var current = e; try { (function([x]) { current = other; })(() => {}); } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "an arrow has no iterator: {fields:?}"
+        );
+        // A DERIVED class is the other way: it inherits its base's static members through the
+        // constructor's own prototype chain, so it iterates without naming an iterator anywhere
+        // in its own body. Reading only its own elements marked a running body unreachable.
+        let fields = helper_reached_via(
+            "var current = e; (function([x]) { current = other; })(class extends (class { static *[Symbol.iterator](){ yield 1; } }) {}); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "that binding succeeds: {fields:?}"
+        );
+        // The bounds: a plain function and a plain class still have none, and `extends null`
+        // inherits from `Function.prototype`, which has none either.
+        for body in [
+            "var current = e; try { (function([x]) { current = other; })(function(){}); } catch (_) {} parse(current);",
+            "var current = e; try { (function([x]) { current = other; })(class {}); } catch (_) {} parse(current);",
+            "var current = e; try { (function([x]) { current = other; })(class extends null {}); } catch (_) {} parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that binding throws: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_lookup_says_absent_and_unknowable_apart() {
+        // Three findings, one shape: a property lookup has THREE answers — present, proven
+        // absent, and unknowable — and each of these sites collapsed two of them into one.
+        //
+        // A prototype-less literal really lacks what it does not name, so `x` is `undefined` and
+        // the nested pattern raises before the body. `owned_property` answers `None` for that
+        // and for "cannot say" alike, which is right for every caller asking what value to read
+        // and loses this decline.
+        let fields = helper_reached_via(
+            "var current = e; try { (function({x:{y}}) { current = other; })({ __proto__: null }); } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "that property is proven absent: {fields:?}"
+        );
+        // A computed key this cannot read might BE the name, and it is written past whatever
+        // the scan would otherwise hand back — a spread stopped the reverse scan for exactly
+        // this reason and a computed key did not.
+        let fields = helper_reached_via(
+            "var k = \"x\", current = e; (function({x = (current = other)}){})({ x: 1, [k]: undefined }); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "that default may run: {fields:?}"
+        );
+        // …and the same key question one construct over: a computed static field is installed in
+        // the same phase whatever its key spells, so it may take the property from the method.
+        let fields = helper_reached_via(
+            "var k = \"m\", current = e; try { (class { static m(){ current = other; } static [k] = 0; }).m(); } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "that method may not be what the class holds: {fields:?}"
+        );
+        // The bounds. A prototype-less literal that DOES name the property carries it down; an
+        // ordinary literal inherits from `Object.prototype`, where names really are found, so
+        // "not written here" is not "absent" for it; a plain identifier binds `undefined` fine;
+        // a computed key this CAN read is an ordinary name; one written BEFORE the match cannot
+        // overwrite it; and a readable static key of another name takes nothing.
+        for body in [
+            "var current = e; (function({x:{y}}) { current = other; })({ __proto__: null, x: { y: 1 } }); parse(current);",
+            "var current = e; (function({x:{y}}) { current = other; })({ x: { y: 1 } }); parse(current);",
+            "var current = e; (function({x}) { current = other; })({ __proto__: null }); parse(current);",
+            // …and an ORDINARY literal proves nothing absent, because it inherits from
+            // `Object.prototype`, where `toString` and `constructor` and the rest really are
+            // found. "Not written here" is only "absent" once the prototype is gone.
+            "var current = e; (function({toString:{y}}) { current = other; })({ a: 1 }); parse(current);",
+            "var current = e; (class { static m(){ current = other; } static [\"n\"] = 0; }).m(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that write does happen: {body}"
+            );
+        }
+        for body in [
+            "var current = e; (function({x = (current = other)}){})({ x: 1, [\"y\"]: undefined }); parse(current);",
+            "var current = e; (function({x = (current = other)}){})({ [k]: undefined, x: 1 }); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that default is prevented: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_method_of_an_instance_built_here_runs_where_it_is_called() {
+        // `(new (class { m(){ … } })).m()` runs that body as immediately as an IIFE does: the
+        // class is written here, the instance is built here, and nothing between the two can
+        // substitute another `m`. Only a method directly on a class OBJECT was resolved, so the
+        // `NewExpression` fell through to the deferred walk with its write confined.
+        for body in [
+            "var current = e; (new (class { m(){ current = other; } })).m(); parse(current);",
+            // …and an instance GETTER runs on the read, exactly as the class object's does.
+            "var current = e; (new (class { get m(){ current = other; return function(){} } })).m(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that body already ran: {body}"
+            );
+        }
+        // The bounds. A name the class does not define is not this shape; a STATIC member is
+        // not on the instance; an instance FIELD of the name takes the property from the
+        // prototype's method; and a constructor that throws builds no instance at all, so the
+        // member is never reached.
+        for body in [
+            "var current = e; (new (class { m(){ current = other; } })).n(); parse(current);",
+            "var current = e; (new (class { static m(){ current = other; } })).m(); parse(current);",
+            "var current = e; (new (class { m(){ current = other; } m = 0; })).m(); parse(current);",
+            "var current = e; try { (new (class { constructor(){ throw 0; } m(){ current = other; } })).m(); } catch (_) {} parse(current);",
+            // A class with a HERITAGE declines: its constructor may return an object that is
+            // not this instance, and an inherited member could supply the name.
+            "var current = e; (new (class extends Object { m(){ current = other; } })).m(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that body is not what this call reaches: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn nothing_in_the_invocation_prelude_may_raise_before_the_body() {
+        // The arguments are not the whole prelude. Everything the CALLEE evaluates on the way to
+        // the function runs before them, and so does every parameter default the call does not
+        // prevent — one rule about what precedes the body, stated for one of the three things
+        // that do.
+        for body in [
+            "var current = e; try { ((function(){ throw 0; })(), function(){ current = other; })(); } catch (_) {} parse(current);",
+            "var current = e; try { (function(x = (function(){ throw 0; })()){ current = other; })(); } catch (_) {} parse(current);",
+            // …and a LATER default is reached when the arguments run out before it.
+            "var current = e; try { (function(a, x = (function(){ throw 0; })()){ current = other; })(1); } catch (_) {} parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that body is entered on no path: {body}"
+            );
+        }
+        // The bounds. A leading part that raises nothing is an ordinary prelude, and a default
+        // the call SUPPLIES is never evaluated — which is the whole point of tracking which of
+        // them the arguments prevent.
+        for body in [
+            "var current = e; (1, function(){ current = other; })(); parse(current);",
+            "var current = e; (function(x = (function(){ throw 0; })()){ current = other; })(1); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that body does run: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_destructuring_read_invokes_the_getters_it_selects() {
+        // Reading a property is reading a property, however the target is written: `({x} = { get
+        // x(){ … } })` runs that getter right here. The parameter-binding walker has known this
+        // since the round it was reported for, and the two destructuring spellings were left
+        // deferred — the same rule in three places with two copies missing it.
+        for body in [
+            "var current = e, x; ({x} = { get x(){ current = other; return 1; } }); parse(current);",
+            "var current = e; var {x} = { get x(){ current = other; return 1; } }; parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that getter already ran: {body}"
+            );
+        }
+        // The bounds. Only the properties the pattern SELECTS are read, a plain value invokes
+        // nothing, and a setter's body does not run on a read at all.
+        for body in [
+            "var current = e, x; ({x} = { x: 1 }); parse(current);",
+            "var current = e, x; ({x} = { x: 1, get y(){ current = other; return 1; } }); parse(current);",
+            // …in either order, because "the property this name resolves to" is the question
+            // and "some getter in the literal" is not.
+            "var current = e, x; ({x} = { get y(){ current = other; return 1; }, x: 1 }); parse(current);",
+            "var current = e, x; ({x} = { set x(v){ current = other; } }); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "nothing here runs that body: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_construction_that_raises_is_an_expression_that_raises() {
+        // `new (class { constructor(){ throw 0; } })()` completes abruptly as surely as an IIFE
+        // whose body throws — the constructor IS the body, invoked right here. Only the direct
+        // call spelling was read, so a construction that raises read as an argument evaluating
+        // to a value and the call it stops was walked as one that happens.
+        let fields = helper_reached_via(
+            "var current = e; try { (function(){ current = other; })(new (class { constructor(){ throw 0; } })()); } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "that body is entered on no path: {fields:?}"
+        );
+        // The bounds. A constructor that completes builds a value like any other; a class with
+        // no constructor at all raises nothing; and a callee this cannot read settles nothing.
+        for body in [
+            "var current = e; (function(){ current = other; })(new (class { constructor(){} })()); parse(current);",
+            "var current = e; (function(){ current = other; })(new (class {})()); parse(current);",
+            "var current = e; (function(){ current = other; })(new Thing()); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that call happens: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_constructor_that_returns_an_object_replaces_the_instance() {
+        // `new` hands back what the constructor returns when that is an OBJECT, and the object
+        // it built otherwise — so `constructor(){ return {}; }` yields a plain object with none
+        // of the class's methods on it and the call throws. The heritage test covered the
+        // derived shape and a BASE constructor can replace the instance exactly as readily.
+        let fields = helper_reached_via(
+            "var current = e; try { (new (class { constructor(){ return {}; } m(){ current = other; } })).m(); } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "that method is not on what the call received: {fields:?}"
+        );
+        // The bounds. A returned PRIMITIVE is discarded and changes nothing, a bare `return;` is
+        // not a value at all, and a class with no constructor returns what it built.
+        for body in [
+            "var current = e; (new (class { constructor(){ return 1; } m(){ current = other; } })).m(); parse(current);",
+            "var current = e; (new (class { constructor(){ return; } m(){ current = other; } })).m(); parse(current);",
+            "var current = e; (new (class { m(){ current = other; } })).m(); parse(current);",
+            // …and a `return` inside a NESTED function belongs to that function, not to the
+            // constructor, in both spellings of one.
+            "var current = e; (new (class { constructor(){ (function(){ return {}; }); } m(){ current = other; } })).m(); parse(current);",
+            "var current = e; (new (class { constructor(){ (() => { return {}; }); } m(){ current = other; } })).m(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that method already ran: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_assignment_whose_value_never_arrives_writes_nothing() {
+        // The right-hand side is evaluated first, so one that completes abruptly leaves the
+        // target exactly as it was. Recording the write anyway marked the parser's own parameter
+        // as replaced and the helper descent was refused for a node nothing had moved.
+        for body in [
+            "try { e = (function(){ throw 0; })(); } catch (_) {} parse(e);",
+            // …and the DECLARATION spelling of the same assignment, which binds the name and
+            // leaves it `undefined` rather than binding it to a value.
+            "var current = e; try { var current = (function(){ throw 0; })(); } catch (_) {} parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that write never happens: {body}"
+            );
+        }
+        // The bounds. A value that arrives is written, and so is a plain one. The right-hand
+        // side's OWN effects still happen — it performs them before it leaves — so only the
+        // target's records are suppressed.
+        for body in [
+            "e = (function(){ return other; })(); parse(e);",
+            "e = other; parse(e);",
+            "var current = e; try { x = (function(){ current = other; throw 0; })(); } catch (_) {} parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that write does happen: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_member_targets_reference_is_evaluated_before_the_value() {
+        // The object and the computed key of `a[k] = v` run before `v` does, so a write inside
+        // one PRECEDES the value rather than following it. Round sixty-seven declared the whole
+        // left side to follow the value — right for a destructuring pattern's targets, and it
+        // put a key's own assignment after the read that sees it.
+        let fields =
+            helper_reached_via("var current = e; ({})[(current = other)] = parse(current);");
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "that key ran before the value: {fields:?}"
+        );
+        // The bound: a plain identifier target has no reference at all, so what the value reads
+        // is still the old binding.
+        let fields = helper_reached_via("var current = e; x = parse(current); parse(current);");
+        assert!(fields.iter().any(|f| f.name == "id"));
+    }
+
+    #[test]
+    fn a_constructor_return_is_read_for_what_it_is() {
+        // Three answers about one expression, each of which had been partial. A branch no value
+        // of its test can take is not a path the constructor has…
+        for body in [
+            "var current = e; (new (class { constructor(){ if (false) return {}; } m(){ current = other; } })).m(); parse(current);",
+            // …EVERY unary operator produces a primitive, which `new` discards…
+            "var current = e; (new (class { constructor(){ return -1; } m(){ current = other; } })).m(); parse(current);",
+            "var current = e; (new (class { constructor(){ return typeof x; } m(){ current = other; } })).m(); parse(current);",
+            "var current = e; (new (class { constructor(){ return void {}; } m(){ current = other; } })).m(); parse(current);",
+            "var current = e; (new (class { constructor(){ return `a`; } m(){ current = other; } })).m(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that method already ran: {body}"
+            );
+        }
+        // …and a return whose value never ARRIVES ends the constructor, so nothing is built.
+        // `throws_out` reads which statement kinds leave and does not read their expressions;
+        // `expression_throws` sees into a template's substitutions now, which is what makes the
+        // two meet.
+        for body in [
+            "var current = e; try { (new (class { constructor(){ return `${(function(){throw 0})()}`; } m(){ current = other; } })).m(); } catch (_) {} parse(current);",
+            // The bound on the branch rule: a test this cannot decide leaves the return live.
+            "var current = e; try { (new (class { constructor(){ if (flag) return {}; } m(){ current = other; } })).m(); } catch (_) {} parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that method is not reached: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_rest_binding_copies_and_therefore_reads() {
+        // Copying what the named properties left behind performs a `Get` on each one, so
+        // `var {...copy} = { get x(){ … } }` runs that getter with no property named anywhere in
+        // the pattern. The named list was the whole of what the collector read.
+        for body in [
+            "var current = e; var {...copy} = { get x(){ current = other; return 1; } }; parse(current);",
+            "var current = e; var {x, ...copy} = { x: 1, get y(){ current = other; return 1; } }; parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that getter already ran: {body}"
+            );
+        }
+        // The bound: with no rest, only the properties the pattern NAMES are read.
+        let fields = helper_reached_via(
+            "var current = e; var {x} = { x: 1, get y(){ current = other; return 1; } }; parse(current);",
+        );
+        assert!(fields.iter().any(|f| f.name == "id"));
+    }
+
+    #[test]
+    fn a_default_nested_in_a_pattern_raises_before_the_body_too() {
+        // A default inside the pattern runs while the binding happens exactly as the parameter's
+        // own does — the same rule stated at one level of a structure and not at depth.
+        let fields = helper_reached_via(
+            "var current = e; try { (function({x = (function(){throw 0})()}){ current = other; })({ __proto__: null }); } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "that body is entered on no path: {fields:?}"
+        );
+        // The bound: a default the call SUPPLIES is never evaluated, at depth as at the top.
+        let fields = helper_reached_via(
+            "var current = e; (function({x = (function(){throw 0})()}){ current = other; })({ x: 1 }); parse(current);",
+        );
+        assert!(!fields.iter().any(|f| f.name == "id"));
+    }
+
+    #[test]
+    fn a_computed_static_method_takes_the_property_too() {
+        // Methods are installed in source order, so one written below the match replaces it —
+        // and a computed key this cannot read might be that name. The field check had this
+        // three-way answer and the method lookup beside it did not.
+        // The unreadable method's own body is given a write, so declining and resolving-to-it
+        // are two different answers: my first bound left it empty, where both agree and the
+        // mutation that resolves the unreadable key changed nothing.
+        let fields = helper_reached_via(
+            "var k = \"m\", current = e; (class { static m(){ current = other; } static [k](){ current = third; } }).m(); parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "that method may not be what the class holds: {fields:?}"
+        );
+        // The bound: a computed key this CAN read is an ordinary name and takes nothing.
+        let fields = helper_reached_via(
+            "var current = e; (class { static m(){ current = other; } static [\"n\"](){} }).m(); parse(current);",
+        );
+        assert!(!fields.iter().any(|f| f.name == "id"));
+    }
+
+    #[test]
+    fn a_for_of_needs_the_array_to_be_built_first() {
+        // An element that raises stops the whole literal, so no iterator over it ever exists —
+        // the rule `for-in` over an object literal was given, on the other loop. Both read one
+        // predicate now rather than scanning their parts in their own words.
+        for body in [
+            "for (const x of [(function(){throw 0})()]) { parse(e); }",
+            "for (const x of [...(function(){throw 0})()]) { parse(e); }",
+        ] {
+            let (required, _) = guards_and_field(body);
+            assert!(!required, "that body is never reached: {body}");
+        }
+        // The bounds: a literal that plainly builds still guarantees its pass, and an empty one
+        // still guarantees nothing.
+        let (required, _) = guards_and_field("for (const x of [1]) { parse(e); }");
+        assert!(required);
+        let (required, _) = guards_and_field("for (const x of []) { parse(e); }");
+        assert!(!required);
+    }
+
+    #[test]
+    fn a_statement_whose_expression_raises_leaves_the_list() {
+        // `throws_out` read statement KINDS and never their expressions, so an `else` branch
+        // that calls a throwing IIFE counted as a path yielding a value and diluted the
+        // intersection with an empty side. `expression_throws` peels a sequence, so
+        // `(0, (throws)())` is the same statement said another way.
+        for body in [
+            "if (flag) { parse(e); } else { (function(){ throw 0; })(); }",
+            "if (flag) { parse(e); } else { (0, (function(){ throw 0; })()); }",
+        ] {
+            let (required, _) = guards_and_field(body);
+            assert!(required, "that branch yields nothing: {body}");
+        }
+        // The bound: a sequence that raises nothing is an ordinary expression statement and the
+        // branch really is an alternative.
+        let (required, _) = guards_and_field("if (flag) { parse(e); } else { (0, 1); }");
+        assert!(!required);
+        // …and the same statement rule seen from the other side: control does not continue past
+        // it, so a read written after one is on no path. `throws_out` answers which branches
+        // yield a value; `ends_the_statement_list` answers what follows, and both halves of one
+        // sentence needed saying.
+        let (required, _) = guards_and_field("(function(){ throw 0; })(); parse(e);");
+        assert!(!required, "nothing after a throwing statement is reached");
+    }
+
+    #[test]
+    fn a_constructor_stops_counting_at_its_first_exit() {
+        // The same predicate, read in EXECUTION order. Round sixty-eight asked "does any
+        // statement raise" of the constructor's whole list, so a throw written after `return;`
+        // — which control never reaches — declined a method that always runs. `throws_out`
+        // walks in order and stops, so moving the question to it answers this for free.
+        let fields = helper_reached_via(
+            "var current = e; (new (class { constructor(){ return; (function(){throw 0})(); } m(){ current = other; } })).m(); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "that method already ran: {fields:?}"
+        );
+        // The bound: a throw control DOES reach still builds nothing.
+        let fields = helper_reached_via(
+            "var current = e; try { (new (class { constructor(){ (function(){throw 0})(); } m(){ current = other; } })).m(); } catch (_) {} parse(current);",
+        );
+        assert!(fields.iter().any(|f| f.name == "id"));
+    }
+
+    #[test]
+    fn a_unary_heritage_rejects_the_class_when_it_is_defined() {
+        // Every unary operator produces a primitive, and none of them produces `null` — the one
+        // primitive a heritage accepts. So `extends (void 0)` throws the moment the class is
+        // defined and its static initializers write nothing. `certainly_a_primitive` states the
+        // same fact one round earlier for what a constructor RETURNS; this list had the literal
+        // forms and not the operator that makes them.
+        //
+        // Parenthesized, because that is the spelling that parses: `extends` takes a
+        // LeftHandSideExpression and a bare unary is not one, so the reported `extends void 0`
+        // is a SyntaxError rather than a case this scanner ever sees.
+        let fields = helper_reached_via(
+            "var current = e; var C = class extends (void 0) { static x = (current = other); }; parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "that initializer never runs: {fields:?}"
+        );
+        // The bounds. A constructor heritage really is one, and `extends null` is legal — it
+        // makes a base-like class whose statics run.
+        for body in [
+            "var current = e; var C = class extends Object { static x = (current = other); }; parse(current);",
+            "var current = e; var C = class extends null { static x = (current = other); }; parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that initializer does run: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_sequence_raises_when_any_operand_does() {
+        // `peel` hands back a sequence's VALUE — its last element — and an earlier operand that
+        // raises is dropped on the way, so `((throws)(), 0)` read as the `0`. Every element is
+        // evaluated, so the sequence raises when any of them does; the round that taught this
+        // predicate about sequences peeled first and asked afterwards.
+        for body in [
+            "if (flag) { parse(e); } else { ((function(){ throw 0; })(), 0); }",
+            "if (flag) { parse(e); } else { (0, (function(){ throw 0; })()); }",
+        ] {
+            let (required, _) = guards_and_field(body);
+            assert!(required, "that branch yields nothing: {body}");
+        }
+        let (required, _) = guards_and_field("if (flag) { parse(e); } else { (0, 1); }");
+        assert!(
+            !required,
+            "a sequence that raises nothing is an alternative"
+        );
+    }
+
+    #[test]
+    fn an_exit_probe_stops_where_control_does() {
+        // `for (;;) { continue; break; }` never breaks, and counting the dead `break` said the
+        // loop can finish — which made a branch that hangs forever an empty value-producing
+        // side and relaxed the reads of the only branch that yields anything. A generic walk
+        // visits every node; this one has to walk a statement LIST the way control does.
+        let (required, _) =
+            guards_and_field("if (flag) { for (;;) { continue; break; } } else { parse(e); }");
+        assert!(required, "that loop cannot finish");
+        // The bounds. A `break` control DOES reach lets the loop finish, so the branch is a
+        // real alternative; and a loop with only a `continue` still cannot.
+        let (required, _) =
+            guards_and_field("if (flag) { for (;;) { break; } } else { parse(e); }");
+        assert!(!required);
+        let (required, _) =
+            guards_and_field("if (flag) { for (;;) { continue; } } else { parse(e); }");
+        assert!(required);
+    }
+
+    #[test]
+    fn a_constraint_two_paths_disagree_about_is_published_by_neither() {
+        // The field carries one band and the parser enforces one or the other, so publishing
+        // whichever arrived first makes the generated parser REJECT a `count="25"` the source
+        // accepts down its other path. An unconstrained field accepts more than the source
+        // does, which is the error this branch has been narrowing; rejecting what the source
+        // takes breaks the consumer outright, which is the one it must not make.
+        let r = analyze_parser_ast(
+            r#"{ if (flag) { e.attrIntRange("count", 1, 10); } else { e.attrIntRange("count", 20, 30); } }"#,
+            "e",
+        );
+        let f = r.fields.iter().find(|f| f.name == "count").expect("count");
+        assert_eq!(
+            (f.int_min, f.int_max),
+            (None, None),
+            "neither band is published"
+        );
+        assert!(
+            r.unresolved
+                .iter()
+                .any(|u| u.starts_with("incompatibleRepeatedRead")),
+            "and the clash is reported: {:?}",
+            r.unresolved
+        );
+        // The bounds. Two paths that agree carry the band, and a path that constrains nothing
+        // does not erase the one that does — only a DISAGREEMENT drops it.
+        for src in [
+            r#"{ if (flag) { e.attrIntRange("count", 1, 10); } else { e.attrIntRange("count", 1, 10); } }"#,
+            r#"{ if (flag) { e.attrIntRange("count", 1, 10); } else { e.attrInt("count"); } }"#,
+        ] {
+            let r = analyze_parser_ast(src, "e");
+            let f = r.fields.iter().find(|f| f.name == "count").expect("count");
+            assert_eq!((f.int_min, f.int_max), (Some(1), Some(10)), "kept: {src}");
+        }
+        // An asymmetry this rule does not settle, found while bounding it and recorded rather
+        // than quietly left: written the other way round — `attrInt` first, `attrIntRange`
+        // second — the band is not carried at all and no clash is reported. Neither order is
+        // obviously right. A constraint only ONE alternative enforces should not be published,
+        // by exactly the argument above; but `take_constraints` also merges reads that both
+        // happen in sequence, where the band really is enforced and dropping it would lose a
+        // check. Telling those apart is a fact about the paths, which this merge does not have.
+        let r = analyze_parser_ast(
+            r#"{ if (flag) { e.attrInt("count"); } else { e.attrIntRange("count", 1, 10); } }"#,
+            "e",
+        );
+        let f = r.fields.iter().find(|f| f.name == "count").expect("count");
+        assert_eq!(
+            (f.int_min, f.int_max),
+            (None, None),
+            "the reversed order drops it — see the note above"
+        );
+    }
+
+    #[test]
+    fn a_rest_binding_reads_the_property_the_object_ends_up_with() {
+        // A getter a later definition replaced is never read, so `{ get x(){ … }, x: 1 }` copies
+        // the data property and that body runs on no path. The named-property walk has resolved
+        // through `owned_property` all along; the rest loop read every getter as written, which
+        // is the same rule with one of its two readers missing it.
+        let fields = helper_reached_via(
+            "var current = e; (function({...rest}){})({ get x(){ current = other; }, x: 1 }); parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "that getter never runs: {fields:?}"
+        );
+        // The bounds: written the other way round the getter IS what the object holds, and a
+        // getter nothing replaces is read as before.
+        for body in [
+            "var current = e; (function({...rest}){})({ x: 1, get x(){ current = other; } }); parse(current);",
+            "var current = e; (function({...rest}){})({ get x(){ current = other; } }); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that getter runs: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_nullish_apply_list_is_a_complete_empty_one() {
+        // `f.apply(null)` and `f.apply(null, null)` both call `f` with NO arguments, and that is
+        // a list this can read completely. Answering "unknowable" read every parameter as
+        // possibly supplied, so a binding certain to throw looked survivable and the body it
+        // never enters was walked as one that runs.
+        for body in [
+            "var current = e; try { (function({x}){ current = other; }).apply(null, null); } catch (_) {} parse(current);",
+            "var current = e; try { (function({x}){ current = other; }).apply(null); } catch (_) {} parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that binding throws: {body}"
+            );
+        }
+        // The bounds: a real list supplies the parameter, and one this cannot read still
+        // settles nothing.
+        for body in [
+            "var current = e; (function({x}){ current = other; }).apply(null, [{x:1}]); parse(current);",
+            "var current = e; (function({x}){ current = other; }).apply(null, xs); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that body runs: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_getter_that_raises_stops_the_call_before_its_arguments() {
+        // Obtaining the callee is the first thing a call does, so a getter that leaves by
+        // throwing never lets the argument list begin. The branch that walks a getter-supplied
+        // callee walked them unconditionally, and recorded an assignment runtime never performs.
+        let fields = helper_reached_via(
+            "var current = e; try { ({ get m(){ throw 0; } }).m(current = other); } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "that argument is never evaluated: {fields:?}"
+        );
+        // The bound: a getter that completes hands back a callee and the arguments run.
+        let fields = helper_reached_via(
+            "var current = e; ({ get m(){ return function(){}; } }).m(current = other); parse(current);",
+        );
+        assert!(!fields.iter().any(|f| f.name == "id"));
+    }
+
+    #[test]
+    fn a_throwing_prelude_keeps_what_ran_before_it() {
+        // When the PRELUDE raises, the callee is not uniformly unreachable: everything it
+        // evaluates before the throw really happens. Marking the whole callee expression
+        // unreachable discarded that prefix — the same left-to-right rule the argument list
+        // has, on the phase that precedes it.
+        let fields = helper_reached_via(
+            "var current = e; try { ((current = other, (function(){throw 0})()), function(){})(); } catch (_) {} parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "that assignment ran before the throw: {fields:?}"
+        );
+        // The bounds: what the prelude reaches on no path is still discarded — the callee body
+        // here is never entered — and a leading part written AFTER the throwing one is not
+        // evaluated either, which needs TWO of them to show, since one comma element is walked
+        // whole.
+        for body in [
+            "var current = e; try { ((function(){throw 0})(), function(){ current = other; })(); } catch (_) {} parse(current);",
+            "var current = e; try { ((function(){throw 0})(), current = other, function(){})(); } catch (_) {} parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "nothing past that throw runs: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_callee_a_decided_test_selects_is_the_one_that_runs() {
+        // `1 ? f : g` IS `f`, so the callee unwrapper found a ternary where a function stands
+        // and walked the selected body as one nobody calls. The statement side has read
+        // `statically_selected` for as long; `selected_arm` is its expression twin, and both
+        // unwrappers read it — `peel` and `invoked_callee` cannot call each other, because the
+        // second tracks whether a comma discarded the reference on the way.
+        for body in [
+            "var current = e; (1 ? function(){ current = other; } : function(){})(); parse(current);",
+            "var current = e; (1 && function(){ current = other; })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that body already ran: {body}"
+            );
+        }
+        // The bounds. The arm NOT selected is not the callee; an undecidable test selects
+        // nothing; and `0 && f` evaluates to the LEFT, so the function is not the callee at all
+        // — which is why only the certain-right side is unwrapped.
+        // …and every OTHER reader of "what value is this" gets the same answer, which is why the
+        // rule sits in `peel` rather than only at the callee. An array pattern over `1 ? {} : []`
+        // takes the object apart and throws: without the selection the ternary is unreadable and
+        // the body reads as one that runs.
+        let fields = helper_reached_via(
+            "var current = e; try { (function([x]){ current = other; })(1 ? {} : []); } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "that binding throws on the selected arm: {fields:?}"
+        );
+        for body in [
+            "var current = e; (0 ? function(){ current = other; } : function(){})(); parse(current);",
+            "var current = e; (flag ? function(){ current = other; } : function(){})(); parse(current);",
+            "var current = e; (0 && function(){ current = other; })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that body is not what this call reaches: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_array_spread_needs_something_iterable_to_spread() {
+        // Building the array needs the spread value to be ITERABLE: `[...null]` and `[...1]`
+        // raise while the literal is constructed, so the call they are an argument to never
+        // happens. Asking only whether evaluating the operand raises read the construction
+        // itself as always succeeding.
+        for body in [
+            "var current = e; try { (function(){ current = other; })([...null]); } catch (_) {} parse(current);",
+            "var current = e; try { (function(){ current = other; })([...1]); } catch (_) {} parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that array is never built: {body}"
+            );
+        }
+        // The bounds. An array and a STRING are both iterable, and a value this cannot read
+        // settles nothing.
+        for body in [
+            "var current = e; (function(){ current = other; })([...[]]); parse(current);",
+            "var current = e; (function(){ current = other; })([...\"ab\"]); parse(current);",
+            "var current = e; (function(){ current = other; })([...xs]); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that array builds: {body}"
+            );
+        }
+    }
+
+    /// A destructuring step that certainly raises ends the target list.
+    ///
+    /// `[{}, current] = [null, other]` converts `null` for the empty object pattern and leaves
+    /// there, so `current` still names the node `parse` is handed. Walking every target recorded
+    /// the write, invalidated the alias and dropped the fields read through it.
+    #[test]
+    fn a_destructuring_step_that_raises_ends_the_target_list() {
+        let reaches = |body: &str| helper_reached_via(body).iter().any(|f| f.name == "id");
+        assert!(
+            reaches(
+                "var current = e; try { ([{}, current] = [null, other]); } catch (_) {} parse(current);"
+            ),
+            "the object pattern raises on `null` before `current` is assigned",
+        );
+        // Nothing raises and the write is real, which is what makes the case above a question
+        // about reachability rather than about destructuring writes in general.
+        assert!(
+            !reaches("var current = e; ([{}, current] = [{}, other]); parse(current);"),
+            "with a coercible value at position 0 the assignment completes",
+        );
+        // Past the end of the literal is `undefined`, which raises for the same reason `null`
+        // does — a position nothing supplies, not a value written out.
+        assert!(
+            reaches("var current = e; try { ([{}, current] = []); } catch (_) {} parse(current);"),
+            "position 0 supplies `undefined` to an object pattern",
+        );
+        // Taking the value apart at all comes first, so a value that cannot be iterated raises
+        // with no target reached.
+        assert!(
+            reaches("var current = e; try { ([current] = null); } catch (_) {} parse(current);"),
+            "an array pattern over `null` raises before its first element",
+        );
+        assert!(
+            reaches(
+                "var current = e; try { ({ x: current } = null); } catch (_) {} parse(current);"
+            ),
+            "an object pattern over `null` raises before its first property",
+        );
+        // A SPREAD ahead of the position contributes an unknown number of elements, so the
+        // pairing stops rather than pairing by written order. The `null` is written second and
+        // would raise for the object pattern in second place — but the spread before it may
+        // supply any number of values, so which target it reaches is not a question this can
+        // answer, and the write it would have suppressed stands.
+        assert!(
+            !reaches(
+                "var current = e; ([{}, {}, current] = [...xs, null, other]); parse(current);"
+            ),
+            "with a spread in the way no position is claimed",
+        );
+        // A DEFAULT stands in for `undefined` and for nothing else, so which value the pattern
+        // really receives is the whole question. `null` is not `undefined`: it runs past the
+        // default into the object pattern and raises there.
+        assert!(
+            reaches(
+                "var current = e; try { ([{} = {}, current] = [null, other]); } catch (_) {} parse(current);"
+            ),
+            "`null` skips the default and the pattern converts it",
+        );
+        // …and `void 0` IS `undefined`, so the default is taken and the step completes.
+        assert!(
+            !reaches("var current = e; ([{} = {}, current] = [void 0, other]); parse(current);"),
+            "the default replaces `undefined` and binds",
+        );
+        // The default is then the value the pattern receives, judged in the written value's
+        // place rather than waved through.
+        assert!(
+            reaches(
+                "var current = e; try { ([{} = null, current] = [void 0, other]); } catch (_) {} parse(current);"
+            ),
+            "a default that is itself nullish raises for the object pattern",
+        );
+        // Nothing supplied is `undefined` too, so a position past the end takes the default.
+        assert!(
+            !reaches("var current = e; ([{} = {}, current] = []); parse(current);"),
+            "a missing position takes the default",
+        );
+        // …and a value this cannot read may be `undefined` or may not, so which of the two the
+        // pattern sees is undecidable and the element declines.
+        assert!(
+            !reaches("var current = e; ([{} = {}, current] = [maybe, other]); parse(current);"),
+            "an unreadable value leaves the default undecided",
+        );
+    }
+
+    /// An operand that certainly raises stops the expression it feeds, and with it the call.
+    ///
+    /// Only a bare IIFE was recognized, so wrapping the very same one in an operator hid it and
+    /// the call it stops was walked as one that happens — with the writes in its body recorded.
+    #[test]
+    fn an_operand_that_raises_stops_the_expression_it_feeds() {
+        let reaches = |arg: &str| {
+            helper_reached_via(&format!(
+                "var current = e; try {{ (function(){{ current = other; }})({arg}); }} catch (_) {{}} parse(current);"
+            ))
+            .iter()
+            .any(|f| f.name == "id")
+        };
+        assert!(
+            reaches("(function(){ throw 0; })() + 1"),
+            "a binary operand"
+        );
+        assert!(
+            reaches("1 + (function(){ throw 0; })()"),
+            "the other side of it"
+        );
+        assert!(reaches("!(function(){ throw 0; })()"), "a unary operand");
+        assert!(
+            reaches("((function(){ throw 0; })()) ? 1 : 2"),
+            "a conditional's test, taken before either arm is chosen",
+        );
+        assert!(
+            reaches("(void (function(){ throw 0; })()) ?? 1"),
+            "the left of a short-circuit, evaluated whichever side supplies the value",
+        );
+        // A call this cannot see through settles nothing, which is what keeps the rule from
+        // claiming a raise wherever an operator appears.
+        assert!(
+            !reaches("f() + 1"),
+            "an unreadable call leaves the question open and the body runs",
+        );
+    }
+
+    /// An argument written after one that certainly raises is evaluated on no path, so the wire
+    /// reads spelled there are not the parser's.
+    #[test]
+    fn an_argument_after_a_raise_reads_nothing() {
+        let names = |body: &str| {
+            helper_reached_via(body)
+                .iter()
+                .map(|f| f.name.clone())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            names("try { noop((function(){ throw 0; })(), e.attrString(\"late\")); } catch (_) {}"),
+            Vec::<String>::new(),
+            "nothing after the raise is read",
+        );
+        // The raising argument is preceded by reads that DO happen, and they stay.
+        assert_eq!(
+            names(
+                "try { noop(e.attrString(\"early\"), (function(){ throw 0; })(), e.attrString(\"late\")); } catch (_) {}"
+            ),
+            vec!["early".to_string()],
+            "the list runs up to the raise and stops",
+        );
+        // A spread of something non-iterable raises while the list is BUILT, which is the half
+        // that looking through the spread to what it evaluates cannot see.
+        assert_eq!(
+            names("try { noop(...null, e.attrString(\"late\")); } catch (_) {}"),
+            Vec::<String>::new(),
+            "spreading `null` raises before the next argument",
+        );
+        assert_eq!(
+            names("noop(e.attrString(\"early\"), e.attrString(\"late\"));"),
+            vec!["early".to_string(), "late".to_string()],
+            "with nothing raising both arguments are read",
+        );
+    }
+
+    /// A spread whose operand is provably nonempty still guarantees the loop a pass.
+    #[test]
+    fn a_spread_of_something_nonempty_still_guarantees_a_pass() {
+        let required = |iterable: &str| {
+            helper_reached_via(&format!(
+                "for (const x of {iterable}) {{ parse(e); break; }}"
+            ))
+            .iter()
+            .find(|f| f.name == "id")
+            .map(|f| f.required)
+        };
+        assert_eq!(
+            required("[...[1]]"),
+            Some(true),
+            "the spread copies one element"
+        );
+        assert_eq!(
+            required("[...\"a\"]"),
+            Some(true),
+            "a string iterates by code point"
+        );
+        assert_eq!(required("[1]"), Some(true), "the plain spelling, unchanged");
+        // An empty operand supplies nothing, and an unreadable one settles nothing — the body
+        // may be skipped either way, so the read it performs stays optional.
+        assert_eq!(required("[...[]]"), Some(false), "nothing to copy");
+        assert_eq!(required("[...xs]"), Some(false), "an unreadable operand");
+    }
+
+    /// An assignment evaluates its right side on the way to the value it yields.
+    #[test]
+    fn an_assignment_carries_the_raise_of_its_right_side() {
+        let reaches = |arg: &str| {
+            helper_reached_via(&format!(
+                "var current = e; try {{ (function(){{ current = other; }})({arg}); }} catch (_) {{}} parse(current);"
+            ))
+            .iter()
+            .any(|f| f.name == "id")
+        };
+        assert!(
+            reaches("x = (function(){ throw 0; })()"),
+            "the right side raises before the call it feeds",
+        );
+        // A LOGICAL assignment evaluates its right on one path only, and which one is a question
+        // about the target — so the raise is not certain and the body runs.
+        assert!(
+            !reaches("x ||= (function(){ throw 0; })()"),
+            "a short-circuit assignment may never reach its right side",
+        );
+        assert!(
+            !reaches("x = f()"),
+            "an unreadable call on the right settles nothing",
+        );
+        // …and completing the WRITE is its own way to raise: storing through a nullish base
+        // fails whatever the value, so the right side alone was half the question.
+        assert!(
+            reaches("null.x = 1"),
+            "the store through `null` raises before the call it feeds",
+        );
+        assert!(
+            reaches("(void 0)[k] = 1"),
+            "and so does one through `undefined`",
+        );
+        assert!(
+            reaches("a[(function(){ throw 0; })()] = 1"),
+            "a computed key is evaluated on the way and carries its own raise",
+        );
+        assert!(
+            !reaches("a.x = 1"),
+            "an ordinary target settles nothing and the body runs",
+        );
+    }
+
+    /// A parameter DEFAULT that raises does so while the call binds — after every argument has
+    /// been evaluated — so a write in an argument still happens.
+    #[test]
+    fn a_default_that_raises_does_not_unwind_the_arguments() {
+        let reaches = |body: &str| helper_reached_via(body).iter().any(|f| f.name == "id");
+        assert!(
+            !reaches(
+                "var current = e; try { (function(x, y = (function(){ throw 0; })()){})(current = other); } catch (_) {} parse(current);"
+            ),
+            "the argument ran before the default raised, so its write stands",
+        );
+        // The bound: a LEADING failure really does skip the arguments — it happens before the
+        // list exists, which is the case this was merged with.
+        assert!(
+            reaches(
+                "var current = e; try { ((function(){ throw 0; })(), function(){})(current = other); } catch (_) {} parse(current);"
+            ),
+            "a callee-leading raise skips the arguments",
+        );
+    }
+
+    /// A call is decided by its callee and its arguments before its body is ever reached.
+    #[test]
+    fn a_call_carries_the_raise_of_what_it_evaluates_first() {
+        let reaches = |arg: &str| {
+            helper_reached_via(&format!(
+                "var current = e; try {{ (function(){{ current = other; }})({arg}); }} catch (_) {{}} parse(current);"
+            ))
+            .iter()
+            .any(|f| f.name == "id")
+        };
+        assert!(
+            reaches("(function(){})((function(){ throw 0; })())"),
+            "the inner argument raises, so neither body runs",
+        );
+        assert!(
+            reaches("((function(){ throw 0; })())()"),
+            "and a callee that raises never yields something to call",
+        );
+        assert!(
+            !reaches("(function(){})(f())"),
+            "an unreadable argument settles nothing",
+        );
+    }
+
+    /// `new` over something with no `[[Construct]]` raises before any body is entered, so the
+    /// arm it sits in produces no value and must not dilute what the other arms require.
+    #[test]
+    fn a_new_over_something_unconstructible_completes_abruptly() {
+        let required = |body: &str| {
+            helper_reached_via(body)
+                .iter()
+                .find(|f| f.name == "id")
+                .map(|f| f.required)
+        };
+        assert_eq!(
+            required("if (flag) { new (() => { parse(e); })(); } else { parse(e); }"),
+            Some(true),
+            "the arrow arm raises, so every execution that returns takes the else",
+        );
+        assert_eq!(
+            required("if (flag) { new (function*(){ parse(e); })(); } else { parse(e); }"),
+            Some(true),
+            "a generator has no [[Construct]] either",
+        );
+        assert_eq!(
+            required("if (flag) { new ({})(); } else { parse(e); }"),
+            Some(true),
+            "nor does a plain object",
+        );
+        // A constructor really is one, so both arms produce a value and the read is optional
+        // against the arm that does not perform it.
+        assert_eq!(
+            required("if (flag) { new (function(){ noop(); })(); } else { parse(e); }"),
+            Some(false),
+            "an ordinary function constructs and the else arm is a real alternative",
+        );
+        assert_eq!(
+            required("if (flag) { new Whatever(); } else { parse(e); }"),
+            Some(false),
+            "an identifier settles nothing and the arm stands",
+        );
+        // The callee and the arguments are both evaluated before anything is constructed, so a
+        // raise in either stops the arm however constructible the callee is.
+        assert_eq!(
+            required(
+                "if (flag) { new (function(){ noop(); })((function(){ throw 0; })()); } else { parse(e); }"
+            ),
+            Some(true),
+            "an argument that raises stops the construction",
+        );
+        assert_eq!(
+            required("if (flag) { new ((function(){ throw 0; })())(); } else { parse(e); }"),
+            Some(true),
+            "and so does the callee expression itself",
+        );
+    }
+
+    /// A decided selection hands back the member's VALUE, so the receiver is lost with it.
+    #[test]
+    fn a_selected_member_loses_its_receiver_like_a_comma_does() {
+        let reaches = |body: &str| helper_reached_via(body).iter().any(|f| f.name == "id");
+        assert!(
+            reaches(
+                "var current = e; try { (1 ? (function(){ current = other; }).call : fallback)(null); } catch (_) {} parse(current);"
+            ),
+            "the selection discards the reference and `.call` raises on an undefined receiver",
+        );
+        assert!(
+            reaches(
+                "var current = e; try { (1 && (function(){ current = other; }).apply)(null); } catch (_) {} parse(current);"
+            ),
+            "the short-circuit spelling of the same selection",
+        );
+        // Parentheses keep the reference, which is what makes the selection the thing that
+        // loses it rather than unwrapping in general.
+        assert!(
+            !reaches(
+                "var current = e; ((function(){ current = other; }).call)(null); parse(current);"
+            ),
+            "a parenthesised member still invokes its receiver",
+        );
+    }
+
+    /// A function declaration inside a BLOCK hoists only to that block, so it is not the
+    /// module-scope helper a parser outside the braces calls.
+    #[test]
+    fn a_block_local_declaration_does_not_replace_the_module_helper() {
+        let scanned = |module: &str| {
+            parse_module_wap_parsers(module)
+                .into_iter()
+                .find(|r| r.parser_name == "p")
+                .expect("parser")
+                .fields
+                .iter()
+                .map(|f| f.name.clone())
+                .collect::<Vec<_>>()
+        };
+        // The outer declaration is the one in scope at the call; the block-local one binds
+        // nothing outside its braces, and last-wins let it overwrite the map.
+        assert_eq!(
+            scanned(
+                r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+                function parse(q){ q.attrString("outer"); }
+                { function parse(q){ q.attrString("inner"); } }
+                var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                    e.assertTag("receipt");
+                    parse(e);
+                });
+            }),1);"#
+            ),
+            vec!["outer".to_string()],
+            "the block-local body is not the helper the call reaches",
+        );
+        // …and a switch case is a block scope of its own without any braces of its own.
+        assert_eq!(
+            scanned(
+                r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+                function parse(q){ q.attrString("outer"); }
+                switch (t) { case 1: function parse(q){ q.attrString("inner"); } }
+                var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                    e.assertTag("receipt");
+                    parse(e);
+                });
+            }),1);"#
+            ),
+            vec!["outer".to_string()],
+            "a case body is no more visible outside the switch",
+        );
+        // The bound: two declarations DIRECTLY in the factory body both hoist, and the later
+        // one is the binding left standing — which is why last-wins exists at all.
+        assert_eq!(
+            scanned(
+                r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+                function parse(q){ q.attrString("first"); }
+                function parse(q){ q.attrString("second"); }
+                var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                    e.assertTag("receipt");
+                    parse(e);
+                });
+            }),1);"#
+            ),
+            vec!["second".to_string()],
+            "last declaration wins where both really hoist",
+        );
+    }
+
+    /// A switch stops TESTING once a case matches, so a test written after the one that
+    /// certainly matches is evaluated on no path.
+    #[test]
+    fn a_case_test_after_the_matching_one_never_runs() {
+        let reaches = |body: &str| helper_reached_via(body).iter().any(|f| f.name == "id");
+        assert!(
+            reaches(
+                "var current = e; switch ('a') { case 'a': break; case (current = other): break; } parse(current);"
+            ),
+            "the later test is never evaluated, so the write never happens",
+        );
+        // The bound: a test written BEFORE the matching one is evaluated on the way to it.
+        assert!(
+            !reaches(
+                "var current = e; switch ('b') { case (current = other): break; case 'b': break; } parse(current);"
+            ),
+            "an earlier test runs and its write stands",
+        );
+        // The matching case's test is evaluated on EVERY path, not merely some: the switch
+        // tests in order and stops there, so a write on the way to it is as certain as one in
+        // the first test. Leaving it conditional kept an earlier value alive beside it.
+        assert!(
+            reaches(
+                "var current = other; switch ('b') { case 'a': break; case (current = e, 'b'): break; } parse(current);"
+            ),
+            "the matching test always runs, so its write supersedes the earlier one",
+        );
+        // The MATCHING case's own test is evaluated — it is the one that matched — so a write
+        // on the way to its value stands. `peel` reads a comma's last element, so a test can
+        // both perform a write and be the literal that selects.
+        assert!(
+            !reaches(
+                "var current = e; switch ('b') { case 'a': break; case (current = other, 'b'): break; } parse(current);"
+            ),
+            "the matching test runs and its write stands",
+        );
+        // …and where nothing matches, every test is evaluated — which is what falling to the
+        // DEFAULT means. `statically_selected_case` answers with the default's index there, and
+        // that index names no test, so nothing after it is dead.
+        assert!(
+            !reaches(
+                "var current = e; switch ('z') { case 'a': break; default: break; case (current = other, 'y'): break; } parse(current);"
+            ),
+            "falling to the default still evaluates every test",
+        );
+        // …and an undecidable discriminant settles nothing.
+        assert!(
+            !reaches(
+                "var current = e; switch (k) { case 'a': break; case (current = other): break; } parse(current);"
+            ),
+            "an unreadable discriminant leaves every test live",
+        );
+        // The CONSEQUENT of a later case is still reachable by falling through.
+        assert!(
+            !reaches(
+                "var current = e; switch ('a') { case 'a': case 'b': current = other; } parse(current);"
+            ),
+            "fallthrough reaches the later consequent",
+        );
+    }
+
+    /// A test that cannot be true never starts a pass, so the body is dead code — not a path
+    /// a value merely might take.
+    #[test]
+    fn a_while_that_cannot_be_entered_writes_nothing() {
+        let reaches = |body: &str| helper_reached_via(body).iter().any(|f| f.name == "id");
+        assert!(
+            reaches("var current = e; while (0) { current = other; } parse(current);"),
+            "the body runs on no path",
+        );
+        assert!(
+            reaches("var current = e; while (!1) { current = other; } parse(current);"),
+            "however the falsity is spelled",
+        );
+        // The bound: a test this cannot decide leaves the body a path the value may take.
+        assert!(
+            !reaches("var current = e; while (k) { current = other; } parse(current);"),
+            "an unreadable test keeps the write in play",
+        );
+    }
+
+    /// An optional call short-circuits on a nullish callee, so its arguments are never built.
+    #[test]
+    fn an_optional_call_on_nothing_evaluates_no_argument() {
+        assert!(
+            helper_reached_via("null?.(e.attrString(\"late\"));")
+                .iter()
+                .all(|f| f.name != "late"),
+            "the argument list is never built",
+        );
+        // …and the binding side agrees: a write spelled there happens on no path.
+        assert!(
+            helper_reached_via("var current = e; null?.(current = other); parse(current);")
+                .iter()
+                .any(|f| f.name == "id"),
+            "nor is the write performed",
+        );
+        // The bound: an ordinary call really does evaluate its arguments.
+        assert!(
+            helper_reached_via("noop(e.attrString(\"late\"));")
+                .iter()
+                .any(|f| f.name == "late"),
+            "a call that happens reads its arguments",
+        );
+        // …and an optional call on something that is NOT nullish happens too.
+        assert!(
+            helper_reached_via("noop?.(e.attrString(\"late\"));")
+                .iter()
+                .any(|f| f.name == "late"),
+            "an unreadable callee settles nothing",
+        );
+        // The optional flag may sit one link EARLIER, on a member rather than on the call —
+        // the same short circuit, and a check for `call.optional` alone missed it.
+        assert!(
+            helper_reached_via("null?.[e.attrString(\"late\")]();")
+                .iter()
+                .all(|f| f.name != "late"),
+            "a nullish optional member skips its key and its call",
+        );
+        assert!(
+            helper_reached_via("null?.m(e.attrString(\"late\"));")
+                .iter()
+                .all(|f| f.name != "late"),
+            "and the static spelling of the same link",
+        );
+        // The bound: a member chain with no nullish base runs.
+        assert!(
+            helper_reached_via("thing?.m(e.attrString(\"late\"));")
+                .iter()
+                .any(|f| f.name == "late"),
+            "an unreadable base settles nothing",
+        );
+    }
+
+    /// A short-circuiting optional call still EVALUATES its callee, and the arm it sits in
+    /// still produces a value — `undefined` — however its skipped arguments are spelled.
+    #[test]
+    fn a_short_circuiting_optional_call_keeps_what_it_evaluates() {
+        let reaches = |body: &str| helper_reached_via(body).iter().any(|f| f.name == "id");
+        assert!(
+            !reaches("var current = e; (void (current = other))?.(); parse(current);"),
+            "the callee runs before the short circuit, so its write stands",
+        );
+        // …and an optional chain whose base is NOT nullish is an ordinary call, so an argument
+        // that raises really does make the arm raise. Without this the clause above answers a
+        // question `expression_throws` never reached — every `a?.b(…)` read as non-throwing.
+        assert_eq!(
+            helper_reached_via("flag ? thing?.m((function(){ throw 0; })()) : parse(e);")
+                .iter()
+                .find(|f| f.name == "id")
+                .map(|f| f.required),
+            Some(true),
+            "an unreadable base leaves the raise standing, so the other arm is the only one",
+        );
+        // …and the call yields a value, so the arm is not a throwing one: the intersection must
+        // still see the side that reads.
+        assert_eq!(
+            helper_reached_via("flag ? null?.((function(){ throw 0; })()) : parse(e);")
+                .iter()
+                .find(|f| f.name == "id")
+                .map(|f| f.required),
+            Some(false),
+            "an argument it never builds cannot make the arm raise",
+        );
+        // …and an `await` it never evaluates suspends nothing, so a write after it is still
+        // synchronous to the caller.
+        assert!(
+            !reaches(
+                "var current = e; (async function(){ null?.(await 0); current = other; })(); parse(current);"
+            ),
+            "a skipped await is no suspension point",
+        );
+    }
+
+    /// An `await` control never reaches suspends nothing, whichever construct makes it
+    /// unreachable.
+    #[test]
+    fn an_await_nothing_reaches_is_no_suspension_point() {
+        let reaches = |body: &str| helper_reached_via(body).iter().any(|f| f.name == "id");
+        // The optional flag may sit on a MEMBER rather than on the call — the analyser learned
+        // the whole chain a round ago and this walker had only the direct spelling.
+        assert!(
+            !reaches(
+                "var current = e; (async function(){ null?.m(await 0); current = other; })(); parse(current);"
+            ),
+            "a nullish optional member skips the await in its argument",
+        );
+        // …and a switch case a readable discriminant does not select is never entered.
+        assert!(
+            !reaches(
+                "var current = e; (async function(){ switch ('a') { case 'a': break; case 'b': await 0; } current = other; })(); parse(current);"
+            ),
+            "an unselected case suspends nothing",
+        );
+        // …but a selected DEFAULT is entered only after every test has been evaluated, so a
+        // test written after it still runs.
+        assert!(
+            reaches(
+                "var current = e; (async function(){ switch ('x') { default: break; case (await 0, 'y'): break; } current = other; })(); parse(current);"
+            ),
+            "a test past the default is evaluated on the way to it",
+        );
+        // The bound: where the match HAS a test, the tests after it are not evaluated — which
+        // is what keeps the default case above from being the rule for every selection.
+        assert!(
+            !reaches(
+                "var current = e; (async function(){ switch ('a') { case 'a': break; case (await 0, 'b'): break; } current = other; })(); parse(current);"
+            ),
+            "the switch stops testing at the match",
+        );
+        // The bound: an await in the SELECTED case, or in one reachable by falling through,
+        // really is the cutoff.
+        assert!(
+            reaches(
+                "var current = e; (async function(){ switch ('a') { case 'a': await 0; } current = other; })(); parse(current);"
+            ),
+            "the selected case's await suspends",
+        );
+        assert!(
+            reaches(
+                "var current = e; (async function(){ switch ('a') { case 'a': case 'b': await 0; } current = other; })(); parse(current);"
+            ),
+            "and so does one the match falls through into",
+        );
+    }
+
+    /// A call completes abruptly for three reasons, in the order the engine takes them — and
+    /// only the body was read.
+    #[test]
+    fn a_call_is_judged_by_more_than_its_body() {
+        let required = |body: &str| {
+            helper_reached_via(body)
+                .iter()
+                .find(|f| f.name == "id")
+                .map(|f| f.required)
+        };
+        // The short circuit answers for the whole CHAIN, so an argument it never builds cannot
+        // make the arm raise.
+        assert_eq!(
+            required("flag ? null?.m((function(){ throw 0; })()) : parse(e);"),
+            Some(false),
+            "the arm yields `undefined` and the intersection sees both sides",
+        );
+        // A default raises while the call BINDS, before the first statement — so the call
+        // produces nothing and the other arm is the only one that does.
+        assert_eq!(
+            required("flag ? (function(x = (function(){ throw 0; })()){})() : parse(e);"),
+            Some(true),
+            "a binding failure is an abrupt completion",
+        );
+        // …and a default the call SUPPLIES a value for never runs.
+        assert_eq!(
+            required("flag ? (function(x = (function(){ throw 0; })()){})(1) : parse(e);"),
+            Some(false),
+            "a supplied parameter prevents its default",
+        );
+        // A SPREAD is not one position, so which parameters it supplies is undecidable and
+        // certainty ends there.
+        assert_eq!(
+            required(
+                "flag ? (function(x, y = (function(){ throw 0; })()){})(...[1, 2]) : parse(e);"
+            ),
+            Some(false),
+            "a spread may supply the parameter whose default raises",
+        );
+    }
+
+    /// Parentheses do not change what a value IS, so a supplied argument still suppresses the
+    /// default it supplies — whichever of the two readers is asking.
+    #[test]
+    fn a_wrapped_argument_still_prevents_the_default_it_supplies() {
+        let reaches = |body: &str| helper_reached_via(body).iter().any(|f| f.name == "id");
+        assert!(
+            reaches(
+                "var current = e; (function(x = (current = other)){}).apply(null, ([1])); parse(current);"
+            ),
+            "a parenthesised apply list is the list it wraps",
+        );
+        assert!(
+            reaches(
+                "var current = e; (function({x = (current = other)}){})(({x: 1})); parse(current);"
+            ),
+            "a parenthesised object is the object it wraps",
+        );
+        // The bound: a list this genuinely cannot read still leaves the default standing.
+        assert!(
+            !reaches(
+                "var current = e; (function(x = (current = other)){}).apply(null, xs); parse(current);"
+            ),
+            "an unreadable list settles nothing",
+        );
+        assert!(
+            !reaches(
+                "var current = e; (function({x = (current = other)}){})(obj); parse(current);"
+            ),
+            "and neither does an unreadable object",
+        );
+    }
+
+    /// Parentheses TERMINATE an optional chain, so the call outside them is an ordinary one.
+    #[test]
+    fn parentheses_end_an_optional_chain() {
+        assert!(
+            helper_reached_via("try { (null?.m)(e.attrString(\"id\")); } catch (_) {}")
+                .iter()
+                .any(|f| f.name == "id"),
+            "the argument is evaluated before calling `undefined`",
+        );
+        // The bound: without the parentheses the same link really does short-circuit.
+        assert!(
+            helper_reached_via("null?.m(e.attrString(\"id\"));")
+                .iter()
+                .all(|f| f.name != "id"),
+            "the chain spelling evaluates nothing",
+        );
+    }
+
+    /// A constructor's `return`s are read in execution order: one that already handed back an
+    /// object never reaches the next.
+    #[test]
+    fn a_constructor_stops_at_the_return_that_completes_it() {
+        let required = |body: &str| {
+            helper_reached_via(body)
+                .iter()
+                .find(|f| f.name == "id")
+                .map(|f| f.required)
+        };
+        assert_eq!(
+            required(
+                "flag ? new (class { constructor(){ return {}; return (function(){ throw 0; })(); } })() : parse(e);"
+            ),
+            Some(false),
+            "the first return completes the construction",
+        );
+        // The bound: a throwing return that IS reached still settles it.
+        assert_eq!(
+            required(
+                "flag ? new (class { constructor(){ return (function(){ throw 0; })(); } })() : parse(e);"
+            ),
+            Some(true),
+            "a reachable throwing return raises",
+        );
+    }
+
+    /// A handler a protected block cannot ENTER suspends nothing.
+    #[test]
+    fn an_unreachable_handler_is_no_suspension_point() {
+        let reaches = |body: &str| helper_reached_via(body).iter().any(|f| f.name == "id");
+        assert!(
+            !reaches(
+                "var current = e; (async function(){ try {} catch (_) { await 0; } current = other; })(); parse(current);"
+            ),
+            "an empty try cannot raise, so its handler never runs",
+        );
+        // The bound: a block with something in it may raise, and its handler is walked.
+        assert!(
+            reaches(
+                "var current = e; (async function(){ try { noop(); } catch (_) { await 0; } current = other; })(); parse(current);"
+            ),
+            "a block that can raise keeps its handler live",
+        );
+        // …and the FINALIZER always runs, whatever the block does.
+        assert!(
+            reaches(
+                "var current = e; (async function(){ try {} finally { await 0; } current = other; })(); parse(current);"
+            ),
+            "a finalizer suspends whether or not anything raised",
+        );
+    }
+
+    /// A bigint is as decided as its numeric twin, and a tagged template is an invocation.
+    #[test]
+    fn a_bigint_decides_a_branch_and_a_tag_can_raise() {
+        let required = |body: &str| {
+            helper_reached_via(body)
+                .iter()
+                .find(|f| f.name == "id")
+                .map(|f| f.required)
+        };
+        assert_eq!(required("1n && parse(e);"), Some(true), "`1n` is truthy");
+        assert_eq!(required("0n || parse(e);"), Some(true), "`0n` is not");
+        // …and the other direction, so neither clause is a one-sided claim.
+        assert_eq!(
+            required("if (0n) { noop(); } else { parse(e); }"),
+            Some(true),
+            "`0n` selects the alternate",
+        );
+        // The bound: a bigint this cannot decide does not exist — every literal is one or the
+        // other — so the paired bound is an ordinary undecidable test.
+        assert_eq!(
+            required("k && parse(e);"),
+            Some(false),
+            "an unreadable test is still a branch",
+        );
+        // A tagged template calls its tag, so a tag whose body throws produces no value.
+        assert_eq!(
+            required("flag ? (function(){ throw 0; })`x` : parse(e);"),
+            Some(true),
+            "the tagged arm raises, so the other is the only one that yields",
+        );
+        assert_eq!(
+            required("flag ? noop`${(function(){ throw 0; })()}` : parse(e);"),
+            Some(true),
+            "and so does a substitution that raises",
+        );
+        assert_eq!(
+            required("flag ? noop`x` : parse(e);"),
+            Some(false),
+            "an ordinary tag yields a value and the arms intersect",
+        );
+    }
+
+    /// Parameter binding happens in ORDER and stops at the default that raises, so a default
+    /// before it has already run.
+    #[test]
+    fn a_default_before_the_raising_one_has_already_run() {
+        let reaches = |body: &str| helper_reached_via(body).iter().any(|f| f.name == "id");
+        assert!(
+            !reaches(
+                "var current = e; try { (function(x = (current = other), y = (function(){ throw 0; })()){})(); } catch (_) {} parse(current);"
+            ),
+            "the earlier default ran before the later one raised",
+        );
+        // The bound: a default AFTER the raising one never runs.
+        assert!(
+            reaches(
+                "var current = e; try { (function(x = (function(){ throw 0; })(), y = (current = other)){})(); } catch (_) {} parse(current);"
+            ),
+            "nothing past the raise is bound",
+        );
+    }
+
+    /// A destructuring declarator evaluates its INITIALIZER before binding initialization runs
+    /// the pattern's defaults, and the generic walk took the pattern first.
+    #[test]
+    fn a_destructuring_declarator_takes_its_initializer_first() {
+        assert!(
+            helper_reached_via(
+                "var current = e; var [x = (current = other)] = [(parse(current), undefined)];"
+            )
+            .iter()
+            .any(|f| f.name == "id"),
+            "the initializer reads the node the default has not yet moved",
+        );
+        // The bound: a plain declarator has no pattern effects to order and is untouched.
+        assert!(
+            helper_reached_via("var current = e; var x = (parse(current), 1);")
+                .iter()
+                .any(|f| f.name == "id"),
+            "a plain initializer still reads what it reads",
+        );
+    }
+
+    /// A comma list is evaluated in order and STOPS at an element that certainly raises, so a
+    /// read spelled after one happens on no path — even inside a single argument.
+    #[test]
+    fn a_sequence_stops_at_the_element_that_raises() {
+        assert!(
+            helper_reached_via(
+                "try { noop(((function(){ throw 0; })(), e.attrString(\"late\"))); } catch (_) {}"
+            )
+            .iter()
+            .all(|f| f.name != "late"),
+            "the tail of the argument is never evaluated",
+        );
+        // …and the binding side agrees: a write in that tail happens on no path.
+        assert!(
+            helper_reached_via(
+                "var current = e; try { noop(((function(){ throw 0; })(), current = other)); } catch (_) {} parse(current);"
+            )
+            .iter()
+            .any(|f| f.name == "id"),
+            "nor is the write performed",
+        );
+        // The bound: what comes BEFORE the raise is evaluated and read.
+        assert!(
+            helper_reached_via(
+                "try { noop((e.attrString(\"early\"), (function(){ throw 0; })())); } catch (_) {}"
+            )
+            .iter()
+            .any(|f| f.name == "early"),
+            "the list runs up to the raise",
+        );
+        // …and on the binding side too, past the FIRST element: nothing is suppressed until
+        // something raises, however far down the list the write sits.
+        assert!(
+            helper_reached_via("var current = e; noop((1, current = other)); parse(current);")
+                .iter()
+                .all(|f| f.name != "id"),
+            "a write with no raise before it stands wherever it sits",
+        );
+    }
+
+    /// Obtaining an iterator from something that cannot be iterated raises before the loop
+    /// target is bound, so `for (current of null) {}` writes nothing.
+    #[test]
+    fn a_for_of_over_something_uniterable_binds_nothing() {
+        let reaches = |body: &str| helper_reached_via(body).iter().any(|f| f.name == "id");
+        assert!(
+            reaches(
+                "var current = e; try { for (current of null) {} } catch (_) {} parse(current);"
+            ),
+            "the iterator is never obtained, so the target is never written",
+        );
+        assert!(
+            reaches("var current = e; try { for (current of 1) {} } catch (_) {} parse(current);"),
+            "a number is no more iterable than `null`",
+        );
+        // The bound: an iterable really may write the target.
+        assert!(
+            !reaches("var current = e; for (current of xs) {} parse(current);"),
+            "an unreadable right side leaves the write standing",
+        );
+    }
+
+    /// Calling a generator METHOD builds an iterator and runs none of its body, exactly as an
+    /// inline `function*` does — the class-method resolution read only `async`.
+    #[test]
+    fn a_generator_class_method_defers_its_body() {
+        let reaches = |body: &str| helper_reached_via(body).iter().any(|f| f.name == "id");
+        assert!(
+            reaches(
+                "var current = e; (class { static *m(){ current = other; } }).m(); parse(current);"
+            ),
+            "a static generator method runs none of its body",
+        );
+        assert!(
+            reaches(
+                "var current = e; (new (class { *m(){ current = other; } })).m(); parse(current);"
+            ),
+            "and neither does an instance one",
+        );
+        // The bound: an ordinary method really does run, and its write stands.
+        assert!(
+            !reaches(
+                "var current = e; (class { static m(){ current = other; } }).m(); parse(current);"
+            ),
+            "an ordinary static method runs now",
+        );
+    }
+
+    fn helper_reached_via(body: &str) -> Vec<ParsedField> {
+        let module = format!(
+            r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){{
+            function parse(p){{ p.attrString("id"); }}
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){{
+                e.assertTag("receipt");
+                {body}
+            }});
+        }}),1);"#
+        );
+        parse_module_wap_parsers(&module)
+            .into_iter()
+            .find(|r| r.parser_name == "p")
+            .expect("parser")
+            .fields
+    }
+
+    /// `(field is required, its helper's guard is published)` for a callback body that
+    /// reaches `parse` — which both reads `id` and asserts `kind`. The two travel together or
+    /// the shape contradicts itself, so both are read from one run.
+    pub(super) fn guards_and_field(body: &str) -> (bool, bool) {
+        let module = format!(
+            r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){{
+            function parse(p){{ p.assertAttr("kind", "x"); p.attrString("id"); }}
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){{
+                e.assertTag("receipt");
+                {body}
+            }});
+        }}),1);"#
+        );
+        let out = parse_module_wap_parsers(&module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let required = p
+            .fields
+            .iter()
+            .find(|f| f.name == "id")
+            .expect("recovered")
+            .required;
+        let guarded = p
+            .assertions
+            .iter()
+            .any(|a| a.name.as_deref() == Some("kind"));
+        (required, guarded)
+    }
+
+    #[test]
+    fn a_destructured_formal_does_not_shift_the_node_position() {
+        // `function parse({opts}, node)` has the node SECOND. Collecting only the formals
+        // that have a name slid it to index 0, so the call's second argument found no
+        // formal and the helper's reads left the shape — silently, which is the half that
+        // makes the drop accounting a lie.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse({opts}, node){ node.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                e.mapChildrenWithTag("row", function(row){
+                    parse(cfg, row);
+                });
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let row = p.fields.iter().find(|f| f.name == "row").expect("row");
+        assert!(
+            row.children
+                .as_ref()
+                .is_some_and(|kids| kids.iter().any(|f| f.name == "id")),
+            "the node is the second formal: {:?}",
+            row.children
+        );
+    }
+
+    #[test]
+    fn a_node_handed_to_a_destructured_formal_is_counted_not_dropped() {
+        // The other side: when the node lands ON the pattern there is no name to analyse
+        // the body against, and stopping there has to be recorded like every other bounded
+        // exit on this path.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse({node}){ node.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                e.mapChildrenWithTag("row", function(row){
+                    parse(row);
+                });
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        assert!(
+            p.pending_drops
+                .iter()
+                .any(|u| u == "nodeBoundByPattern@parse"),
+            "the stop is counted: {:?}",
+            p.pending_drops
+        );
+    }
+
+    #[test]
+    fn a_helper_handed_an_alias_of_the_node_is_still_followed() {
+        // `var current = row; parse(current)` matched no argument position, so the helper
+        // was never entered — its fields simply were not in the shape, and no drop was
+        // recorded either, which is the worse half: the extraction looked complete.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                e.mapChildrenWithTag("row", function(row){
+                    var current = row;
+                    parse(current);
+                });
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let row = p.fields.iter().find(|f| f.name == "row").expect("row");
+        assert!(
+            row.children
+                .as_ref()
+                .is_some_and(|kids| kids.iter().any(|f| f.name == "id")),
+            "the alias is the node: {:?}",
+            row.children
+        );
+    }
+
+    #[test]
+    fn a_nested_functions_alias_does_not_answer_for_this_node() {
+        // `current` is bound only inside `f`, so the outer `parse(current)` was never handed
+        // the row. A flat alias list made the pair visible anyway and filed `leaked` under
+        // `<row>`. I wrote the extent filter for this, could not reproduce it with two
+        // sibling MAPPED callbacks — which are analysed over their own sources — and removed
+        // it as untestable. A nested plain function shares the collection; it reproduces.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("leaked"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                e.mapChildrenWithTag("row", function(row){
+                    function f(){ var current = row; current.attrString("inner"); }
+                    f();
+                    parse(current);
+                });
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let row = p.fields.iter().find(|f| f.name == "row").expect("row");
+        let leaked = row
+            .children
+            .as_ref()
+            .is_some_and(|kids| kids.iter().any(|f| f.name == "leaked"));
+        assert!(
+            !leaked,
+            "the nested function's alias is not this scope's: {:?}",
+            row.children
+        );
+    }
+
+    #[test]
+    fn an_alias_made_by_plain_assignment_is_followed_too() {
+        // `var current; current = row` aliases as much as the declarator form does. Reading
+        // only initializers left this matching no argument position, losing the helper with
+        // nothing recorded — and the aliasing assignment must not count as the write that
+        // invalidates the alias it just made.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                e.mapChildrenWithTag("row", function(row){
+                    var current;
+                    current = row;
+                    parse(current);
+                });
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let row = p.fields.iter().find(|f| f.name == "row").expect("row");
+        assert!(
+            row.children
+                .as_ref()
+                .is_some_and(|kids| kids.iter().any(|f| f.name == "id")),
+            "the assigned alias is the node: {:?}",
+            row.children
+        );
+    }
+
+    #[test]
+    fn an_assignment_in_a_function_that_may_never_run_does_not_move_the_node() {
+        // `var current = e; function mutate(){ current = other; } parse(current)` — nothing calls
+        // `mutate`, so `current` still stands for the element and the helper's fields are
+        // recoverable. Letting every write to a top-level binding escape its function extent —
+        // which is what I shipped one commit earlier to fix the IIFE case — counted this one as
+        // an effective second value and lost the fields silently.
+        //
+        // An IIFE is the case syntax decides; anything else is call-graph work this scanner does
+        // not do, so only an IIFE escapes.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                var current = e;
+                function mutate(){ current = other; }
+                parse(current);
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        assert!(
+            p.fields.iter().any(|f| f.name == "id"),
+            "the alias still stands: {:?}",
+            p.fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_write_in_a_class_heritage_expression_moves_the_node() {
+        // `class C extends (current = other, Base) {}` performs that assignment before anything
+        // after the class runs, so `current` no longer names the element. The binding collector
+        // walked only the class BODY, so the write was invisible and `names_for` followed the
+        // stale `current = e` — filing the helper's `id` at the response root, which is the
+        // wrong-node direction. A hand-written visitor that enumerated the parts of a class it
+        // happened to think of; the heritage is the one carrying a runtime expression outside
+        // the body.
+        let fields = helper_reached_via(
+            r#"var current = e; class C extends (current = other, Base) {} parse(current);"#,
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "not at the root, which the parser never reads it from: {:?}",
+            fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_class_with_no_heritage_still_leaves_its_alias_alone() {
+        // The bound: a class that assigns nothing moves nothing, so the alias still stands and
+        // the helper's fields are recovered. Walking a class as though it always wrote to
+        // everything would lose them.
+        let fields = helper_reached_via(r#"var current = e; class C {} parse(current);"#);
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the alias is untouched: {:?}",
+            fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn an_alias_assigned_down_one_path_does_not_require_what_it_reads() {
+        // `var current; if (flag) current = e; parse(current)` reaches `parse` with the element
+        // only when `flag` held, so what the helper reads there is not read on every execution.
+        // The CALL is unconditional, so `conditional_depth` says nothing about it, and one
+        // in-scope value ordered before the call looked as definite as any other — requiring
+        // `id` of every response, which rejects the ones the other path returns.
+        //
+        // Recovered and relaxed, not dropped: the field is real, it is just optional.
+        for body in [
+            "var current; if (flag) current = e; parse(current);",
+            "var current; for (var k of ks) { current = e; } parse(current);",
+            "var current; flag && (current = e); parse(current);",
+            "var current; switch (m) { case 1: current = e; } parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            let id = fields
+                .iter()
+                .find(|f| f.name == "id")
+                .unwrap_or_else(|| panic!("`{body}` still recovers the field"));
+            assert!(!id.required, "`{body}` assigns it only on one path");
+        }
+    }
+
+    #[test]
+    fn an_alias_assigned_on_every_path_still_requires_it() {
+        // The bound, and the reason this asks per PART of a construct: an assignment in a loop
+        // header or an `if` TEST runs whatever happens, and a plain one obviously does. Calling
+        // every assignment uncertain would relax reads the parser always performs.
+        for body in [
+            "var current; current = e; parse(current);",
+            "var current; if (current = e) { other(); } parse(current);",
+            "var current; while ((current = e) && 0) { } parse(current);",
+            "var current; for (current = e; 0; ) { } parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            let id = fields
+                .iter()
+                .find(|f| f.name == "id")
+                .unwrap_or_else(|| panic!("`{body}` recovers the field"));
+            assert!(id.required, "`{body}` assigns it on every path");
+        }
+    }
+
+    #[test]
+    fn a_conditional_alias_elsewhere_does_not_relax_the_node_itself() {
+        // Per argument, not per call: `parse(e)` is handed the parameter, which is bound before
+        // the body runs. An unrelated conditional alias in the same function says nothing about
+        // it, and asking the question of the whole alias set would have relaxed this.
+        let fields = helper_reached_via("var current; if (flag) current = e; parse(e);");
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(id.required, "the parameter is not conditional");
+    }
+
+    #[test]
+    fn a_write_inside_a_function_nobody_calls_stays_there() {
+        // An IIFE inside a function nothing invokes has not run either, so the write is confined
+        // and the alias still stands. The narrowing that let only an IIFE escape asked about the
+        // INNERMOST function alone, so one level of nesting was enough to make the write look
+        // top-level — and the descent was refused for a node nothing had moved, silently.
+        let fields = helper_reached_via(
+            "var current = e; function unused(){ (function(){ current = other; })(); } parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the alias is untouched: {:?}",
+            fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_write_in_an_iife_nothing_encloses_still_moves_the_node() {
+        // The bound: with every function on the chain immediately invoked, the write certainly
+        // ran. Confining every captured write would put the helper's fields back at the wrong
+        // node, which is the direction the escape rule exists to stop.
+        let fields = helper_reached_via(
+            "var current = e; (function(){ current = other; })(); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the IIFE moved it: {:?}",
+            fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn an_iife_body_runs_after_the_arguments_it_is_passed() {
+        // JavaScript evaluates every argument before entering the callee, so
+        // `(function(){ current = other; })(parse(current))` hands `parse` the ORIGINAL node.
+        // The write was ordered by its position inside the callee — textually before the
+        // argument — so it looked already effective and the descent was refused for a node
+        // still standing, silently. The one place where source order and run order disagree
+        // within a single expression.
+        for body in [
+            "var current = e; (function(){ current = other; })(parse(current));",
+            "var current = e; (() => { current = other; })(parse(current));",
+            "var current = e; (function(){ (function(){ current = other; })(); })(parse(current));",
+        ] {
+            let id = helper_reached_via(body)
+                .into_iter()
+                .find(|f| f.name == "id")
+                .unwrap_or_else(|| panic!("`{body}` passes the untouched node"));
+            assert!(id.required, "`{body}` reads it on every execution");
+        }
+    }
+
+    #[test]
+    fn an_argument_runs_before_the_body_it_is_passed_to() {
+        // The other half of the same ordering, and the one that was wrong in the harmful
+        // direction: `(function(){ parse(current); })(current = other)` evaluates the argument
+        // FIRST, so the body reads what it assigned. The write is textually after the read, so
+        // position alone called it not-yet-effective and the helper's fields were filed under
+        // the node the parser had already replaced — and marked required, at that.
+        //
+        // A record now carries the region it precedes whatever its position, the same escape
+        // hatch a write inside a loop has always had. The node the argument assigns is not one
+        // this scan tracks, so the honest outcome is that the fields go nowhere rather than
+        // somewhere wrong.
+        for body in [
+            "var current = e; (function(){ parse(current); })(current = other);",
+            "var current = e; ((current) => { parse(current); })(other);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "`{body}` reads a node this scan cannot place: {:?}",
+                fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn a_write_inside_an_invoked_body_is_effective_inside_it() {
+        // The other side of moving an invoked body's effects to the call, and a regression I
+        // introduced doing it: `(function(){ current = other; parse(current); })()` hands
+        // `parse` the NEW node, and pinning the write to the call end made it look not-yet-
+        // effective at a read in that same body — so the helper's fields were published on the
+        // node the write had moved away from.
+        //
+        // Where an effect lands depends on who is observing. Inside the body it happened where
+        // it is written; outside — an argument, or anything after the call — it happened at the
+        // invocation. One position could not say both, which is the same shape as the class
+        // two-phase clock declined earlier in this PR, and the reason that one is declined is
+        // that its observers cannot be told apart this cleanly.
+        let fields = helper_reached_via(
+            "var current = e; (function(){ current = other; parse(current); })();",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the write precedes the read in its own body: {:?}",
+            fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn an_invoked_body_still_lands_at_the_call_for_everyone_else() {
+        // The bounds, and all three are cases earlier rounds established. A read EARLIER in the
+        // same body still precedes the write; an argument still runs before the whole body; and
+        // a read after the call still sees what the body did.
+        let id = helper_reached_via(
+            "var current = e; (function(){ parse(current); current = other; })();",
+        )
+        .into_iter()
+        .find(|f| f.name == "id")
+        .expect("the read precedes the write");
+        assert!(id.required, "and it reads the original node");
+        for body in [
+            "var current = e; (function(){ current = other; })(); parse(current);",
+            "var current = e; (function(){ parse(current); })(current = other);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "`{body}` reads the node the write moved to: {:?}",
+                fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn a_loop_that_cannot_come_round_again_carries_no_write() {
+        // `do { parse(current); current = other; break; } while (flag)` hands `parse` the
+        // original node every time, because the `break` is reached on every path and no next
+        // iteration exists to see that write. The repetition shortcut — a write below the call
+        // runs before it on the next pass — applied to every write inside a loop span, so this
+        // alias was refused and the helper's fields dropped.
+        for body in [
+            "var current = e; do { parse(current); current = other; break; } while (flag);",
+            "var current = e; while (!0) { parse(current); current = other; break; }",
+            "var current = e; do { parse(current); current = other; return t; } while (flag);",
+        ] {
+            let id = helper_reached_via(body)
+                .into_iter()
+                .find(|f| f.name == "id")
+                .unwrap_or_else(|| panic!("`{body}` never repeats"));
+            assert!(id.required, "`{body}` reads the original node");
+        }
+    }
+
+    #[test]
+    fn a_loop_that_does_repeat_still_carries_it() {
+        // The bounds. A body that can come round again really does run the write before the
+        // call on the next pass, so the alias stays refused — that is what the shortcut exists
+        // for. A `continue` is not a way out: it starts the next pass, which is precisely when
+        // the write is seen. And a non-repeating loop inside one that repeats is carried by the
+        // outer one.
+        for body in [
+            "var current = e; do { parse(current); current = other; } while (flag);",
+            "var current = e; do { parse(current); current = other; continue; } while (flag);",
+            "var current = e; while (flag) { do { parse(current); current = other; break; } while (0); }",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "`{body}` sees the write on a later pass: {:?}",
+                fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn an_argument_that_writes_still_runs_where_it_is_written() {
+        // The bound: only the CALLEE's effects move to the call. An argument runs in its own
+        // place, before the ones after it and before the body — pinning every write inside the
+        // call expression to the call would order this one after a read it precedes, which is
+        // the same wrong-node mistake pointing the other way.
+        let fields = helper_reached_via(
+            "var current = e; (function(){})((current = other), parse(current));",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the earlier argument moved it: {:?}",
+            fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+        // And the other way round: a read in an EARLIER argument runs before a later argument's
+        // write, so the node it is handed is the untouched one. The region a write precedes is
+        // the callee's body alone — widening it to the whole call would swallow this.
+        let fields =
+            helper_reached_via("var current = e; (function(){})(parse(current), current = other);");
+        assert!(
+            fields.iter().any(|f| f.name == "id" && f.required),
+            "the write is in a later argument: {:?}",
+            fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn calling_a_function_is_not_always_running_its_body() {
+        // Two spellings where the call returns before the body does the writing. A generator
+        // call builds an iterator and runs nothing at all; an `async` body stops at its first
+        // `await` and hands control back, so the caller's next statement runs before the rest
+        // of it. Both were read as "certainly ran by the time anything after the call reads
+        // it", so a still-valid alias was refused and the helper's fields were lost — the same
+        // mistake the `unused` narrowing was written for, on the two forms of a call that does
+        // not run to the end.
+        for body in [
+            "var current = e; (function*(){ current = other; })(); parse(current);",
+            "var current = e; (async function(){ await x; current = other; })(); parse(current);",
+            "var current = e; (async () => { await x; current = other; })(); parse(current);",
+            "var current = e; (async function(){ for await (var q of xs) {} current = other; })(); parse(current);",
+            // The FIRST suspension ends the synchronous part, whatever comes after it.
+            "var current = e; (async function(){ await x; current = other; await y; })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "`{body}` leaves the alias standing: {:?}",
+                fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn what_an_async_body_does_before_its_first_await_has_run() {
+        // The bound, and why the region is positional rather than the whole function: an
+        // `async` body runs synchronously up to its first suspension, so a write BEFORE the
+        // `await` has happened by the time the call returns and confining it would put the
+        // helper's fields at the node the write moved away from. An `await` inside a nested
+        // function is that function's suspension and does not shorten this one.
+        for body in [
+            "var current = e; (async function(){ current = other; await x; })(); parse(current);",
+            "var current = e; (async () => { current = other; await x; })(); parse(current);",
+            "var current = e; (async function(){ (async function(){ await x; })(); current = other; })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "`{body}` moved the node before returning: {:?}",
+                fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn a_loop_that_must_start_assigns_before_anything_can_jump_past_it() {
+        // `do { current = e; break; } while (0)` is the minifier's one-shot block, and the write
+        // at the top of it runs on every execution — the guaranteed first pass the requiredness
+        // walk has read in order since `walk_guaranteed_pass` was written. This collector called
+        // the whole body skippable and declined the question as too hard to answer, so the two
+        // halves disagreed about the same statement and the field came out optional anyway. Every
+        // loop whose entry is decidable, since one predicate now answers for all of them.
+        for body in [
+            "var current; do { current = e; break; } while (0); parse(current);",
+            "var current; do current = e; while (0); parse(current);",
+            "var current; while (!0) { current = e; break; } parse(current);",
+            "var current; for (;;) { current = e; break; } parse(current);",
+            "var current; for (; !0; ) { current = e; break; } parse(current);",
+            "var current; for (var q of [1, 2]) { current = e; break; } parse(current);",
+            "var current; do { if (bad) throw Error(); current = e; } while (0); parse(current);",
+            "var current; do { g(); } while (current = e); parse(current);",
+        ] {
+            let id = helper_reached_via(body)
+                .into_iter()
+                .find(|f| f.name == "id")
+                .unwrap_or_else(|| panic!("`{body}` moved the node instead"));
+            assert!(id.required, "`{body}` assigns on every execution");
+        }
+    }
+
+    #[test]
+    fn a_loop_that_may_not_start_assigns_nothing_for_certain() {
+        // The bounds, and why the guarantee is read off the same `always_true` the requiredness
+        // side uses rather than assumed for every loop: a tested loop has a zero-iteration path,
+        // an iterable of unknown length may be empty, and a write past something that can leave
+        // the body is a write some pass skipped. The `do` test is reached only by a pass that
+        // did not leave first, so a write THERE is uncertain too.
+        for body in [
+            "var current; while (f) { current = e; break; } parse(current);",
+            "var current; for (; f; ) { current = e; break; } parse(current);",
+            "var current; for (var q of xs) { current = e; break; } parse(current);",
+            "var current; do { if (f) break; current = e; } while (0); parse(current);",
+            "var current; do { break; } while (current = e); parse(current);",
+        ] {
+            let id = helper_reached_via(body)
+                .into_iter()
+                .find(|f| f.name == "id")
+                .unwrap_or_else(|| panic!("`{body}` moved the node instead"));
+            assert!(!id.required, "`{body}` has a path that assigns nothing");
+        }
+    }
+
+    #[test]
+    fn a_negative_range_bound_is_a_bound_and_not_an_absent_one() {
+        // JavaScript has no negative literal: `-10` is a unary minus over `10`, so matching
+        // `NumericLiteral` recorded NO floor. That is not neutral — an absent floor beside a
+        // present ceiling is the open-bottom band, which the width rule reads as "signed, no
+        // lower limit", so the emitted decoder took a `-20` the accessor turns away. The
+        // opposite of what the bound is for, and reachable only for a negative one.
+        let r = analyze_parser_ast(
+            r#"{ e.attrIntRange("weight", -10, 10); e.attrIntRange("count", 1, 10);
+                 e.attrIntRange("ratio", 1.5, 10); }"#,
+            "e",
+        );
+        let band = |n: &str| {
+            r.fields
+                .iter()
+                .find(|f| f.name == n)
+                .map(|f| (f.int_min, f.int_max))
+                .expect("field")
+        };
+        assert_eq!(
+            band("weight"),
+            (Some(-10), Some(10)),
+            "the floor is negative"
+        );
+        assert_eq!(
+            band("count"),
+            (Some(1), Some(10)),
+            "an ordinary pair is unchanged"
+        );
+        // A fractional floor is one this scan cannot represent, and the round after this one
+        // established what that has to mean: not "no floor" — which is the open-bottom band and
+        // would be the very over-acceptance being fixed here — but no range at all, with a drop
+        // saying so. The cast this replaced truncated it to `1` and published a band the source
+        // never enforces.
+        assert_eq!(band("ratio"), (None, None), "1.5 is not an integer bound");
+    }
+
+    #[test]
+    fn a_bound_this_scan_cannot_read_is_not_an_absent_one() {
+        // `attrIntRange("score", minimum, 10)` declares a floor whose value only the running
+        // module knows. Recording it as `None` made it indistinguishable from the open-bottom
+        // band — so the field came out signed and guarded by its maximum alone, and the decoder
+        // took a `-1` that a `minimum` of 5 turns away. The same collision as a negative
+        // literal read as absent, from the other side.
+        //
+        // Neither bound is kept when either is unreadable: half of a range the source enforces
+        // is a claim this scan cannot stand behind.
+        let r = analyze_parser_ast(
+            r#"{ e.attrIntRange("score", minimum, 10); e.attrIntRange("span", 1, hi); }"#,
+            "e",
+        );
+        for name in ["score", "span"] {
+            let f = r.fields.iter().find(|f| f.name == name).expect("field");
+            assert_eq!(
+                (f.int_min, f.int_max),
+                (None, None),
+                "`{name}` has a bound this scan cannot read"
+            );
+            assert!(
+                r.unresolved
+                    .iter()
+                    .any(|u| u == &format!("unreadableRangeBound@{name}")),
+                "and the drop says so: {:?}",
+                r.unresolved
+            );
+        }
+    }
+
+    #[test]
+    fn a_bound_the_source_declares_open_stays_open() {
+        // The bound, and the reason unreadable and open cannot simply be merged: WA writes
+        // `attrIntRange(e, "t", 0, void 0)` for "no upper limit", and declining that range
+        // would throw away a floor the accessor really does enforce. `undefined` and `null`
+        // spell the same thing.
+        for spelling in ["void 0", "undefined", "null"] {
+            let r = analyze_parser_ast(
+                &format!(r#"{{ e.attrIntRange("t", 0, {spelling}); }}"#),
+                "e",
+            );
+            let f = r.fields.iter().find(|f| f.name == "t").expect("field");
+            assert_eq!(
+                (f.int_min, f.int_max),
+                (Some(0), None),
+                "`{spelling}` is an open bound, not an unreadable one"
+            );
+            assert!(
+                r.unresolved.is_empty(),
+                "nothing dropped: {:?}",
+                r.unresolved
+            );
+        }
+        // …but `undefined` is an ordinary identifier and a source may bind it. `void` is an
+        // operator and `null` a literal, which nothing can rebind — the identifier is the only
+        // one of the three whose spelling does not settle its value, and reading it as open
+        // regardless recorded no floor where the accessor enforces one. An absent floor is the
+        // open-bottom band, which the width rule reads as "signed with no lower limit", so the
+        // emitted decoder took a negative the source turns away.
+        let r = analyze_parser_ast(
+            r#"{ let undefined = 5; e.attrIntRange("score", undefined, 10); }"#,
+            "e",
+        );
+        let f = r.fields.iter().find(|f| f.name == "score").expect("field");
+        assert_eq!(
+            (f.int_min, f.int_max),
+            (None, None),
+            "a shadowed `undefined` is an unreadable bound, not an open one"
+        );
+        assert!(
+            !r.unresolved.is_empty(),
+            "and the drop is recorded rather than swallowed"
+        );
+        // The bound: shadowing that name does not touch the two spellings that cannot be
+        // rebound.
+        for spelling in ["void 0", "null"] {
+            let r = analyze_parser_ast(
+                &format!(r#"{{ let undefined = 5; e.attrIntRange("t", 0, {spelling}); }}"#),
+                "e",
+            );
+            let f = r.fields.iter().find(|f| f.name == "t").expect("field");
+            assert_eq!(
+                (f.int_min, f.int_max),
+                (Some(0), None),
+                "`{spelling}` is open whatever is in scope"
+            );
+        }
+    }
+
+    #[test]
+    fn a_function_invoked_with_new_has_run_too() {
+        // `new (function(){ current = other; })()` runs that body before the next statement
+        // exactly as a call does. Only calls were read that way, so the write stayed confined
+        // to the function extent and the helper's fields were published on the node the parser
+        // had moved away from — the wrong node, and the second spelling of an invocation this
+        // collector had to learn separately.
+        for body in [
+            "var current = e; new (function(){ current = other; })(); parse(current);",
+            "var current = e; new (0, function(){ current = other; })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "`{body}` moved the node: {:?}",
+                fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+            );
+        }
+        // The bound: `new Thing()` names a constructor this scan knows nothing about, and
+        // guessing that it writes would refuse every descent past one.
+        let fields = helper_reached_via("var current = e; new Thing(); parse(current);");
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "an unknown constructor moves nothing: {:?}",
+            fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_destructuring_declaration_writes_what_it_takes_apart() {
+        // `var [e] = [other]` rebinds the parser's own parameter, and `for (var [e] of xs)`
+        // does it once per pass. Only the single-identifier declarator recorded anything, so
+        // the name still looked like the response node and the helper's reads were filed at the
+        // root while the parser reads something else. The ASSIGNMENT spelling of this was fixed
+        // six rounds ago; this is the declaration spelling of the same write.
+        for body in [
+            "var [e] = [other]; parse(e);",
+            "var {e} = o; parse(e);",
+            "for (var [e] of xs) {} parse(e);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "`{body}` reads a node this scan cannot place: {:?}",
+                fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+            );
+        }
+        // The bounds: an undisturbed parameter still is the node, and a `let` pattern binds its
+        // own names rather than writing to anything outside itself.
+        for body in ["parse(e);", "{ let [e] = [other]; } parse(e);"] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "`{body}` leaves the parameter standing: {:?}",
+                fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn a_negated_truthy_literal_selects_its_side_too() {
+        // `if (!1) { … } else { parse(e); }` runs the else on every execution. The pair of
+        // literal evaluators had the negation on ONE side, so this intersected the reads with a
+        // side nothing reaches and left what the parser always performs optional. They are each
+        // other's mirror and now say so.
+        for body in [
+            "if (!1) { other(); } else { parse(e); }",
+            "if (!0) { parse(e); } else { other(); }",
+            "if (0) { other(); } else { parse(e); }",
+        ] {
+            let id = helper_reached_via(body)
+                .into_iter()
+                .find(|f| f.name == "id")
+                .unwrap_or_else(|| panic!("`{body}` reaches parse"));
+            assert!(id.required, "`{body}` selects the reachable side");
+        }
+        // The bound: an ordinary test is still a branch, and both sides stay conditional.
+        let id = helper_reached_via("if (flag) { other(); } else { parse(e); }")
+            .into_iter()
+            .find(|f| f.name == "id")
+            .expect("recovered");
+        assert!(!id.required, "an undecided test is still a branch");
+    }
+
+    #[test]
+    fn a_comma_wrapped_callee_is_still_immediately_invoked() {
+        // `(0, function(){ current = other; })()` is how a minifier calls a function with
+        // `this` unbound. The matcher unwrapped parentheses only, so that body was classified
+        // as one nobody calls: the write stayed confined and the helper's fields were published
+        // on the node the parser had already moved away from — the wrong node, confidently.
+        for body in [
+            "var current = e; (0, function(){ current = other; })(); parse(current);",
+            "var current = e; (0, 1, () => { current = other; })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "`{body}` moved the node: {:?}",
+                fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+            );
+        }
+        // And what the comma evaluates on the way to the function keeps its own position: it
+        // runs before the call, and before the arguments. Pinning it to the call the way the
+        // BODY's writes are pinned reads it as later than an argument it precedes, which is the
+        // wrong node again — so the read has to sit in an argument to tell the two apart.
+        for body in [
+            "var current = e; ((current = other), function(){})(parse(current));",
+            "var current = e; ((current = other), function(){})(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "`{body}` moved the node before the read: {:?}",
+                fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn a_static_block_binds_its_own_lexical_names() {
+        // `class C { static { let current = other; } }` binds a NEW `current` that dies with
+        // the block. Walking it generically recorded that value against the OUTER binding, so
+        // the name had two live values, the alias was refused, and every field the helper reads
+        // left the shape with nothing recorded.
+        let fields = helper_reached_via(
+            "var current = e; class C { static { let current = other; } } parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the inner binding is its own: {:?}",
+            fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+        // The bound: a static block runs when the class is DEFINED, so an assignment to the
+        // captured outer name really does move the node.
+        let fields = helper_reached_via(
+            "var current = e; class C { static { current = other; } } parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the outer name was assigned: {:?}",
+            fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_finalizer_exit_nothing_reaches_does_not_override() {
+        // `finally { throw Error(); return fallback; }` never reaches that `return`, and asking
+        // `any` of the whole list called the finalizer one that hands a result back — so a
+        // `try` that really does throw counted as a value path and diluted the intersection
+        // around it. Walked in order now, stopping where control does.
+        assert_eq!(
+            guards_and_field(
+                "if (flag) { try { other(); } finally { throw Error(); return fallback; } }
+                 else { parse(e); }"
+            ),
+            (true, true),
+            "the return is unreachable"
+        );
+        // The bound: a return the finalizer does reach still overrides whatever was thrown.
+        assert_eq!(
+            guards_and_field(
+                "if (flag) { try { other(); } finally { return fallback; } } else { parse(e); }"
+            ),
+            (false, false),
+            "the finalizer hands back a result"
+        );
+    }
+
+    #[test]
+    fn a_write_control_cannot_reach_moves_nothing() {
+        // Everything after an unconditional `return` or `throw` in the same list is unreachable,
+        // and nothing modelled that: `dead` is computed per statement and asks only whether THAT
+        // statement throws. A handler makes a throwing path resume, so a write before the throw
+        // really did happen — but nothing makes a statement after the transfer run, which is why
+        // unreachability outranks the catch suppression rather than sharing it.
+        for body in [
+            "var current = e; try { throw Error(); current = other; } catch (_) {} parse(current);",
+            "var current = e; if (flag) { return t; current = other; } parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "`{body}` never runs the write: {:?}",
+                fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn a_write_past_a_break_or_continue_moves_nothing() {
+        // `do { break; current = other; } while (0)` can never run that assignment. The in-order
+        // walk was asking `exits_unconditionally`, which answers a DIFFERENT question for the
+        // dispatch chain — there an unlabelled `break` leaves only the nearest loop or switch and
+        // says nothing about the arms after it, so it does not count. Here the list IS that loop's
+        // body. Reusing the predicate covered `return` and `throw` and left both transfers out.
+        for body in [
+            "var current = e; do { break; current = other; } while (0); parse(current);",
+            "var current = e; for (var i = 0; i < 2; i++) { continue; current = other; } parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "`{body}` never runs the write: {:?}",
+                fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn a_break_a_label_opens_inside_the_statement_does_not_end_the_list() {
+        // `local: { break local; }` lands at the end of its own labelled block, and the list
+        // carries on. Counting it as an exit marked the assignment after it unreachable, so the
+        // alias it makes was never recorded and the helper's fields were dropped silently. The
+        // dispatch predicate has scoped its labels since the round that fixed it; this one was
+        // written after that and asked without the set.
+        for body in [
+            "var current; local: { break local; } current = e; parse(current);",
+            "var current; local: { if (f) break local; } current = e; parse(current);",
+        ] {
+            let id = helper_reached_via(body)
+                .into_iter()
+                .find(|f| f.name == "id")
+                .unwrap_or_else(|| panic!("`{body}` runs the assignment after the label"));
+            assert!(id.required, "`{body}` assigns on every execution");
+        }
+    }
+
+    #[test]
+    fn a_break_naming_a_label_from_outside_still_ends_it() {
+        // The bounds, and why the labels have to be carried rather than labelled breaks simply
+        // excused: `break outer` from inside `local:` leaves both, so the assignment after
+        // `local:` really is unreachable. An unlabelled `break` belongs to the nearest loop or
+        // switch and ends the list it sits in, which is the case this predicate was added for.
+        for body in [
+            "var current = e; outer: { local: { break outer; } current = other; } parse(current);",
+            "var current = e; do { break; current = other; } while (0); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "`{body}` never runs the write: {:?}",
+                fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn a_break_a_nested_loop_consumes_does_not_end_the_outer_list() {
+        // The other bound on the same rule, and the one the dispatch predicate gets right for its
+        // own reasons: an unlabelled transfer is consumed by the nearest loop or switch, so a
+        // `break` inside one says nothing about the list the loop itself sits in. `do { while (c)
+        // { break; } current = other; } while (0)` really does run that assignment.
+        // A `return` inside that loop is the case that actually distinguishes the two answers: the
+        // loop may run zero times, so the statement after it still runs, and reading "this
+        // statement can be left" as "this list ends here" would call the write unreachable.
+        for body in [
+            "var current = e; do { while (c) { break; } current = other; } while (0); parse(current);",
+            "var current = e; do { while (c) { return t; } current = other; } while (0); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "`{body}` still runs the write: {:?}",
+                fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn a_write_before_a_break_still_moves_the_node() {
+        // The bound: the transfer ends what FOLLOWS it, not what precedes it.
+        let fields = helper_reached_via(
+            "var current = e; do { current = other; break; } while (0); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the write ran before the break: {:?}",
+            fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_write_before_a_caught_throw_still_moves_the_node() {
+        // The bound, and the reason the two counters are separate: this write DOES run, the
+        // handler resumes after it, and the node is moved by the time the helper is called.
+        let fields = helper_reached_via(
+            "var current = e; try { current = other; throw Error(); } catch (_) {} parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the write ran before the throw: {:?}",
+            fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn an_instance_field_initializer_writes_nothing_by_existing() {
+        // `class C { value = (current = other) }` evaluates that initializer per `new`, of which
+        // there may be none — so defining the class moves nothing. Walking every property value
+        // recorded the write as effective and refused a valid descent.
+        // `accessor value = …` is the same field with a getter and a setter generated for it,
+        // and it was not one of the two spellings this visitor listed — so it fell through to
+        // the generic walk and its initializer WAS recorded as effective at definition. Which
+        // is what enumerating the parts of a class by hand costs every time one is missed.
+        for body in [
+            "var current = e; class C { value = (current = other) } parse(current);",
+            "var current = e; class C { accessor value = (current = other); } parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "`{body}` assigns nothing by existing: {:?}",
+                fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn what_a_class_evaluates_when_defined_still_moves_the_node() {
+        // The bounds, and they are the whole reason this is per element rather than per class: a
+        // STATIC initializer and a COMPUTED KEY are evaluated once, when the class is defined, so
+        // both really do move the node. Skipping the body wholesale would lose them.
+        for body in [
+            "var current = e; class C { static value = (current = other) } parse(current);",
+            "var current = e; class C { [(current = other)]() {} } parse(current);",
+            "var current = e; class C { static accessor value = (current = other); } parse(current);",
+            "var current = e; class C { accessor [(current = other)] = 1; } parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "`{body}` runs at definition: {:?}",
+                fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn a_declaration_inside_a_nested_function_binds_its_own_name() {
+        // The complement of the case below, one keyword apart: `(function(){ var current = … })()`
+        // binds a NEW `current` for that function, so the outer one still stands for the element
+        // and `parse(current)` hands over the response root.
+        //
+        // Its value was recorded before the walk registered the binding, so the lookup that
+        // decides how far a value reaches found no `current` in scope yet, fell back to the
+        // top-level binding — which reaches all of the source — and counted two values live at
+        // the call. `names_for` follows a copy only when exactly one is, so the alias was refused
+        // and the helper's fields left the shape with nothing recorded. `let` was unaffected: it
+        // takes its extent from the enclosing block directly and never consults the lookup,
+        // which is the asymmetry that located this. `binding_extent`'s own doc claimed the order
+        // already held, and it held for every assignment and not for the declarator itself.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                var current = e;
+                (function(){ var current = e.child("detail"); })();
+                parse(current);
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        assert!(
+            p.fields.iter().any(|f| f.name == "id"),
+            "the outer alias is untouched: {:?}",
+            p.fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn an_assignment_inside_a_nested_function_reaches_the_outer_binding() {
+        // `var current = e; (function(){ current = e.child("detail"); })(); parse(current)` —
+        // the IIFE definitely updates the OUTER `current`, so it no longer stands for the
+        // element. That binding lives in `names` rather than `scoped`, and the extent fell back
+        // to the innermost function: the write looked confined to the IIFE and expired at the
+        // call, so `names_for` followed the stale `current = e` alias and filed `id` at the
+        // response root. Wrong-node, which is the direction that matters.
+        //
+        // Recovering it UNDER `<detail>` is a separate thing: `child_vars` is updated by a
+        // declarator only, deliberately, so an assigned child is not tracked. This asserts the
+        // misplacement is gone, not that the field is back.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                var current = e;
+                (function(){ current = e.child("detail"); })();
+                parse(current);
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        assert!(
+            !p.fields.iter().any(|f| f.name == "id"),
+            "not at the root, where the parser never reads it: {:?}",
+            p.fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_block_local_copy_does_not_name_the_node_outside_its_block() {
+        // `{ let current = row; } parse(current)` calls the helper with the OUTER `current`,
+        // whatever that is — the block-local copy died with its block. Recording every copy
+        // with the enclosing function extent had `names_for` follow the expired one and file
+        // `id` under `<row>`, which is the harmful direction: consumers reject `<row>`
+        // elements the parser accepts. `bind` already kept the lexical/hoisting split; the
+        // value collector did not.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            var current = t.somethingElse;
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                e.mapChildrenWithTag("row", function(row){
+                    { let current = row; }
+                    parse(current);
+                });
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let row = p.fields.iter().find(|f| f.name == "row").expect("row");
+        let at_root = row
+            .children
+            .as_ref()
+            .is_some_and(|kids| kids.iter().any(|f| f.name == "id"));
+        assert!(
+            !at_root,
+            "the block-local copy is out of scope: {:?}",
+            row.children
+        );
+    }
+
+    #[test]
+    fn a_var_copy_in_a_block_still_names_the_node_after_it() {
+        // The bound on that: `var` hoists out of the block, so `{ var current = row; }
+        // parse(current)` really does hand the helper the row — treating every copy as
+        // block-scoped would lose it, and silently.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                e.mapChildrenWithTag("row", function(row){
+                    { var current = row; }
+                    parse(current);
+                });
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let row = p.fields.iter().find(|f| f.name == "row").expect("row");
+        assert!(
+            row.children
+                .as_ref()
+                .is_some_and(|kids| kids.iter().any(|f| f.name == "id")),
+            "a hoisting copy outlives its block: {:?}",
+            row.children
+        );
+    }
+
+    #[test]
+    fn an_alias_captured_before_the_node_moves_is_still_followed() {
+        // `var original = row; row = row.child("detail"); parse(original)` — `original` still
+        // names the row. Rejecting the whole call because the PARAMETER was written somewhere
+        // in the function threw away fields that were recoverable, leaving only a drop marker.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                e.mapChildrenWithTag("row", function(row){
+                    var original = row;
+                    row = row.child("detail");
+                    parse(original);
+                });
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let row = p.fields.iter().find(|f| f.name == "row").expect("row");
+        assert!(
+            row.children
+                .as_ref()
+                .is_some_and(|kids| kids.iter().any(|f| f.name == "id")),
+            "the captured alias survives the parameter moving: {:?}",
+            row.children
+        );
+    }
+
+    #[test]
+    fn a_long_alias_chain_is_followed_to_its_end() {
+        // Nine copies. A fixed iteration count stopped short of the last one and lost the
+        // helper silently; the set only ever grows, so it terminates on its own.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                e.mapChildrenWithTag("row", function(row){
+                    var a1 = row, a2 = a1, a3 = a2, a4 = a3, a5 = a4,
+                        a6 = a5, a7 = a6, a8 = a7, a9 = a8;
+                    parse(a9);
+                });
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let row = p.fields.iter().find(|f| f.name == "row").expect("row");
+        assert!(
+            row.children
+                .as_ref()
+                .is_some_and(|kids| kids.iter().any(|f| f.name == "id")),
+            "the ninth copy still names the node: {:?}",
+            row.children
+        );
+    }
+
+    #[test]
+    fn a_tracked_child_that_is_reassigned_is_not_handed_on() {
+        // `i = i.child("other")` leaves `child_vars["i"]` naming `<participants>`, so the
+        // helper's fields landed under it. The own-node path was hardened against exactly
+        // this and this one was not.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                var i = e.child("participants");
+                i = i.child("other");
+                parse(i);
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let participants = p.fields.iter().find(|f| f.name == "participants");
+        let misplaced = participants
+            .and_then(|f| f.children.as_ref())
+            .is_some_and(|kids| kids.iter().any(|f| f.name == "id"));
+        assert!(
+            !misplaced,
+            "not the participants' attribute: {:?}",
+            participants.and_then(|f| f.children.as_ref())
+        );
+    }
+
+    #[test]
+    fn an_alias_of_the_node_that_is_reassigned_is_not_followed() {
+        // An alias only stands for the node while nothing has written to it. Following
+        // `current` after `current = row.child("detail")` would file the helper's reads
+        // under `<row>` when the parser reads them off `<detail>`.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                e.mapChildrenWithTag("row", function(row){
+                    var current = row;
+                    current = row.child("detail");
+                    parse(current);
+                });
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let row = p.fields.iter().find(|f| f.name == "row").expect("row");
+        let at_root = row
+            .children
+            .as_ref()
+            .is_some_and(|kids| kids.iter().any(|f| f.name == "id"));
+        assert!(!at_root, "the write breaks the alias: {:?}", row.children);
+    }
+
+    #[test]
+    fn an_alias_destructured_into_is_not_followed_either() {
+        // `[current] = [row.child("detail")]` moves `current` as surely as a plain
+        // assignment does, but records no VALUE for it — so counting values alone still
+        // called `current` a copy of `row` and filed `id` at the row root, where the parser
+        // never reads it. That is the harmful direction: consumers reject `<row>` elements
+        // the parser accepts.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                e.mapChildrenWithTag("row", function(row){
+                    var current = row;
+                    [current] = [row.child("detail")];
+                    parse(current);
+                });
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let row = p.fields.iter().find(|f| f.name == "row").expect("row");
+        let at_root = row
+            .children
+            .as_ref()
+            .is_some_and(|kids| kids.iter().any(|f| f.name == "id"));
+        assert!(
+            !at_root,
+            "the destructuring write breaks the alias: {:?}",
+            row.children
+        );
+    }
+
+    #[test]
+    fn a_helper_handed_a_reassigned_node_declines_and_says_so() {
+        // `row = row.child("detail"); parse(row)` hands the helper the DETAIL node, so its
+        // reads belong under `<detail>`. The filter asked only whether an inner scope
+        // rebound the name — an assignment binds nothing — so the reads were merged at the
+        // element root and the response tree claimed the parser reads them off `<row>`.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                e.mapChildrenWithTag("row", function(row){
+                    row = row.child("detail");
+                    parse(row);
+                });
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let row = p.fields.iter().find(|f| f.name == "row").expect("row");
+        let at_root = row
+            .children
+            .as_ref()
+            .is_some_and(|kids| kids.iter().any(|f| f.name == "id"));
+        assert!(!at_root, "not the row's own attribute: {:?}", row.children);
+        assert!(
+            p.pending_drops
+                .iter()
+                .any(|u| u == "reassignedNodeHandedOn@parse"),
+            "and the drop is counted rather than silent: {:?}",
+            p.pending_drops
+        );
+    }
+
+    #[test]
+    fn a_helper_handed_the_untouched_node_still_descends() {
+        // The other direction: without a write the descent is exactly as before, so the
+        // reassignment check cannot cost the helper reads it used to recover.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                e.mapChildrenWithTag("row", function(row){
+                    parse(row);
+                });
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let row = p.fields.iter().find(|f| f.name == "row").expect("row");
+        assert!(
+            row.children
+                .as_ref()
+                .is_some_and(|kids| kids.iter().any(|f| f.name == "id")),
+            "the helper's read is the row's: {:?}",
+            row.children
+        );
+    }
+
+    #[test]
+    fn a_helper_reached_only_down_one_switch_case_is_not_required() {
+        // `case "a"` runs for its own value and every other value reaches past it, so what
+        // the helper reads is not read of every element. Counting only `if`/`?:`/`&&` as
+        // branches had the 44-case `w:gp2` subtype dispatch demand a `<description>` of
+        // participant-add notifications, which never carry one.
+        let fields =
+            helper_reached_via(r#"switch (mode) { case "a": parse(e); break; default: break; }"#);
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(!id.required, "one case is not every path: {id:?}");
+    }
+
+    #[test]
+    fn a_helper_reached_only_inside_a_loop_is_not_required() {
+        // A loop that runs zero times calls nothing.
+        let fields = helper_reached_via("while (more) { parse(e); }");
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(!id.required, "zero iterations read nothing: {id:?}");
+    }
+
+    #[test]
+    fn a_helper_reached_only_inside_a_caught_try_is_not_required() {
+        // The source catches the failure and carries on; hoisting the helper's assertions
+        // would have generated decoding reject the node the parser accepted.
+        let fields = helper_reached_via("try { parse(e); } catch (x) {}");
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(!id.required, "the handler swallows the failure: {id:?}");
+    }
+
+    #[test]
+    fn a_helper_in_a_controlling_expression_is_still_required() {
+        // `switch (parse(e))` evaluates the discriminant to choose a case, and a loop test
+        // runs before the first pass. Raising the counter around the WHOLE statement — the
+        // first shape of this fix — relaxed those too, which is the harmful direction:
+        // generated decoding then accepts nodes the parser turns away.
+        for body in [
+            "switch (parse(e)) { case 1: break; }",
+            "while (parse(e)) { break; }",
+            "for (var i = parse(e); i < 2; i++) { }",
+            "for (var k in parse(e)) { }",
+        ] {
+            let fields = helper_reached_via(body);
+            let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+            assert!(id.required, "always evaluated in `{body}`: {id:?}");
+        }
+    }
+
+    #[test]
+    fn a_try_without_a_catch_keeps_its_reads_required() {
+        // `try { parse(e); } finally { … }` has no handler, so an error propagates out of
+        // the parser: there is no path where the block failed and a result was still
+        // produced. Weakening every `try` alike accepted what the source rejects.
+        let fields = helper_reached_via("try { parse(e); } finally { cleanup(); }");
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(id.required, "nothing swallows the failure: {id:?}");
+    }
+
+    #[test]
+    fn a_helper_called_in_a_finally_is_still_required() {
+        // The finalizer runs whichever way the block went. Weakening every part of a `try`
+        // alike would call a read the parser always performs optional.
+        let fields = helper_reached_via("try { g(); } finally { parse(e); }");
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(id.required, "the finalizer always runs: {id:?}");
+    }
+
+    #[test]
+    fn a_helper_every_switch_case_calls_is_required_again() {
+        // Exhaustive, and each arm calls it, so it runs on every successful path — the same
+        // situation as a helper on both sides of an `if`, which is promoted back through an
+        // intersection. The switch had no equivalent, so both weakened copies stayed weak.
+        let fields = helper_reached_via(
+            r#"switch (mode) { case "a": parse(e); break; default: parse(e); }"#,
+        );
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(id.required, "every path calls it: {id:?}");
+    }
+
+    #[test]
+    fn a_switch_with_no_default_promotes_nothing() {
+        // Without a `default` an unlisted value runs no case at all, so a helper in every
+        // listed one still runs on no path for that value. Promoting would require of every
+        // element a field the parser sometimes never reads.
+        let fields = helper_reached_via(
+            r#"switch (mode) { case "a": parse(e); break; case "b": parse(e); }"#,
+        );
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(!id.required, "the cases are not exhaustive: {id:?}");
+    }
+
+    #[test]
+    fn a_helper_in_only_one_case_of_an_exhaustive_switch_stays_optional() {
+        // The intersection is what makes this safe: `default` covering the rest does not make
+        // one case's helper universal.
+        let fields =
+            helper_reached_via(r#"switch (mode) { case "a": parse(e); break; default: other(); }"#);
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(!id.required, "only one arm calls it: {id:?}");
+    }
+
+    #[test]
+    fn a_do_while_test_after_a_continue_is_still_required() {
+        // `continue` in a `do`/`while` transfers control TO the test, not past it, so
+        // `do { continue; } while (parse(e))` evaluates `parse` on every execution that can
+        // leave the loop at all. Counting it alongside `break` relaxed a read every successful
+        // parse performs.
+        for body in [
+            "do { continue; } while (parse(e));",
+            "do { if (f) continue; } while (parse(e));",
+        ] {
+            let guards = guards_and_field(body);
+            assert_eq!(guards, (true, true), "`{body}` reaches the test");
+        }
+    }
+
+    #[test]
+    fn a_read_after_a_continue_in_a_do_while_is_not_required() {
+        // And the other question, which wants the opposite answer about the same statement: a
+        // `continue` DOES skip the rest of the body, so what follows it is on a path some
+        // successful pass took without it. Two questions, two answers, one keyword.
+        let fields = helper_reached_via("do { if (f) continue; parse(e); } while (m);");
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(!id.required, "the continue skips it: {id:?}");
+    }
+
+    #[test]
+    fn a_do_while_test_behind_only_a_throw_is_still_required() {
+        // `do { if (bad) throw Error(); } while (parse(e))` — the only path that skips the test
+        // throws, so every execution producing a value evaluated `parse`. Treating every exit
+        // alike weakened the test and called reads optional that every successful parse
+        // performs.
+        let guards = guards_and_field(r#"do { if (bad) throw Error("x"); } while (parse(e));"#);
+        assert_eq!(guards, (true, true), "the skipping path yields nothing");
+    }
+
+    #[test]
+    fn a_read_after_a_throw_in_a_do_while_is_still_required() {
+        // The same distinction one statement over: what follows a possible throw is reached on
+        // every path that hands anything back.
+        let fields =
+            helper_reached_via(r#"do { if (bad) throw Error("x"); parse(e); } while (m);"#);
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(id.required, "only a throw precedes it: {id:?}");
+    }
+
+    #[test]
+    fn a_read_after_a_return_in_a_do_while_is_not_required() {
+        // And the bound on that pair: a `return` hands back a result without reaching the read,
+        // so it really is optional.
+        let fields = helper_reached_via("do { if (done) return t; parse(e); } while (m);");
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(!id.required, "the return skips it with a value: {id:?}");
+    }
+
+    #[test]
+    fn a_do_while_test_behind_an_exit_is_not_required() {
+        // `do { break; } while (parse(e))` never evaluates the test at all. Visiting it
+        // unconditionally after the body — which the ordering fix introduced — recovered its
+        // reads as required, so decoding rejected nodes on a constraint the parser never
+        // checks. That is the harmful direction, unlike the body case it was fixing.
+        let fields = helper_reached_via("do { break; } while (parse(e));");
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(!id.required, "the break leaves before the test: {id:?}");
+    }
+
+    #[test]
+    fn a_tested_for_loop_runs_its_body_before_its_update() {
+        // `for (; more; parse(detail)) { var detail = e.child("detail"); }` binds `<detail>` in
+        // the body and hands it to the helper in the update. Visiting the update first reached
+        // `parse` before `child_vars` held the binding and lost the helper's fields entirely,
+        // with nothing recorded.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                for (; more; parse(detail)) { var detail = e.child("detail"); }
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let detail = p
+            .fields
+            .iter()
+            .find(|f| f.name == "detail")
+            .expect("detail");
+        assert!(
+            detail
+                .children
+                .as_ref()
+                .is_some_and(|kids| kids.iter().any(|f| f.name == "id")),
+            "the body bound it before the update read it: {:?}",
+            detail.children
+        );
+    }
+
+    #[test]
+    fn a_while_whose_test_cannot_be_false_still_runs_its_body_once() {
+        // `while (!0)` is `for (;;)` spelled differently — and it is how this corpus spells it,
+        // 74 times. Wrapping the body in a skipped path regardless of the test relaxed reads
+        // every successful execution performs. All three spellings, braced and bare, plus the
+        // same test in a `for` header, since one predicate now answers for both loops.
+        for body in [
+            "while (true) { parse(e); break; }",
+            "while (!0) { parse(e); break; }",
+            "while (1) { parse(e); break; }",
+            "while (!0) parse(e);",
+            "for (; !0 ;) { parse(e); break; }",
+        ] {
+            let fields = helper_reached_via(body);
+            let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+            assert!(id.required, "`{body}` necessarily starts its body: {id:?}");
+        }
+    }
+
+    #[test]
+    fn a_while_with_a_real_test_keeps_its_zero_iteration_path() {
+        // The bound, and the reason `always_true` is deliberately narrow: a test that can be
+        // false means the body may never run, so requiring its reads would reject nodes the
+        // parser accepts.
+        let fields = helper_reached_via("while (more) { parse(e); break; }");
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(!id.required, "the loop may run zero times: {id:?}");
+    }
+
+    #[test]
+    fn a_for_loop_with_no_test_still_runs_its_body_once() {
+        // `for (;;)` has no zero-iteration path: the body necessarily starts. Wrapping every
+        // `for` body in a skipped path relaxed a read the parser always performs.
+        let fields = helper_reached_via("for (;;) { parse(e); break; }");
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(id.required, "no test means the body starts: {id:?}");
+    }
+
+    #[test]
+    fn a_for_loop_with_a_test_still_weakens_its_body() {
+        // And the ordinary form keeps its zero-iteration path.
+        let fields = helper_reached_via("for (var i = 0; i < n; i++) { parse(e); }");
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(!id.required, "the test can fail first: {id:?}");
+    }
+
+    #[test]
+    fn a_parameter_redeclared_with_an_initializer_has_moved() {
+        // `var row = row.child("detail")` redeclares the callback's parameter and assigns
+        // through it, so `row` names the detail node afterwards. Recording initializers only
+        // as bindings left the own-node descent placing the helper's reads at the element root
+        // while the tracked-child path placed them under `<detail>` — one read, two nodes.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(q){ q.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                e.mapChildrenWithTag("row", function(row){
+                    var row = row.child("detail");
+                    parse(row);
+                });
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let row = p.fields.iter().find(|f| f.name == "row").expect("row");
+        let at_root = row
+            .children
+            .as_ref()
+            .is_some_and(|kids| kids.iter().any(|f| f.name == "id"));
+        assert!(!at_root, "the redeclaration moved it: {:?}", row.children);
+    }
+
+    #[test]
+    fn a_helper_both_try_and_catch_call_is_required_again() {
+        // Every successful execution passed through one of them, so what it reads is read on
+        // every path — the two-sided intersection `if` does and this had no equivalent of.
+        let fields = helper_reached_via("try { parse(e); } catch (x) { parse(e); }");
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(id.required, "both paths call it: {id:?}");
+    }
+
+    #[test]
+    fn a_helper_in_only_the_catch_stays_optional() {
+        // The block succeeding is a path that never reaches the handler.
+        let fields = helper_reached_via("try { other(); } catch (x) { parse(e); }");
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(!id.required, "only the failure path calls it: {id:?}");
+    }
+
+    #[test]
+    fn a_case_test_that_reads_the_wire_is_counted() {
+        // A test not reached by every value-producing execution is evaluated by exactly the
+        // entries that did not match earlier, and its reads belong to those paths. Attributing
+        // them needs a per-test relaxation slice plus a model of which entries evaluate which
+        // test, in the visitor this branch has revised six times — declined, and detected rather
+        // than guessed at. Of 4836 non-literal case tests in the locked corpus, 4831 are
+        // `o("SomeModule").MEMBER` enum lookups and not one contains a wire accessor, so this
+        // fires nowhere there.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                switch (mode) {
+                    case "a": parse(e); break;
+                    case parse(e): break;
+                    default: parse(e);
+                }
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        assert!(
+            p.pending_drops.iter().any(|u| u == "case-test read"),
+            "the unattributable read is accounted for: {:?}",
+            p.pending_drops
+        );
+    }
+
+    #[test]
+    fn a_case_test_that_reads_nothing_is_not_counted() {
+        // The bound: the corpus shape — a literal, or a module lookup — contributes no read, so
+        // counting it would put thousands of false losses in `dropsByReason`.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                switch (mode) {
+                    case "a": parse(e); break;
+                    case o("WAWebMsgType").TEXT: break;
+                    default: parse(e);
+                }
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        assert!(
+            !p.pending_drops.iter().any(|u| u == "case-test read"),
+            "nothing was read in the test: {:?}",
+            p.pending_drops
+        );
+    }
+
+    #[test]
+    fn an_arm_that_shadows_a_tracked_node_and_falls_through_is_counted() {
+        // `case "a": var x = e.child("inner"); case "b": parse(x);` reads `x` as `<inner>` when
+        // entered at `"a"` and as the outer `x` when entered at `"b"`. Both placements are right
+        // for their own path and the tree needs both, which means walking the reading arm once
+        // per entry path — O(cases²) re-walks, each able to re-parse a module function, against
+        // a dispatch with 44 arms here. Declined on that cost and COUNTED instead, so the
+        // omission shows up in the drop accounting rather than the shape claiming one placement
+        // is the only one.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                var x = e.child("outer");
+                switch (mode) {
+                    case "a": var x = e.child("inner");
+                    case "b": parse(x); break;
+                    default: break;
+                }
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        assert!(
+            p.pending_drops.iter().any(|u| u == "arm-shadowed node@x"),
+            "the ambiguous placement is accounted for: {:?}",
+            p.pending_drops
+        );
+    }
+
+    #[test]
+    fn an_arm_that_shadows_a_tracked_node_and_throws_is_not_counted_either() {
+        // A throw never reaches the next arm, so a declaration behind one shadows nothing anybody
+        // can see — the shadow question is about endings of ANY kind, unlike the fallthrough fold
+        // beside it, which is about endings that hand something back. One predicate answers both
+        // and takes which one as an argument; giving it the value-producing answer here would put
+        // a false loss in `dropsByReason`.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                var x = e.child("outer");
+                switch (mode) {
+                    case "a": var x = e.child("inner"); throw Error("z");
+                    case "b": parse(x); break;
+                    default: break;
+                }
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        assert!(
+            !p.pending_drops
+                .iter()
+                .any(|u| u.starts_with("arm-shadowed")),
+            "the throw reaches no later arm: {:?}",
+            p.pending_drops
+        );
+    }
+
+    #[test]
+    fn an_arm_that_shadows_a_tracked_node_and_breaks_is_not_counted() {
+        // The bound: `case "a": var x = …; break;` rebinds nothing any other arm can see, so
+        // there is no ambiguity and nothing to report. Counting it would put false losses in
+        // `dropsByReason`, which is the failure mode this accounting exists to avoid.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                var x = e.child("outer");
+                switch (mode) {
+                    case "a": var x = e.child("inner"); break;
+                    case "b": parse(x); break;
+                    default: break;
+                }
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        assert!(
+            !p.pending_drops
+                .iter()
+                .any(|u| u.starts_with("arm-shadowed")),
+            "the break makes it unambiguous: {:?}",
+            p.pending_drops
+        );
+    }
+
+    #[test]
+    fn a_switch_case_falling_through_carries_the_next_ones_reads() {
+        // `case "a": default: parse(e);` runs `parse` for every value — entering at `"a"`
+        // falls into the default. Intersecting each case's OWN reads called the empty first
+        // case decisive and left the payload optional.
+        let fields = helper_reached_via(r#"switch (mode) { case "a": default: parse(e); }"#);
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(id.required, "the fallthrough reaches it: {id:?}");
+    }
+
+    #[test]
+    fn a_case_whose_only_skip_throws_borrows_the_next_ones_reads() {
+        // `case "a": if (bad) throw Error(); default: parse(e);` reaches `parse` on every execution
+        // that returns anything, because the only path skipping the fallthrough throws. Asking
+        // whether the arm can end AT ALL counted that throw, so the entry did not inherit the
+        // default's reads and the payload stayed optional with its guards unpublished — the same
+        // "which paths hand something back" rule the rest of the switch already applies, missing
+        // from the one predicate both fallthrough passes share.
+        let guards = guards_and_field(
+            r#"switch (mode) { case "a": if (bad) throw Error(); default: parse(e); break; }"#,
+        );
+        assert_eq!(guards, (true, true), "the skipping path yields nothing");
+    }
+
+    #[test]
+    fn a_case_that_can_break_past_the_next_one_still_does_not_borrow_it() {
+        // The bound, and the reason the predicate takes the question as an argument: a `break` ends
+        // the arm WITH a result, so that entry really can return without the default's reads.
+        let guards = guards_and_field(
+            r#"switch (mode) { case "a": if (bad) break; default: parse(e); break; }"#,
+        );
+        assert_eq!(guards, (false, false), "the breaking path returns");
+    }
+
+    #[test]
+    fn a_switch_case_that_breaks_does_not_borrow_the_next_ones_reads() {
+        // A `break` is what stops an entry path from continuing, so `"a"` reaches nothing.
+        let fields = helper_reached_via(r#"switch (mode) { case "a": break; default: parse(e); }"#);
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(!id.required, "the break ends that path: {id:?}");
+    }
+
+    #[test]
+    fn a_first_switch_case_test_is_always_evaluated() {
+        // The first test runs before any case can be selected.
+        let fields =
+            helper_reached_via(r#"switch (mode) { case parse(e): break; default: break; }"#);
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(id.required, "the first test always runs: {id:?}");
+    }
+
+    #[test]
+    fn a_default_written_first_does_not_shield_the_next_cases_test() {
+        // `default` is not a test, so it does not stand between the discriminant and the
+        // first comparison: `switch (mode) { default: break; case parse(e): break; }` still
+        // evaluates `parse` whatever `mode` is. Reading the test of case ZERO instead of the
+        // first case that HAS one relaxed a read the parser always performs.
+        let fields =
+            helper_reached_via(r#"switch (mode) { default: break; case parse(e): break; }"#);
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(id.required, "the first test still runs: {id:?}");
+    }
+
+    #[test]
+    fn an_arm_that_falls_through_into_a_throw_is_not_a_value_path() {
+        // `case "a": default: throw Error();` — entering at `"a"` runs the `default` below it
+        // and throws, so no successful execution took that entry. The intersection filter asked
+        // `throws_out` of the arm's OWN consequent, which is empty here, so the `"a"` entry
+        // stayed in the fold and left the helper's fields optional. `entry_paths_throw` already
+        // modelled the fallthrough for the test ordering; this asked the narrower question.
+        let guards = guards_and_field(
+            r#"switch (kind) { case "a": default: throw Error("x"); case "b": parse(e); break; }"#,
+        );
+        assert_eq!(guards, (true, true), "only the parse arm yields a value");
+    }
+
+    #[test]
+    fn an_arm_that_falls_through_into_a_return_is_a_value_path() {
+        // The bound: falling through into something that RETURNS hands back a result without
+        // the read, so the payload stays optional.
+        let guards = guards_and_field(
+            r#"switch (kind) { case "a": default: return t; case "b": parse(e); break; }"#,
+        );
+        assert_eq!(guards, (false, false), "the default returns a value");
+    }
+
+    #[test]
+    fn a_case_test_past_a_throwing_arm_is_always_reached() {
+        // `switch (mode) { case "a": throw Error(); case parse(e): break; default: break; }` —
+        // the only way to skip the second test is for `"a"` to match, and that path hands back
+        // nothing. So every execution that produces a value evaluated `parse`. This is the
+        // general form of the first-tested-case rule: a test is reached on every value path
+        // when every earlier tested arm, once entered, throws.
+        let fields = helper_reached_via(
+            r#"switch (mode) { case "a": throw Error("bad"); case parse(e): break; default: break; }"#,
+        );
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(id.required, "the skipping path throws: {id:?}");
+    }
+
+    #[test]
+    fn a_case_test_past_a_throwing_arm_that_falls_through_is_reached_too() {
+        // `case "a":` with an empty consequent falls into the next arm, so entering at `"a"`
+        // runs the `throw` below it — the chain is what throws, not the arm alone.
+        let fields = helper_reached_via(
+            r#"switch (mode) { case "a": case "b": throw Error("bad");
+                              case parse(e): break; default: break; }"#,
+        );
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(id.required, "the fallthrough chain throws: {id:?}");
+    }
+
+    #[test]
+    fn a_case_test_past_a_throwing_arm_that_breaks_first_is_not_reached() {
+        // The bound: `case "a": break;` ahead of the throw leaves the switch WITHOUT throwing,
+        // so a value-producing path skipped the later test after all.
+        let fields = helper_reached_via(
+            r#"switch (mode) { case "a": break; case parse(e): break; default: break; }"#,
+        );
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(!id.required, "the break returns a value: {id:?}");
+    }
+
+    #[test]
+    fn a_case_that_can_break_before_throwing_does_not_certainly_throw() {
+        // `case "a": if (flag) break; throw Error();` reaches the throw on one path and leaves
+        // normally on the other, so it IS one of the value-producing paths — and one that never
+        // evaluated the later test. Asking whether a throw appears anywhere in the arm, rather
+        // than whether every path reaches one, promoted a read the breaking path skips.
+        let fields = helper_reached_via(
+            r#"switch (mode) { case "a": if (flag) break; throw Error("bad");
+                              case parse(e): break; default: break; }"#,
+        );
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(!id.required, "the break is a path out with a value: {id:?}");
+    }
+
+    #[test]
+    fn a_case_whose_break_is_wrapped_in_a_block_does_not_borrow_the_next_ones_reads() {
+        // `case "a": { break; }` leaves the switch exactly as a bare `break` does. Matching
+        // only a top-level `BreakStatement` read it as falling through, so entering at `"a"`
+        // inherited the default's reads and promoted what that path never performs.
+        let fields =
+            helper_reached_via(r#"switch (mode) { case "a": { break; } default: parse(e); }"#);
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(!id.required, "the wrapped break still leaves: {id:?}");
+    }
+
+    #[test]
+    fn a_case_that_may_break_does_not_borrow_the_next_ones_reads_either() {
+        // What the next arm establishes is guaranteed only for an entry path that certainly
+        // reaches it, so a conditional `break` is enough to stop the borrowing.
+        let fields = helper_reached_via(
+            r#"switch (mode) { case "a": if (flag) break; default: parse(e); }"#,
+        );
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(!id.required, "the break may skip the default: {id:?}");
+    }
+
+    #[test]
+    fn a_case_test_after_a_matching_one_is_not_always_reached() {
+        // The other side of the same rule: once a test can match, the ones after it are only
+        // reached when it did not, so `switch (mode) { case "a": break; case parse(e): break; }`
+        // may never evaluate `parse`.
+        let fields =
+            helper_reached_via(r#"switch (mode) { case "a": break; case parse(e): break; }"#);
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(!id.required, "an earlier test can match first: {id:?}");
+    }
+
+    #[test]
+    fn a_throwing_switch_arm_does_not_dilute_the_exhaustive_intersection() {
+        // `default: throw` produces no value at all, so every execution that yielded one took
+        // another arm. Intersecting over the throwing arm too — which reads nothing — left a
+        // field optional that every path capable of returning a result reads.
+        let fields = helper_reached_via(
+            r#"switch (mode) { case "a": parse(e); break; default: throw Error("bad"); }"#,
+        );
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(id.required, "the throwing arm yields nothing: {id:?}");
+    }
+
+    #[test]
+    fn an_arm_that_yields_a_value_without_the_read_keeps_it_optional() {
+        // And the bound on that: dropping the throwing arm must not drop the arms that DO
+        // return, so a value-producing case with no call still leaves the payload optional.
+        let fields = helper_reached_via(
+            r#"switch (mode) { case "a": parse(e); break; case "b": break;
+                              default: throw Error("bad"); }"#,
+        );
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(!id.required, "the \"b\" arm returns without it: {id:?}");
+    }
+
+    #[test]
+    fn a_break_inside_a_nested_loop_does_not_end_the_outer_pass() {
+        // `break` leaves the NEAREST loop or switch. `do { while (f) { break; } parse(e); }
+        // while (m)` still completes its guaranteed pass through `parse`, and counting the
+        // inner break as an exit relaxed a read that always happens.
+        let fields = helper_reached_via("do { while (f) { break; } parse(e); } while (m);");
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(id.required, "the inner break leaves the inner loop: {id:?}");
+    }
+
+    #[test]
+    fn a_break_a_nested_switch_consumes_does_not_end_the_outer_pass() {
+        // A `switch` swallows an unlabelled `break` the same way a loop does.
+        let fields =
+            helper_reached_via(r#"do { switch (k) { case "a": break; } parse(e); } while (m);"#);
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(id.required, "the switch consumes the break: {id:?}");
+    }
+
+    #[test]
+    fn a_labelled_break_out_of_a_nested_loop_does_end_the_outer_pass() {
+        // The bound on that: `break outer` names the construct it leaves, so no nested loop
+        // swallows it and what follows really is conditional.
+        let fields =
+            helper_reached_via("outer: do { while (f) { break outer; } parse(e); } while (m);");
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(!id.required, "the label jumps clear of both: {id:?}");
+    }
+
+    #[test]
+    fn a_continue_a_nested_loop_consumes_does_not_end_the_outer_pass() {
+        // `continue` is taken by the nearest LOOP only — a `switch` does not consume it —
+        // so the counters have to be kept apart.
+        let fields = helper_reached_via("do { while (f) { continue; } parse(e); } while (m);");
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(id.required, "the inner continue stays inside: {id:?}");
+    }
+
+    #[test]
+    fn a_testless_for_with_a_bare_body_still_runs_it() {
+        // `for (;;) parse(e);` has no zero-iteration path either. The braced form was handled
+        // and the unbraced one fell through to the skipped path — the same over-relaxation,
+        // one syntactic form over.
+        let fields = helper_reached_via("for (;;) parse(e);");
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(id.required, "the body is reached: {id:?}");
+    }
+
+    #[test]
+    fn a_helper_guard_every_switch_arm_makes_is_published() {
+        // The gap this test used to record. A helper reached at nonzero depth had its guards
+        // discarded outright while its FIELDS were parked in `relaxed_by_branch`, so an
+        // exhaustive switch promoted the fields to required and dropped the `assertAttr` —
+        // decoding then accepted values every source path rejects, and the shape said both
+        // "always present" and "unconstrained" about one read.
+        let guards =
+            guards_and_field(r#"switch (mode) { case "a": parse(e); break; default: parse(e); }"#);
+        assert_eq!(
+            guards,
+            (true, true),
+            "promoted field and its guard travel together"
+        );
+    }
+
+    #[test]
+    fn a_helper_guard_only_one_switch_arm_makes_is_not_published() {
+        // The bound on that: an arm the parser may not take enforces nothing, and hoisting its
+        // guard would reject everything the other arms accept.
+        let guards =
+            guards_and_field(r#"switch (mode) { case "a": parse(e); break; default: other(e); }"#);
+        assert_eq!(guards, (false, false), "one arm establishes neither");
+    }
+
+    #[test]
+    fn a_helper_guard_survives_a_call_on_both_sides_of_a_branch() {
+        // Not only the switch — the same channel, reached through `if`/`else`, whose field
+        // intersection has been there all along.
+        let guards = guards_and_field("if (c) { parse(e); } else { parse(e); }");
+        assert_eq!(guards, (true, true), "both sides call it");
+    }
+
+    #[test]
+    fn an_unconditional_helper_call_publishes_its_guard_after_a_conditional_one() {
+        // `if (flag) { parse(e); } parse(e);` — the second call enforces the guard on every
+        // path. But the first recorded one occurrence and PARKED it, a presence test then
+        // skipped the second, and the subtraction removed the parked copy: the guard vanished
+        // entirely. Order-dependent, too — unconditional-first published it fine. Counting
+        // occurrences against the parked ones is what makes the two orders agree, and it keeps
+        // the ordinary duplicate suppressed since `parse(e); parse(e);` parks nothing.
+        let guards = guards_and_field("if (flag) { parse(e); } parse(e);");
+        assert_eq!(guards, (true, true), "the second call is unconditional");
+    }
+
+    #[test]
+    fn a_guard_from_two_unconditional_calls_is_published_once() {
+        // The bound on that count: nothing is parked here, so the second call adds no
+        // occurrence and the guard is stated once rather than twice.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.assertAttr("kind", "x"); p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                parse(e); parse(e);
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let n = p
+            .assertions
+            .iter()
+            .filter(|a| a.name.as_deref() == Some("kind"))
+            .count();
+        assert_eq!(n, 1, "stated once: {:?}", p.assertions);
+    }
+
+    #[test]
+    fn a_helper_guard_from_one_side_of_a_branch_is_not_published() {
+        let guards = guards_and_field("if (c) { parse(e); }");
+        assert_eq!(guards, (false, false), "one side establishes neither");
+    }
+
+    #[test]
+    fn a_catch_whose_throw_is_wrapped_in_a_try_still_yields_nothing() {
+        // `catch (_) { try { throw Error(); } finally { cleanup(); } }` produces no result: the
+        // finalizer runs and the error carries on. Asking only about bare throws, blocks,
+        // two-sided ifs and labels called this handler a value-producing side and diluted the
+        // intersection with it. Same for a `switch` whose every arm throws, given a `default`
+        // so no value escapes by matching nothing.
+        for body in [
+            r#"try { parse(e); } catch (x) { try { throw Error("z"); } finally { cleanup(); } }"#,
+            r#"try { parse(e); } catch (x) { switch (k) { case "a": throw A(); default: throw B(); } }"#,
+        ] {
+            let guards = guards_and_field(body);
+            assert_eq!(guards, (true, true), "`{body}` hands nothing back");
+        }
+    }
+
+    #[test]
+    fn a_catch_whose_throw_is_caught_again_is_a_value_path() {
+        // The bounds: an inner `catch` swallows the error, and a `switch` with no `default` lets
+        // an unmatched value fall straight out — both leave the handler able to return.
+        for body in [
+            r#"try { parse(e); } catch (x) { try { throw Error("z"); } catch (y) { other(); } }"#,
+            r#"try { parse(e); } catch (x) { switch (k) { case "a": throw A(); } }"#,
+        ] {
+            let guards = guards_and_field(body);
+            assert_eq!(guards, (false, false), "`{body}` can still return");
+        }
+    }
+
+    #[test]
+    fn a_throwing_if_branch_does_not_dilute_the_intersection() {
+        // `if (flag) { parse(e); } else { throw Error(); }` calls `parse` on every execution
+        // that yields anything, so intersecting against the empty throwing side left the payload
+        // optional and its guard unpublished. The switch and the try have filtered non-completing
+        // sides for two rounds; `if` — the construct that taught them the intersection — had not.
+        let guards = guards_and_field(r#"if (flag) { parse(e); } else { throw Error("z"); }"#);
+        assert_eq!(guards, (true, true), "the throwing side yields nothing");
+    }
+
+    #[test]
+    fn a_returning_if_branch_still_dilutes_the_intersection() {
+        // The bound: a side that RETURNS hands back a result without the read, so the payload
+        // really is optional. Only throwing sides drop out.
+        let guards = guards_and_field("if (flag) { parse(e); } else { return t; }");
+        assert_eq!(guards, (false, false), "the else returns a value");
+    }
+
+    #[test]
+    fn a_finalizer_that_returns_overrides_the_throw_it_covers() {
+        // `finally { return fallback; }` completes abruptly and hands back a result whatever the
+        // block and handler threw, so the whole `try` is a value path. Only the finalizer's
+        // THROWING case was considered, so a handler shaped this way was excluded from the
+        // successful-path intersection and the outer try's reads were promoted to required.
+        let guards = guards_and_field(
+            r#"try { parse(e); } catch (x) { try { throw A(); } catch (y) { throw B(); }
+               finally { return fallback; } }"#,
+        );
+        assert_eq!(
+            guards,
+            (false, false),
+            "the fallback returns without the read"
+        );
+    }
+
+    #[test]
+    fn a_finalizer_that_only_cleans_up_does_not_override() {
+        // The bound: a finalizer that completes normally leaves the throw in place, so the
+        // handler still yields nothing and the outer reads stay required.
+        let guards = guards_and_field(
+            r#"try { parse(e); } catch (x) { try { throw A(); } catch (y) { throw B(); }
+               finally { cleanup(); } }"#,
+        );
+        assert_eq!(guards, (true, true), "the throw carries on");
+    }
+
+    #[test]
+    fn a_finalizer_that_returns_from_inside_a_branch_overrides_too() {
+        // `finally { if (retry) return fallback; }` hands back a result on the path that
+        // returns, so the `try` is not a throwing one. Matching a bare `return` STATEMENT saw
+        // only the unconditional spelling — the same rule stopping at the top level of a block,
+        // which is how it read `finally { return … }` and missed every branch inside one. A
+        // `break` or `continue` out of the finalizer discards the pending error the same way.
+        for fin in [
+            "if (retry) return fallback;",
+            "for (;;) { if (retry) return fallback; }",
+        ] {
+            let guards = guards_and_field(&format!(
+                r#"try {{ parse(e); }} catch (x) {{ try {{ throw A(); }} catch (y) {{ throw B(); }}
+                   finally {{ {fin} }} }}"#
+            ));
+            assert_eq!(guards, (false, false), "`{fin}` leaves with a result");
+        }
+    }
+
+    #[test]
+    fn a_finalizer_that_cannot_leave_by_itself_does_not_override() {
+        // The bounds. A `return` inside a function the finalizer merely CONSTRUCTS leaves that
+        // function, not the finalizer, and a `break` belonging to a loop the finalizer opens
+        // itself lands back in the finalizer — neither discards the error, and counting either
+        // would call a cleanup path a value path and dilute the intersection with it. Nor does a
+        // finalizer that THROWS: it leaves abruptly, but with an error rather than a result, so
+        // the question is which exits hand something back and not which exits exist.
+        for fin in [
+            "done(function(){ return 1; });",
+            "for (;;) { break; }",
+            "throw C();",
+        ] {
+            let guards = guards_and_field(&format!(
+                r#"try {{ parse(e); }} catch (x) {{ try {{ throw A(); }} catch (y) {{ throw B(); }}
+                   finally {{ {fin} }} }}"#
+            ));
+            assert_eq!(guards, (true, true), "`{fin}` hands nothing back");
+        }
+    }
+
+    #[test]
+    fn a_loop_that_can_only_be_left_by_throwing_yields_nothing() {
+        // `while (!0) { throw A(); }` is the minifier's spelling of an unconditional raise: the
+        // first pass is guaranteed and the body never completes, so there is no second pass and
+        // no way out but the error. `throws_out` read the bare, braced, two-sided-`if`, labelled,
+        // `try` and exhaustive-`switch` forms and no loop at all, so a handler shaped this way
+        // counted as a path that hands something back and diluted the intersection.
+        for handler in [
+            "while (!0) { throw A(); }",
+            "for (;;) { throw A(); }",
+            "do { throw A(); } while (c);",
+        ] {
+            let guards =
+                guards_and_field(&format!("try {{ parse(e); }} catch (x) {{ {handler} }}"));
+            assert_eq!(guards, (true, true), "`{handler}` hands nothing back");
+        }
+    }
+
+    #[test]
+    fn a_loop_something_can_leave_still_yields_a_value() {
+        // The bounds, and both of them matter: a test that can be false has a zero-iteration
+        // path straight past the body, and a `break` reachable before the throw leaves the loop
+        // with the handler still able to return. `throws_out` stops at the first statement
+        // control can leave by, which is what keeps the second case out.
+        for handler in [
+            "while (c) { throw A(); }",
+            "while (!0) { if (c) break; throw A(); }",
+        ] {
+            let guards =
+                guards_and_field(&format!("try {{ parse(e); }} catch (x) {{ {handler} }}"));
+            assert_eq!(guards, (false, false), "`{handler}` can complete");
+        }
+    }
+
+    #[test]
+    fn a_returning_finalizer_bypasses_the_try_it_covers() {
+        // `try { parse(e); } finally { return fallback; }` hands `fallback` back even when
+        // `parse` threw on a missing field, so nothing `parse` reads is read on every path that
+        // yields something. `throws_out` was taught this about the try as a WHOLE last round and
+        // the visitor deciding the try's own requiredness was not, so it kept those reads
+        // required and the shape rejected responses the parser accepts — the harmful direction.
+        for body in [
+            r#"try { parse(e); } finally { return fallback; }"#,
+            r#"try { parse(e); } catch (x) { parse(e); } finally { return fallback; }"#,
+        ] {
+            let guards = guards_and_field(body);
+            assert_eq!(guards, (false, false), "`{body}` can return without it");
+        }
+    }
+
+    #[test]
+    fn a_finalizer_that_cannot_leave_keeps_the_try_required() {
+        // The bound: a finalizer that completes normally does not bypass anything, so an
+        // unhandled block's reads stay required — weakening every `try` with a `finally` would
+        // relax reads every successful parse performs.
+        let guards = guards_and_field("try { parse(e); } finally { cleanup(); }");
+        assert_eq!(guards, (true, true), "the error still propagates");
+    }
+
+    #[test]
+    fn a_statically_selected_side_is_not_a_branch() {
+        // `if (!0)` is not a choice: the consequent runs on every execution. Raising the branch
+        // counter regardless intersected its reads against an `else` that does not exist, so a
+        // read the parser always performs came out optional and its guard unpublished. All three
+        // spellings, because writing the rule for one of them is how this branch keeps failing.
+        for body in [
+            "if (!0) { parse(e); }",
+            "if (0) { other(); } else { parse(e); }",
+            "!0 ? parse(e) : other();",
+            "0 ? other() : parse(e);",
+            "!0 && parse(e);",
+            "0 || parse(e);",
+        ] {
+            let guards = guards_and_field(body);
+            assert_eq!(guards, (true, true), "`{body}` always runs it");
+        }
+    }
+
+    #[test]
+    fn a_test_a_value_can_change_still_makes_its_side_conditional() {
+        // The bound, in the same three spellings: an ordinary test really is a branch, and
+        // reading every test as decided would require of every element what only one path reads.
+        for body in [
+            "if (flag) { parse(e); }",
+            "flag ? parse(e) : other();",
+            "flag && parse(e);",
+            "flag || parse(e);",
+        ] {
+            let guards = guards_and_field(body);
+            assert_eq!(guards, (false, false), "`{body}` may skip it");
+        }
+    }
+
+    #[test]
+    fn a_loop_nothing_can_leave_yields_nothing_either() {
+        // Two ways to hand nothing back and only the throwing one was recognised: `while (!0) {
+        // continue; }` and `for (;;) {}` never leave at all, so every execution that returned
+        // anything took the other side of the branch they sit in.
+        for handler in ["while (!0) { continue; }", "for (;;) { }"] {
+            let guards =
+                guards_and_field(&format!("try {{ parse(e); }} catch (x) {{ {handler} }}"));
+            assert_eq!(guards, (true, true), "`{handler}` diverges");
+        }
+    }
+
+    #[test]
+    fn a_loop_that_throws_or_diverges_yields_nothing_either() {
+        // `while (!0) { if (bad) throw Error(); }` either throws or runs forever, so it hands
+        // nothing back on any path — and it was read as a value path because the question was
+        // asked twice instead of once: "does every path throw" is false here, and "is there no way
+        // out" counted the throw as one. Each answer covered a pure case and their disjunction
+        // missed the mixture. One predicate — can the body leave carrying a RESULT — covers all
+        // three, and it is the predicate the `do`/`while` test question was already using.
+        for handler in [
+            "while (!0) { if (bad) throw Error(); }",
+            "for (;;) { if (bad) throw Error(); else other(); }",
+        ] {
+            let guards =
+                guards_and_field(&format!("try {{ parse(e); }} catch (x) {{ {handler} }}"));
+            assert_eq!(guards, (true, true), "`{handler}` hands nothing back");
+        }
+    }
+
+    #[test]
+    fn a_hanging_block_never_reaches_its_handler() {
+        // `try { for (;;); } catch (_) {}` hangs. Reading the loop as a throwing path — which
+        // is the right answer to the only question the other callers ask, can this hand a
+        // result back — handed the try to a handler that completes, so the whole `try` counted
+        // as a value path and diluted the intersection with a side nothing reaches. A throw
+        // reaches the handler and a hang does not, and one predicate was answering for both.
+        for block in [
+            "for (;;);",
+            "while (!0) {}",
+            "do {} while (!0)",
+            "outer: for (;;) {}",
+        ] {
+            let guards = guards_and_field(&format!(
+                "if (flag) {{ try {{ {block} }} catch (_) {{}} }} else {{ parse(e); }}"
+            ));
+            assert_eq!(guards, (true, true), "`{block}` reaches nothing after it");
+        }
+    }
+
+    #[test]
+    fn a_loop_that_only_goes_round_again_is_a_hang_too() {
+        // `while (!0) { continue; }` evaluates nothing and leaves nothing — it is `while (!0) {}`
+        // with a step in it, and the hang check recognised only the empty spelling. So the
+        // `catch` around it counted as a path that yields something and weakened the reads on
+        // the other side of the `if`. A `continue` is the one transfer that does not leave the
+        // loop it belongs to, unlabelled or naming that loop itself.
+        for block in [
+            "while (!0) { continue; }",
+            "for (;;) { continue; }",
+            "do { continue; } while (!0)",
+            "spin: while (!0) { continue spin; }",
+            "while (!0) { { continue; } }",
+        ] {
+            let guards = guards_and_field(&format!(
+                "if (flag) {{ try {{ {block} }} catch (_) {{}} }} else {{ parse(e); }}"
+            ));
+            assert_eq!(
+                guards,
+                (true, true),
+                "`{block}` never leaves and never raises"
+            );
+        }
+    }
+
+    #[test]
+    fn a_transfer_that_leaves_the_loop_is_not_it_spinning() {
+        // The bounds. A `break` leaves, so the loop completes and the `try` is a value path; a
+        // `continue` naming an OUTER loop leaves this one the same way; and a `return` leaves
+        // the callback entirely. Only the transfer that goes back to the top of this loop makes
+        // it a hang — reading them all alike would call a loop that ends an infinite one.
+        for block in [
+            "while (!0) { break; }",
+            "outer: while (!0) { while (!0) { continue outer; } }",
+            "while (!0) { return t; }",
+        ] {
+            let guards = guards_and_field(&format!(
+                "if (flag) {{ try {{ {block} }} catch (_) {{}} }} else {{ parse(e); }}"
+            ));
+            assert_eq!(guards, (false, false), "`{block}` can leave the loop");
+        }
+        // Which label it names is what decides, and only a loop OUTSIDE the `try` can make that
+        // visible — the inner loop is the one being asked about, so the outer one has to be
+        // somewhere its own iteration does not change the answer. A `do`/`while (0)` runs once.
+        assert_eq!(
+            guards_and_field(
+                "outer: do { if (flag) { try { while (!0) { continue outer; } } catch (_) {} }
+                 else { parse(e); } } while (0)"
+            ),
+            (false, false),
+            "`continue outer` leaves the loop it is written in"
+        );
+    }
+
+    #[test]
+    fn a_loop_that_can_raise_still_reaches_the_handler() {
+        // The bound, and the reason the hang is recognised this narrowly: anything the body
+        // evaluates can throw, and a throw is exactly what the handler is there for. Only a
+        // loop that does no work at all is a hang; `while (!0) { g(); }` may end up in a
+        // `catch` that completes, so the `try` is still a path that yields something and the
+        // `else` read stays optional. A header counts as work too — it runs on every pass.
+        for block in [
+            "while (!0) { g(); }",
+            "for (;;) { g(); }",
+            "for (i = risky(); ; ) {}",
+            "for (;; risky()) {}",
+            "while (flag) {}",
+        ] {
+            let guards = guards_and_field(&format!(
+                "if (flag) {{ try {{ {block} }} catch (_) {{}} }} else {{ parse(e); }}"
+            ));
+            assert_eq!(
+                guards,
+                (false, false),
+                "`{block}` can leave through the catch"
+            );
+        }
+    }
+
+    #[test]
+    fn nothing_a_hanging_try_is_wrapped_in_runs_either() {
+        // The same fact where the requiredness walk asks it: a handler or a finalizer after a
+        // block that hangs is not the block's successor, it is unreachable. Treating the
+        // handler as the one side that yields a value made everything it reads required —
+        // the same mistake as above pointing the other way, and the fourth time on this branch
+        // that a rule landed in the classifier and not in the visitor.
+        for tail in ["catch (_) { parse(e); }", "finally { parse(e); }"] {
+            let guards = guards_and_field(&format!("try {{ for (;;); }} {tail}"));
+            assert_eq!(guards, (false, false), "nothing runs `{tail}`");
+        }
+    }
+
+    #[test]
+    fn a_handler_after_a_block_that_can_fail_still_reads() {
+        // The bound for that one: a block that does work can throw, so the handler is a path
+        // the parser takes, and its reads are recorded as the conditional ones they are rather
+        // than dropped. A finalizer after such a block runs on every path, so what it reads is
+        // required — which is the behaviour the hang check must not disturb.
+        assert_eq!(
+            guards_and_field("try { g(); } catch (_) { parse(e); }"),
+            (false, false),
+            "the handler runs only on failure"
+        );
+        assert_eq!(
+            guards_and_field("try { g(); } finally { parse(e); }"),
+            (true, true),
+            "the finalizer runs either way"
+        );
+    }
+
+    #[test]
+    fn an_alias_a_decided_branch_assigns_is_not_conditional() {
+        // `if (!0) current = e;` assigns on every execution, so the helper it is handed to reads
+        // what every response carries. The requiredness walk was taught to select a statically
+        // decided side one round before the binding collector existed, and the collector then
+        // asked its own version of the question without it — so the CALL was read as
+        // unconditional and the VALUE as conditional, and the fields came out optional anyway.
+        // All three spellings, from the one selector both now read.
+        for body in [
+            "var current; if (!0) current = e; parse(current);",
+            "var current; if (0) other(); else current = e; parse(current);",
+            "var current; !0 && (current = e); parse(current);",
+            "var current; 0 || (current = e); parse(current);",
+            "var current; !0 ? (current = e) : other(); parse(current);",
+            "var current; 0 ? other() : (current = e); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            let id = fields
+                .iter()
+                .find(|f| f.name == "id")
+                .unwrap_or_else(|| panic!("`{body}` recovers the field"));
+            assert!(id.required, "`{body}` assigns on every execution");
+        }
+    }
+
+    #[test]
+    fn a_for_of_over_a_nonempty_literal_runs_its_body_once() {
+        // `for (const _ of [0]) { parse(e); break; }` iterates at least once, so what the pass
+        // reads before it can leave is read every time — the same guaranteed-pass asymmetry
+        // `for (;;)` and `while (!0)` have. Every `for`/`of` went through the skipped path, so a
+        // read the parser always performs came out optional and its guard unpublished.
+        let guards = guards_and_field("for (const _ of [0]) { parse(e); break; }");
+        assert_eq!(guards, (true, true), "a nonempty list iterates");
+    }
+
+    #[test]
+    fn a_for_of_that_may_be_empty_keeps_its_zero_iteration_path() {
+        // The bounds. An arbitrary expression may yield nothing, `[]` yields nothing, and `[...xs]`
+        // may — reading any of those as nonempty would require reads the parser can skip.
+        for body in [
+            "for (const _ of ks) { parse(e); break; }",
+            "for (const _ of []) { parse(e); break; }",
+            "for (const _ of [...ks]) { parse(e); break; }",
+        ] {
+            let guards = guards_and_field(body);
+            assert_eq!(guards, (false, false), "`{body}` may run no passes");
+        }
+    }
+
+    #[test]
+    fn a_loop_with_a_way_out_still_yields_a_value() {
+        // The bounds. A `break` or a `return` leaves; and a `do`/`while` whose body only
+        // `continue`s is ended by its own test, which is why the divergence rule asks about the
+        // test there and the throwing rule does not.
+        for handler in [
+            "while (!0) { break; }",
+            "while (!0) { return t; }",
+            "do { continue; } while (c);",
+        ] {
+            let guards =
+                guards_and_field(&format!("try {{ parse(e); }} catch (x) {{ {handler} }}"));
+            assert_eq!(guards, (false, false), "`{handler}` can be left");
+        }
+    }
+
+    #[test]
+    fn a_break_to_a_label_inside_the_body_is_not_a_way_out() {
+        // `local: { break local; }` jumps to the end of that block and carries on, so the
+        // guaranteed pass reaches `parse` whatever happens. Counting every LABELLED break as an
+        // exit — which is right for a label declared outside — put the read on a path some
+        // successful parse skipped and called it optional.
+        let guards = guards_and_field("do { local: { break local; } parse(e); break; } while (0);");
+        assert_eq!(guards, (true, true), "the jump lands back inside");
+    }
+
+    #[test]
+    fn a_break_to_a_label_outside_the_body_still_leaves() {
+        // The bound, and the reason the question is about WHERE the label is: `break outer`
+        // leaves the loop, so the read after it really is on a path a successful parse skipped.
+        let guards =
+            guards_and_field("outer: do { if (c) break outer; parse(e); break; } while (0);");
+        assert_eq!(guards, (false, false), "the jump leaves the loop");
+    }
+
+    #[test]
+    fn a_catch_that_throws_whichever_way_it_branches_yields_nothing() {
+        // `catch (_) { if (flag) throw A(); else throw B(); }` produces no result on any path,
+        // so every execution that returned one completed the block. `throws_out` matched only
+        // the bare and braced forms, so a handler spelled this way counted as a value path and
+        // diluted the intersection with an empty side — `exits_unconditionally` has always read
+        // a two-sided `if` this way and this did not.
+        let guards = guards_and_field(
+            r#"try { parse(e); } catch (x) { if (flag) throw A(); else throw B(); }"#,
+        );
+        assert_eq!(guards, (true, true), "no handler path yields a value");
+    }
+
+    #[test]
+    fn a_catch_that_throws_down_only_one_branch_is_still_a_value_path() {
+        // The bound: a one-sided `if (flag) throw A();` falls through and returns, so the
+        // handler IS a path on which the block stopped partway.
+        let guards = guards_and_field(r#"try { parse(e); } catch (x) { if (flag) throw A(); }"#);
+        assert_eq!(guards, (false, false), "the fallthrough returns");
+    }
+
+    #[test]
+    fn a_throwing_catch_does_not_relax_the_block_it_guards() {
+        // `catch (_) { throw Error(); }` hands nothing back, so every execution that produced
+        // a result completed the block. Intersecting the block's reads against the empty
+        // throwing handler left them optional where every successful parse performs them —
+        // the same rule the switch arms get, one construct over.
+        let fields = helper_reached_via(r#"try { parse(e); } catch (x) { throw Error("bad"); }"#);
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(id.required, "the handler yields nothing: {id:?}");
+    }
+
+    #[test]
+    fn a_catch_that_swallows_the_error_still_relaxes_the_block() {
+        // The bound: a handler that RETURNS a result is a path on which the block stopped
+        // partway, so what the block read past a throwing call is not read every time.
+        let fields = helper_reached_via("try { parse(e); } catch (x) { other(e); }");
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(!id.required, "the handler is a path too: {id:?}");
+    }
+
+    #[test]
+    fn a_guard_from_a_block_whose_catch_throws_is_published() {
+        // And the guard travels with the field, as everywhere else.
+        let guards = guards_and_field(r#"try { parse(e); } catch (x) { throw Error("bad"); }"#);
+        assert_eq!(guards, (true, true), "the only surviving path calls it");
+    }
+
+    #[test]
+    fn a_helper_guard_from_both_try_and_catch_is_published() {
+        // Every successful execution passed through one of the two, and an `assertAttr` that
+        // throws in the block throws again in the handler, so the constraint holds either way.
+        let guards = guards_and_field("try { parse(e); } catch (x) { parse(e); }");
+        assert_eq!(guards, (true, true), "both paths call it");
+    }
+
+    #[test]
+    fn a_guard_established_inside_a_one_sided_outer_branch_is_not_published() {
+        // `if (o) { if (c) parse(e); else parse(e); }` — the INNER conditional establishes the
+        // guard on both of its paths, but the outer one can skip the whole thing. Releasing on
+        // the inner intersection regardless of nesting published a guard the parser enforces
+        // on no path at all; the fields have always been handed up as the outer branch's own
+        // parked entry, and the guards now are too.
+        let guards = guards_and_field("if (o) { if (c) { parse(e); } else { parse(e); } }");
+        assert_eq!(guards, (false, false), "the outer branch can skip both");
+    }
+
+    /// Every `kind` value the shape publishes for a callback body, so a guard established on
+    /// SOME path can be told from one established on every path — two assertions on one
+    /// attribute with different values is the case a single "is `kind` published" answer
+    /// cannot see, and it is the case the nested intersection got wrong.
+    fn published_kind_values(body: &str) -> Vec<Option<String>> {
+        let module = format!(
+            r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){{
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){{
+                e.assertTag("receipt");
+                {body}
+            }});
+        }}),1);"#
+        );
+        parse_module_wap_parsers(&module)
+            .into_iter()
+            .find(|r| r.parser_name == "p")
+            .expect("parser")
+            .assertions
+            .into_iter()
+            .filter(|a| a.name.as_deref() == Some("kind"))
+            .map(|a| a.value)
+            .collect()
+    }
+
+    #[test]
+    fn a_guard_only_one_nested_path_makes_is_not_the_branchs_claim() {
+        // The inner conditional establishes NOTHING — its two sides assert different values —
+        // so the outer branch it sits in claims nothing either. Parking and claiming shared one
+        // list, and a nested settle could only leave its region alone: both inner values
+        // travelled up as the outer branch's own contribution, the outer intersection found
+        // `"a"` on both sides, and the shape demanded `kind="a"` of responses the parser
+        // accepts with `kind="b"`.
+        let values = published_kind_values(
+            r#"if (o) { if (i) { e.assertAttr("kind", "a"); }
+                       else { e.assertAttr("kind", "b"); } }
+               else { e.assertAttr("kind", "a"); }"#,
+        );
+        assert!(
+            values.is_empty(),
+            "one inner path asserts b, so nothing holds always: {values:?}"
+        );
+    }
+
+    #[test]
+    fn a_guard_every_nested_path_makes_is_still_the_branchs_claim() {
+        // The complement, and the reason the claim is re-parked rather than dropped: the inner
+        // conditional establishes the guard on both of its paths, so the branch it sits in does
+        // establish it, and the outer intersection has something to agree with. Dropping every
+        // nested claim would fix the case above by publishing nothing at all, ever.
+        let values = published_kind_values(
+            r#"if (o) { if (i) { e.assertAttr("kind", "a"); }
+                       else { e.assertAttr("kind", "a"); } }
+               else { e.assertAttr("kind", "a"); }"#,
+        );
+        assert_eq!(
+            values,
+            vec![Some("a".to_string())],
+            "every path through the parser asserts it"
+        );
+    }
+
+    #[test]
+    fn a_guard_behind_a_one_sided_inner_if_is_not_the_branchs_claim() {
+        // The same hole through the construct that settles nothing at all: with no `else` there
+        // was no intersection to reach the region, so the claim sat there and the enclosing
+        // conditional read it as the whole branch's.
+        let values = published_kind_values(
+            r#"if (o) { if (i) { e.assertAttr("kind", "a"); } }
+               else { e.assertAttr("kind", "a"); }"#,
+        );
+        assert!(
+            values.is_empty(),
+            "the branch asserts it only when `i` holds: {values:?}"
+        );
+    }
+
+    #[test]
+    fn a_guard_inside_a_loop_body_is_not_the_branchs_claim() {
+        // And through a skipped path: an empty list runs the body no times, so the branch
+        // containing the loop establishes nothing.
+        let values = published_kind_values(
+            r#"if (o) { for (var k of ks) { e.assertAttr("kind", "a"); } }
+               else { e.assertAttr("kind", "a"); }"#,
+        );
+        assert!(
+            values.is_empty(),
+            "an empty list asserts nothing: {values:?}"
+        );
+    }
+
+    #[test]
+    fn a_guard_in_a_logical_right_side_is_not_the_branchs_claim() {
+        // `i && …` is the one-sided `if` spelled shorter, and it parks claims the same way.
+        let values = published_kind_values(
+            r#"if (o) { i && e.assertAttr("kind", "a"); }
+               else { e.assertAttr("kind", "a"); }"#,
+        );
+        assert!(values.is_empty(), "only when `i` holds: {values:?}");
+    }
+
+    #[test]
+    fn a_field_read_only_inside_a_loop_body_is_not_promoted() {
+        // The field half of the same claim, and the same harm: requiring `id` of every element
+        // rejects the ones the other branch's parser accepts. `relaxed_by_branch` and the guard
+        // claims are handed up by the same rule, so they are dropped by the same rule.
+        let both =
+            guards_and_field("if (o) { for (var k of ks) { parse(e); } } else { parse(e); }");
+        assert_eq!(both, (false, false), "an empty list reads nothing");
+    }
+
+    #[test]
+    fn a_field_read_only_in_a_logical_right_side_is_not_promoted() {
+        let both = guards_and_field("if (o) { i && parse(e); } else { parse(e); }");
+        assert_eq!(both, (false, false), "only when `i` holds");
+    }
+
+    #[test]
+    fn a_guard_asserted_down_one_branch_of_the_callback_is_not_published() {
+        // The parked-assertion list was consumed for helpers and never for the top-level
+        // parser, so `if (c) e.assertAttr("kind", "x")` published as a constraint every
+        // response satisfies — the harmful direction, and it predates the helper channel.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                if (c) { e.assertAttr("kind", "x"); }
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        assert!(
+            !p.assertions
+                .iter()
+                .any(|a| a.name.as_deref() == Some("kind")),
+            "one branch enforces nothing: {:?}",
+            p.assertions
+        );
+    }
+
+    #[test]
+    fn a_guard_both_branches_make_is_published_once() {
+        // Two identical assertions constrain nothing a single one does not, and both branches
+        // recording their own occurrence is exactly what the intersection needs to see — so
+        // the collapse happens on the way out, after the subtraction rather than before it.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                if (c) { e.assertAttr("kind", "x"); } else { e.assertAttr("kind", "x"); }
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let n = p
+            .assertions
+            .iter()
+            .filter(|a| a.name.as_deref() == Some("kind"))
+            .count();
+        assert_eq!(n, 1, "published once: {:?}", p.assertions);
+    }
+
+    #[test]
+    fn an_ordinary_local_handed_to_a_helper_is_not_a_lost_node() {
+        // Only a node this scope TRACKS can be handed on, so only one can be reported lost.
+        // Asking about the write before checking that had `for (i = 0; …) parse(i)` record
+        // `reassignedNodeHandedOn` for a child node never involved — which is worse than a
+        // missing field, because it makes `dropsByReason` claim losses that did not happen.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(x){ x.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                for (idx = 0; idx < n; idx++) { parse(idx); }
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        assert!(
+            !p.pending_drops
+                .iter()
+                .any(|u| u.starts_with("reassignedNodeHandedOn")),
+            "no node was handed on at all: {:?}",
+            p.pending_drops
+        );
+    }
+
+    #[test]
+    fn a_tracked_node_reassigned_before_the_call_is_still_reported() {
+        // The bound: when the argument IS a tracked child and a write moved it, the descent
+        // really did lose the helper's reads and the accounting has to say so.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(x){ x.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                var moved = e.child("moved");
+                moved = moved.child("deeper");
+                parse(moved);
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        assert!(
+            p.pending_drops
+                .iter()
+                .any(|u| u == "reassignedNodeHandedOn@parse"),
+            "a tracked node really was handed on: {:?}",
+            p.pending_drops
+        );
+    }
+
+    #[test]
+    fn a_recovered_argument_is_not_reported_as_a_drop() {
+        // `helper(reassigned, stillGood)` descends through the second argument, so nothing was
+        // lost. Recording the marker from inside the search claimed a loss anyway, and a drop
+        // entry for a read that WAS recovered is exactly the noise that makes the accounting
+        // useless.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(x, y){ y.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                var moved = e.child("moved");
+                var kept = e.child("kept");
+                moved = moved.child("deeper");
+                parse(moved, kept);
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        assert!(
+            !p.pending_drops
+                .iter()
+                .any(|u| u.starts_with("reassignedNodeHandedOn")),
+            "the second argument descended: {:?}",
+            p.pending_drops
+        );
+    }
+
+    #[test]
+    fn an_alias_pointed_at_the_node_only_after_the_call_is_not_followed() {
+        // `var current = other; parse(current); current = row;` hands the helper `other`, not
+        // the row. The order-aware COUNT is about the name and says nothing about which value
+        // was picked, so it saw the one in-scope value and the search then selected the later
+        // `current = row` record purely because its source was already in the set — filing `id`
+        // under `<row>`, which is the harmful direction. The candidate itself now has to have
+        // taken effect, by the same rule the count uses.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                e.mapChildrenWithTag("row", function(row){
+                    var current = other;
+                    parse(current);
+                    current = row;
+                });
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let row = p.fields.iter().find(|f| f.name == "row").expect("row");
+        assert!(
+            !row.children
+                .as_ref()
+                .is_some_and(|kids| kids.iter().any(|f| f.name == "id")),
+            "the alias points elsewhere at the call: {:?}",
+            row.children
+        );
+    }
+
+    #[test]
+    fn an_assignment_takes_effect_after_its_right_hand_side() {
+        // `e = parse(e)` calls `parse` with the ORIGINAL node and only then rebinds `e`. Both
+        // records of the assignment were ordered from the target identifier, which is textually
+        // before the call, so the node looked already moved: the descent was refused, every
+        // field the helper reads was lost, and a `reassignedNodeHandedOn` was recorded for a
+        // move that had not happened yet.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                e = parse(e);
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        assert!(
+            p.fields.iter().any(|f| f.name == "id"),
+            "the call sees the original node: {:?}",
+            p.fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+        assert!(
+            !p.pending_drops
+                .iter()
+                .any(|u| u.starts_with("reassignedNodeHandedOn")),
+            "and nothing had moved yet: {:?}",
+            p.pending_drops
+        );
+    }
+
+    #[test]
+    fn a_write_before_the_call_still_moves_the_node() {
+        // The bound: `e = e.child("detail"); parse(e)` really does hand the helper the detail
+        // node, so the descent is still refused and the loss still recorded.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                e = e.child("detail");
+                parse(e);
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        assert!(
+            p.pending_drops
+                .iter()
+                .any(|u| u == "reassignedNodeHandedOn@parse"),
+            "the write precedes the call: {:?}",
+            p.pending_drops
+        );
+    }
+
+    #[test]
+    fn a_declarator_takes_effect_after_its_initializer() {
+        // `var e = parse(e)` evaluates `parse` against the original parameter and only then
+        // rebinds. I gave the ASSIGNMENT form its effect position one commit earlier and left the
+        // declarator ordered from the binding identifier — the same rule in two places with one
+        // copy missing it, which is the shape of half the findings on this branch.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                var e = parse(e);
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        assert!(
+            p.fields.iter().any(|f| f.name == "id"),
+            "the initializer sees the original node: {:?}",
+            p.fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+        assert!(
+            p.pending_drops.is_empty(),
+            "nothing moved yet: {:?}",
+            p.pending_drops
+        );
+    }
+
+    #[test]
+    fn a_declarator_that_moves_the_node_before_the_call_still_counts() {
+        // The bound: `var e = e.child("a"); parse(e)` really does hand over the child, so the
+        // reads belong under `<a>` and the root descent is still refused and still reported.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                var e = e.child("a");
+                parse(e);
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        assert!(
+            p.pending_drops
+                .iter()
+                .any(|u| u == "reassignedNodeHandedOn@parse"),
+            "the declarator moved it: {:?}",
+            p.pending_drops
+        );
+    }
+
+    #[test]
+    fn a_write_whose_throw_nothing_catches_is_still_dead() {
+        // The bound on the suppression: with no handler anywhere, the throw really does end
+        // everything, so the write never reaches a value-producing path and must stay dead.
+        // Wrapped in a one-sided `if` so the try block itself can complete and `parse(e)` is
+        // actually reachable — otherwise the distinction is unobservable downstream.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                try {
+                    if (g) {
+                        if (f) { e = e.child("a"); throw A(); }
+                        else { e = e.child("a"); throw B(); }
+                    }
+                } finally {}
+                parse(e);
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        assert!(
+            p.fields.iter().any(|f| f.name == "id"),
+            "the surviving path never wrote: {:?}",
+            p.fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+        assert!(
+            p.pending_drops.is_empty(),
+            "nothing lost: {:?}",
+            p.pending_drops
+        );
+    }
+
+    #[test]
+    fn a_write_whose_throw_a_handler_catches_still_moves_the_node() {
+        // A throw inside a block a handler CATCHES ends nothing — the handler runs and execution
+        // carries on — so a write before it is as effective as any other. The dead-path rule
+        // added one commit earlier asked `throws_out` without the enclosing catch, marked these
+        // writes dead, and let the descent proceed against a node the parser had already moved.
+        // Wrong-node, and a regression of my own.
+        //
+        // The suppression has to outrank the computation rather than reset it: zeroing the
+        // counter at the `try` boundary achieved nothing, because `visit_statement` recomputes it
+        // from the very statement that throws.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                try {
+                    if (f) { e = e.child("a"); throw A(); }
+                    else { e = e.child("a"); throw B(); }
+                } catch (x) {}
+                parse(e);
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        assert!(
+            !p.fields.iter().any(|f| f.name == "id"),
+            "not at the root, where the parser no longer reads it: {:?}",
+            p.fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+        assert!(
+            p.pending_drops
+                .iter()
+                .any(|u| u == "reassignedNodeHandedOn@parse"),
+            "and the loss is reported: {:?}",
+            p.pending_drops
+        );
+    }
+
+    #[test]
+    fn a_write_on_a_throwing_path_does_not_move_the_node() {
+        // `if (bad) { e = other; throw Error(); } parse(e)` reaches `parse` with the untouched
+        // node on every execution that produces a result — the writing path produces none.
+        // Ordering the write by position alone refused the descent and reported a move.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                if (bad) { e = other; throw Error("z"); }
+                parse(e);
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        assert!(
+            p.fields.iter().any(|f| f.name == "id"),
+            "the surviving path never wrote: {:?}",
+            p.fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+        assert!(
+            p.pending_drops.is_empty(),
+            "nothing lost: {:?}",
+            p.pending_drops
+        );
+    }
+
+    #[test]
+    fn a_write_on_a_returning_path_does_move_the_node() {
+        // The bound: a `return` hands back a result, so that path DID reach a caller with the
+        // node moved and the descent has to decline — and say so.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                if (bad) { e = other; return t; }
+                parse(e);
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        assert!(
+            p.pending_drops
+                .iter()
+                .any(|u| u == "reassignedNodeHandedOn@parse"),
+            "the returning path moved it: {:?}",
+            p.pending_drops
+        );
+    }
+
+    #[test]
+    fn a_write_to_a_shadowing_block_binding_does_not_move_the_parameter() {
+        // `{ let row; row = other; } parse(row)` assigns to the BLOCK-LOCAL `row`; the argument
+        // is the untouched callback parameter. Recording the write against the whole enclosing
+        // function blamed the parameter, so a valid descent was discarded and a
+        // `reassignedNodeHandedOn` recorded for a node nothing had moved — a drop entry for a
+        // loss that did not happen.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                e.mapChildrenWithTag("row", function(row){
+                    { let row; row = other; }
+                    parse(row);
+                });
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let row = p.fields.iter().find(|f| f.name == "row").expect("row");
+        assert!(
+            row.children
+                .as_ref()
+                .is_some_and(|kids| kids.iter().any(|f| f.name == "id")),
+            "the parameter was never written: {:?}",
+            row.children
+        );
+        assert!(
+            !p.pending_drops
+                .iter()
+                .any(|u| u.starts_with("reassignedNodeHandedOn")),
+            "and nothing was lost to report: {:?}",
+            p.pending_drops
+        );
+    }
+
+    #[test]
+    fn one_value_spelled_on_two_paths_is_still_one_value() {
+        // `if (flag) current = e; else current = e;` assigns twice and means one thing, and the
+        // count refused the alias for it — the helper's fields left the shape with nothing
+        // recorded, for a name that holds the same node however the branch went. Records that
+        // COPY A NAME are comparable that way, which is what makes this cheap: no path analysis,
+        // just the observation that two copies of `e` are one value.
+        //
+        // The `if` spelling comes back REQUIRED, which reverses what this test asserted for
+        // thirty rounds. I wrote here that saying so "needs the branch intersection the
+        // requiredness side has and this collector does not". It needs one over the records the
+        // two arms just produced, which is a slice of `self.given` and nothing more — so the
+        // claim was mine and wrong — one more of the reversals the PR lists.
+        let id = helper_reached_via(
+            "var current; if (flag) current = e; else current = e; parse(current);",
+        )
+        .into_iter()
+        .find(|f| f.name == "id")
+        .expect("names one node");
+        assert!(id.required, "every path assigns it: {id:?}");
+        // The SWITCH spelling still comes back optional, and that is a stated gap rather than
+        // an answer: promoting it needs the arms to be exhaustive as well as agreeing, which is
+        // the `default`-and-fallthrough question the requiredness walk answers and this
+        // collector does not ask. It loses a field rather than inventing one.
+        let id = helper_reached_via(
+            "var current; switch (m) { case 1: current = e; break; default: current = e; } parse(current);",
+        )
+        .into_iter()
+        .find(|f| f.name == "id")
+        .expect("names one node");
+        assert!(!id.required, "the switch half is not promoted yet: {id:?}");
+        // …and the agreement is an effect of the WHOLE `if`, not of the arms. A read INSIDE an
+        // arm runs before that arm has finished, so it is handed whatever held before —
+        // clearing the flag on the arms' own records made the then-arm's write effective at a
+        // call in the else arm and published the reads as required against it.
+        let fields = helper_reached_via(
+            "var current = other; if (flag) { current = e; } else { parse(current); current = e; }",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "that call precedes its own arm's assignment: {fields:?}"
+        );
+        // …and only each arm's FINAL assignment counts. An arm that gives `current` the node
+        // and then overwrites it leaves the node behind, so the two arms do not agree at all —
+        // clearing the flag on every matching record made the else-arm's copy unconditional and
+        // let it dominate the then-arm's overwrite, publishing the reads as required against a
+        // path that passes something else.
+        let fields = helper_reached_via(
+            "var current; if (flag) { current = e; current = other; } else { current = e; } parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the true branch passes something else: {fields:?}"
+        );
+        // And the promotion is only for the OUTERMOST branch. Nested inside another region a
+        // test can skip, the agreeing pair is still skippable as a whole — clearing the flag
+        // there would claim a write an enclosing test bypasses.
+        for body in [
+            "var current; if (outer) { if (flag) { current = e; } else { current = e; } } parse(current);",
+            "var current; while (outer) { if (flag) { current = e; } else { current = e; } parse(current); }",
+        ] {
+            let (required, _) = guards_and_field(body);
+            assert!(!required, "an enclosing test can skip the pair: {body}");
+        }
+    }
+
+    #[test]
+    fn two_values_are_still_two_however_alike_they_look() {
+        // The bounds. Two records that name DIFFERENT sources are two values, and a copy set
+        // against a computed value is two as well — `if (flag) current = e; else current =
+        // e.child("detail")` names one node down one path and another down the other. Nor does
+        // this touch the case the count exists for: a later rebind is a second value, not a
+        // second spelling of the first.
+        //
+        // The all-computed case below is refused twice over, and only one of those is this
+        // predicate: `names_for` follows a record only when it copies a NAME, so a pair of
+        // computed values never reaches the count at all. Dropping the `from.is_some()` clause
+        // breaks no test for exactly that reason — it is there so the predicate answers its own
+        // question correctly, not because anything today would notice.
+        for body in [
+            "var current; if (flag) current = e; else current = other; parse(current);",
+            r#"var current; if (flag) current = e; else current = e.child("detail"); parse(current);"#,
+            r#"var current; if (flag) current = e.child("a"); else current = e.child("b"); parse(current);"#,
+            r#"var current = e; current = e.child("detail"); parse(current);"#,
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "`{body}` names no one node: {:?}",
+                fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn a_generator_helper_is_not_one_the_call_runs() {
+        // `function* parse(p){…}` called as `parse(e)` builds an iterator and runs none of the
+        // body, so descending into it required of every response what no execution of that call
+        // reads — the generated decoder then turns away input the source callback accepts
+        // without looking at. The IIFE rule learned this one round earlier; the site that
+        // decides whether a module HELPER runs had not.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function* parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                parse(e);
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        assert!(
+            !p.fields.iter().any(|f| f.name == "id"),
+            "the body never runs: {:?}",
+            p.fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_helper_the_call_does_run_is_still_descended_into() {
+        // The bounds. A plain declaration runs, and so does an `async` one — its body executes
+        // synchronously as far as its first `await`, and there is none here. Declining every
+        // function whose form is unusual would lose what the parser really reads.
+        for helper in [
+            r#"function parse(p){ p.attrString("id"); }"#,
+            r#"async function parse(p){ p.attrString("id"); }"#,
+        ] {
+            let module = format!(
+                r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){{
+                {helper}
+                var c=new(r("WADeprecatedWapParser"))("p", function(e){{
+                    e.assertTag("receipt");
+                    parse(e);
+                }});
+            }}),1);"#
+            );
+            let out = parse_module_wap_parsers(&module);
+            let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+            assert!(
+                p.fields.iter().any(|f| f.name == "id"),
+                "`{helper}` runs: {:?}",
+                p.fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn the_later_of_two_hoisted_declarations_is_the_one_that_runs() {
+        // Both are hoisted and the later assignment is the binding left standing, so `parse(e)`
+        // calls the second body. Keeping the first published the fields of a body that never
+        // runs and omitted the ones that do — a shape disagreeing with the helper the parser
+        // actually calls.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(p){ p.attrString("wrong"); }
+            function parse(p){ p.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                parse(e);
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let names: Vec<String> = p.fields.iter().map(|f| f.name.clone()).collect();
+        assert!(
+            names.iter().any(|n| n == "id") && !names.iter().any(|n| n == "wrong"),
+            "the second declaration is the live one: {names:?}"
+        );
+    }
+
+    #[test]
+    fn two_assigned_function_expressions_keep_the_first() {
+        // The bound, and why the rule is about HOISTING rather than about being last: `var
+        // parse = function(){…}` is not hoisted, so which of two is live depends on where the
+        // call sits — `var parse = A; parse(e); var parse = B;` calls A. First-wins is the
+        // conservative reading there and is unchanged.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            var parse = function(p){ p.attrString("id"); };
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                parse(e);
+            });
+            var parse = function(p){ p.attrString("later"); };
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let names: Vec<String> = p.fields.iter().map(|f| f.name.clone()).collect();
+        assert!(
+            names.iter().any(|n| n == "id") && !names.iter().any(|n| n == "later"),
+            "the one live at the call: {names:?}"
+        );
+    }
+
+    #[test]
+    fn an_alias_written_only_after_the_call_is_still_followed() {
+        // `var current = row; parse(current); current = row.child("detail")` — the later write
+        // cannot reach the call. I made the PARAMETER check order-aware and left the alias
+        // count blind to order, so this saw two values and refused to follow `current`.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(q){ q.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                e.mapChildrenWithTag("row", function(row){
+                    var current = row;
+                    parse(current);
+                    current = row.child("detail");
+                });
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let row = p.fields.iter().find(|f| f.name == "row").expect("row");
+        assert!(
+            row.children
+                .as_ref()
+                .is_some_and(|kids| kids.iter().any(|f| f.name == "id")),
+            "the write is after the call: {:?}",
+            row.children
+        );
+    }
+
+    #[test]
+    fn a_fallthrough_does_not_borrow_the_next_cases_test() {
+        // Falling through into a case runs its consequent, never its test. Folding the test
+        // into the entry path had `case "a": case parse(e): break;` promote a read the `"a"`
+        // path never performs.
+        let fields = helper_reached_via(
+            r#"switch (mode) { case "a": case parse(e): break; default: parse(e); }"#,
+        );
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(!id.required, "the \"a\" path never calls it: {id:?}");
+    }
+
+    #[test]
+    fn a_child_bound_in_a_loop_header_is_restored_after_it() {
+        // A `let` in a `for` header is scoped to the loop. Only block statements were being
+        // restored, and a loop header is not one, so the trailing read landed under `<inner>`.
+        let r = analyze_parser_ast(
+            r#"{ var x = e.child("outer");
+                 for (let x = e.child("inner"); cond; ) { }
+                 x.attrString("id"); }"#,
+            "e",
+        );
+        let paths = placed_paths(&r);
+        assert!(
+            paths.contains(&"outer/id".to_string()) && !paths.contains(&"inner/id".to_string()),
+            "the trailing read is the outer child's: {paths:?}"
+        );
+    }
+
+    #[test]
+    fn a_read_before_a_do_while_break_is_still_required() {
+        // The guaranteed first pass reaches everything up to the `break`. Treating the whole
+        // body as conditional because it contains one relaxed a call that always runs.
+        let fields = helper_reached_via("do { parse(e); break; } while (more);");
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(id.required, "the read precedes the break: {id:?}");
+    }
+
+    #[test]
+    fn a_read_after_a_do_while_break_is_not_required() {
+        // And the other side of the same statement: what follows the `break` is exactly as
+        // certain as a branch, which is what the original carve-out was for.
+        let fields = helper_reached_via("do { if (flag) break; parse(e); } while (more);");
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(!id.required, "the break can skip it: {id:?}");
+    }
+
+    #[test]
+    fn a_helper_in_a_for_of_binding_default_is_recovered() {
+        // `for (const [v = parse(e)] of values)` calls the helper when there is an element.
+        // Hand-written visitors that walk only the iterable and the body dropped it, and
+        // nothing said so.
+        let fields = helper_reached_via("for (const [v = parse(e)] of values) {}");
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the binding is walked: {:?}",
+            fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn an_argument_past_the_helpers_formals_is_not_a_lost_read() {
+        // `helper(row)` where `helper()` declares no formals ignores the argument, so there
+        // is nothing to recover and nothing to report. Counting the missing position as a
+        // pattern binding marked complete shapes as having dropped something.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function helper(){ return 0; }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                e.mapChildrenWithTag("row", function(row){ row.attrString("own"); helper(row); });
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        assert!(
+            !p.pending_drops
+                .iter()
+                .any(|u| u.starts_with("nodeBoundByPattern")),
+            "no formal is not a pattern formal: {:?}",
+            p.pending_drops
+        );
+    }
+
+    #[test]
+    fn a_node_written_only_after_the_call_is_still_followed() {
+        // `parse(row); row = row.child("detail")` handed the helper the row. I rejected this
+        // saying a pre-scan cannot order a write against a call; it can, for the textual
+        // part, and rejecting it lost fields that were recoverable.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(q){ q.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                e.mapChildrenWithTag("row", function(row){
+                    parse(row);
+                    row = row.child("detail");
+                });
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let row = p.fields.iter().find(|f| f.name == "row").expect("row");
+        assert!(
+            row.children
+                .as_ref()
+                .is_some_and(|kids| kids.iter().any(|f| f.name == "id")),
+            "the write is after the call: {:?}",
+            row.children
+        );
+    }
+
+    #[test]
+    fn a_node_rewritten_each_pass_of_a_loop_is_not_followed() {
+        // The part order cannot settle: a write below the call runs before it on the next
+        // pass, so a write inside a loop containing the call still disqualifies the name.
+        let module = r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){
+            function parse(q){ q.attrString("id"); }
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){
+                e.assertTag("receipt");
+                e.mapChildrenWithTag("row", function(row){
+                    while (more) {
+                        parse(row);
+                        row = row.child("detail");
+                    }
+                });
+            });
+        }),1);"#;
+        let out = parse_module_wap_parsers(module);
+        let p = out.iter().find(|r| r.parser_name == "p").expect("parser");
+        let row = p.fields.iter().find(|f| f.name == "row").expect("row");
+        let at_root = row
+            .children
+            .as_ref()
+            .is_some_and(|kids| kids.iter().any(|f| f.name == "id"));
+        assert!(!at_root, "the loop repeats the write: {:?}", row.children);
+    }
+
+    #[test]
+    fn a_helper_called_in_a_do_while_is_still_required() {
+        // `do` runs its body before the test, so one pass is guaranteed — the asymmetry
+        // with `while`/`for` that makes this a separate answer rather than "a loop".
+        let fields = helper_reached_via("do { parse(e); } while (more);");
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(id.required, "the first pass always runs: {id:?}");
     }
 
     #[test]
@@ -8566,5 +23380,1875 @@ mod tests {
             a_fields.iter().any(|n| n == "foo"),
             "one object, so the accumulator is settled: {a_fields:?}"
         );
+    }
+
+    #[test]
+    fn a_transfer_inside_a_try_ends_the_statement_list() {
+        // `try { break; } finally {}` breaks, so `current = other` after it never runs and the
+        // read still sees `e`. The catch-all said a `try` never ends the list, which recorded
+        // that write as effective and refused the descent.
+        for body in [
+            "var current = e; do { try { break; } finally {} current = other; } while (0); parse(current);",
+            // A finalizer that leaves of its own overrides whatever the block did.
+            "var current = e; do { try { g(); } finally { break; } current = other; } while (0); parse(current);",
+            // Block and handler both leave, so no path reaches the statement after the `try`.
+            "var current = e; do { try { break; } catch (x) { break; } current = other; } while (0); parse(current);",
+            // A `catch` intercepts exceptions and nothing else, so a `break` bypasses it. I
+            // asserted the opposite one round ago, in the negative below; review was right.
+            "var current = e; do { try { break; } catch (x) {} current = other; } while (0); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "the write after the transfer is unreachable, so the descent stands: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_try_that_can_complete_does_not_end_the_statement_list() {
+        // The paired bound: answering `true` for every `TryStatement`, or reading the block
+        // without its handler, would call these unreachable too and publish a field the parser
+        // never reaches through this alias.
+        for body in [
+            // Nothing leaves, so the following write is plainly effective.
+            "var current = e; do { try { g(); } finally {} current = other; } while (0); parse(current);",
+            // A `catch` that completes normally carries on past the `try` — when it can be
+            // entered at all. `f()` can raise before the `break` is reached, and the handler
+            // then finishes and falls into the statements after the `try`.
+            "var current = e; do { try { f(); break; } catch (x) {} current = other; } while (0); parse(current);",
+            // `return expr` is not a transfer that evaluates nothing — `f()` runs first and can
+            // raise, so the handler is reachable and completes. Only a BARE `return` bypasses.
+            "var current = e; do { try { return f(); } catch (x) {} current = other; } while (0); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "a path reaches the reassignment, so the descent is refused: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_case_repeating_an_earlier_literal_is_not_an_entry_path() {
+        // A switch matches with strict equality and takes the first case that matches, so the
+        // second `case "a"` can never be entered directly. Folding its empty reads into the
+        // intersection left the payload optional against a switch every reachable entry of
+        // which calls `parse`.
+        let fields = helper_reached_via(
+            r#"switch (mode) { case "a": parse(e); break; case "a": break;
+                              default: parse(e); break; }"#,
+        );
+        let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+        assert!(id.required, "nothing can enter the duplicate: {id:?}");
+    }
+
+    #[test]
+    fn a_distinct_case_still_dilutes_the_intersection() {
+        // The paired bound, three ways: a different literal is a real entry path; the FIRST of
+        // two duplicates is the one that matches, so an empty one there still dilutes; and a
+        // computed test is not decidable by reading it, so it shadows nothing.
+        for body in [
+            r#"switch (mode) { case "a": parse(e); break; case "b": break;
+                               default: parse(e); break; }"#,
+            r#"switch (mode) { case "a": break; case "a": parse(e); break;
+                               default: parse(e); break; }"#,
+            r#"switch (mode) { case k.A: parse(e); break; case k.A: break;
+                               default: parse(e); break; }"#,
+        ] {
+            let fields = helper_reached_via(body);
+            let id = fields.iter().find(|f| f.name == "id").expect("recovered");
+            assert!(!id.required, "an entry path returns without it: {body}");
+        }
+    }
+
+    #[test]
+    fn a_default_its_argument_supplies_does_not_run() {
+        // A parameter default is evaluated only for a missing or `undefined` argument, so
+        // `(function (x = (current = other)) {})(1)` never performs that write and `parse` is
+        // handed the original node. Walking the callee wholesale recorded it and the helper's
+        // fields were dropped from a shape that really does read them.
+        let fields = helper_reached_via(
+            "var current = e; (function (x = (current = other)) {})(1); parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the supplied argument prevents the default: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn a_default_the_call_does_not_supply_still_runs() {
+        // The paired bound. Only a value that can be read off the source settles the question:
+        // no argument at all runs the default, and an argument whose value has to be computed
+        // could be `undefined`, so it settles nothing and the write stands.
+        for body in [
+            "var current = e; (function (x = (current = other)) {})(); parse(current);",
+            "var current = e; (function (x = (current = other)) {})(maybe); parse(current);",
+            "var current = e; (function (x = (current = other)) {})(void 0); parse(current);",
+            "var current = e; (function (x = (current = other)) {})(...args); parse(current);",
+            // The mapping is positional: an argument for the FIRST parameter says nothing
+            // about the second's default.
+            "var current = e; (function (a, x = (current = other)) {})(1); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "the default can still run, so the node moved: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_nested_default_the_argument_supplies_does_not_run() {
+        // The same rule one level in. `function ({x = (current = other)})` called with `{x: 1}`
+        // never evaluates that initializer, and checking only `FormalParameter::initializer`
+        // left every destructured spelling of it recording a write the call prevents.
+        for body in [
+            "var current = e; (function ({x = (current = other)}) {})({x: 1}); parse(current);",
+            "var current = e; (function ([x = (current = other)]) {})([1]); parse(current);",
+            // Through a level of nesting, and past a sibling the argument does not name.
+            "var current = e; (function ({a: {x = (current = other)}}) {})({a: {x: 1}}); parse(current);",
+            // A computed key whose name is readable is readable, and the LAST property of a
+            // name is the one the object carries.
+            r#"var current = e; (function ({x = (current = other)}) {})({["x"]: 1}); parse(current);"#,
+            r#"var current = e; (function ({x = (current = other)}) {})({["x"]: undefined, x: 1}); parse(current);"#,
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "the supplied value prevents the nested default: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_nested_default_the_argument_leaves_open_still_runs() {
+        // The paired bound. Only what reading the source settles counts as supplied: a property
+        // the literal does not name, a missing element, an argument that is not a literal at
+        // all, a spread that could supply or shadow anything, and a computed key.
+        for body in [
+            "var current = e; (function ({x = (current = other)}) {})({}); parse(current);",
+            "var current = e; (function ([x = (current = other)]) {})([]); parse(current);",
+            "var current = e; (function ({x = (current = other)}) {})(obj); parse(current);",
+            "var current = e; (function ({x = (current = other)}) {})({...rest}); parse(current);",
+            // A spread can SHADOW a property the literal names, with `undefined` among other
+            // things, so naming `x` alongside one settles nothing either.
+            "var current = e; (function ({x = (current = other)}) {})({x: 1, ...rest}); parse(current);",
+            // And a later property of the same name wins, so the effective `x` is `undefined`
+            // and the default runs after all.
+            r#"var current = e; (function ({x = (current = other)}) {})({x: 1, ["x"]: undefined}); parse(current);"#,
+            "var current = e; (function ({x = (current = other)}) {})({x: undefined}); parse(current);",
+            // The parameter's own default runs, so the pattern takes THAT apart and the
+            // argument says nothing about what is inside it.
+            "var current = e; (function ({x = (current = other)} = {}) {})(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "the default can still run, so the node moved: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_class_constructed_in_place_runs_its_body_now() {
+        // `new (class { constructor(){ current = other; } })()` runs that constructor as
+        // certainly as an IIFE body runs. Treating it as a method nobody calls confined the
+        // write, so the alias `current = e` still looked live and the helper's fields were
+        // published on a node the constructor had replaced — the wrong-node direction, which
+        // is why this stopped being a decline. An instance field initializer runs on the same
+        // construction and is the same answer.
+        for body in [
+            "var current = e; new (class { constructor() { current = other; } })(); parse(current);",
+            "var current = e; new (class { value = (current = other); })(); parse(current);",
+            "var current = e; new (class { accessor value = (current = other); })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "the construction moved the node: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_class_nobody_constructs_still_defers_its_bodies() {
+        // The paired bound, and it is the whole reason this is not simply "a class runs its
+        // methods". Defining one runs neither its constructor nor its instance initializers;
+        // CALLING a class throws, so its body runs on no path; a method that is not the
+        // constructor is not invoked by `new`; and `new Thing()` reaches no body this scanner
+        // can see at all.
+        for body in [
+            "var current = e; var C = class { constructor() { current = other; } }; parse(current);",
+            "var current = e; var C = class { value = (current = other); }; parse(current);",
+            "var current = e; new (class { run() { current = other; } })(); parse(current);",
+            "var current = e; new Thing(); parse(current);",
+            // CALLING a class throws before any body runs, so the write happens on no path —
+            // which is why the arm is guarded on `new` rather than on the callee being a class.
+            "var current = e; (class { constructor() { current = other; } })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "nothing ran that body, so the node still stands: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_getter_does_not_supply_the_property_it_names() {
+        // Reading `x` off `{get x(){ … }}` INVOKES that function, and its result is not
+        // something this can read; `{set x(v){}}` supplies no getter at all, so reading `x`
+        // yields `undefined`. Either way the default runs. Taking the property's own text as
+        // the value saw a `FunctionExpression` and called it definitely defined.
+        for body in [
+            "var current = e; (function ({x = (current = other)}) {})({get x() { return undefined; }}); parse(current);",
+            "var current = e; (function ({x = (current = other)}) {})({set x(v) {}}); parse(current);",
+            // The LAST property of the name decides, and it is an accessor — deciding the name
+            // and the kind in one pass let this fall through to the plain `x` before it.
+            "var current = e; (function ({x = (current = other)}) {})({x: 1, get x() { return undefined; }}); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "an accessor settles nothing, so the default runs: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_shorthand_method_is_still_the_property_value() {
+        // The bound: a method's value IS that function, so `x` is defined and the default does
+        // not run. Declining for every function-valued property would have lost this.
+        let fields = helper_reached_via(
+            "var current = e; (function ({x = (current = other)}) {})({x() {}}); parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "a method supplies the property: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn instance_fields_run_before_the_constructor_body() {
+        // Every instance field initializes before the constructor runs, wherever it is written.
+        // Source order had `class { constructor(){ parse(current); } x = (current = other); }`
+        // read the node the field had already replaced.
+        for body in [
+            "var current = e; new (class { constructor() { parse(current); } x = (current = other); })();",
+            "var current = e; new (class { x = (current = other); constructor() { parse(current); } })();",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "the field moved the node before the constructor read it: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_derived_class_keeps_its_fields_in_source_order() {
+        // A DERIVED class initializes its instance fields when `super()` returns, which is
+        // somewhere inside the constructor body and not before it. So a read placed before the
+        // `super()` call still sees the node the field has not replaced yet, and declaring the
+        // field to precede the whole body — the base-class rule applied one class too far —
+        // would answer that with the field.
+        let fields = helper_reached_via(
+            "var current = e; new (class extends Base { constructor() { parse(current); super(); } x = (current = other); })();",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the field has not run at that point: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn a_class_definition_runs_before_the_constructor_arguments() {
+        // `new C(args)` evaluates the class expression first, then the arguments, then
+        // constructs. So a STATIC initializer runs before an argument's write and a constructor
+        // body runs after it. Naming the whole class span as the region the arguments precede
+        // answered both with the second.
+        let fields = helper_reached_via(
+            "var current = e; new (class { static x = parse(current); })(current = other);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the static initializer ran before the argument: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn a_constructor_argument_still_precedes_the_constructor_body() {
+        // The paired bound, and the reason the region is the construction rather than nothing:
+        // an argument really does run before the constructor body, however far after it the
+        // argument is written.
+        let fields = helper_reached_via(
+            "var current = e; new (class { constructor() { parse(current); } })(current = other);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the argument moved the node before the constructor read it: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn a_constructor_default_its_argument_supplies_does_not_run() {
+        // `new` hands its arguments to the constructor exactly as a call hands them to a
+        // function, so the same defaults are prevented — a rule that reached the two function
+        // callee shapes and not the one made an invocation the round before.
+        let fields = helper_reached_via(
+            "var current = e; new (class { constructor(x = (current = other)) {} })(1); parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the supplied argument prevents the constructor's default: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn a_constructor_default_the_construction_omits_still_runs() {
+        // The bound, as for a plain call.
+        let fields = helper_reached_via(
+            "var current = e; new (class { constructor(x = (current = other)) {} })(); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "no argument, so the default runs: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn a_derived_class_orders_its_fields_at_the_super_call() {
+        // A derived class initializes its instance fields the moment `super()` returns, so a
+        // read after that call sees them however far below it the field is written. Keeping
+        // source order for the whole constructor — which is what excluding derived classes
+        // outright did — answered that with the field's position.
+        let fields = helper_reached_via(
+            "var current = e; new (class extends Base { constructor() { super(); parse(current); } x = (current = other); })();",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the field ran when super() returned: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn a_read_before_super_still_precedes_the_fields() {
+        // The paired bound, both ways it matters: nothing before the `super()` call has seen a
+        // field yet, and a call this cannot place — under an `if`, or absent — leaves source
+        // order as the answer rather than guessing at one.
+        for body in [
+            "var current = e; new (class extends Base { constructor() { parse(current); super(); } x = (current = other); })();",
+            "var current = e; new (class extends Base { constructor() { if (f) super(); parse(current); } x = (current = other); })();",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "the field has not run at that point: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_property_after_every_spread_still_supplies_its_name() {
+        // A spread can supply a name or shadow one, so nothing before or between them settles
+        // anything — but a property written after the LAST of them is what the object ends up
+        // with whatever the spreads held. Discarding the whole literal the moment a spread
+        // appeared threw those away with the rest.
+        let fields = helper_reached_via(
+            "var current = e; (function ({x = (current = other)}) {})({...{}, x: 1}); parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the trailing property supplies it: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn a_property_a_later_spread_can_shadow_settles_nothing() {
+        // The paired bound: a property counts only when no LATER spread could overwrite it —
+        // with `undefined` among other things, which runs the default.
+        for body in [
+            "var current = e; (function ({x = (current = other)}) {})({x: 1, ...rest}); parse(current);",
+            "var current = e; (function ({x = (current = other)}) {})({...a, x: 1, ...b}); parse(current);",
+            "var current = e; (function ({x = (current = other)}) {})({x: 1, ...{x: void 0}}); parse(current);",
+            "var current = e; (function ({x = (current = other)}) {})({x: 1, ...{[k]: 1}}); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "a later spread can shadow it, so the default may run: {body}"
+            );
+        }
+        // "Could" and not "does". A spread whose every key this can read, none of them the one
+        // being asked about, replaces nothing — so the property above it is still what the
+        // object ends up with. Cutting at the last spread regardless discarded it, and this
+        // walk was taking that loss alongside the getter lookup that was reported.
+        for body in [
+            "var current = e; (function ({x = (current = other)}) {})({x: 1, ...{y: 2}}); parse(current);",
+            "var current = e; (function ({x = (current = other)}) {})({x: 1, ...{y: 2}, ...{z: 3}}); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that spread cannot touch `x`, so the default runs for nobody: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_array_position_before_a_spread_is_still_fixed() {
+        // A spread contributes an unknown number of elements, so positions from there on shift
+        // by an amount nothing here can read — but the ones BEFORE it are exactly where they
+        // are written. Discarding the whole literal on sight of a spread threw those away too.
+        // The mirror of the object rule, which keeps what comes AFTER the last spread: there
+        // names shift and positions do not.
+        let fields = helper_reached_via(
+            "var current = e; (function ([x = (current = other)]) {})([1, ...rest]); parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "element zero is always 1: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn an_array_position_a_spread_can_shift_settles_nothing() {
+        // The paired bound: a position at or after the first spread is not the one it looks.
+        for body in [
+            "var current = e; (function ([a, x = (current = other)]) {})([...rest, 1]); parse(current);",
+            "var current = e; (function ([a, x = (current = other)]) {})([1, ...rest]); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "the spread shifts that position: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_unary_argument_other_than_void_is_supplied() {
+        // Every unary operator but one produces a value: `-1` and `+x` a number, `!0` a
+        // boolean, `~x` a number, `typeof x` a string. Excluding the whole node kind turned
+        // the minifier's own `-1` and `!0` into values this could not read, so a default their
+        // call prevents was recorded as a write.
+        for body in [
+            "var current = e; (function (x = (current = other)) {})(-1); parse(current);",
+            "var current = e; (function (x = (current = other)) {})(!0); parse(current);",
+            // Parentheses change nothing about the value.
+            "var current = e; (function (x = (current = other)) {})((-1)); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "the argument is not undefined: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn void_is_still_undefined() {
+        // The one exception, and it is the spelling minifiers use FOR `undefined` — so this is
+        // the bound that stops the widening from swallowing the case it was written around.
+        let fields = helper_reached_via(
+            "var current = e; (function (x = (current = other)) {})(void 0); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "`void 0` supplies undefined, so the default runs: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn an_await_nothing_reaches_suspends_nothing() {
+        // The synchronous prefix ends at the first await CONTROL CAN REACH. `if (0) await x;`
+        // is not one, so the statements after it run before the call returns — taking the first
+        // textual await confined a write the caller does see, and the helper's fields were
+        // published on the node it had moved away from.
+        let fields = helper_reached_via(
+            "var current = e; (async function () { if (0) await 0; current = other; })(); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the write ran synchronously: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn an_await_that_can_run_still_ends_the_synchronous_part() {
+        // The paired bound: an `await` EVERY path reaches cuts the prefix, and what follows it
+        // is the continuation's whatever else the body does.
+        for body in [
+            "var current = e; (async function () { await 0; current = other; })(); parse(current);",
+            // Including a write inside the suspending branch itself, past its own await.
+            "var current = e; (async function () { if (flag) { await 0; current = other; } })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "the caller does not wait for that write: {body}"
+            );
+        }
+        // `if (flag) await 0; current = other;` is NOT one of them, and I had it here asserting
+        // that it was. When `flag` is false nothing suspends and the write is as synchronous as
+        // it looks, so the two executions disagree about what `parse` receives — and a model
+        // that answers "the caller did not see it" publishes the helper's reads under a node
+        // half of them replaced. Declining is the answer that loses fields instead. The claim
+        // was mine and review corrected it; the case sits in
+        // `a_bypassed_await_leaves_its_continuation_synchronous`.
+    }
+
+    #[test]
+    fn a_statically_dead_branch_writes_nothing() {
+        // A write on the side a decided test never selects cannot happen at all. Walking it as
+        // merely skippable made it a second live value for the name, so the alias was refused
+        // and the helper's fields left the shape with nothing said. `if (0) { … }` with no
+        // `else` is the same answer, and the selector had been declining it outright because
+        // nothing is taken.
+        for body in [
+            "var current = e; if (0) { current = other; } else {} parse(current);",
+            "var current = e; if (0) { current = other; } parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that write cannot happen: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_branch_that_can_run_still_moves_the_node() {
+        // The paired bound: an undecided test leaves two live values, and a decided test that
+        // selects the write makes it certain. Neither is silenced by the dead-side rule.
+        for body in [
+            "var current = e; if (flag) { current = other; } parse(current);",
+            "var current = e; if (1) { current = other; } parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "the write can happen: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn one_branch_of_an_if_suspending_does_not_confine_the_other() {
+        // The two sides of an undecided `if` are alternatives, not a sequence. `if (flag) {
+        // await x; } else { current = other; }` suspends on one side and runs to its end on the
+        // other, and taking the minimum await position across both confined a write that really
+        // is synchronous whenever its own side is selected — so the node looked unmoved and the
+        // field came out REQUIRED on a node half the executions had replaced. Two live values
+        // now, which is a decline.
+        let fields = helper_reached_via(
+            "var current = e; (async function () { if (flag) { await 0; } else { current = other; } })(); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the write may have happened, so the alias is refused: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn a_suspension_the_write_really_is_past_still_confines_it() {
+        // The bound, and it is what stops the branch rule swallowing a real suspension: an
+        // await BEFORE the `if` is one every side is past, and an `if` both of whose sides
+        // suspend leaves everything after it past one too. In both the caller returns before
+        // that write and still sees the original node.
+        for body in [
+            "var current = e; (async function () { await 0; if (flag) {} else { current = other; } })(); parse(current);",
+            "var current = e; (async function () { if (flag) { await 0; } else { await 1; } current = other; })(); parse(current);",
+            // And a write past the await on its OWN side is past one: keeping the whole branch
+            // as synchronous because a sibling suspends would answer that with the sibling.
+            "var current = e; (async function () { if (flag) { await 0; current = other; } else {} })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "the caller does not wait for that write: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_function_invoked_through_call_runs_now() {
+        // `(function(){ … }).call(null)` runs that body as immediately as `()` does. The callee
+        // is a member expression, so the matcher fell through to the deferred walk, the write
+        // stayed confined, and the helper's fields were published on a node it had replaced.
+        for body in [
+            "var current = e; (function () { current = other; }).call(null); parse(current);",
+            "var current = e; (function () { current = other; }).apply(null); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "the body ran, so the node moved: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn call_on_anything_but_an_inline_function_is_not_an_invocation() {
+        // The bound: `thing.call(null)` is a call this scanner cannot follow, and reading every
+        // `.call` as immediate would claim a body it has never seen.
+        let fields = helper_reached_via("var current = e; thing.call(null); parse(current);");
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "nothing inline was invoked: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn call_shifts_the_parameters_past_the_receiver() {
+        // `.call(thisArg, a)` hands `a` to the first parameter, so a default it supplies does
+        // not run — and a LITERAL `.apply(thisArg, [a])` list is as readable as an argument
+        // list, which I asserted the opposite of one round ago. Review was right: answering
+        // "unknowable" for every `.apply` walked a default the call really does prevent.
+        for body in [
+            "var current = e; (function (x = (current = other)) {}).call(null, 1); parse(current);",
+            "var current = e; (function (x = (current = other)) {}).apply(null, [1]); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "the argument past the receiver supplies it: {body}"
+            );
+        }
+        for body in [
+            "var current = e; (function (x = (current = other)) {}).call(null); parse(current);",
+            // A list this cannot read, and one whose positions a spread has moved.
+            "var current = e; (function (x = (current = other)) {}).apply(null, list); parse(current);",
+            "var current = e; (function (x = (current = other)) {}).apply(null, [...r]); parse(current);",
+            // A spread ENDS the mapping rather than being skipped over: the `1` after it is not
+            // at position zero, whatever it looks like.
+            "var current = e; (function (x = (current = other)) {}).apply(null, [...r, 1]); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "nothing readable reaches that parameter: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_computed_key_runs_before_every_static_initializer() {
+        // Every computed key is evaluated when the class is DEFINED, before any static
+        // initializer runs, whatever their source order — so a key written BELOW an initializer
+        // still reads what that initializer has not yet written. This is the two-phase clock
+        // the PR declined for several rounds: repositioning the writes broke two neighbours,
+        // because pushing them past the keys pushes them past each other. Declaring that they
+        // FOLLOW the keys leaves every other ordering where it was.
+        for body in [
+            "var current = e; class C { static x = (current = other); [parse(current)]() {} }",
+            "var current = e; class C { [parse(current)]() {} static x = (current = other); }",
+            // A static block is the same phase as an initializer.
+            "var current = e; class C { static { current = other; } [parse(current)]() {} }",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "the key ran before the initializer: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_read_after_the_class_still_sees_its_static_initializer() {
+        // The bound, and the reason this is a declaration and not a reordering: the write is
+        // still effective everywhere outside the keys, so a read after the class sees it, and
+        // one key does not stop seeing what an EARLIER key wrote.
+        for body in [
+            "var current = e; class C { static x = (current = other); } parse(current);",
+            "var current = e; class C { static [(current = other, 0)] = 1; static [parse(current)] = 2; }",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that write is effective here: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_computed_key_write_precedes_every_static_initializer() {
+        // The same ordering read the other way. Saying only that an initializer FOLLOWS the
+        // keys left a key written below one still at its own offset, so the initializer read a
+        // node the key had in fact already replaced. Both halves of one rule; shipping the
+        // first alone is the shape this branch keeps finding in its own work.
+        for body in [
+            "var current = e; class C { static x = parse(current); [(current = other)]() {} }",
+            "var current = e; class C { static x = parse(current); static [(current = other)] = 1; }",
+            "var current = e; class C { static { parse(current); } [(current = other)]() {} }",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "the key ran before the initializer read it: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_apply_list_this_can_read_supplies_the_parameters() {
+        // A literal `.apply(thisArg, [1])` list is as readable as an argument list. Answering
+        // "unknowable" for every `.apply` walked a default the call really does prevent — which
+        // I asserted was correct one round ago, and it was not.
+        let fields = helper_reached_via(
+            "var current = e; (function (x = (current = other)) {}).apply(null, [1]); parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the list supplies that parameter: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn a_call_receiver_keeps_its_leading_effects() {
+        // The callee unwrapper looks through `.call`, and `leading_parts` was still handed the
+        // member expression — so `(current = other, function(){}).call(null)` found the function
+        // and lost the assignment beside it. Two readers of one shape, one of them taught.
+        let fields = helper_reached_via(
+            "var current = e; (current = other, function () {}).call(null); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the comma's leading element still runs: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn a_bound_function_called_at_once_runs_now() {
+        // `(function(){ … }).bind(null)()` runs that body as immediately as `()` does. The
+        // callee of the outer call is itself a CALL, so nothing matched it and the body was
+        // walked as one nobody reaches.
+        let fields = helper_reached_via(
+            "var current = e; (function () { current = other; }).bind(null)(); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the bound body ran: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn binding_anything_else_is_not_an_invocation() {
+        // The bound: `thing.bind(null)()` calls a body this scanner has never seen.
+        for body in [
+            "var current = e; thing.bind(null)(); parse(current);",
+            // And only `.bind`: what `(function(){ … }).map(g)` hands back is not that function,
+            // so calling it runs a body this scanner has not seen.
+            "var current = e; (function () { current = other; }).map(null)(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "nothing inline was invoked: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn bound_arguments_land_on_the_parameters_they_reach() {
+        // `f.bind(thisArg, ...bound)(...outer)` hands `f` the bound arguments and then the outer
+        // call's, which is as countable as an argument list — so each of these supplies `x` and
+        // the default beside it never runs. I claimed the opposite when the invocation was first
+        // recognized, and put it in the negative of the test above; review corrected it, and the
+        // case sits on this side now.
+        for body in [
+            "var current = e; (function (x = (current = other)) {}).bind(null)(1); parse(current);",
+            "var current = e; (function (x = (current = other)) {}).bind(null, 1)(); parse(current);",
+            // Nesting resolves one `bind` at a time: `null` and `1` are the two receivers, and
+            // the outer `2` is what reaches `x`.
+            "var current = e; (function (x = (current = other)) {}).bind(null).bind(1)(2); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "the argument supplied it: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_position_no_one_can_count_to_supplies_nothing() {
+        // The bound, and the reason the mapping is not simply "skip the receiver". A spread
+        // contributes an unknown number of values, so nothing after it is at a knowable
+        // position — `f.call(...args, 1)` passes `1` as the receiver when `args` is empty and as
+        // the first argument when it holds one. Claiming a position there is the harmful
+        // direction: it suppresses a default that really runs, and publishes a helper's reads
+        // under a node the call had replaced.
+        for body in [
+            // Nothing bound and nothing passed: the default is all there is.
+            "var current = e; (function (x = (current = other)) {}).bind(null)(); parse(current);",
+            "var current = e; (function (x = (current = other)) {}).bind(...args, 1)(); parse(current);",
+            "var current = e; (function (x = (current = other)) {}).bind(null, ...args)(1); parse(current);",
+            "var current = e; (function (x = (current = other)) {}).call(...args, 1); parse(current);",
+            "var current = e; (function (x = (current = other)) {}).apply(...args, [1]); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "the default still ran: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_bind_call_evaluates_its_own_arguments() {
+        // `(function(){ … }).bind(null, current = other)()` evaluates the bind call — receiver
+        // and arguments both — before the body it returns is ever entered. The callee unwrapper
+        // looks through this shape and this reader did not, so the assignment was recorded
+        // nowhere at all.
+        for body in [
+            "var current = e; (function () {}).bind(null, current = other)(); parse(current);",
+            "var current = e; (function () {}).bind(current = other)(); parse(current);",
+            "var current = e; (function () {}).bind(null, ...(current = other))(); parse(current);",
+            // And the RECEIVER of the bind, which is the half that is easy to leave out:
+            // `(current = other, function(){}).bind(null)()` finds the function through the
+            // comma and would lose the assignment sitting beside it.
+            "var current = e; (current = other, function () {}).bind(null)(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "the bind call moved it: {body}"
+            );
+        }
+        // The bound: a bind call that writes nothing leaves the node standing.
+        let fields = helper_reached_via(
+            "var current = e; (function () {}).bind(null, o)(); parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "nothing moved: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn an_update_the_body_never_reaches_is_not_recorded() {
+        // `for (;; current = other) { parse(current); break; }` runs its body once and leaves,
+        // so the update never evaluates — but it is written in the HEADER, above the body, so
+        // recording it had it look effective at a call below and the descent was refused for a
+        // node nothing had moved. The same `can_come_round_again` the loop-carried rule reads.
+        let fields = helper_reached_via(
+            "var current = e; for (;; current = other) { parse(current); break; }",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "that update never runs: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn an_update_a_next_pass_can_reach_is_still_recorded() {
+        // The bound: a body that can come round again reaches its update, and the write is then
+        // carried into the next pass exactly as before.
+        let fields =
+            helper_reached_via("var current = e; for (;; current = other) { parse(current); }");
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "a next pass sees it: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn an_iterable_is_evaluated_before_the_loop_target() {
+        // JavaScript evaluates the iterable, then assigns the target once per element — so
+        // `parse` here is handed the node itself and the empty list never assigns anything.
+        // Two rules had said otherwise at once: the target's write is WRITTEN above the
+        // iterable, and it repeats with a loop whose span covers the iterable textually, so
+        // ordering it alone would still have been overruled by the next-pass rule.
+        for body in [
+            "var current = e; for (current of (parse(current), [])) {}",
+            "var current = e; for (current in (parse(current), {})) {}",
+            // And the guaranteed-pass branch is the same statement with a decidable length.
+            "var current = e; for (current of (parse(current), [1])) {}",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "the iterable ran first: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_body_and_what_follows_still_see_the_loop_target() {
+        // The bound, both ways. Only the ITERABLE precedes the write; the body runs after the
+        // target is assigned, and so does everything past the loop.
+        for body in [
+            "var current = e; for (current of xs) { parse(current); }",
+            "var current = e; for (current of xs) {} parse(current);",
+            "var current = e; for (current in xs) { parse(current); }",
+            "var current = e; for (current of [1]) { parse(current); }",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "the target was assigned by then: {body}"
+            );
+        }
+    }
+    #[test]
+    fn a_derived_constructor_that_leaves_first_runs_no_field() {
+        // A derived class installs its instance fields the moment `super()` RETURNS. A
+        // constructor that leaves before calling it — legal, and it completes construction with
+        // the object it returns — runs none of them, so `parse` is handed the node itself.
+        // Construction alone was taken as enough, and the write was recorded for a field that
+        // never initializes.
+        let fields = helper_reached_via(
+            "var current = e; new (class extends Base { constructor(){ return {}; } x = (current = other) })(); parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the field never ran: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn every_other_construction_still_runs_its_fields() {
+        // The bound, four ways. A `super()` on the way still installs them; an implicit
+        // constructor is `constructor(...a){ super(...a) }` and always calls it; a BASE class
+        // installs its fields before the constructor body, so leaving early there changes
+        // nothing; and a `super()` under a condition is one this cannot rule out, which is the
+        // direction that keeps a write rather than guessing it away.
+        for body in [
+            "var current = e; new (class extends Base { constructor(){ super(); } x = (current = other) })(); parse(current);",
+            "var current = e; new (class extends Base { x = (current = other) })(); parse(current);",
+            "var current = e; new (class { constructor(){ return {}; } x = (current = other) })(); parse(current);",
+            "var current = e; new (class extends Base { constructor(){ if (c) super(); return {}; } x = (current = other) })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "the field still initializes: {body}"
+            );
+        }
+    }
+    #[test]
+    fn an_unreachable_short_circuit_await_suspends_nothing() {
+        // A short-circuit operator is a decided branch in expression form. `0 && await 0` never
+        // evaluates its right side, so the write after it is as synchronous as it looks and
+        // lands at the call — the pruning was written for `if` and left out here, so the probe
+        // took an unreachable await as the cutoff and confined a write the caller does see.
+        for body in [
+            "var current = e; (async function () { 0 && await 0; current = other; })(); parse(current);",
+            "var current = e; (async function () { 1 || await 0; current = other; })(); parse(current);",
+            // `??` prunes on the same answer: a value this calls certainly truthy is certainly
+            // not nullish.
+            "var current = e; (async function () { 1 ?? await 0; current = other; })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "the await is unreachable: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_reachable_short_circuit_await_still_suspends() {
+        // The bound, one per operator, and it is the complement rather than a variation: an
+        // undecided left side still reaches the await, and so does a decided one whose value
+        // selects the OTHER way. `null ?? x` is the case that separates "certainly falsy" from
+        // "certainly non-nullish" — the two are not the same question.
+        for body in [
+            "var current = e; (async function () { c && (await 0, current = other); })(); parse(current);",
+            "var current = e; (async function () { 1 && (await 0, current = other); })(); parse(current);",
+            "var current = e; (async function () { 0 || (await 0, current = other); })(); parse(current);",
+            "var current = e; (async function () { null ?? (await 0, current = other); })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that await still runs: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn nested_binds_keep_their_inner_to_outer_order() {
+        // The second `bind` EXTENDS the list the first one built, so the outer group is a suffix
+        // of the inner one. Built the other way round, `.bind(null, undefined).bind(null, 1)`
+        // gave the first parameter the `1` and suppressed a default that really runs — and an
+        // `undefined` in the first bound slot is exactly the value that makes the difference
+        // visible, because it supplies nothing.
+        let fields = helper_reached_via(
+            "var current = e; (function (x = (current = other)) {}).bind(null, undefined).bind(null, 1)(); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the first bound value is undefined, so the default ran: {fields:?}"
+        );
+        // And the receiver slot of a `.call` reached THROUGH a bind is not a position this can
+        // count either: `f.call.bind(null, 1)()` calls `f.call(1)`, so the `1` is the receiver
+        // and `f` gets nothing. Recovering the bind chain with the unwrapper that looks through
+        // `bind` reported `f` as the function underneath and mapped the `1` onto its first
+        // parameter; peeling only the wrappers that do not change which value an expression is
+        // finds the `.call` and declines.
+        let fields = helper_reached_via(
+            "var current = e; (function (x = (current = other)) {}).call.bind(null, 1)(); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the 1 is the receiver, so the default ran: {fields:?}"
+        );
+        // The bound, the same two values the other way about: now `x` is the `1` and the
+        // default is prevented, with `undefined` landing on a parameter that has none.
+        for body in [
+            "var current = e; (function (x = (current = other)) {}).bind(null, 1).bind(null, undefined)(); parse(current);",
+            "var current = e; (function (y, x = (current = other)) {}).bind(null, 1).bind(null, 2)(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "the argument supplied it: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_bind_argument_runs_before_the_body_it_binds() {
+        // The bind call is evaluated to produce the function, so its arguments run before that
+        // function's body — `parse` here is handed `other`. Recording those effects at their own
+        // offsets answered this with source order, and a `bind` call's arguments are written
+        // BELOW the function, so the body read against a write that had already run.
+        let fields = helper_reached_via(
+            "var current = e; (function () { parse(current); }).bind(null, current = other)();",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the bind argument had already run: {fields:?}"
+        );
+        // The bound: a bind call that writes nothing leaves the body reading the node, and the
+        // neighbour this now matches — an ordinary argument, which has precededed the body since
+        // the round that separated the two.
+        let fields = helper_reached_via(
+            "var current = e; (function () { parse(current); }).bind(null, o)();",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "nothing moved: {fields:?}"
+        );
+        let fields = helper_reached_via(
+            "var current = e; (function () { parse(current); })(current = other);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "an argument precedes the body too: {fields:?}"
+        );
+        // And it precedes only what construction actually runs last. A class is evaluated in
+        // full — computed keys and static initializers included — before `.bind` is even
+        // reached, so a static initializer does not see the bind argument, while the
+        // constructor body does. Naming the whole callee span here instead of the construction
+        // regions is what that first case rules out.
+        let fields = helper_reached_via(
+            "var current = e; new ((class { static x = parse(current); }).bind(null, current = other))();",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the static initializer ran before the bind: {fields:?}"
+        );
+        let fields = helper_reached_via(
+            "var current = e; new ((class { constructor(){ parse(current); } }).bind(null, current = other))();",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the constructor body runs after it: {fields:?}"
+        );
+    }
+    #[test]
+    fn a_coalesce_asks_about_null_not_about_truth() {
+        // `??` skips its right side when the left is non-nullish, which is not the same set as
+        // truthy: `0` and `""` are falsy and perfectly non-nullish, so the await after them is
+        // unreachable and the write is synchronous. Grouping the operator with `||` answered
+        // the narrower question and confined a write the caller does see.
+        for body in [
+            "var current = e; (async function () { 0 ?? await 0; current = other; })(); parse(current);",
+            "var current = e; (async function () { \"\" ?? await 0; current = other; })(); parse(current);",
+            "var current = e; (async function () { !1 ?? await 0; current = other; })(); parse(current);",
+            "var current = e; (async function () { ({}) ?? await 0; current = other; })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that left side is not nullish: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_nullish_left_side_still_reaches_the_coalesce() {
+        // The bound, and the three spellings of the value this has to decline: `null`, the
+        // `void 0` a minifier writes for `undefined`, and a bare `undefined`, which is an
+        // identifier this cannot resolve. An arbitrary expression declines with them.
+        for body in [
+            "var current = e; (async function () { null ?? (await 0, current = other); })(); parse(current);",
+            "var current = e; (async function () { void 0 ?? (await 0, current = other); })(); parse(current);",
+            "var current = e; (async function () { undefined ?? (await 0, current = other); })(); parse(current);",
+            "var current = e; (async function () { c ?? (await 0, current = other); })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that await still runs: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_for_await_evaluates_its_iterable_first() {
+        // `for await` suspends on drawing each result, not on producing the iterable — that is
+        // evaluated synchronously, before anything is awaited. Noting the suspension at the
+        // head of the whole statement put the iterable's own writes past the cutoff and
+        // confined a write the caller does see.
+        let fields = helper_reached_via(
+            "var current = e; (async function () { for await (const x of (current = other, [])) {} })(); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the iterable ran synchronously: {fields:?}"
+        );
+        // The bound: everything the loop itself does is past the suspension, and so is anything
+        // in the iterable that follows an await of its own — which is why the right side is
+        // walked rather than skipped over.
+        for body in [
+            "var current = e; (async function () { for await (const x of []) { current = other; } })(); parse(current);",
+            "var current = e; (async function () { for await (const x of (await g(), (current = other, []))) {} })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that write is the continuation's: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_derived_field_follows_the_code_before_super() {
+        // A derived class installs its instance fields the moment `super()` RETURNS, so a read
+        // in the constructor before that call sees none of them. The fields are written above
+        // the constructor, so position alone called them already effective — the round that
+        // said what they PRECEDE left out what they follow, and neither half is right without
+        // the other.
+        let fields = helper_reached_via(
+            "var current = e; new (class extends Base { x = (current = other); constructor(){ parse(current); super(); } })();",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the field had not initialized yet: {fields:?}"
+        );
+        // The bound, three ways. Past the `super()` the field is installed; a STATIC
+        // initializer runs when the class is defined and waits for no constructor at all; and a
+        // BASE class installs its fields before its constructor body, so nothing there follows
+        // anything.
+        for body in [
+            "var current = e; new (class extends Base { x = (current = other); constructor(){ super(); parse(current); } })();",
+            "var current = e; new (class extends Base { static x = (current = other); constructor(){ parse(current); super(); } })();",
+            "var current = e; new (class { x = (current = other); constructor(){ parse(current); } })();",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "the field had run by then: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_generator_call_runs_its_parameter_defaults() {
+        // Calling a generator binds its parameters and hands back an iterator: the default runs
+        // now, even though the body runs only when something draws from it. Declining the whole
+        // callee confined that write with the body's.
+        let fields = helper_reached_via(
+            "var current = e; (function* (x = (current = other)) {})(); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the default ran at the call: {fields:?}"
+        );
+        // The bound: the BODY is still nobody's until something iterates, and a supplied
+        // argument still prevents the default exactly as it does for a plain function.
+        for body in [
+            "var current = e; (function* () { current = other; })(); parse(current);",
+            "var current = e; (function* (x = (current = other)) {})(1); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "nothing the call ran moved it: {body}"
+            );
+        }
+    }
+    #[test]
+    fn a_dead_ternary_branch_holds_no_await() {
+        // The decided branch the `if` arm already prunes, one syntactic level over: `1 ? 0 :
+        // await 0` never evaluates that await, so the write after it is synchronous and the
+        // generic walk took it as the cutoff.
+        for body in [
+            "var current = e; (async function () { 1 ? 0 : await 0; current = other; })(); parse(current);",
+            "var current = e; (async function () { 0 ? await 0 : 0; current = other; })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that await is unreachable: {body}"
+            );
+        }
+        // The bound: an undecided test reaches both sides, and the await in either of them is
+        // a real cutoff.
+        let fields = helper_reached_via(
+            "var current = e; (async function () { c ? 0 : (await 0, current = other); })(); parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "that await still runs: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn an_apply_elision_supplies_undefined_and_moves_nothing() {
+        // `f.apply(null, [, 1])` gives the first parameter `undefined` and the second the `1`,
+        // so the second default never runs. The elision was read as an unreadable position and
+        // ended the mapping, which dropped the `1` that really does reach the parameter after
+        // it — and its default was recorded as a write the call prevents.
+        let fields = helper_reached_via(
+            "var current = e; (function (x, y = (current = other)) {}).apply(null, [, 1]); parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the second position was still supplied: {fields:?}"
+        );
+        // The bound, on both sides of it. The elision supplies NOTHING to the parameter it
+        // lands on, so that one's default still runs; and a SPREAD really does end the mapping,
+        // because it moves the positions after it by an amount nothing here counts.
+        for body in [
+            "var current = e; (function (x = (current = other)) {}).apply(null, [, 1]); parse(current);",
+            "var current = e; (function (x, y = (current = other)) {}).apply(null, [...a, 1]); parse(current);",
+            "var current = e; (function (x, y = (current = other)) {}).apply(null, [1]); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that default still runs: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_parenthesized_super_is_still_the_super_call() {
+        // `(super());` calls it exactly as `super();` does, and matching the bare spelling alone
+        // left a derived class's fields ordered by source position against a read that follows
+        // them.
+        let fields = helper_reached_via(
+            "var current = e; new (class extends Base { constructor(){ (super()); parse(current); } x = (current = other) })();",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the field had initialized by then: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn new_on_something_that_is_not_a_constructor_runs_nothing() {
+        // `new` needs a CONSTRUCTOR. An arrow, an async function and a generator are none of
+        // them, so this throws a `TypeError` with the body never entered — and recording its
+        // writes published a helper's reads under a node nothing had moved.
+        for body in [
+            "var current = e; try { new (() => { current = other; })(); } catch (_) {} parse(current);",
+            "var current = e; try { new (async function () { current = other; })(); } catch (_) {} parse(current);",
+            "var current = e; try { new (function* () { current = other; })(); } catch (_) {} parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "nothing in there ran: {body}"
+            );
+        }
+        // The bound: a plain function and a class are both constructible, and calling either
+        // without `new` is unaffected by any of this.
+        for body in [
+            "var current = e; new (function () { current = other; })(); parse(current);",
+            "var current = e; new (class { constructor(){ current = other; } })(); parse(current);",
+            "var current = e; (() => { current = other; })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that body did run: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_nullish_left_side_makes_the_coalesce_certain() {
+        // `null ?? parse(e)` performs that call on every path, so what it reads is required.
+        // The fallback made every `??` right side conditional, and a read the parser always
+        // performs came out optional — a shape that accepts responses the source rejects.
+        for body in ["null ?? parse(e);", "void 0 ?? parse(e);"] {
+            assert!(
+                helper_field_required(body),
+                "the right side always runs: {body}"
+            );
+        }
+        // The bound: an arbitrary left side is a real branch, and so is a bare `undefined`,
+        // which is an identifier nothing here resolves.
+        for body in ["c ?? parse(e);", "undefined ?? parse(e);"] {
+            assert!(
+                !helper_field_required(body),
+                "that call is conditional: {body}"
+            );
+        }
+    }
+
+    /// Whether the field a module helper reads comes out required, for a callback body that
+    /// reaches `parse`.
+    fn helper_field_required(body: &str) -> bool {
+        let module = format!(
+            r#"__d("M",["WADeprecatedWapParser"],(function(t,n,r,o,a,i,l){{
+            function parse(p){{ p.attrString("id"); }}
+            var c=new(r("WADeprecatedWapParser"))("p", function(e){{
+                e.assertTag("receipt");
+                {body}
+            }});
+        }}),1);"#
+        );
+        parse_module_wap_parsers(&module)
+            .into_iter()
+            .find(|r| r.parser_name == "p")
+            .expect("parser")
+            .fields
+            .iter()
+            .find(|f| f.name == "id")
+            .expect("recovered")
+            .required
+    }
+    #[test]
+    fn a_ternary_arm_that_does_not_suspend_keeps_its_own_region() {
+        // The two arms are ALTERNATIVES, not a sequence. `flag ? await 0 : current = other`
+        // assigns synchronously whenever the alternate is selected, and visiting the arms in
+        // order let the consequent's await become the cutoff for both — so a write the caller
+        // does see was confined to the function. The `if` arm has recorded this since round
+        // nineteen; the ternary merged them.
+        for body in [
+            "var current = e; (async function () { flag ? await 0 : current = other; })(); parse(current);",
+            "var current = e; (async function () { flag ? current = other : await 0; })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that arm runs synchronously: {body}"
+            );
+        }
+        // The bound: an arm that awaits BEFORE its write suspends on its own account, and the
+        // write after it is the continuation's.
+        let fields = helper_reached_via(
+            "var current = e; (async function () { flag ? await 0 : (await 1, current = other); })(); parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "that arm awaits first: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn a_member_named_by_a_string_is_the_same_member() {
+        // `f["call"]` reaches the same function as `f.call`; oxc spells it as a COMPUTED member,
+        // so every matcher written against the dotted form missed it and the inline body was
+        // walked as one nobody calls.
+        for body in [
+            "var current = e; (function () { current = other; })[\"call\"](null); parse(current);",
+            "var current = e; (function () { current = other; })[\"apply\"](null); parse(current);",
+            "var current = e; (function () { current = other; })[\"bind\"](null)(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "the body ran now: {body}"
+            );
+        }
+        // The bound: still only these three names, and still only a key this can read — `f[k]`
+        // names whatever `k` holds, which is not a question for a syntactic pass.
+        for body in [
+            "var current = e; (function () { current = other; })[\"map\"](null); parse(current);",
+            "var current = e; (function () { current = other; })[k](null); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "nothing inline was invoked: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_getter_the_parameters_read_runs_at_the_call() {
+        // Binding `{x}` against `{ get x() { … } }` INVOKES that getter, before the body is
+        // entered and before anything after the call reads what it wrote. The suppression rule
+        // already knew the getter's result is unreadable — which is why the default still runs —
+        // and nothing knew its body runs at all, so the write stayed confined.
+        let fields = helper_reached_via(
+            "var current = e; (function ({x}) {})({ get x() { current = other; return 1; } }); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the getter ran: {fields:?}"
+        );
+        // The bound: nothing reads the property unless a pattern names it, and a plain property
+        // holding a function is a value rather than a call.
+        for body in [
+            "var current = e; (function (o) {})({ get x() { current = other; return 1; } }); parse(current);",
+            "var current = e; (function ({y}) {})({ get x() { current = other; return 1; } }); parse(current);",
+            "var current = e; (function ({x}) {})({ x: function () { current = other; } }); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "nothing invoked that body: {body}"
+            );
+        }
+    }
+    #[test]
+    fn a_for_await_target_is_assigned_after_the_first_result() {
+        // The synchronous prefix is SPAN-based, and the loop target is written above the
+        // iterable — so noting the cutoff at the iterable's end swept the target in with it,
+        // although the target is assigned only once the first result has been awaited.
+        let fields = helper_reached_via(
+            "var current = e; (async function () { for await (current of [other]) {} })(); parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the target waits for the first result: {fields:?}"
+        );
+        // The bound, all three ways round thirty-eight left it: the ITERABLE's own writes are
+        // still synchronous, an await inside the iterable still cuts where it sits, and the body
+        // is still the continuation's.
+        let fields = helper_reached_via(
+            "var current = e; (async function () { for await (const x of (current = other, [])) {} })(); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the iterable ran synchronously: {fields:?}"
+        );
+        for body in [
+            "var current = e; (async function () { for await (const x of (await g(), (current = other, []))) {} })(); parse(current);",
+            "var current = e; (async function () { for await (const x of []) { current = other; } })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that write is the continuation's: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_bound_getter_runs_after_every_argument() {
+        // Parameter binding begins only once every argument has been evaluated, so
+        // `(function ({x}, y) {})({ get x() { … } }, parse(current))` hands `parse` the original
+        // node and calls the getter afterwards. Marking the getter immediate for the whole
+        // argument walk recorded its write at the getter's own offset — above a later argument
+        // that in fact precedes it.
+        let fields = helper_reached_via(
+            "var current = e; (function ({x}, y) {})({ get x() { current = other; return 1; } }, parse(current));",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "the getter had not run yet: {fields:?}"
+        );
+        // The bound, both halves. The getter still runs — a read AFTER the call sees what it
+        // wrote — and an ordinary argument's write still reaches the body it precedes, which is
+        // what a blanket deferral would have taken away.
+        let fields = helper_reached_via(
+            "var current = e; (function ({x}) {})({ get x() { current = other; return 1; } }); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the getter ran by then: {fields:?}"
+        );
+        let fields = helper_reached_via(
+            "var current = e; (function ({x}, y) { parse(current); })({ get x() { return 1; } }, current = other);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "an argument still precedes the body: {fields:?}"
+        );
+    }
+    #[test]
+    fn a_getter_in_a_parameter_default_runs_too() {
+        // When the call supplies nothing, the pattern takes apart the parameter's OWN default
+        // object — so a getter in THAT object is the one binding invokes. Reading only the
+        // argument skipped the shape entirely, and the getter was left confined to a function
+        // nobody was known to call.
+        for body in [
+            "var current = e; (function ({x} = { get x() { current = other; return 1; } }) {})(); parse(current);",
+            "var current = e; (function ({x} = { get x() { current = other; return 1; } }) {})(void 0); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "the default's getter ran: {body}"
+            );
+        }
+        // The bound: a supplied argument means the default never runs, so its object is never
+        // built and its getter never called — held by the suppression one level up rather than
+        // by anything in the getter walk, which is why that walk carries no guard of its own.
+        // And a pattern naming something else reads nothing from the object either.
+        for body in [
+            "var current = e; (function ({x} = { get x() { current = other; return 1; } }) {})({x: 1}); parse(current);",
+            "var current = e; (function ({y} = { get x() { current = other; return 1; } }) {})(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "nothing invoked that getter: {body}"
+            );
+        }
+    }
+    #[test]
+    fn a_bypassed_await_leaves_its_continuation_synchronous() {
+        // `if (flag) await 0; current = other;` assigns synchronously whenever `flag` is false,
+        // so the caller may well see it. The sides of an undecided `if` were recorded from round
+        // nineteen and the CONTINUATION after them was not — and a one-sided `if` supplies no
+        // non-suspending sibling span at all, so the await became a global cutoff. Two
+        // executions disagree, and the model owes the answer that declines rather than the one
+        // that publishes under a node half of them replaced.
+        for body in [
+            "var current = e; (async function () { if (flag) await 0; current = other; })(); parse(current);",
+            // The explicit empty alternate is the same statement written out.
+            "var current = e; (async function () { if (flag) { await 0; } else { } current = other; })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "a path bypasses that await: {body}"
+            );
+        }
+        // The bound: when EVERY path suspends there is no continuation to keep, whether the
+        // await is unconditional or written into both sides.
+        for body in [
+            "var current = e; (async function () { await 0; current = other; })(); parse(current);",
+            "var current = e; (async function () { if (flag) { await 0; } else { await 1; } current = other; })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "every path waits: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_parenthesized_computed_key_names_the_same_member() {
+        // `f[("call")]` names the same property as `f["call"]`; parentheses around a key change
+        // nothing about which one it is.
+        for body in [
+            "var current = e; (function () { current = other; })[(\"call\")](null); parse(current);",
+            "var current = e; (function () { current = other; })[(\"bind\")](null)(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "the body ran now: {body}"
+            );
+        }
+        // The bound: still only a key this can READ — a parenthesized identifier names whatever
+        // it holds.
+        let fields = helper_reached_via(
+            "var current = e; (function () { current = other; })[(k)](null); parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "nothing inline was invoked: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn an_apply_that_throws_runs_no_body() {
+        // `f.apply(thisArg, 1)` throws a `TypeError` before `f` is entered: the argument list
+        // has to be `null`, `undefined` or an object. Unwrapping `.apply` unconditionally marked
+        // the body immediate for a call that runs it on no path at all.
+        for body in [
+            "var current = e; try { (function () { current = other; }).apply(null, 1); } catch (_) {} parse(current);",
+            "var current = e; try { (function () { current = other; }).apply(null, \"x\"); } catch (_) {} parse(current);",
+            "var current = e; try { (function () { current = other; }).apply(null, !0); } catch (_) {} parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that call throws first: {body}"
+            );
+        }
+        // The bound: `null`, `void 0` and a missing second argument all mean "no arguments" and
+        // run the body, an array runs it, and anything this cannot read is left alone — claiming
+        // a throw where none happens confines a write the caller does see.
+        for body in [
+            "var current = e; (function () { current = other; }).apply(null, [1]); parse(current);",
+            "var current = e; (function () { current = other; }).apply(null); parse(current);",
+            "var current = e; (function () { current = other; }).apply(null, null); parse(current);",
+            "var current = e; (function () { current = other; }).apply(null, void 0); parse(current);",
+            "var current = e; (function () { current = other; }).apply(null, args); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that body does run: {body}"
+            );
+        }
+    }
+    #[test]
+    fn a_template_key_with_nothing_in_it_is_a_string() {
+        // A template with no substitution is a string spelled another way, so ``f[`call`]``
+        // reaches the same function as `f.call` and the body runs now.
+        for body in [
+            "var current = e; (function () { current = other; })[`call`](null); parse(current);",
+            "var current = e; (function () { current = other; })[`bind`](null)(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "the body ran now: {body}"
+            );
+        }
+        // The bound: a substitution names whatever it evaluates to, which is not a question for
+        // a syntactic pass — and the name still has to be one of the three.
+        for body in [
+            "var current = e; (function () { current = other; })[`ca${x}ll`](null); parse(current);",
+            // And one whose FIRST quasi spells the name exactly, which is what separates
+            // reading the template from reading its first piece.
+            "var current = e; (function () { current = other; })[`call${x}`](null); parse(current);",
+            "var current = e; (function () { current = other; })[`map`](null); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "nothing inline was invoked: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn new_on_a_call_member_constructs_the_member() {
+        // `new (f).call(null)` constructs `Function.prototype.call`, which has no [[Construct]]
+        // — a `TypeError` before `f` is ever reached. The callee unwrapper looks through
+        // `.call`/`.apply` because an ordinary call there really does run the receiver's body,
+        // and under `new` the member itself is the target.
+        for body in [
+            "var current = e; try { new (function () { current = other; }).call(null); } catch (_) {} parse(current);",
+            "var current = e; try { new (function () { current = other; }).apply(null); } catch (_) {} parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that construction throws: {body}"
+            );
+        }
+        // The bound, three ways. An ordinary `.call` still runs the receiver's body; `new` on
+        // the function itself still constructs it; and `.bind` keeps its unwrap under `new`,
+        // because `new (f.bind(x))()` constructs the bound function, which is constructible
+        // exactly when `f` is.
+        for body in [
+            "var current = e; (function () { current = other; }).call(null); parse(current);",
+            "var current = e; new (function () { current = other; })(); parse(current);",
+            "var current = e; new ((function () { current = other; }).bind(null))(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that body does run: {body}"
+            );
+        }
+        // `bind` is not in that list, and adding it would be an inert third name: a bare
+        // `f.bind` member is not a shape the callee unwrapper looks through at all — only a CALL
+        // whose callee is one — so `new (f.bind)(x)` never reaches a function body to approve
+        // and is declined without this check. Asserted rather than argued, because a condition
+        // whose narrowness no test can hold is one this branch has twice had to remove.
+        let fields = helper_reached_via(
+            "var current = e; try { new (function () { current = other; }).bind(null); } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "constructing `bind` itself reaches no body either: {fields:?}"
+        );
+    }
+    #[test]
+    fn a_bypassed_continuation_ends_at_the_next_unavoidable_await() {
+        // `if (flag) await 0; await 0; current = other;` suspends on EVERY path before the
+        // write, so the caller always passes the original node. The continuation after a
+        // bypassed branch was recorded to the end of the body — which I flagged a round ago as
+        // over-reaching and safe, and it is safe in direction and still a loss. It ends at the
+        // next suspension every surviving path reaches now.
+        let fields = helper_reached_via(
+            "var current = e; (async function () { if (flag) await 0; await 0; current = other; })(); parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "every path waits by then: {fields:?}"
+        );
+        // The bound: with nothing unavoidable after it the continuation still runs to the end,
+        // and an await inside ANOTHER bypassable branch does not close it either.
+        for body in [
+            "var current = e; (async function () { if (flag) await 0; current = other; })(); parse(current);",
+            "var current = e; (async function () { if (flag) await 0; if (other) await 1; current = other; })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "a path reaches that write without waiting: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_bypassed_short_circuit_leaves_its_continuation_synchronous() {
+        // The rule the `if` was given a round ago, in the two expression forms that were left
+        // without it. `flag && await 0; current = other;` assigns synchronously whenever `flag`
+        // is falsy, and `flag ? await 0 : 0` whenever the other arm is taken — so two executions
+        // disagree about what `parse` receives and the model owes the answer that declines.
+        for body in [
+            "var current = e; (async function () { flag && await 0; current = other; })(); parse(current);",
+            "var current = e; (async function () { flag || await 0; current = other; })(); parse(current);",
+            "var current = e; (async function () { flag ?? await 0; current = other; })(); parse(current);",
+            "var current = e; (async function () { flag ? await 0 : 0; current = other; })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "a path bypasses that await: {body}"
+            );
+        }
+        // The bound: a right side that ALWAYS runs suspends every path, and so does a ternary
+        // whose arms both await.
+        for body in [
+            "var current = e; (async function () { !0 && await 0; current = other; })(); parse(current);",
+            "var current = e; (async function () { 0 || await 0; current = other; })(); parse(current);",
+            "var current = e; (async function () { null ?? await 0; current = other; })(); parse(current);",
+            "var current = e; (async function () { flag ? await 0 : await 1; current = other; })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "every path waits: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_derived_constructor_without_super_initializes_nothing() {
+        // Reaching the end of a derived constructor without calling `super()` throws a
+        // `ReferenceError` on return, so not a field initializes. The walk answered `true` on
+        // that fallthrough and read `constructor(){}` as ordinary construction.
+        let fields = helper_reached_via(
+            "var current = e; try { new (class extends Base { constructor(){} x = (current = other) })(); } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "that construction throws: {fields:?}"
+        );
+        // The bound: a `super()` anywhere on the way still installs them, and a class with no
+        // heritage needs none.
+        for body in [
+            "var current = e; new (class extends Base { constructor(){ super(); } x = (current = other) })(); parse(current);",
+            "var current = e; new (class extends Base { constructor(){ if (c) super(); } x = (current = other) })(); parse(current);",
+            "var current = e; new (class { constructor(){} x = (current = other) })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "the field initializes: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_member_taken_through_a_comma_has_lost_its_receiver() {
+        // `(0, f.call)(null)` discards the reference and hands `Function.prototype.call` an
+        // `undefined` receiver, which throws before `f` is entered. Parentheses keep the
+        // reference and are not this, which is the bound.
+        let fields = helper_reached_via(
+            "var current = e; try { (0, (function () { current = other; }).call)(null); } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "that call throws first: {fields:?}"
+        );
+        for body in [
+            "var current = e; ((function () { current = other; }).call)(null); parse(current);",
+            // And a comma around the FUNCTION rather than the member is unaffected: the value
+            // is the function itself, which needs no receiver.
+            "var current = e; (0, function () { current = other; })(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that body does run: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_tagged_template_calls_its_tag() {
+        // ``(function(){ … })`x` `` runs that body before the next statement, as immediately as
+        // `()` does. Only calls and `new` were read as invocations.
+        let fields = helper_reached_via(
+            "var current = e; (function () { current = other; })`x`; parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the tag ran: {fields:?}"
+        );
+        // The bound: a tag this has never seen the body of invokes nothing it can follow, and
+        // the substitutions are still walked where they are written.
+        let fields = helper_reached_via("var current = e; thing`x`; parse(current);");
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "nothing inline was invoked: {fields:?}"
+        );
+        let fields = helper_reached_via(
+            "var current = e; (function () {})`x${(current = other)}`; parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "the substitution ran: {fields:?}"
+        );
+    }
+
+    #[test]
+    fn a_heritage_that_is_not_a_constructor_runs_no_class_body() {
+        // `class C extends (() => {})` evaluates the arrow and then rejects it, so nothing in
+        // the body runs — not a static initializer, not a computed key. The same
+        // constructibility rule `new` reads, at the other place that needs it.
+        for body in [
+            "var current = e; try { class C extends (() => {}) { static x = (current = other); } } catch (_) {} parse(current);",
+            "var current = e; try { class C extends (async function () {}) { static x = (current = other); } } catch (_) {} parse(current);",
+            "var current = e; try { class C extends 1 { static x = (current = other); } } catch (_) {} parse(current);",
+            // A regular expression is an object and never a constructor — the one literal of
+            // that kind, which is why the list of certainly-invalid spellings had it missing.
+            "var current = e; try { class C extends /x/ { static x = (current = other); } } catch (_) {} parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that class definition throws: {body}"
+            );
+        }
+        // The bound: `extends null` is legal, a plain function and a class are constructors, an
+        // identifier is left alone — and the heritage EXPRESSION is evaluated either way.
+        for body in [
+            "var current = e; var C = class extends null { static x = (current = other); }; parse(current);",
+            "var current = e; class C extends Base { static x = (current = other); } parse(current);",
+            "var current = e; class C extends (function () {}) { static x = (current = other); } parse(current);",
+            "var current = e; try { class C extends (current = other, () => {}) {} } catch (_) {} parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that write does happen: {body}"
+            );
+        }
     }
 }
