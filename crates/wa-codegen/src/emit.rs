@@ -284,6 +284,34 @@ pub(crate) fn emit_field_parse(f: &ParsedField, node_var: &str, indent: &str) ->
     }
 }
 
+/// The read for a content leaf whose accessor must DECODE what is there, absence aside.
+///
+/// The optional decoders end their integer spelling in `parse().ok()`, which merges "no content"
+/// with "content that is not a number" — so a `contentInt` relaxed to `required: false` stored
+/// `<participant_count>invalid</participant_count>` as an absence. Absence really is absence for
+/// such a leaf; a payload that is THERE still has to decode, because the accessor rejects it
+/// whenever its path runs.
+///
+/// Only the integer-from-text spelling can fail: bytes are bytes, a `contentUint` fold cannot
+/// fail once the payload is there, and a string is already a string. The rest are the optional
+/// decoders unchanged, which keeps one function rather than a fork per kind.
+fn content_read_relaxed(f: &ParsedField, node_var: &str, fmsg: &str) -> String {
+    let method = f.method.as_str();
+    if method == "contentUint" {
+        return format!(
+            "{node_var}.content_bytes().map(|b| b.iter().fold(0u64, |acc, &x| (acc << 8) | x as u64))"
+        );
+    }
+    match wap::method_field_type(method) {
+        ParsedFieldType::Bytes => format!("{node_var}.content_bytes().map(|b| b.to_vec())"),
+        ParsedFieldType::Integer => format!(
+            "{node_var}.content_str().map(|s| s.parse::<{}>().map_err(|_| anyhow::anyhow!(\"{fmsg} not a number\"))).transpose()?",
+            super::fields::integer_width(f)
+        ),
+        _ => format!("{node_var}.content_str().map(|s| s.to_string())"),
+    }
+}
+
 /// Whether a read that fails to DECODE may quietly become `None`.
 ///
 /// Only where the accessor itself spells the optionality. A `maybeAttr…`/`maybeChild` tolerates
@@ -889,11 +917,26 @@ fn emit_struct_reads(
                     &inner,
                     &format!("{id}_node"),
                 ));
+                // …and the leaf must decode what is THERE, whether or not it is required:
+                // absence stays absence, a present payload it cannot read is a rejection. The
+                // committed `participant_count` is a relaxed `contentInt`, and `parse().ok()`
+                // filed `invalid` as a missing value.
+                //
+                // Asked of every content leaf, with no optionality test beside it. No content
+                // accessor spells optionality — `is_content_method` lists eight names and not one
+                // begins with `maybe`, the same fact round seventy-four leaned on from the other
+                // side — so a `tolerates_a_failed_decode` gate here could never answer anything
+                // but "must decode", and a gate no input can move is worse than no gate. Whether
+                // ABSENCE is an error is the separate question the arms below hold.
+                let leaf_read = match leaf {
+                    Some(c) => content_read_relaxed(c, &format!("{id}_node"), &fmsg),
+                    None => format!("{id}_node.{opt_read}"),
+                };
                 if leaf.is_some_and(|c| c.required) {
                     // A required leaf makes an absent payload a REJECTION, not an absence: the
                     // accessor throws, and folding it to `None` would leave the field simply
                     // missing from a response the parser turns away.
-                    lines.push(format!("{inner}let {id} = {id}_node.{opt_read}"));
+                    lines.push(format!("{inner}let {id} = {leaf_read}"));
                     lines.push(format!(
                         "{inner}    .ok_or_else(|| anyhow::anyhow!(\"<{fmsg}> has no content\"))?;"
                     ));
@@ -902,7 +945,7 @@ fn emit_struct_reads(
                 } else {
                     // An optional leaf really may be absent, and only a value that IS there has
                     // to satisfy what the leaf declares.
-                    lines.push(format!("{inner}match {id}_node.{opt_read} {{"));
+                    lines.push(format!("{inner}match {leaf_read} {{"));
                     lines.push(format!("{inner}    Some({id}) => {{"));
                     lines.extend(band.iter().map(|c| format!("{inner}        {c}")));
                     lines.push(format!("{inner}        Some({id})"));
@@ -995,8 +1038,25 @@ fn emit_struct_reads(
                 "{indent}for {loop_var} in {base}.get_children_by_tag({}) {{",
                 rust_lit(tag)
             ));
+            // A repeated item's field can sit BELOW it: `sourcePath: ["background"]` puts the
+            // value in a `<background>` inside the item, and reading it off the item itself
+            // decoded the parent's own content — so a valid item was rejected as missing the
+            // field. Eighteen reads in the committed IR are shaped this way.
+            //
+            // Its own cache, because these wrappers are bound INSIDE the loop body: an entry
+            // escaping into the code after the loop would name a binding that is gone. The
+            // outer map is keyed by base, so nothing here could have collided with it anyway —
+            // the scoping is what matters.
+            let mut item_wrappers: HashMap<(String, Vec<String>), String> = HashMap::new();
             for cf in &item_attrs {
-                lines.extend(emit_field_parse(cf, &loop_var, &inner));
+                let cbase = descend_from(
+                    &loop_var,
+                    cf.source_path.as_deref(),
+                    &mut item_wrappers,
+                    lines,
+                    &inner,
+                );
+                lines.extend(emit_field_parse(cf, &cbase, &inner));
             }
             // `type=union` columns on the Item: read each off the item node (prefixed by
             // the Item struct so the generated enum/variant structs match collect).
@@ -1030,8 +1090,17 @@ fn emit_struct_reads(
                     "{inner}for {n_loop} in {n_base}.get_children_by_tag({}) {{",
                     rust_lit(n_tag)
                 ));
+                // …and the nested repeated loop, which reads its fields the same way.
+                let mut n_wrappers: HashMap<(String, Vec<String>), String> = HashMap::new();
                 for ncf in &n_attrs {
-                    lines.extend(emit_field_parse(ncf, &n_loop, &n_inner));
+                    let nbase = descend_from(
+                        &n_loop,
+                        ncf.source_path.as_deref(),
+                        &mut n_wrappers,
+                        lines,
+                        &n_inner,
+                    );
+                    lines.extend(emit_field_parse(ncf, &nbase, &n_inner));
                 }
                 lines.push(format!("{n_inner}{n_vec}.push({n_struct} {{"));
                 for ncf in &n_attrs {
@@ -1119,13 +1188,19 @@ fn emit_struct_reads(
                 let inner = format!("{indent}    ");
                 let mut body_lines: Vec<String> = Vec::new();
                 let mut body_inits: Vec<String> = Vec::new();
+                // A wrapper bound INSIDE this `if let` is not in scope after it, so the cache
+                // must not carry it out. Two optional siblings sharing a tag and a nested source
+                // path had the second suppress its own declaration and emit a reference to the
+                // first's binding — a generated module that does not compile. A clone goes in,
+                // so the outer entries (still in scope) are reused, and nothing comes back out.
+                let mut branch_wrappers = wrapper_vars.clone();
                 emit_struct_reads(
                     kids,
                     &cvar,
                     prefix,
                     &inner,
                     &mut body_lines,
-                    wrapper_vars,
+                    &mut branch_wrappers,
                     &mut body_inits,
                     seen,
                 );
@@ -1203,7 +1278,7 @@ pub(crate) fn emit_child_builder(
     indent: &str,
     used_names: &mut HashMap<String, usize>,
     ctx: &mut VariantCtx,
-) -> (Vec<String>, String) {
+) -> (Vec<String>, String, bool) {
     let mut lines: Vec<String> = Vec::new();
     let base_name = format!("{}_node", snake_case(&child.tag));
     let count = *used_names.get(&base_name).unwrap_or(&0);
@@ -1214,11 +1289,40 @@ pub(crate) fn emit_child_builder(
         format!("{base_name}_{}", count + 1)
     };
 
-    let mut nested_var_names: Vec<String> = Vec::new();
+    let mut nested_var_names: Vec<(String, bool)> = Vec::new();
     for nested in &child.children {
-        let (nested_lines, nested_var) = emit_child_builder(nested, indent, used_names, ctx);
+        let (nested_lines, nested_var, nested_is_list) =
+            emit_child_builder(nested, indent, used_names, ctx);
         lines.extend(nested_lines);
-        nested_var_names.push(nested_var);
+        nested_var_names.push((nested_var, nested_is_list));
+    }
+    // A child that REPEATS and carries opaque content is as many nodes as the caller has
+    // payloads. It was one field and one node, so a request with two `<area_description>`
+    // entries — which the committed business profile sends — could not be reproduced at all.
+    // Only this shape: no attributes, no children of its own, nothing but the payload, which is
+    // what the committed node is and all this can build one-per-entry without guessing which
+    // parts vary between them.
+    if child.repeats
+        && child.children.is_empty()
+        && child.variant_groups.is_empty()
+        && child.attrs.is_empty()
+        && child
+            .content
+            .as_ref()
+            .is_some_and(|c| c.kind == WapContentKind::Dynamic && c.const_bytes.is_none())
+    {
+        let field = content_field_name(&var_name);
+        ctx.fields
+            .push((field.clone(), "Vec<Vec<u8>>".to_string(), false));
+        let list = format!("{var_name}s");
+        lines.push(format!("{indent}let mut {list} = Vec::new();"));
+        lines.push(format!("{indent}for payload in &self.{field} {{"));
+        lines.push(format!(
+            "{indent}    {list}.push(NodeBuilder::new({}).bytes(payload.clone()).build());",
+            rust_lit(&child.tag)
+        ));
+        lines.push(format!("{indent}}}"));
+        return (lines, list, true);
     }
 
     // Collect the attr/children mutations; the node only needs `mut` if there's
@@ -1234,11 +1338,20 @@ pub(crate) fn emit_child_builder(
         .iter()
         .flat_map(|g| &g.variants)
         .any(|v| !v.children.is_empty());
-    if variant_children {
+    // A list of nodes cannot sit inside the `[a, b]` array spelling, so any nested child that
+    // yields one puts every sibling through the same accumulator the variant children use.
+    let nested_list = nested_var_names.iter().any(|(_, is_list)| *is_list);
+    if variant_children || nested_list {
         body.push(format!(
-            "{indent}let mut {var_name}_children: Vec<wacore_binary::node::Node> = vec![{}];",
-            nested_var_names.join(", ")
+            "{indent}let mut {var_name}_children: Vec<wacore_binary::node::Node> = Vec::new();"
         ));
+        for (v, is_list) in &nested_var_names {
+            body.push(if *is_list {
+                format!("{indent}{var_name}_children.extend({v});")
+            } else {
+                format!("{indent}{var_name}_children.push({v});")
+            });
+        }
     }
     for attr in &child.attrs {
         let alit = rust_lit(&attr.name);
@@ -1277,14 +1390,18 @@ pub(crate) fn emit_child_builder(
     }
     body.extend(emit_variant_groups(child, &var_name, indent, ctx));
     body.extend(emit_node_content(child, &var_name, indent, ctx));
-    if variant_children {
+    if variant_children || nested_list {
         body.push(format!(
             "{indent}{var_name} = {var_name}.children({var_name}_children);"
         ));
     } else if !nested_var_names.is_empty() {
         body.push(format!(
             "{indent}{var_name} = {var_name}.children([{}]);",
-            nested_var_names.join(", ")
+            nested_var_names
+                .iter()
+                .map(|(v, _)| v.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
         ));
     }
 
@@ -1301,7 +1418,7 @@ pub(crate) fn emit_child_builder(
         lines.extend(body);
         lines.push(format!("{indent}let {var_name} = {var_name}.build();"));
     }
-    (lines, var_name)
+    (lines, var_name, false)
 }
 
 /// Emit, for each of a node's variant groups, a top-level `enum` (pushed to
@@ -2181,7 +2298,7 @@ mod tests {
 
     /// Build a child node with a throwaway variant context (for the tests that don't
     /// exercise variant groups).
-    fn build1(child: &WapChildNode) -> (Vec<String>, String) {
+    fn build1(child: &WapChildNode) -> (Vec<String>, String, bool) {
         let (mut enums, mut fields) = (Vec::new(), Vec::new());
         let mut ctx = VariantCtx {
             spec_base: "T",
@@ -2281,7 +2398,7 @@ mod tests {
             enum_defs: &mut enums,
             fields: &mut fields,
         };
-        let (lines, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
+        let (lines, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
         let src = lines.join("\n");
         let defs = enums.join("\n");
         // The item's own struct, and the payload member that carries a list of them.
@@ -2306,8 +2423,9 @@ mod tests {
         // accumulator — attaching them separately would leave only whichever ran last.
         assert!(
             src.contains(
-                "let mut config_node_children: Vec<wacore_binary::node::Node> = vec![static_node];"
-            ) && src.contains("config_node_children.push(item_node.build());")
+                "let mut config_node_children: Vec<wacore_binary::node::Node> = Vec::new();"
+            ) && src.contains("config_node_children.push(static_node);")
+                && src.contains("config_node_children.push(item_node.build());")
                 && src.contains("config_node = config_node.children(config_node_children);"),
             "one accumulator, attached once: {src}"
         );
@@ -2315,6 +2433,191 @@ mod tests {
             src.matches(".children(").count(),
             1,
             "and exactly one call sets them: {src}"
+        );
+    }
+
+    /// A relaxed content leaf must decode what is THERE. `parse().ok()` merged "no content"
+    /// with "content that is not a number", so the committed `participant_count` filed an
+    /// unparseable payload as an absence.
+    #[test]
+    fn a_relaxed_child_content_leaf_still_rejects_what_it_cannot_decode() {
+        let child = |method: &str, required: bool| -> ParsedField {
+            serde_json::from_value(serde_json::json!({
+                "method": "maybeChild", "name": "participant_count", "tag": "participant_count",
+                "type": "string", "required": false,
+                "children": [{
+                    "method": method, "name": "content", "type": "integer",
+                    "required": required
+                }]
+            }))
+            .expect("child")
+        };
+        let src = emit_struct_parser(&[child("contentInt", false)], "n", "R", "", "P").join("\n");
+        assert!(
+            src.contains(
+                r#".map(|s| s.parse::<u64>().map_err(|_| anyhow::anyhow!("participant_count not a number"))).transpose()?"#
+            ),
+            "a present payload must decode: {src}"
+        );
+        assert!(
+            src.contains("None => None,"),
+            "and an absent one stays absent: {src}"
+        );
+        // The bound: a payload that cannot FAIL to decode is emitted as it always was — bytes
+        // are bytes, and only the integer-from-text spelling can be rejected.
+        let src = emit_struct_parser(&[child("contentBytes", false)], "n", "R", "", "P").join("\n");
+        assert!(
+            src.contains("content_bytes().map(|b| b.to_vec())") && !src.contains("map_err"),
+            "bytes decode or are absent, never malformed: {src}"
+        );
+    }
+
+    /// A repeated item's field can sit BELOW it, and reading it off the item itself decoded the
+    /// parent's own content — so a valid item was rejected as missing the field.
+    #[test]
+    fn a_repeated_items_field_is_read_through_its_source_path() {
+        let leaf: ParsedField = serde_json::from_value(serde_json::json!({
+            "method": "attrString", "name": "label", "wireName": "label", "type": "string",
+            "required": true, "sourcePath": ["background"]
+        }))
+        .expect("leaf");
+        let item: ParsedField = serde_json::from_value(serde_json::json!({
+            "method": "child", "name": "item", "tag": "item", "type": "string",
+            "required": true, "repeats": true, "children": [leaf]
+        }))
+        .expect("item");
+        let src = emit_struct_parser(&[item], "n", "R", "", "P").join("\n");
+        assert!(
+            src.contains(r#"item_item.get_optional_child("background")"#),
+            "the path is descended from the item: {src}"
+        );
+        assert!(
+            !src.contains(r#"item_item.get_attr("label")"#),
+            "and the field is not read off the item itself: {src}"
+        );
+        // …and the nested repeated loop reads its fields the same way.
+        let inner_leaf: ParsedField = serde_json::from_value(serde_json::json!({
+            "method": "attrString", "name": "label", "wireName": "label", "type": "string",
+            "required": true, "sourcePath": ["background"]
+        }))
+        .expect("leaf");
+        let inner_item: ParsedField = serde_json::from_value(serde_json::json!({
+            "method": "child", "name": "part", "tag": "part", "type": "string",
+            "required": true, "repeats": true, "children": [inner_leaf]
+        }))
+        .expect("inner");
+        let outer: ParsedField = serde_json::from_value(serde_json::json!({
+            "method": "child", "name": "item", "tag": "item", "type": "string",
+            "required": true, "repeats": true, "children": [inner_item]
+        }))
+        .expect("outer");
+        let src = emit_struct_parser(&[outer], "n", "R", "", "P").join("\n");
+        assert!(
+            src.contains(r#"part_item.get_optional_child("background")"#),
+            "the nested loop descends too: {src}"
+        );
+        // The bound: a field with no source path is still read straight off the item.
+        let leaf: ParsedField = serde_json::from_value(serde_json::json!({
+            "method": "attrString", "name": "label", "wireName": "label", "type": "string",
+            "required": true
+        }))
+        .expect("leaf");
+        let item: ParsedField = serde_json::from_value(serde_json::json!({
+            "method": "child", "name": "item", "tag": "item", "type": "string",
+            "required": true, "repeats": true, "children": [leaf]
+        }))
+        .expect("item");
+        let src = emit_struct_parser(&[item], "n", "R", "", "P").join("\n");
+        assert!(
+            src.contains(r#"item_item.get_attr("label")"#),
+            "no path, no descent: {src}"
+        );
+    }
+
+    /// A wrapper bound inside an optional child's `if let` is gone after it, so two siblings
+    /// sharing a tag and a nested path must each declare their own.
+    #[test]
+    fn two_optional_siblings_do_not_share_a_wrapper_binding() {
+        // The same TAG in both, which is what makes them share a cache key at all — two
+        // different tags key differently and could never have collided.
+        let optional_child = |field: &str| -> ParsedField {
+            serde_json::from_value(serde_json::json!({
+                "method": "maybeChild", "name": "item", "tag": "item", "type": "string",
+                "required": false,
+                "children": [{
+                    "method": "attrString", "name": field, "wireName": field, "type": "string",
+                    "required": true, "sourcePath": ["meta"]
+                }]
+            }))
+            .expect("child")
+        };
+        let src = emit_struct_parser(
+            &[optional_child("a"), optional_child("b")],
+            "n",
+            "R",
+            "",
+            "P",
+        )
+        .join("\n");
+        assert_eq!(
+            src.matches("_meta_wrap = ").count(),
+            2,
+            "each branch declares its own wrapper: {src}"
+        );
+    }
+
+    /// A child that repeats and carries opaque content is as many nodes as the caller has
+    /// payloads — one field and one node could not reproduce a request that sends two.
+    #[test]
+    fn repeated_dynamic_content_is_one_node_per_payload() {
+        let mut node = leaf("area_description");
+        node.repeats = true;
+        node.content = Some(wa_ir::WapContent {
+            kind: WapContentKind::Dynamic,
+            ..Default::default()
+        });
+        let (mut enums, mut fields) = (Vec::new(), Vec::new());
+        let mut ctx = VariantCtx {
+            spec_base: "T",
+            enum_defs: &mut enums,
+            fields: &mut fields,
+        };
+        let (lines, var, is_list) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
+        assert!(is_list, "the child yields a list of nodes");
+        assert_eq!(var, "area_description_nodes");
+        assert!(
+            fields.contains(&(
+                "area_description_content".to_string(),
+                "Vec<Vec<u8>>".to_string(),
+                false
+            )),
+            "one payload per node: {fields:?}"
+        );
+        assert!(
+            lines
+                .join("\n")
+                .contains("for payload in &self.area_description_content {"),
+            "and a node is built for each: {}",
+            lines.join("\n")
+        );
+        // The bound: the same content on a child that does NOT repeat is still one node and one
+        // payload.
+        let mut node = leaf("website");
+        node.content = Some(wa_ir::WapContent {
+            kind: WapContentKind::Dynamic,
+            ..Default::default()
+        });
+        let (mut enums, mut fields) = (Vec::new(), Vec::new());
+        let mut ctx = VariantCtx {
+            spec_base: "T",
+            enum_defs: &mut enums,
+            fields: &mut fields,
+        };
+        let (_, var, is_list) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
+        assert!(!is_list && var == "website_node", "one node: {var}");
+        assert!(
+            fields.contains(&("website_content".to_string(), "Vec<u8>".to_string(), false)),
+            "one payload: {fields:?}"
         );
     }
 
@@ -2352,7 +2655,7 @@ mod tests {
             enum_defs: &mut enums,
             fields: &mut fields,
         };
-        let (lines, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
+        let (lines, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
         let defs = enums.join("\n");
         let src = lines.join("\n");
         assert!(
@@ -2385,7 +2688,7 @@ mod tests {
             enum_defs: &mut enums,
             fields: &mut fields,
         };
-        let (_, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
+        let (_, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
         let defs = enums.join("\n");
         assert!(
             defs.contains("type_children: Vec<") && !defs.contains("r#type_children"),
@@ -2414,7 +2717,7 @@ mod tests {
             enum_defs: &mut enums,
             fields: &mut fields,
         };
-        let (_, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
+        let (_, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
         let defs = enums.join("\n");
         assert!(
             defs.contains("my_tag: String") && defs.contains("my_tag_children: Vec<"),
@@ -2449,7 +2752,7 @@ mod tests {
             enum_defs: &mut enums,
             fields: &mut fields,
         };
-        let (lines, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
+        let (lines, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
         // A child that does not repeat is exactly ONE node, and its cardinality survives the
         // fallback: `Vec<Node>` would let a caller supply none or several.
         assert!(
@@ -2490,7 +2793,7 @@ mod tests {
             enum_defs: &mut enums,
             fields: &mut fields,
         };
-        let (lines, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
+        let (lines, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
         assert!(
             enums
                 .join("\n")
@@ -2522,7 +2825,7 @@ mod tests {
             enum_defs: &mut enums,
             fields: &mut fields,
         };
-        let (lines, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
+        let (lines, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
         // `Dynamic` says the scan could not resolve the value, not that the value is text —
         // the same record covers a URL and a signature — so the payload has to preserve bytes.
         assert!(
@@ -2537,7 +2840,7 @@ mod tests {
             lines.join("\n")
         );
         // The bound: a node with no content declared still builds empty.
-        let (lines, _) = build1(&leaf("website"));
+        let (lines, _, _) = build1(&leaf("website"));
         assert!(
             !lines.join("\n").contains("bytes("),
             "no content, no payload: {}",
@@ -2556,7 +2859,7 @@ mod tests {
             enum_defs: &mut enums,
             fields: &mut fields,
         };
-        let (lines, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
+        let (lines, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
         assert!(
             lines
                 .join("\n")
@@ -2622,7 +2925,7 @@ mod tests {
             enum_defs: &mut enums,
             fields: &mut fields,
         };
-        let (lines, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
+        let (lines, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
         let enum_src = enums.join("\n");
         let code = lines.join("\n");
 
@@ -2699,7 +3002,7 @@ mod tests {
             enum_defs: &mut enums,
             fields: &mut fields,
         };
-        let (lines, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
+        let (lines, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
         let enum_src = enums.join("\n");
         // Three distinct variants, no duplicate `Platform`.
         assert_eq!(
@@ -2910,7 +3213,7 @@ mod tests {
             repeats: false,
             variant_groups: vec![],
         };
-        let (lines, var) = build1(&child);
+        let (lines, var, _) = build1(&child);
         let code = lines.join("\n");
         assert_eq!(var, "query_node");
         assert!(code.contains("let mut query_node = NodeBuilder::new(\"query\");"));
@@ -2926,7 +3229,7 @@ mod tests {
 
     #[test]
     fn empty_node_avoids_unused_mut() {
-        let (lines, _) = build1(&leaf("ping"));
+        let (lines, _, _) = build1(&leaf("ping"));
         let code = lines.join("\n");
         assert!(code.contains("let ping_node = NodeBuilder::new(\"ping\").build();"));
         assert!(!code.contains("let mut ping_node"));
@@ -2942,7 +3245,7 @@ mod tests {
             repeats: false,
             variant_groups: vec![],
         };
-        let (lines, _) = build1(&parent);
+        let (lines, _, _) = build1(&parent);
         let code = lines.join("\n");
         assert!(code.contains("let item_node = NodeBuilder::new(\"item\").build();"));
         assert!(code.contains("let item_node_2 = NodeBuilder::new(\"item\").build();"));
@@ -2972,7 +3275,7 @@ mod tests {
             repeats: false,
             variant_groups: vec![],
         };
-        let (lines, _) = build1(&node);
+        let (lines, _, _) = build1(&node);
         let code = lines.join("\n");
         assert!(
             code.contains(
@@ -3006,7 +3309,7 @@ mod tests {
             enum_defs: &mut enums,
             fields: &mut fields,
         };
-        let (lines, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
+        let (lines, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
         let code = lines.join("\n");
         assert!(
             code.contains("signature_node = signature_node.bytes(self.signature_content.clone());"),
@@ -3072,7 +3375,7 @@ mod tests {
             enum_defs: &mut enums,
             fields: &mut fields,
         };
-        let (lines, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
+        let (lines, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
         assert!(fields.is_empty(), "no spec field for a malformed constant");
         assert!(
             !lines.join("\n").contains(".bytes("),

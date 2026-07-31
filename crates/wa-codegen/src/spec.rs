@@ -819,22 +819,42 @@ fn emit_build_iq(
             enum_defs: variant_enums,
             fields: variant_fields,
         };
-        let mut top_var_names: Vec<String> = Vec::new();
+        let mut top_var_names: Vec<(String, bool)> = Vec::new();
         let mut used_names = std::collections::HashMap::new();
         for child in &op.request.children {
-            let (child_lines, child_var) =
+            let (child_lines, child_var, is_list) =
                 emit_child_builder(child, "        ", &mut used_names, &mut ctx);
             lines.extend(child_lines);
-            top_var_names.push(child_var);
+            top_var_names.push((child_var, is_list));
         }
         lines.push(String::new());
         lines.push(format!("        InfoQuery::{iq}("));
         lines.push(format!("            {ns_const},"));
         lines.push(format!("            {target},"));
-        lines.push(format!(
-            "            Some(NodeContent::Nodes(vec![{}])),",
-            top_var_names.join(", ")
-        ));
+        // A top-level child that repeats yields a LIST of nodes, which the `vec![a, b]` spelling
+        // cannot hold — those are spread in, and the rest pushed one by one.
+        if top_var_names.iter().any(|(_, is_list)| *is_list) {
+            lines.push("            Some(NodeContent::Nodes({".to_string());
+            lines.push("                let mut __children = Vec::new();".to_string());
+            for (v, is_list) in &top_var_names {
+                lines.push(if *is_list {
+                    format!("                __children.extend({v});")
+                } else {
+                    format!("                __children.push({v});")
+                });
+            }
+            lines.push("                __children".to_string());
+            lines.push("            })),".to_string());
+        } else {
+            lines.push(format!(
+                "            Some(NodeContent::Nodes(vec![{}])),",
+                top_var_names
+                    .iter()
+                    .map(|(v, _)| v.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        }
         lines.push("        )".to_string());
     } else {
         lines.push(format!(
