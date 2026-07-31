@@ -4875,20 +4875,17 @@ fn instance_definition<'b, 'a>(
     }
     // …and there has to BE an instance. A constructor that leaves by throwing builds nothing, so
     // the member is never reached and recording its body's writes describes a call that happens
-    // on no path — the same reachability question `new` already answers for the constructor
-    // itself, asked one step later.
-    let ctor_throws = class.body.body.iter().any(|el| match el {
-        oxc_ast::ast::ClassElement::MethodDefinition(m)
-            if m.kind == oxc_ast::ast::MethodDefinitionKind::Constructor =>
-        {
-            m.value
-                .body
-                .as_ref()
-                .is_some_and(|b| throws_out(&b.statements))
-        }
-        _ => false,
-    });
-    if ctor_throws {
+    // on no path — the same reachability question `expression_throws` answers for the `new`
+    // itself, read from one place.
+    if class_constructor_throws(class) {
+        return None;
+    }
+    // …and the instance has to be THIS one. A constructor may `return` an object, which `new`
+    // hands back in place of what it built — and that object has no prototype method of ours,
+    // so the call throws. The heritage test above covers the derived shape; a BASE constructor
+    // can replace the instance exactly as readily, and only a returned PRIMITIVE is ignored.
+    // Anything this cannot read as a primitive declines.
+    if constructor_may_replace_the_instance(class) {
         return None;
     }
     let overwritten = class.body.body.iter().any(|el| match el {
@@ -4913,6 +4910,96 @@ fn instance_definition<'b, 'a>(
         }
         _ => None,
     })
+}
+
+/// Whether the value an assignment computes never arrives, so its target is never written.
+///
+/// `try { e = (function(){ throw 0; })(); } catch (_) {}` leaves `e` exactly as it was: the
+/// right-hand side is evaluated first and completes abruptly, so the write is performed on no
+/// path. Recording it anyway marked the parser's own parameter as replaced, and the helper
+/// descent was refused for a node nothing had moved.
+///
+/// The right-hand side's OWN effects still happen — it performs them before it leaves — so only
+/// the target's records are suppressed and the walk of the value is untouched.
+fn assignment_never_completes(rhs: Option<&Expression<'_>>) -> bool {
+    rhs.is_some_and(expression_throws)
+}
+
+/// Whether this class's own constructor leaves by throwing, so `new` on it builds nothing.
+fn class_constructor_throws(class: &oxc_ast::ast::Class<'_>) -> bool {
+    class.body.body.iter().any(|el| match el {
+        oxc_ast::ast::ClassElement::MethodDefinition(m)
+            if m.kind == oxc_ast::ast::MethodDefinitionKind::Constructor =>
+        {
+            m.value
+                .body
+                .as_ref()
+                .is_some_and(|b| throws_out(&b.statements))
+        }
+        _ => false,
+    })
+}
+
+/// Whether this class's constructor can hand back something other than the instance it built.
+///
+/// `new` returns what the constructor returns when that is an OBJECT, and the object it built
+/// otherwise — so `constructor(){ return {}; }` yields a plain object with none of the class's
+/// methods on it. A returned primitive is discarded and changes nothing, which is why only a
+/// return this can read as one is exempt; a bare `return;` is not a value at all.
+///
+/// Anywhere in the constructor, not only at its top: the return may sit under a condition, and a
+/// path this pass cannot rule out is a path that replaces the instance.
+fn constructor_may_replace_the_instance(class: &oxc_ast::ast::Class<'_>) -> bool {
+    struct Seen(bool);
+    impl<'a> Visit<'a> for Seen {
+        fn visit_return_statement(&mut self, r: &oxc_ast::ast::ReturnStatement<'a>) {
+            if let Some(arg) = r.argument.as_ref()
+                && !certainly_a_primitive(arg)
+            {
+                self.0 = true;
+            }
+            walk::walk_return_statement(self, r);
+        }
+        // A `return` inside a nested function belongs to that function, not to the constructor.
+        fn visit_function(&mut self, _f: &Function<'a>, _flags: ScopeFlags) {}
+        fn visit_arrow_function_expression(
+            &mut self,
+            _f: &oxc_ast::ast::ArrowFunctionExpression<'a>,
+        ) {
+        }
+    }
+    let Some(ctor) = class.body.body.iter().find_map(|el| match el {
+        oxc_ast::ast::ClassElement::MethodDefinition(m)
+            if m.kind == oxc_ast::ast::MethodDefinitionKind::Constructor =>
+        {
+            m.value.body.as_ref()
+        }
+        _ => None,
+    }) else {
+        return false;
+    };
+    let mut seen = Seen(false);
+    for st in &ctor.statements {
+        seen.visit_statement(st);
+    }
+    seen.0
+}
+
+/// Whether this expression certainly evaluates to a primitive, which `new` discards on return.
+///
+/// Only the spellings that settle it. Anything else — an identifier, a call, a conditional — may
+/// be an object, and reading it as a primitive would approve a member lookup on an instance the
+/// constructor replaced.
+fn certainly_a_primitive(e: &Expression<'_>) -> bool {
+    matches!(
+        peel(e),
+        Expression::NumericLiteral(_)
+            | Expression::StringLiteral(_)
+            | Expression::BooleanLiteral(_)
+            | Expression::NullLiteral(_)
+            | Expression::BigIntLiteral(_)
+            | Expression::TemplateLiteral(_)
+    ) || is_undefined_spelling(peel(e), true)
 }
 
 /// The member an instance CONSTRUCTED on the spot supplies under `name`, of the kind asked for.
@@ -6189,6 +6276,9 @@ struct AllBindings {
     /// getter's OWN body, because binding happens after every argument has been evaluated: a
     /// blanket push would have deferred the arguments' own writes past the call too.
     binding_getters: Vec<(Span, u32)>,
+    /// Raised while an assignment TARGET is walked whose right-hand side certainly raises: the
+    /// write happens on no path, so neither its `Write` nor its `Given` is recorded.
+    never_written: u32,
 
     /// How many enclosing constructs could have skipped the part being walked. A value assigned
     /// down such a path is not certainly the one a later read sees, however textually early it
@@ -6265,6 +6355,14 @@ impl AllBindings {
     /// writes through whatever binding is in scope, which reaches as far as that binding
     /// does, so the function extent stays the conservative answer for it.
     fn given_value(&mut self, name: &str, from: Option<&str>, at: Span, lexical: bool) {
+        // The write happens on no path, so neither record of it exists. Read here rather than at
+        // each caller: the `Write` was already gated on this flag and the `Given` on its own
+        // local test, and two conditions for one fact is how the two halves of an assignment
+        // came to disagree before. The mutation that raised the flag over the right-hand side's
+        // own walk is what showed they still could.
+        if self.never_written > 0 {
+            return;
+        }
         let extent = if lexical {
             self.blocks
                 .last()
@@ -7030,7 +7128,9 @@ impl<'a> Visit<'a> for AllBindings {
                     .then(|| self.innermost_repeating())
                     .flatten(),
             };
-            self.writes.push(w);
+            if self.never_written == 0 {
+                self.writes.push(w);
+            }
         }
         walk::walk_simple_assignment_target(self, target);
     }
@@ -7068,6 +7168,8 @@ impl<'a> Visit<'a> for AllBindings {
         // the declarator form left the plain one matching no argument position and losing the
         // helper with nothing said. The accumulator search in this file already reads both,
         // so taking only one here was a narrowing rather than a decision.
+        let never = u32::from(assignment_never_completes(Some(&e.right)));
+        self.never_written += never;
         if let oxc_ast::ast::AssignmentTarget::AssignmentTargetIdentifier(t) = &e.left {
             let from = match (&e.right, e.operator) {
                 (Expression::Identifier(src), oxc_syntax::operator::AssignmentOperator::Assign) => {
@@ -7093,7 +7195,14 @@ impl<'a> Visit<'a> for AllBindings {
             self.binding_getters
                 .extend(found.into_iter().map(|g| (g, e.span.end)));
         }
-        walk::walk_assignment_expression(self, e);
+        // The value first and the target second, so a right-hand side that raises can suppress
+        // the target's records without touching what it wrote on the way. `walk_assignment_
+        // expression` takes them the other way round and gives no seam to do that at.
+        self.never_written -= never;
+        self.visit_expression(&e.right);
+        self.never_written += never;
+        self.visit_assignment_target(&e.left);
+        self.never_written -= never;
         self.binding_getters.truncate(restore_getters);
         self.runs_after.pop();
         self.assign_end = outer;
@@ -7136,7 +7245,13 @@ impl<'a> Visit<'a> for AllBindings {
             // binding does — which is what `binding_extent` answers for every other write. I
             // first gated this on `var` and could not construct a case where the gate changed
             // an answer, so it is one rule rather than one rule and a condition.
-            if d.id.get_binding_identifier().is_none() {
+            // …and the DECLARATION spelling records nothing either when its initializer
+            // raises. `var current = (function(){ throw 0; })()` binds the name and leaves it
+            // `undefined`; it does not bind it to a value, and the pattern form assigns nothing
+            // at all. Two spellings of one rule, which is the split this file keeps paying for.
+            let never = u32::from(assignment_never_completes(d.init.as_ref()));
+            self.never_written += never;
+            if d.id.get_binding_identifier().is_none() && never == 0 {
                 for id in d.id.get_binding_identifiers() {
                     let w = Write {
                         scope: self.binding_extent(id.name.as_str(), id.span),
@@ -7167,6 +7282,7 @@ impl<'a> Visit<'a> for AllBindings {
                 self.given_value(id.name.as_str(), from, id.span, decl.kind.is_lexical());
                 self.assign_end = outer;
             }
+            self.never_written -= never;
         }
         self.hoists = outer_hoists;
     }
@@ -9557,6 +9673,19 @@ fn both_booleans_listed(cases: &[oxc_ast::ast::SwitchCase<'_>]) -> bool {
 /// an arm executions really do take.
 fn expression_throws(e: &Expression<'_>) -> bool {
     let peeled = peel(e);
+    // `new (class { constructor(){ throw 0; } })()` completes abruptly as surely as an IIFE
+    // whose body throws: the constructor IS the body, invoked right here. Only the direct call
+    // spelling was read, so a construction that raises read as an argument evaluating to a
+    // value and the call it stops was walked as one that happens.
+    //
+    // The same question `instance_definition` asks before resolving a member of the instance,
+    // which is where I first wrote it — one predicate now, so the two cannot disagree.
+    if let Expression::NewExpression(n) = peeled {
+        return match peel(&n.callee) {
+            Expression::ClassExpression(c) => class_constructor_throws(c),
+            _ => false,
+        };
+    }
     let Expression::CallExpression(c) = peeled else {
         return false;
     };
@@ -14816,6 +14945,99 @@ mod tests {
             assert!(
                 fields.iter().any(|f| f.name == "id"),
                 "nothing here runs that body: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_construction_that_raises_is_an_expression_that_raises() {
+        // `new (class { constructor(){ throw 0; } })()` completes abruptly as surely as an IIFE
+        // whose body throws — the constructor IS the body, invoked right here. Only the direct
+        // call spelling was read, so a construction that raises read as an argument evaluating
+        // to a value and the call it stops was walked as one that happens.
+        let fields = helper_reached_via(
+            "var current = e; try { (function(){ current = other; })(new (class { constructor(){ throw 0; } })()); } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "that body is entered on no path: {fields:?}"
+        );
+        // The bounds. A constructor that completes builds a value like any other; a class with
+        // no constructor at all raises nothing; and a callee this cannot read settles nothing.
+        for body in [
+            "var current = e; (function(){ current = other; })(new (class { constructor(){} })()); parse(current);",
+            "var current = e; (function(){ current = other; })(new (class {})()); parse(current);",
+            "var current = e; (function(){ current = other; })(new Thing()); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that call happens: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_constructor_that_returns_an_object_replaces_the_instance() {
+        // `new` hands back what the constructor returns when that is an OBJECT, and the object
+        // it built otherwise — so `constructor(){ return {}; }` yields a plain object with none
+        // of the class's methods on it and the call throws. The heritage test covered the
+        // derived shape and a BASE constructor can replace the instance exactly as readily.
+        let fields = helper_reached_via(
+            "var current = e; try { (new (class { constructor(){ return {}; } m(){ current = other; } })).m(); } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "that method is not on what the call received: {fields:?}"
+        );
+        // The bounds. A returned PRIMITIVE is discarded and changes nothing, a bare `return;` is
+        // not a value at all, and a class with no constructor returns what it built.
+        for body in [
+            "var current = e; (new (class { constructor(){ return 1; } m(){ current = other; } })).m(); parse(current);",
+            "var current = e; (new (class { constructor(){ return; } m(){ current = other; } })).m(); parse(current);",
+            "var current = e; (new (class { m(){ current = other; } })).m(); parse(current);",
+            // …and a `return` inside a NESTED function belongs to that function, not to the
+            // constructor, in both spellings of one.
+            "var current = e; (new (class { constructor(){ (function(){ return {}; }); } m(){ current = other; } })).m(); parse(current);",
+            "var current = e; (new (class { constructor(){ (() => { return {}; }); } m(){ current = other; } })).m(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that method already ran: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_assignment_whose_value_never_arrives_writes_nothing() {
+        // The right-hand side is evaluated first, so one that completes abruptly leaves the
+        // target exactly as it was. Recording the write anyway marked the parser's own parameter
+        // as replaced and the helper descent was refused for a node nothing had moved.
+        for body in [
+            "try { e = (function(){ throw 0; })(); } catch (_) {} parse(e);",
+            // …and the DECLARATION spelling of the same assignment, which binds the name and
+            // leaves it `undefined` rather than binding it to a value.
+            "var current = e; try { var current = (function(){ throw 0; })(); } catch (_) {} parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that write never happens: {body}"
+            );
+        }
+        // The bounds. A value that arrives is written, and so is a plain one. The right-hand
+        // side's OWN effects still happen — it performs them before it leaves — so only the
+        // target's records are suppressed.
+        for body in [
+            "e = (function(){ return other; })(); parse(e);",
+            "e = other; parse(e);",
+            "var current = e; try { x = (function(){ current = other; throw 0; })(); } catch (_) {} parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that write does happen: {body}"
             );
         }
     }
