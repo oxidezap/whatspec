@@ -49,20 +49,53 @@ pub(crate) fn emit_field_parse(f: &ParsedField, node_var: &str, indent: &str) ->
         // `contentUint(3)`, whose one-, two- and four-byte payloads this accepted and the source
         // accessor turns away. One rule, two places, one copy missing it, on the third kind of
         // constraint this branch has needed it for.
+        // The IR's `required` is a source of optionality for a CONTENT leaf exactly as it is
+        // for an attribute — `rust_field_type` reads it and declares `Option<T>` — and this
+        // branch emitted the required decoder unconditionally, so an optional content leaf was
+        // declared `Option<String>` and initialized with a `String`. Emitted Rust that does not
+        // type-check, which nothing on this branch compiles: the third defect of that kind here,
+        // and the first that the committed IR already carries the shape for.
+        //
+        // The attribute path below has read the same flag since the round it was written; this
+        // one asked only the accessor spelling, and no content accessor spells optionality.
+        let optional_leaf = !f.required;
         let mut out = raw_length_check(Some(f), &name, &fmsg, indent, node_var);
         out.push(format!(
             "{indent}let {name} = {node_var}.{};",
-            content_decoder(method)
+            if optional_leaf {
+                content_decoder_opt(method)
+            } else {
+                content_decoder(method)
+            }
         ));
         // The same band the attribute path enforces. A content leaf declaring `intMin: -10`
         // decoded the number and checked nothing, and the moment its width could be signed a
         // `-20` materialized where the unsigned parse had been refusing every negative value by
         // accident. The union's content guard already tests this band; the ordinary read did
         // not, which is one rule spelled in two places with one copy missing it — again.
+        // …and a constraint is asked of a value that IS there. An absent optional payload is a
+        // value the field holds, not one the accessor rejects — the same reading the optional
+        // attribute path takes, and the same one the flattened-child path was given two rounds
+        // ago.
+        // The REQUIRED spelling is left exactly as it was, message and all — an optional leaf is
+        // the only thing that moves here, and a diff on every required one would say this
+        // touched them.
+        let checked = |test: String| -> String {
+            if optional_leaf {
+                format!("{name}.as_ref().is_none_or(|{name}| {test})")
+            } else {
+                test
+            }
+        };
         if let Some(test) = super::fields::int_band(f, &name) {
-            out.push(format!(
-                "{indent}anyhow::ensure!({test}, \"{fmsg} out of range: {{}}\", {name});"
-            ));
+            out.push(if optional_leaf {
+                format!(
+                    "{indent}anyhow::ensure!({}, \"{fmsg} out of range: {{:?}}\", {name});",
+                    checked(test)
+                )
+            } else {
+                format!("{indent}anyhow::ensure!({test}, \"{fmsg} out of range: {{}}\", {name});")
+            });
         }
         // And the length a bytes accessor pins, which this path decoded and ignored entirely:
         // `contentBytes(32)` and `contentBytesRange(1, 128)` both record what they will accept,
@@ -76,16 +109,25 @@ pub(crate) fn emit_field_parse(f: &ParsedField, node_var: &str, indent: &str) ->
         if wap::method_field_type(method) == ParsedFieldType::Bytes
             && let Some(test) = super::fields::byte_band(f, &name)
         {
-            out.push(format!(
-                "{indent}anyhow::ensure!({test}, \"{fmsg} wrong length: {{}}\", {name}.len());"
-            ));
+            out.push(if optional_leaf {
+                format!(
+                    "{indent}anyhow::ensure!({}, \"{fmsg} wrong length: {{:?}}\", {name});",
+                    checked(test)
+                )
+            } else {
+                format!(
+                    "{indent}anyhow::ensure!({test}, \"{fmsg} wrong length: {{}}\", {name}.len());"
+                )
+            });
         }
         // `contentEnum(TABLE)` records its vocabulary exactly as an attribute enum does, and
         // this branch returned after the numeric and byte constraints without ever asking for
         // it — the enum check added one round ago reached the attribute path and stopped there.
-        // A content decoder never yields an `Option`, so the value is always present.
-        out.extend(enum_membership(f, &name, &fmsg, indent, false));
-        out.extend(literal_pin(f, &name, &fmsg, indent, false));
+        // …and the two constraint helpers that already spell both shapes are told which one
+        // this is. "A content decoder never yields an `Option`" was true of the decoder and not
+        // of the FIELD, which is the distinction this whole branch had missed.
+        out.extend(enum_membership(f, &name, &fmsg, indent, optional_leaf));
+        out.extend(literal_pin(f, &name, &fmsg, indent, optional_leaf));
         return out;
     }
     if !wap::is_attr_method(method) {
@@ -1406,6 +1448,67 @@ mod tests {
             int_max: hi,
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn an_optional_content_leaf_decodes_into_its_declared_type() {
+        // The IR's `required` is a source of optionality for a CONTENT leaf exactly as it is for
+        // an attribute — `rust_field_type` reads it and declares `Option<T>` — and this branch
+        // emitted the required decoder unconditionally. The field was declared `Option<String>`
+        // and initialized with a `String`: emitted Rust that does not type-check, which nothing
+        // on this branch compiles.
+        for (m, ty, want) in [
+            (
+                "contentString",
+                "string",
+                "n.content_str().map(|s| s.to_string());",
+            ),
+            (
+                "contentInt",
+                "integer",
+                "n.content_str().and_then(|s| s.parse().ok());",
+            ),
+            (
+                "contentBytes",
+                "bytes",
+                "n.content_bytes().map(|b| b.to_vec());",
+            ),
+        ] {
+            let f: ParsedField = serde_json::from_value(serde_json::json!({
+                "method": m, "name": "elementValue", "type": ty, "required": false
+            }))
+            .expect("field");
+            let src = emit_field_parse(&f, "n", "").join("\n");
+            assert!(src.contains(want), "{m} decodes into an Option: {src}");
+        }
+        // …and a constraint is asked of a value that IS there: an absent optional payload is a
+        // value the field holds, not one the accessor rejects.
+        let f: ParsedField = serde_json::from_value(serde_json::json!({
+            "method": "contentBytes", "name": "elementValue", "type": "bytes",
+            "required": false, "byteLength": 32
+        }))
+        .expect("field");
+        let src = emit_field_parse(&f, "n", "").join("\n");
+        assert!(
+            src.contains(
+                "element_value.as_ref().is_none_or(|element_value| element_value.len() == 32)"
+            ),
+            "absence is not a rejection: {src}"
+        );
+        // The bound: a REQUIRED content leaf is emitted exactly as before, message and all.
+        let f: ParsedField = serde_json::from_value(serde_json::json!({
+            "method": "contentBytes", "name": "elementValue", "type": "bytes",
+            "required": true, "byteLength": 32
+        }))
+        .expect("field");
+        let src = emit_field_parse(&f, "n", "").join("\n");
+        assert!(
+            src.contains("n.content_bytes().map(|b| b.to_vec()).unwrap_or_default();")
+                && src.contains(
+                    r#"anyhow::ensure!(element_value.len() == 32, "elementValue wrong length: {}", element_value.len());"#
+                ),
+            "the required shape is unchanged: {src}"
+        );
     }
 
     #[test]

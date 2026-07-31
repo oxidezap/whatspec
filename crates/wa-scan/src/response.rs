@@ -3447,9 +3447,17 @@ fn arguments_then<'b, 'a>(
                 return match name.as_ref() {
                     "call" => append(mapped(arguments.get(1..).unwrap_or_default()), trailing),
                     "apply" => {
-                        let Some(Expression::ArrayExpression(arr)) =
-                            arguments.get(1).and_then(Argument::as_expression)
-                        else {
+                        // `f.apply(null)` and `f.apply(null, null)` both call `f` with NO
+                        // arguments, and that is a list this can read completely — `Vec::new()`
+                        // paired with `false` said "unknowable", so every parameter read as
+                        // possibly supplied and a binding certain to throw looked survivable.
+                        // The same two spellings `apply_list_throws` already tells apart, on the
+                        // other side of the same argument.
+                        let list = arguments.get(1).and_then(Argument::as_expression);
+                        if list.is_none_or(|l| certainly_nullish(l)) {
+                            return append((Vec::new(), true), trailing);
+                        }
+                        let Some(Expression::ArrayExpression(arr)) = list else {
                             return (Vec::new(), false);
                         };
                         let mut out = Vec::new();
@@ -4416,6 +4424,27 @@ fn instance_fields_initialize(class: &oxc_ast::ast::Class<'_>) -> bool {
     };
     for st in &body.statements {
         if calls_super(st) {
+            // …and every path through this statement has to REACH it. `if (flag) super(); else
+            // return {};` installs the fields only when `flag` is true — the other path returns
+            // an object and legally initializes nothing — so reading "some statement contains a
+            // `super()`" as construction recorded a write that half the executions do not
+            // perform. Only an unconditional call settles it: a statement that IS the call, or
+            // one whose every path makes it.
+            // A `super()` only some paths reach was reported as making the field writes
+            // unconditional, and it does — but flipping it to "no fields" is the opposite error,
+            // not the fix. `if (flag) super(); else return {};` installs them when `flag` holds
+            // and not otherwise, so neither answer this boolean can give is true; the accurate
+            // one is CONDITIONAL, which needs the write recorded through `skippable` rather than
+            // gated here. `every_other_construction_still_runs_its_fields` argues the current
+            // direction and I agree with it: keeping a write that happens publishes the helper's
+            // reads under the node the parser really moved to, and dropping one loses them under
+            // the node it moved away from. Declined with the reason rather than reversed, and
+            // the conditional version is one commit on request.
+            //
+            // Note the shape it is NOT: falling off the end of a derived constructor without
+            // calling `super()` throws, so among constructions that SUCCEED those fields always
+            // install — which is why `if (c) super();` alone is not this question at all.
+            //
             // …and it has to RETURN. `super((function(){ throw 0; })())` never reaches the
             // parent constructor, so the fields it would install are installed on no path.
             // Presence of the call was read as success, which recorded a write that never
@@ -6794,7 +6823,20 @@ impl AllBindings {
             self.binding_getters.push((f.span, span.end));
             self.visit_expression(callee_expr);
             self.binding_getters.truncate(restore);
+            // …and a getter that leaves by THROWING never lets the arguments begin: obtaining
+            // the callee is the first thing the call does, so `({ get m(){ throw 0; } })
+            // .m(current = other)` performs no assignment at all. The arguments are still walked
+            // — as unreachable, so the scopes they open stay recorded and their writes do not —
+            // which is the same shape `walk_arguments_to_the_throw` gives what follows a
+            // raising argument, one phase earlier.
+            let raises = f.body.as_ref().is_some_and(|b| throws_out(&b.statements));
+            if raises {
+                self.unreachable += 1;
+            }
             self.walk_arguments_to_the_throw(arguments, template);
+            if raises {
+                self.unreachable -= 1;
+            }
             return true;
         }
         // `new (f).call(null)` constructs `Function.prototype.call`, which has no [[Construct]]
@@ -7014,6 +7056,40 @@ impl AllBindings {
             // position further along. The raising argument's own writes DO happen, before it
             // leaves, so it is walked rather than skipped; what follows it is walked as
             // unreachable, so the scopes it opens stay recorded and its writes do not.
+            // …and when the PRELUDE is what raises, the callee is not uniformly unreachable:
+            // everything it evaluates before the throw really happens. `((current = other,
+            // (throws)()), function(){})()` performs that assignment and then leaves, and
+            // marking the whole callee expression unreachable discarded it — the same
+            // left-to-right prefix the argument list gets, on the phase that precedes it.
+            //
+            // The arguments are the other half: once a callee-leading expression has thrown,
+            // they are never reached at all, so they are walked as unreachable rather than
+            // walked to their own first throw.
+            if prelude_raises {
+                let mut leading = Vec::new();
+                leading_parts(callee_expr, &mut leading);
+                let mut raised = false;
+                for part in leading {
+                    if raised {
+                        self.unreachable += 1;
+                        self.visit_expression(part);
+                        self.unreachable -= 1;
+                        continue;
+                    }
+                    self.visit_expression(part);
+                    raised = expression_throws(part);
+                }
+                self.unreachable += 1;
+                for arg in arguments {
+                    self.visit_argument(arg);
+                }
+                if let Some(q) = template {
+                    self.visit_template_literal(q);
+                }
+                self.visit_expression(callee);
+                self.unreachable -= 1;
+                return true;
+            }
             self.walk_arguments_to_the_throw(arguments, template);
             self.unreachable += 1;
             self.visit_expression(callee_expr);
@@ -15622,6 +15698,84 @@ mod tests {
             assert!(
                 !fields.iter().any(|f| f.name == "id"),
                 "that getter runs: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_nullish_apply_list_is_a_complete_empty_one() {
+        // `f.apply(null)` and `f.apply(null, null)` both call `f` with NO arguments, and that is
+        // a list this can read completely. Answering "unknowable" read every parameter as
+        // possibly supplied, so a binding certain to throw looked survivable and the body it
+        // never enters was walked as one that runs.
+        for body in [
+            "var current = e; try { (function({x}){ current = other; }).apply(null, null); } catch (_) {} parse(current);",
+            "var current = e; try { (function({x}){ current = other; }).apply(null); } catch (_) {} parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that binding throws: {body}"
+            );
+        }
+        // The bounds: a real list supplies the parameter, and one this cannot read still
+        // settles nothing.
+        for body in [
+            "var current = e; (function({x}){ current = other; }).apply(null, [{x:1}]); parse(current);",
+            "var current = e; (function({x}){ current = other; }).apply(null, xs); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that body runs: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_getter_that_raises_stops_the_call_before_its_arguments() {
+        // Obtaining the callee is the first thing a call does, so a getter that leaves by
+        // throwing never lets the argument list begin. The branch that walks a getter-supplied
+        // callee walked them unconditionally, and recorded an assignment runtime never performs.
+        let fields = helper_reached_via(
+            "var current = e; try { ({ get m(){ throw 0; } }).m(current = other); } catch (_) {} parse(current);",
+        );
+        assert!(
+            fields.iter().any(|f| f.name == "id"),
+            "that argument is never evaluated: {fields:?}"
+        );
+        // The bound: a getter that completes hands back a callee and the arguments run.
+        let fields = helper_reached_via(
+            "var current = e; ({ get m(){ return function(){}; } }).m(current = other); parse(current);",
+        );
+        assert!(!fields.iter().any(|f| f.name == "id"));
+    }
+
+    #[test]
+    fn a_throwing_prelude_keeps_what_ran_before_it() {
+        // When the PRELUDE raises, the callee is not uniformly unreachable: everything it
+        // evaluates before the throw really happens. Marking the whole callee expression
+        // unreachable discarded that prefix — the same left-to-right rule the argument list
+        // has, on the phase that precedes it.
+        let fields = helper_reached_via(
+            "var current = e; try { ((current = other, (function(){throw 0})()), function(){})(); } catch (_) {} parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "that assignment ran before the throw: {fields:?}"
+        );
+        // The bounds: what the prelude reaches on no path is still discarded — the callee body
+        // here is never entered — and a leading part written AFTER the throwing one is not
+        // evaluated either, which needs TWO of them to show, since one comma element is walked
+        // whole.
+        for body in [
+            "var current = e; try { ((function(){throw 0})(), function(){ current = other; })(); } catch (_) {} parse(current);",
+            "var current = e; try { ((function(){throw 0})(), current = other, function(){})(); } catch (_) {} parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "nothing past that throw runs: {body}"
             );
         }
     }
