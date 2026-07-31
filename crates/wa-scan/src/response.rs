@@ -4589,8 +4589,10 @@ fn bound_getters<'b, 'a>(
         // says. Unreachable, and not harmless: with BOTH objects listed, the lookup below found
         // the DEFAULT's getter first and stopped, so the supplied getter — the one that really
         // runs — was never claimed. The claim was wrong and no mutation of mine could show it,
-        // because no test named the same property in both objects. It is the sixth claim of mine
-        // review has had to reverse.
+        // because no test named the same property in both objects. It is one of the claims of
+        // mine review has had to reverse — they are listed on the PR rather than numbered here,
+        // because I had two overlapping tallies running and they had already double-booked
+        // "sixth" by the time anyone could check.
         let objects: Vec<&oxc_ast::ast::ObjectExpression<'a>> = match supplied_arg {
             Some(supplied) if definitely_defined(supplied) => match supplied {
                 Expression::ObjectExpression(o) => vec![o],
@@ -12941,7 +12943,7 @@ mod tests {
         // invokes it and calls whatever it returned, which this cannot follow. The second half
         // is true and the first half is the point: the getter's BODY runs whether or not its
         // result can be followed, so `({get m(){ current = other }}).m()` does perform that
-        // write. The seventh claim of mine review has had to reverse, and the second where I
+        // write. One more claim of mine review has had to reverse, and the second where I
         // wrote down a bound for a rule that in fact reaches further than the rule I was
         // bounding. `a_getter_supplying_a_callee_runs_before_the_call` holds it now.
         for body in [
@@ -13104,7 +13106,7 @@ mod tests {
         // And a bound of mine that has moved sides. I wrote last round that "a pattern with its
         // own default never fails to bind" and listed `(function ({x} = {}) { … })(null)` as a
         // case where the body runs. A default answers `undefined` and nothing else: an explicit
-        // `null` goes straight to the pattern and throws there. Eighth test of mine to encode
+        // `null` goes straight to the pattern and throws there. Another test of mine encoding
         // the wrong answer, and the second in two rounds where the case I chose to bound a rule
         // was the case that rule had wrong.
         let fields = helper_reached_via(
@@ -16980,7 +16982,7 @@ mod tests {
         // thirty rounds. I wrote here that saying so "needs the branch intersection the
         // requiredness side has and this collector does not". It needs one over the records the
         // two arms just produced, which is a slice of `self.given` and nothing more — so the
-        // claim was mine and wrong, and the sixth of mine review has had to reverse.
+        // claim was mine and wrong — one more of the reversals the PR lists.
         let id = helper_reached_via(
             "var current; if (flag) current = e; else current = e; parse(current);",
         )
