@@ -230,8 +230,42 @@ fn literal_pin(
                 format!("{name} == {n}{width}")
             }
         }
-        // A byte pin is recorded as hex text, which this does not decode. Left alone rather
-        // than compared against a spelling it might not be in.
+        // A byte pin IS comparable: the scan records it as the payload's bytes in lowercase
+        // hex, two digits each, and that is a spelling this can decode — `decode_hex` is the
+        // same reader the const-content builder uses. Declining it left four live
+        // `contentBytes` pins in the committed corpus unenforced, so a `<type>` carrying `06`
+        // was stored where the source accessor takes `05` alone. A pin whose text is not that
+        // spelling still declines, which is what the decode answering `None` says.
+        ParsedFieldType::Bytes => {
+            let Some(bytes) = decode_hex(lit) else {
+                return Vec::new();
+            };
+            // An empty pin has no typed literal to compare against — `[]` infers nothing — and
+            // "the payload is empty" is the whole of what it says.
+            if bytes.is_empty() {
+                return match optional {
+                    true => vec![format!(
+                        "{indent}anyhow::ensure!({name}.as_deref().is_none_or(<[u8]>::is_empty), \"{fmsg} is pinned to an empty payload: {{:?}}\", {name});"
+                    )],
+                    false => vec![format!(
+                        "{indent}anyhow::ensure!({name}.is_empty(), \"{fmsg} is pinned to an empty payload: {{:?}}\", {name});"
+                    )],
+                };
+            }
+            // The width is spelled on every element, not just the last: `[0x05, 0x06u8]`
+            // infers, and so does `[0x05u8, 0x06u8]`, but only the second says what it means
+            // at a glance and neither costs anything.
+            let arr = bytes
+                .iter()
+                .map(|b| format!("0x{b:02x}u8"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            if optional {
+                format!("{name}.as_deref().is_none_or(|b| b == [{arr}].as_slice())")
+            } else {
+                format!("{name}.as_slice() == [{arr}].as_slice()")
+            }
+        }
         _ => return Vec::new(),
     };
     vec![format!(
@@ -597,9 +631,15 @@ fn emit_struct_reads(
             // fold into a `u64` is not asked for its `len()`. Each keeps its own message,
             // because a value out of range and a payload of the wrong length are not the same
             // report and the value they name is not the same expression.
-            let band = leaf.and_then(|c| {
+            // A LIST of checks, not one. A leaf can carry both a constraint and a pin —
+            // `contentLiteralBytes` records the payload's length and its exact bytes — and a
+            // single slot could only ever emit whichever was asked for first. That is how the
+            // four committed `contentBytes` pins reached the emitter with their length checked
+            // and their value not.
+            let band = leaf.map_or_else(Vec::new, |c| {
+                let mut out = Vec::new();
                 if let Some(test) = super::fields::int_band(c, &id) {
-                    return Some(format!(
+                    out.push(format!(
                         "anyhow::ensure!({test}, \"{fmsg} out of range: {{}}\", {id});"
                     ));
                 }
@@ -607,44 +647,49 @@ fn emit_struct_reads(
                 // did not: the committed `token_type` child carries a `contentEnum` limited to
                 // two values and stored any string at all. Fourth site for that rule, the same
                 // count the integer band and the byte length each took to close.
-                if let Some(values) = super::fields::enum_values(c) {
+                else if let Some(values) = super::fields::enum_values(c) {
                     let arms = values
                         .iter()
                         .map(|v| rust_lit(v))
                         .collect::<Vec<_>>()
                         .join(" | ");
-                    return Some(format!(
+                    out.push(format!(
                         "anyhow::ensure!(matches!({id}.as_str(), {arms}), \"{fmsg} not accepted: {{:?}}\", {id});"
                     ));
+                } else if wap::method_field_type(&c.method) == ParsedFieldType::Bytes
+                    && let Some(test) = super::fields::byte_band(c, &id)
+                {
+                    out.push(format!(
+                        "anyhow::ensure!({test}, \"{fmsg} wrong length: {{}}\", {id}.len());"
+                    ));
                 }
-                if wap::method_field_type(&c.method) != ParsedFieldType::Bytes {
-                    return None;
-                }
-                let test = super::fields::byte_band(c, &id)?;
-                Some(format!(
-                    "anyhow::ensure!({test}, \"{fmsg} wrong length: {{}}\", {id}.len());"
-                ))
+                // …and the exact value the accessor pins, which the two other content paths
+                // compare and this one never did. Additive, not exclusive: a pinned payload has
+                // a length as well, and both are part of what the source accepts. The value
+                // inside the arm below is unwrapped, so the pin is asked of a present one.
+                out.extend(literal_pin(c, &id, &fmsg, "", false));
+                out
             });
             // Same two sources as the declared type, or the initializer will not match it.
             if f.method == "maybeChild" || !f.required {
-                match &band {
+                match band.is_empty() {
                     // Out of band is not absent, exactly as on the attribute path: the source
                     // accessor THROWS on a value outside its range, so folding it to `None`
                     // would take a response the parser rejects and leave the field simply
                     // missing.
-                    Some(check) => {
+                    false => {
                         lines.push(format!(
                             "{indent}let {id} = match {base}.get_optional_child({lit})"
                         ));
                         lines.push(format!("{indent}    .and_then(|n| n.{opt_read}) {{"));
                         lines.push(format!("{indent}    Some({id}) => {{"));
-                        lines.push(format!("{indent}        {check}"));
+                        lines.extend(band.iter().map(|c| format!("{indent}        {c}")));
                         lines.push(format!("{indent}        Some({id})"));
                         lines.push(format!("{indent}    }}"));
                         lines.push(format!("{indent}    None => None,"));
                         lines.push(format!("{indent}}};"));
                     }
-                    None => {
+                    true => {
                         lines.push(format!(
                             "{indent}let {id} = {base}.get_optional_child({lit})"
                         ));
@@ -681,9 +726,7 @@ fn emit_struct_reads(
                     &format!("{id}_node"),
                 ));
                 lines.push(format!("{indent}let {id} = {id}_node.{req_read};"));
-                if let Some(check) = &band {
-                    lines.push(format!("{indent}{check}"));
-                }
+                lines.extend(band.iter().map(|c| format!("{indent}{c}")));
             }
             inits.push(format!("{indent}    {id},"));
             continue;
@@ -2184,6 +2227,35 @@ mod tests {
     }
 
     #[test]
+    fn a_flattened_child_content_read_enforces_its_pin() {
+        // A leaf can carry BOTH a constraint and a pin — `contentLiteralBytes` records the
+        // payload's length and its exact bytes — and this path had a single check slot, so
+        // whichever was asked for first was the only one emitted. The committed
+        // `FetchKeyBundlesUserSuccess` carries such a leaf.
+        let mut leaf = ranged("nonce", None, None, true);
+        leaf.method = "contentBytes".into();
+        leaf.byte_length = Some(1);
+        leaf.literal_value = Some("05".into());
+        for required in [true, false] {
+            let src = emit_struct_parser(&[child_over(leaf.clone(), required)], "n", "R", "", "P")
+                .join("\n");
+            assert!(
+                src.contains("weight.len() == 1"),
+                "the length is still checked (required={required}): {src}"
+            );
+            assert!(
+                src.contains("weight.as_slice() == [0x05u8].as_slice()"),
+                "and so is the value (required={required}): {src}"
+            );
+        }
+        // The bound: a leaf with no pin emits only its length, exactly as before.
+        leaf.literal_value = None;
+        let src = emit_struct_parser(&[child_over(leaf, true)], "n", "R", "", "P").join("\n");
+        assert!(src.contains("weight.len() == 1"), "length: {src}");
+        assert!(!src.contains("is pinned to"), "nothing pinned: {src}");
+    }
+
+    #[test]
     fn a_flattened_child_content_read_enforces_its_vocabulary() {
         // Fourth site for the enum rule — the same count the integer band and the byte length
         // each took to close. The committed `token_type` child carries a `contentEnum` limited
@@ -2436,10 +2508,35 @@ mod tests {
         let src = emit_field_parse(&f, "n", "").join("\n");
         assert!(!src.contains("is pinned to"), "unrepresentable: {src}");
 
-        // And a bytes pin, recorded as text this does not decode.
+        // A BYTES pin used to be listed here too, as "text this does not decode". The scan
+        // writes it as the payload's bytes in lowercase hex, two digits each — a spelling
+        // `decode_hex` reads and the const-content builder already relies on — so declining it
+        // was a claim about my own recorder that was not true of it. Four live pins in the
+        // committed corpus went unenforced behind that claim. Another of the reversals the PR
+        // lists, and the second in this one test.
         f.method = "contentBytes".into();
         f.literal_value = Some("05".into());
         let src = emit_field_parse(&f, "n", "").join("\n");
-        assert!(!src.contains("is pinned to"), "bytes are left alone: {src}");
+        assert!(
+            src.contains("count.as_slice() == [0x05u8].as_slice()"),
+            "bytes are compared: {src}"
+        );
+
+        // What stays left alone is a pin whose text is NOT that spelling — an odd digit count
+        // or a non-hex character is not a payload this recorded, and guessing at one would
+        // reject responses the parser takes.
+        for text in ["5", "zz"] {
+            f.literal_value = Some(text.into());
+            let src = emit_field_parse(&f, "n", "").join("\n");
+            assert!(
+                !src.contains("is pinned to"),
+                "unreadable pin {text}: {src}"
+            );
+        }
+
+        // An empty pin says the payload is empty, which needs no literal to compare against.
+        f.literal_value = Some(String::new());
+        let src = emit_field_parse(&f, "n", "").join("\n");
+        assert!(src.contains("count.is_empty()"), "empty pin: {src}");
     }
 }

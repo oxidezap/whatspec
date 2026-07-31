@@ -42,6 +42,7 @@
       "degraded": 5,
       "dropsByReason": {
         "action enum table not structurally resolvable": 1,
+        "contentBytes": 1,
         "shadowedCallbackRead": 1
       },
       "stanzaTags": 13,

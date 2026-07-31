@@ -162,14 +162,31 @@ fn fail_required_fields(fields: &[wa_ir::ParsedField]) -> std::collections::BTre
 /// variant's parser validates ([`parser_is_valid`]); otherwise `None` (and nothing
 /// emitted), so the caller falls back to the single-shape/`()` path rather than
 /// generating an invalid parser. Models the IR's outcome wire shape, not domain types.
-/// The attribute pins a response variant asserts, as `(name, value)` — the set that has to
-/// pick this variant alone before a match may be treated as final.
-fn variant_pins(v: &ResponseVariant) -> Vec<(&str, &str)> {
+/// A value a response variant pins before it will accept a node.
+///
+/// Two kinds, because an outcome root has two things to pin: an ATTRIBUTE by name, and the
+/// node's own text CONTENT, which `literalContent` writes and which has no name at all.
+/// Modelling the set as `(name, value)` pairs kept the first and dropped the second, so a
+/// content-discriminated arm emitted no selector and took every response whose required fields
+/// happened to parse — whichever content value made the source parser select a later one.
+#[derive(PartialEq, Eq)]
+enum Pin<'a> {
+    Attr(&'a str, &'a str),
+    Content(&'a str),
+}
+
+/// The pins a response variant asserts — the set that has to pick this variant alone before a
+/// match may be treated as final.
+fn variant_pins(v: &ResponseVariant) -> Vec<Pin<'_>> {
     v.assertions
         .iter()
-        .filter(|a| a.kind == AssertionKind::Attr)
-        .filter_map(|a| match (&a.name, &a.value) {
-            (Some(name), Some(value)) => Some((name.as_str(), value.as_str())),
+        .filter_map(|a| match a.kind {
+            AssertionKind::Attr => match (&a.name, &a.value) {
+                (Some(name), Some(value)) => Some(Pin::Attr(name.as_str(), value.as_str())),
+                _ => None,
+            },
+            // `name` is unused for a content pin; the value is the whole of it.
+            AssertionKind::Content => a.value.as_deref().map(Pin::Content),
             _ => None,
         })
         .collect()
@@ -179,12 +196,16 @@ fn variant_pins(v: &ResponseVariant) -> Vec<(&str, &str)> {
 fn pin_conditions(v: &ResponseVariant, node: &str) -> Vec<String> {
     variant_pins(v)
         .into_iter()
-        .map(|(name, value)| {
-            format!(
+        .map(|pin| match pin {
+            Pin::Attr(name, value) => format!(
                 "{node}.get_attr({}).map(|x| x.as_str()).as_deref() == Some({})",
                 rust_lit(name),
                 rust_lit(value),
-            )
+            ),
+            Pin::Content(value) => format!(
+                "{node}.content_str().as_deref() == Some({})",
+                rust_lit(value),
+            ),
         })
         .collect()
 }
@@ -195,11 +216,17 @@ fn pin_conditions(v: &ResponseVariant, node: &str) -> Vec<String> {
 /// a value the node is free to carry, and a pin `mine` has that `other` lacks constrains
 /// nothing about `other`. So a variant pinning a SUPERSET of another's is still reachable
 /// through it, and an unpinned variant is reachable through every one of them.
-fn pins_can_coincide(mine: &[(&str, &str)], other: &[(&str, &str)]) -> bool {
-    !mine.iter().any(|(name, value)| {
-        other
-            .iter()
-            .any(|(o_name, o_value)| o_name == name && o_value != value)
+fn pins_can_coincide(mine: &[Pin<'_>], other: &[Pin<'_>]) -> bool {
+    !mine.iter().any(|m| {
+        other.iter().any(|o| match (m, o) {
+            (Pin::Attr(name, value), Pin::Attr(o_name, o_value)) => {
+                name == o_name && value != o_value
+            }
+            // A node has ONE text content, so two variants pinning it to different values are
+            // as exclusive as two disagreeing on an attribute.
+            (Pin::Content(value), Pin::Content(o_value)) => value != o_value,
+            _ => false,
+        })
     })
 }
 
@@ -897,6 +924,64 @@ mod tests {
             assertions,
             ..Default::default()
         }
+    }
+
+    fn conflict_content(value: &str) -> wa_ir::ResponseAssertion {
+        wa_ir::ResponseAssertion {
+            kind: AssertionKind::Content,
+            name: None,
+            value: Some(value.to_string()),
+            reference_path: None,
+        }
+    }
+
+    #[test]
+    fn a_content_pin_selects_a_variant_as_much_as_an_attribute_one() {
+        // An outcome root has two things to pin, and the pin set modelled only one. A variant
+        // discriminated by `literalContent` emitted no selector at all, so a response carrying
+        // both variants' required fields came back as the first regardless of which content
+        // value made the source parser choose the second.
+        let v = conflict_variant(vec![conflict_content("admin_add")]);
+        let conds = pin_conditions(&v, "response");
+        assert_eq!(
+            conds,
+            vec![r#"response.content_str().as_deref() == Some("admin_add")"#.to_string()],
+            "the content is compared"
+        );
+        // …and it discriminates: a node has ONE text content, so two variants pinning it to
+        // different values are as exclusive as two disagreeing on an attribute.
+        let other = conflict_variant(vec![conflict_content("admin_remove")]);
+        assert!(
+            !pins_can_coincide(&variant_pins(&v), &variant_pins(&other)),
+            "different content values cannot both match"
+        );
+        // The bounds. The same value still coincides; a content pin and an ATTRIBUTE pin
+        // constrain different things and never conflict; and an unpinned variant is still
+        // reachable through every one of them.
+        assert!(pins_can_coincide(
+            &variant_pins(&v),
+            &variant_pins(&conflict_variant(vec![conflict_content("admin_add")]))
+        ));
+        assert!(pins_can_coincide(
+            &variant_pins(&v),
+            &variant_pins(&conflict_variant(vec![conflict_attr(
+                "type",
+                Some("result")
+            )]))
+        ));
+        assert!(pins_can_coincide(
+            &variant_pins(&v),
+            &variant_pins(&conflict_variant(vec![]))
+        ));
+        // And an attribute pin still reads as one — the enum did not swallow the old shape.
+        let a = conflict_variant(vec![conflict_attr("type", Some("result"))]);
+        assert_eq!(
+            pin_conditions(&a, "response"),
+            vec![
+                r#"response.get_attr("type").map(|x| x.as_str()).as_deref() == Some("result")"#
+                    .to_string()
+            ]
+        );
     }
 
     #[test]

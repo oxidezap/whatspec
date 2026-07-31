@@ -326,11 +326,20 @@ fn field_from_call(
         // is not a decimal string: WA packs a prekey id into 3 bytes and a registration
         // id into 4, big-endian, so the length is part of the wire contract and dropping
         // it left the field looking like unbounded text.
-        wap::CONTENT_BYTES | "contentUint" => {
-            if let Some(Expression::NumericLiteral(n)) = arg0 {
-                f.byte_length = Some(n.value as u32);
-            }
-        }
+        wap::CONTENT_BYTES | "contentUint" => match arg0 {
+            // No length declared at all is not an unreadable one: `contentBytes()` accepts a
+            // payload of any size and says so completely. Recording a drop for it turned seven
+            // fully-read accessors into diagnostics — which the manifest showed the moment the
+            // tree was regenerated, and is why the diff is read rather than assumed.
+            None => {}
+            Some(Expression::NumericLiteral(n)) => match exact_byte_count(n.value) {
+                Some(len) => f.byte_length = Some(len),
+                None => unresolved.push(format!("{method}@{field_name}")),
+            },
+            // A length spelled in a way this pass cannot read is a constraint it would be
+            // publishing as absent, which is the drop worth recording.
+            Some(_) => unresolved.push(format!("{method}@{field_name}")),
+        },
         // `contentLiteralBytes(new Uint8Array([5]))` — the node is the receiver on this
         // path, so the sequence is argument 0 (smax passes the node first).
         "contentLiteralBytes" => match arg0.and_then(crate::response_smax::static_byte_literal) {
@@ -344,7 +353,7 @@ fn field_from_call(
         // length, which `byte_length` already expresses.
         "contentBytesRange" => {
             let bound = |i: usize| match call.arguments.get(i).and_then(arg_expr) {
-                Some(Expression::NumericLiteral(n)) => Some(n.value as u32),
+                Some(Expression::NumericLiteral(n)) => exact_byte_count(n.value),
                 _ => None,
             };
             match (bound(0), bound(1)) {
@@ -4790,16 +4799,87 @@ fn static_method<'b, 'a>(
     class: &'b oxc_ast::ast::Class<'a>,
     name: &str,
 ) -> Option<&'b oxc_ast::ast::Function<'a>> {
-    class.body.body.iter().rev().find_map(|el| match el {
-        oxc_ast::ast::ClassElement::MethodDefinition(m)
-            if m.r#static
-                && m.kind == oxc_ast::ast::MethodDefinitionKind::Method
-                && m.key.static_name().as_deref() == Some(name) =>
-        {
-            Some(&*m.value)
+    // A static FIELD of the same name overwrites the method, and not by source position: the
+    // two belong to different phases of class definition. Every method is installed on the class
+    // object first, and only then do the static initializers run — so `class { static m(){ … }
+    // static m = 0 }` and `class { static m = 0; static m(){ … } }` both end up with `m` set to
+    // `0`, and calling it throws without entering the method at all. Reading the last method of
+    // the name and skipping everything else recorded that body's writes for a call that never
+    // reaches it.
+    //
+    // A static BLOCK declines for the same reason one step further out: its `this` is the class,
+    // so `static { this.m = 0 }` replaces the property where nothing here can name it. An
+    // INSTANCE field is not this question — it belongs to the object `new` builds, and the class
+    // object never sees it.
+    let overwritten = class.body.body.iter().any(|el| match el {
+        oxc_ast::ast::ClassElement::StaticBlock(_) => true,
+        oxc_ast::ast::ClassElement::PropertyDefinition(p) => {
+            p.r#static && p.key.static_name().as_deref() == Some(name)
         }
-        _ => None,
-    })
+        oxc_ast::ast::ClassElement::AccessorProperty(p) => {
+            p.r#static && p.key.static_name().as_deref() == Some(name)
+        }
+        _ => false,
+    });
+    if overwritten {
+        return None;
+    }
+    // Among the methods themselves the LAST of the name wins, and a getter or setter of it is
+    // not a body this can call — reading the property would invoke the accessor and call
+    // whatever it returned, which is the leading-effects reader's question and not this one. So
+    // the search stops at the last static element naming the key either way.
+    // Found first, judged after — `find_map` answering `None` for the accessor would go on
+    // searching and hand back the method BELOW it, which is the property the class no longer
+    // has. The search names the last static definition of the key; whether that definition is
+    // callable is a separate question asked of it alone.
+    class
+        .body
+        .body
+        .iter()
+        .rev()
+        .find_map(|el| match el {
+            oxc_ast::ast::ClassElement::MethodDefinition(m)
+                if m.r#static && m.key.static_name().as_deref() == Some(name) =>
+            {
+                Some(&**m)
+            }
+            _ => None,
+        })
+        .filter(|m| m.kind == oxc_ast::ast::MethodDefinitionKind::Method)
+        .map(|m| &*m.value)
+}
+
+/// The static ACCESSOR a class expression names, when reading the property invokes one.
+///
+/// The class-object twin of the object-literal getter [`ParserAnalyzer`]'s invocation core
+/// recognizes: `(class { static get m(){ … } }).m()` runs that body to obtain the callee, before
+/// the arguments and before whatever it returned is called. `static_method` declines the shape —
+/// what the getter hands back is unreadable — and declining is not enough on its own, because a
+/// write the getter performs really does happen and leaving it deferred publishes a helper's
+/// reads under a node the parser has already replaced. Exactly the finding that was reported for
+/// the object literal, in the second place the same rule lives.
+///
+/// A getter only. A setter of the name supplies no value — reading it yields `undefined` — and
+/// its body does not run on a read at all.
+fn static_getter<'b, 'a>(
+    class: &'b oxc_ast::ast::Class<'a>,
+    name: &str,
+) -> Option<&'b oxc_ast::ast::Function<'a>> {
+    class
+        .body
+        .body
+        .iter()
+        .rev()
+        .find_map(|el| match el {
+            oxc_ast::ast::ClassElement::MethodDefinition(m)
+                if m.r#static && m.key.static_name().as_deref() == Some(name) =>
+            {
+                Some(&**m)
+            }
+            _ => None,
+        })
+        .filter(|m| m.kind == oxc_ast::ast::MethodDefinitionKind::Get)
+        .map(|m| &*m.value)
 }
 
 /// Whether `e` plainly has an own enumerable property, so `for-in` over it runs its body.
@@ -4864,6 +4944,31 @@ fn setter_without_getter(obj: &oxc_ast::ast::ObjectExpression<'_>, name: &str) -
         }
     }
     saw_setter
+}
+
+/// A byte count a payload length could actually equal, from the numeric literal that spells it.
+///
+/// `as u32` is a saturating truncation, so `contentBytes(1.5)` recorded a one-byte constraint and
+/// `contentBytes(-1)` a zero-byte one — two accessor contracts no payload can satisfy, described
+/// as two that plenty of payloads do. A count has to be a nonnegative whole number in range or
+/// the accessor is not one this pass read, and saying so leaves the field unconstrained rather
+/// than constrained wrongly. `content_length_index` has taken the checked conversion all along;
+/// this is the other reader of the same argument.
+fn exact_byte_count(v: f64) -> Option<u32> {
+    (v.fract() == 0.0 && v >= 0.0 && v <= f64::from(u32::MAX)).then_some(v as u32)
+}
+
+/// What a written argument evaluates, through the spread that may reshape where it lands.
+///
+/// `...f()` still CALLS `f`; the spread only changes which positions the result fills. Every
+/// reader here asked `Argument::as_expression`, which answers `None` for one — so a spread of a
+/// call that certainly throws read as an argument that evaluates nothing at all, and the body it
+/// stops was walked as one that runs.
+fn argument_expression<'b, 'a>(a: &'b Argument<'a>) -> Option<&'b Expression<'a>> {
+    match a {
+        Argument::SpreadElement(sp) => Some(&sp.argument),
+        other => other.as_expression(),
+    }
 }
 
 /// Whether `e` is certainly not iterable, so an array pattern taking it apart must throw.
@@ -6071,6 +6176,49 @@ impl AllBindings {
     /// Walk an invocation whose callee is a function written in place, returning whether it
     /// did. Everything that body writes lands at the invocation, everything an argument writes
     /// precedes the body, and what a comma callee evaluates on the way precedes both.
+    /// Walk an argument list left to right, stopping the EVALUATION after the first argument
+    /// that certainly raises: nothing written past it runs, so its writes are recorded nowhere
+    /// and the scopes it opens still are.
+    ///
+    /// The raising argument's own writes DO happen — it performs them before it leaves — so it
+    /// is walked normally and only what follows is unreachable. A tagged template's
+    /// substitutions continue the same list after the strings object the tag is handed first; a
+    /// quasi is text and evaluates nothing, so walking the expressions is the whole of what
+    /// `visit_template_literal` would have done.
+    ///
+    /// One rule, and one place for it. It was written inline for the throwing branch and the
+    /// getter branch had its own flat walk beside it, which is the split this file keeps paying
+    /// for — a getter's arguments stop at a throw exactly as any others do.
+    fn walk_arguments_to_the_throw<'a>(
+        &mut self,
+        arguments: &[oxc_ast::ast::Argument<'a>],
+        template: Option<&oxc_ast::ast::TemplateLiteral<'a>>,
+    ) {
+        let mut raised = false;
+        for arg in arguments {
+            if raised {
+                self.unreachable += 1;
+                self.visit_argument(arg);
+                self.unreachable -= 1;
+                continue;
+            }
+            self.visit_argument(arg);
+            raised = argument_expression(arg).is_some_and(expression_throws);
+        }
+        if let Some(q) = template {
+            for sub in &q.expressions {
+                if raised {
+                    self.unreachable += 1;
+                    self.visit_expression(sub);
+                    self.unreachable -= 1;
+                    continue;
+                }
+                self.visit_expression(sub);
+                raised = expression_throws(sub);
+            }
+        }
+    }
+
     fn walk_invocation<'a>(
         &mut self,
         callee_expr: &Expression<'a>,
@@ -6101,21 +6249,27 @@ impl AllBindings {
         // get m(){ … } }).m()` performs it too. Only the arguments and the getter are walked —
         // the result is never entered, which is the whole reason this shape needs its own branch.
         if let Some((name, object)) = named_member(peel(callee_expr))
-            && let Expression::ObjectExpression(o) = peel(object)
-            && let Some(op) = owned_property(o, name.as_ref())
-            && op.kind == oxc_ast::ast::PropertyKind::Get
-            && let Expression::FunctionExpression(f) = &op.value
+            && let Some(f) = match peel(object) {
+                Expression::ObjectExpression(o) => match owned_property(o, name.as_ref()) {
+                    Some(op) if op.kind == oxc_ast::ast::PropertyKind::Get => match &op.value {
+                        Expression::FunctionExpression(f) => Some(&**f),
+                        _ => None,
+                    },
+                    _ => None,
+                },
+                // …and a class's STATIC getter is the same shape on the class object. The
+                // method lookup declines it, correctly — what it returns is unreadable — and
+                // declining alone left the body deferred, which is the very defect that was
+                // reported for the object literal.
+                Expression::ClassExpression(c) => static_getter(c, name.as_ref()),
+                _ => None,
+            }
         {
             let restore = self.binding_getters.len();
             self.binding_getters.push((f.span, span.end));
             self.visit_expression(callee_expr);
             self.binding_getters.truncate(restore);
-            for arg in arguments {
-                self.visit_argument(arg);
-            }
-            if let Some(q) = template {
-                self.visit_template_literal(q);
-            }
+            self.walk_arguments_to_the_throw(arguments, template);
             return true;
         }
         // `new (f).call(null)` constructs `Function.prototype.call`, which has no [[Construct]]
@@ -6282,7 +6436,7 @@ impl AllBindings {
         // argument against leaving a half-stated rule for later.
         let argument_raises = arguments
             .iter()
-            .filter_map(oxc_ast::ast::Argument::as_expression)
+            .filter_map(argument_expression)
             .any(expression_throws)
             || template.is_some_and(|q| q.expressions.iter().any(expression_throws));
         if argument_raises
@@ -6308,32 +6462,7 @@ impl AllBindings {
             // position further along. The raising argument's own writes DO happen, before it
             // leaves, so it is walked rather than skipped; what follows it is walked as
             // unreachable, so the scopes it opens stay recorded and its writes do not.
-            let mut raised = false;
-            for arg in arguments {
-                if raised {
-                    self.unreachable += 1;
-                    self.visit_argument(arg);
-                    self.unreachable -= 1;
-                    continue;
-                }
-                self.visit_argument(arg);
-                raised = arg.as_expression().is_some_and(expression_throws);
-            }
-            // …and the substitutions continue that same left-to-right list, after the strings
-            // object the tag is handed first. A quasi is text and evaluates nothing, so walking
-            // the expressions is the whole of what `visit_template_literal` would have done.
-            if let Some(q) = template {
-                for sub in &q.expressions {
-                    if raised {
-                        self.unreachable += 1;
-                        self.visit_expression(sub);
-                        self.unreachable -= 1;
-                        continue;
-                    }
-                    self.visit_expression(sub);
-                    raised = expression_throws(sub);
-                }
-            }
+            self.walk_arguments_to_the_throw(arguments, template);
             self.unreachable += 1;
             self.visit_expression(callee_expr);
             self.unreachable -= 1;
@@ -13814,6 +13943,147 @@ mod tests {
         ] {
             let (required, _) = guards_and_field(body);
             assert!(!required, "that read is not on every path: {body}");
+        }
+    }
+
+    #[test]
+    fn a_byte_count_has_to_be_one_a_payload_could_equal() {
+        // `as u32` is a saturating truncation, so `contentBytes(1.5)` recorded a one-byte
+        // constraint and `contentBytes(-1)` a zero-byte one — two accessor contracts no payload
+        // can satisfy, described as two that plenty of payloads do. `content_length_index` has
+        // taken the checked conversion all along; this is the other reader of the same argument.
+        for src in [
+            r#"{ e.contentBytes(1.5); }"#,
+            r#"{ e.contentBytes(-1); }"#,
+            r#"{ e.contentBytes(1e12); }"#,
+            r#"{ e.contentBytesRange(1.5, 8); }"#,
+        ] {
+            let r = analyze_parser_ast(src, "e");
+            assert_eq!(
+                r.fields.first().and_then(|f| f.byte_length),
+                None,
+                "no payload length equals that: {src}"
+            );
+        }
+        // The bounds. A whole count in range is read exactly as before — zero included, which is
+        // a real constraint and not an absent one — and `contentUint` takes the same argument.
+        for (src, want) in [
+            (r#"{ e.contentBytes(32); }"#, Some(32u32)),
+            (r#"{ e.contentBytes(0); }"#, Some(0)),
+            (r#"{ e.contentUint(4); }"#, Some(4)),
+            (r#"{ e.contentBytesRange(4, 4); }"#, Some(4)),
+        ] {
+            let r = analyze_parser_ast(src, "e");
+            assert_eq!(
+                r.fields.first().and_then(|f| f.byte_length),
+                want,
+                "read as written: {src}"
+            );
+        }
+        // And no length at all is not an unreadable one: `contentBytes()` accepts a payload of
+        // any size and says so completely, so it records neither a constraint nor a drop. Only
+        // a length spelled in a way this cannot read is worth a diagnostic — the bundles write
+        // one as a module constant, and it is the single new drop in the manifest.
+        let r = analyze_parser_ast(r#"{ e.contentBytes(); }"#, "e");
+        assert_eq!(r.fields.first().and_then(|f| f.byte_length), None);
+        assert!(
+            !r.unresolved.iter().any(|u| u.starts_with("contentBytes")),
+            "a complete accessor is not a drop: {:?}",
+            r.unresolved
+        );
+        let r = analyze_parser_ast(r#"{ e.contentBytes(SOME.value); }"#, "e");
+        assert!(
+            r.unresolved.iter().any(|u| u.starts_with("contentBytes")),
+            "an unreadable length is: {:?}",
+            r.unresolved
+        );
+    }
+
+    #[test]
+    fn an_argument_list_stops_at_a_throw_wherever_it_is_walked() {
+        // Two shapes the left-to-right cutoff was missing. A GETTER-supplied callee had its own
+        // flat argument walk beside the rule rather than reading it, and a SPREAD is invisible
+        // to `Argument::as_expression` — `...f()` still calls `f`, so a spread of a call that
+        // certainly throws read as an argument evaluating nothing at all.
+        for body in [
+            "var current = e; try { ({ get m(){ return function(){} } }).m((function(){throw 0})(), current = other); } catch (_) {} parse(current);",
+            "var current = e; try { (function(){ current = other; })(...(function(){throw 0})()); } catch (_) {} parse(current);",
+            "var current = e; try { (function(){})(...(function(){throw 0})(), current = other); } catch (_) {} parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that assignment is never evaluated: {body}"
+            );
+        }
+        // The bounds, the same three the ordinary list has: everything before the throw runs, a
+        // spread that raises nothing is an ordinary argument, and a call with nothing raising is
+        // untouched.
+        for body in [
+            "var current = e; try { ({ get m(){ return function(){} } }).m(current = other, (function(){throw 0})()); } catch (_) {} parse(current);",
+            "var current = e; try { (function(){})(current = other, ...(function(){throw 0})()); } catch (_) {} parse(current);",
+            "var current = e; (function(){ current = other; })(...xs); parse(current);",
+            "var current = e; ({ get m(){ return function(){} } }).m(current = other); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that write does happen: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_static_field_takes_the_property_from_a_method_of_the_same_name() {
+        // Class definition installs every method on the class object first and runs the static
+        // initializers second, so a static FIELD of the name wins whichever side of the method
+        // it is written — calling it throws without entering the method at all. The lookup read
+        // the last method of the name and skipped everything else, recording that body's writes
+        // for a call that never reaches it.
+        for body in [
+            "var current = e; try { (class { static m(){ current = other; } static m = 0; }).m(); } catch (_) {} parse(current);",
+            "var current = e; try { (class { static m = 0; static m(){ current = other; } }).m(); } catch (_) {} parse(current);",
+            // A static BLOCK can install one where nothing here can name it…
+            "var current = e; try { (class { static m(){ current = other; } static { this.m = 0; } }).m(); } catch (_) {} parse(current);",
+            // …and a static ACCESSOR of the name occupies the property too, so reading it
+            // invokes the accessor and calls whatever that returned — not this body.
+            "var current = e; (class { static m(){ current = other; } static get m(){ return function(){} } }).m(); parse(current);",
+            // A static SETTER supplies no value at all: reading the property yields `undefined`
+            // and the call throws, with neither body entered — not the method it displaces, and
+            // not the setter itself, whose body runs on a WRITE and never on a read.
+            "var current = e; try { (class { static m(){ current = other; } static set m(v){} }).m(); } catch (_) {} parse(current);",
+            "var current = e; try { (class { static set m(v){ current = other; } }).m(); } catch (_) {} parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                fields.iter().any(|f| f.name == "id"),
+                "that method is not what the class holds: {body}"
+            );
+        }
+        // …and a static getter's own BODY runs when the property is read, whatever it hands
+        // back — the class-object twin of the object-literal rule, and the same defect it was
+        // reported for: leaving that write deferred publishes the helper's reads under a node
+        // the parser has already replaced.
+        let fields = helper_reached_via(
+            "var current = e; (class { static get m(){ current = other; return function(){} } }).m(); parse(current);",
+        );
+        assert!(
+            !fields.iter().any(|f| f.name == "id"),
+            "that getter already ran: {fields:?}"
+        );
+        // The bounds. A method nothing overwrites still runs where it is called; a field of a
+        // DIFFERENT name touches nothing; and an INSTANCE field belongs to the object `new`
+        // builds, which the class object never sees.
+        for body in [
+            "var current = e; (class { static m(){ current = other; } }).m(); parse(current);",
+            "var current = e; (class { static m(){ current = other; } static n = 0; }).m(); parse(current);",
+            "var current = e; (class { static m(){ current = other; } m = 0; }).m(); parse(current);",
+        ] {
+            let fields = helper_reached_via(body);
+            assert!(
+                !fields.iter().any(|f| f.name == "id"),
+                "that method already ran: {body}"
+            );
         }
     }
 
