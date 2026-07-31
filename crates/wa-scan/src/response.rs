@@ -3972,15 +3972,24 @@ fn synchronous_until(
                 walk::walk_switch_statement(self, st);
                 return;
             };
+            // Two passes, because the tests are a phase of their own: the switch evaluates them
+            // in order and stops at the match, and only then enters an arm. Reading both in one
+            // loop let the `break` that ends the fallthrough cut off a test that runs before any
+            // arm is entered at all.
+            //
+            // Up to the match — unless the match is the DEFAULT, which is entered only after
+            // every test has been evaluated and found not to match, including the ones written
+            // after it. `statically_selected_case` answers with the default's index there, and
+            // reading it as a stopping point skipped a test that runs.
+            let all_tests = st.cases[selected].test.is_none();
             for (i, case) in st.cases.iter().enumerate() {
                 if let Some(test) = &case.test
-                    && i <= selected
+                    && (all_tests || i <= selected)
                 {
                     self.visit_expression(test);
                 }
-                if i < selected {
-                    continue;
-                }
+            }
+            for case in st.cases.iter().skip(selected) {
                 // …and the fallthrough STOPS at a `break`, which is what makes "from the
                 // selected case onward" a reachability claim rather than a range.
                 let mut left = false;
@@ -5697,7 +5706,17 @@ fn call_throws(c: &CallExpression<'_>) -> bool {
     // A default the call SUPPLIES a value for never runs, so the ones that raise are only those
     // past the written arguments — the same question `walk_invocation` asks, spelled for the
     // arguments this call really has.
-    if let Some(p) = params
+    //
+    // A SPREAD is not one position. `f(...[1, 2])` supplies two, and counting the written
+    // arguments read the second parameter as unsupplied and its default as one that runs — so a
+    // call that completes was called certain to raise, and the arm beside it was promoted.
+    // Which positions a spread fills is not a question this can answer, so certainty ends there.
+    let complete = !c
+        .arguments
+        .iter()
+        .any(|a| matches!(a, Argument::SpreadElement(_)));
+    if complete
+        && let Some(p) = params
         && p.items
             .iter()
             .skip(c.arguments.len())
@@ -5739,7 +5758,11 @@ fn short_circuit_base<'b, 'a>(e: &'b Expression<'a>) -> Option<&'b Expression<'a
             short_circuit_base(object)
         }
     };
-    match peel_parens(e) {
+    // NOT through parentheses. They terminate an optional chain: `(null?.m)(…)` evaluates its
+    // argument and then throws on calling `undefined`, where `null?.m(…)` short-circuits and
+    // evaluates nothing. Peeling them reported the inner link and skipped an argument the source
+    // really reads.
+    match e {
         Expression::ChainExpression(c) => match &c.expression {
             oxc_ast::ast::ChainElement::CallExpression(inner) => {
                 link(inner.optional, &inner.callee)
@@ -17281,6 +17304,22 @@ mod tests {
             ),
             "an unselected case suspends nothing",
         );
+        // …but a selected DEFAULT is entered only after every test has been evaluated, so a
+        // test written after it still runs.
+        assert!(
+            reaches(
+                "var current = e; (async function(){ switch ('x') { default: break; case (await 0, 'y'): break; } current = other; })(); parse(current);"
+            ),
+            "a test past the default is evaluated on the way to it",
+        );
+        // The bound: where the match HAS a test, the tests after it are not evaluated — which
+        // is what keeps the default case above from being the rule for every selection.
+        assert!(
+            !reaches(
+                "var current = e; (async function(){ switch ('a') { case 'a': break; case (await 0, 'b'): break; } current = other; })(); parse(current);"
+            ),
+            "the switch stops testing at the match",
+        );
         // The bound: an await in the SELECTED case, or in one reachable by falling through,
         // really is the cutoff.
         assert!(
@@ -17326,6 +17365,33 @@ mod tests {
             required("flag ? (function(x = (function(){ throw 0; })()){})(1) : parse(e);"),
             Some(false),
             "a supplied parameter prevents its default",
+        );
+        // A SPREAD is not one position, so which parameters it supplies is undecidable and
+        // certainty ends there.
+        assert_eq!(
+            required(
+                "flag ? (function(x, y = (function(){ throw 0; })()){})(...[1, 2]) : parse(e);"
+            ),
+            Some(false),
+            "a spread may supply the parameter whose default raises",
+        );
+    }
+
+    /// Parentheses TERMINATE an optional chain, so the call outside them is an ordinary one.
+    #[test]
+    fn parentheses_end_an_optional_chain() {
+        assert!(
+            helper_reached_via("try { (null?.m)(e.attrString(\"id\")); } catch (_) {}")
+                .iter()
+                .any(|f| f.name == "id"),
+            "the argument is evaluated before calling `undefined`",
+        );
+        // The bound: without the parentheses the same link really does short-circuit.
+        assert!(
+            helper_reached_via("null?.m(e.attrString(\"id\"));")
+                .iter()
+                .all(|f| f.name != "id"),
+            "the chain spelling evaluates nothing",
         );
     }
 
