@@ -1311,6 +1311,26 @@ pub(crate) struct VariantCtx<'a> {
     pub spec_base: &'a str,
     pub enum_defs: &'a mut Vec<String>,
     pub fields: &'a mut Vec<(String, String, bool)>,
+    /// Field names the spec already declares from the request's ATTRIBUTES, collected before
+    /// this walk begins and so invisible to `fields`.
+    ///
+    /// A content field is synthesized from the node's var name, and a node may carry an
+    /// attribute that spells the same thing: `<website website_content="…">payload</website>`
+    /// declared `website_content` twice, with two types and two constructor parameters, and the
+    /// generated module did not compile.
+    pub reserved: &'a std::collections::HashSet<String>,
+}
+
+/// A field name this spec does not already use, from either source.
+fn unique_field(ctx: &VariantCtx, base: &str) -> String {
+    let taken = |n: &str| ctx.reserved.contains(n) || ctx.fields.iter().any(|(f, _, _)| f == n);
+    if !taken(base) {
+        return base.to_string();
+    }
+    (2..)
+        .map(|n| format!("{base}_{n}"))
+        .find(|n| !taken(n))
+        .expect("an unused suffix exists")
 }
 
 /// Emit the `let <tag>_node = NodeBuilder::new("tag")…build();` statements for a
@@ -1361,7 +1381,7 @@ pub(crate) fn emit_child_builder(
             .as_ref()
             .is_some_and(|c| c.kind == WapContentKind::Dynamic && c.const_bytes.is_none())
     {
-        let field = content_field_name(&var_name);
+        let field = unique_field(ctx, &content_field_name(&var_name));
         ctx.fields
             .push((field.clone(), "Vec<Vec<u8>>".to_string(), false));
         let list = format!("{var_name}s");
@@ -1619,7 +1639,7 @@ fn emit_node_content(
     // *terminal* `_node` segment (the var is `{tag}_node` or `{tag}_node_{n}`) so a
     // tag that itself contains `_node` isn't corrupted (`node_id_node` → `node_id_content`).
     if content.kind == WapContentKind::Bytes {
-        let field = content_field_name(var_name);
+        let field = unique_field(ctx, &content_field_name(var_name));
         ctx.fields
             .push((field.clone(), "Vec<u8>".to_string(), false));
         return vec![format!(
@@ -1654,7 +1674,7 @@ fn emit_node_content(
     // spec unable to express the bytes the source builder accepts. A caller holding text writes
     // `.into_bytes()` and loses nothing; one holding bytes had no spelling at all.
     if content.kind == WapContentKind::Dynamic {
-        let field = content_field_name(var_name);
+        let field = unique_field(ctx, &content_field_name(var_name));
         ctx.fields
             .push((field.clone(), "Vec<u8>".to_string(), false));
         return vec![format!(
@@ -2350,10 +2370,12 @@ mod tests {
     /// exercise variant groups).
     fn build1(child: &WapChildNode) -> (Vec<String>, String, bool) {
         let (mut enums, mut fields) = (Vec::new(), Vec::new());
+        let reserved = std::collections::HashSet::new();
         let mut ctx = VariantCtx {
             spec_base: "T",
             enum_defs: &mut enums,
             fields: &mut fields,
+            reserved: &reserved,
         };
         emit_child_builder(child, "", &mut HashMap::new(), &mut ctx)
     }
@@ -2443,10 +2465,12 @@ mod tests {
             }],
         };
         let (mut enums, mut fields) = (Vec::new(), Vec::new());
+        let reserved = std::collections::HashSet::new();
         let mut ctx = VariantCtx {
             spec_base: "T",
             enum_defs: &mut enums,
             fields: &mut fields,
+            reserved: &reserved,
         };
         let (lines, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
         let src = lines.join("\n");
@@ -2674,10 +2698,12 @@ mod tests {
             ..Default::default()
         });
         let (mut enums, mut fields) = (Vec::new(), Vec::new());
+        let reserved = std::collections::HashSet::new();
         let mut ctx = VariantCtx {
             spec_base: "T",
             enum_defs: &mut enums,
             fields: &mut fields,
+            reserved: &reserved,
         };
         let (lines, var, is_list) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
         assert!(is_list, "the child yields a list of nodes");
@@ -2705,10 +2731,12 @@ mod tests {
             ..Default::default()
         });
         let (mut enums, mut fields) = (Vec::new(), Vec::new());
+        let reserved = std::collections::HashSet::new();
         let mut ctx = VariantCtx {
             spec_base: "T",
             enum_defs: &mut enums,
             fields: &mut fields,
+            reserved: &reserved,
         };
         let (_, var, is_list) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
         assert!(!is_list && var == "website_node", "one node: {var}");
@@ -2747,10 +2775,12 @@ mod tests {
             }],
         };
         let (mut enums, mut fields) = (Vec::new(), Vec::new());
+        let reserved = std::collections::HashSet::new();
         let mut ctx = VariantCtx {
             spec_base: "T",
             enum_defs: &mut enums,
             fields: &mut fields,
+            reserved: &reserved,
         };
         let (lines, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
         let defs = enums.join("\n");
@@ -2780,10 +2810,12 @@ mod tests {
             }],
         };
         let (mut enums, mut fields) = (Vec::new(), Vec::new());
+        let reserved = std::collections::HashSet::new();
         let mut ctx = VariantCtx {
             spec_base: "T",
             enum_defs: &mut enums,
             fields: &mut fields,
+            reserved: &reserved,
         };
         let (_, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
         let defs = enums.join("\n");
@@ -2809,10 +2841,12 @@ mod tests {
             }],
         };
         let (mut enums, mut fields) = (Vec::new(), Vec::new());
+        let reserved = std::collections::HashSet::new();
         let mut ctx = VariantCtx {
             spec_base: "T",
             enum_defs: &mut enums,
             fields: &mut fields,
+            reserved: &reserved,
         };
         let (_, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
         let defs = enums.join("\n");
@@ -2844,10 +2878,12 @@ mod tests {
             }],
         };
         let (mut enums, mut fields) = (Vec::new(), Vec::new());
+        let reserved = std::collections::HashSet::new();
         let mut ctx = VariantCtx {
             spec_base: "T",
             enum_defs: &mut enums,
             fields: &mut fields,
+            reserved: &reserved,
         };
         let (lines, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
         // A child that does not repeat is exactly ONE node, and its cardinality survives the
@@ -2885,10 +2921,12 @@ mod tests {
             }],
         };
         let (mut enums, mut fields) = (Vec::new(), Vec::new());
+        let reserved = std::collections::HashSet::new();
         let mut ctx = VariantCtx {
             spec_base: "T",
             enum_defs: &mut enums,
             fields: &mut fields,
+            reserved: &reserved,
         };
         let (lines, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
         assert!(
@@ -2917,10 +2955,12 @@ mod tests {
             ..Default::default()
         });
         let (mut enums, mut fields) = (Vec::new(), Vec::new());
+        let reserved = std::collections::HashSet::new();
         let mut ctx = VariantCtx {
             spec_base: "T",
             enum_defs: &mut enums,
             fields: &mut fields,
+            reserved: &reserved,
         };
         let (lines, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
         // `Dynamic` says the scan could not resolve the value, not that the value is text —
@@ -2934,6 +2974,37 @@ mod tests {
                 .join("\n")
                 .contains("website_node = website_node.bytes(self.website_content.clone());"),
             "and it is written as the node's content: {}",
+            lines.join("\n")
+        );
+        // …and the synthesized name must not collide with an attribute the spec already
+        // declares: `<website website_content="…">payload</website>` declared the field twice,
+        // with two types and two constructor parameters.
+        let mut node = leaf("website");
+        node.content = Some(wa_ir::WapContent {
+            kind: WapContentKind::Dynamic,
+            ..Default::default()
+        });
+        let (mut enums, mut fields) = (Vec::new(), Vec::new());
+        let reserved: std::collections::HashSet<String> =
+            ["website_content".to_string()].into_iter().collect();
+        let mut ctx = VariantCtx {
+            spec_base: "T",
+            enum_defs: &mut enums,
+            fields: &mut fields,
+            reserved: &reserved,
+        };
+        let (lines, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
+        assert!(
+            fields.contains(&(
+                "website_content_2".to_string(),
+                "Vec<u8>".to_string(),
+                false
+            )),
+            "the content field steps around the attribute: {fields:?}"
+        );
+        assert!(
+            lines.join("\n").contains("self.website_content_2.clone()"),
+            "and the build reads the name it declared: {}",
             lines.join("\n")
         );
         // The bound: a node with no content declared still builds empty.
@@ -2951,10 +3022,12 @@ mod tests {
             ..Default::default()
         });
         let (mut enums, mut fields) = (Vec::new(), Vec::new());
+        let reserved = std::collections::HashSet::new();
         let mut ctx = VariantCtx {
             spec_base: "T",
             enum_defs: &mut enums,
             fields: &mut fields,
+            reserved: &reserved,
         };
         let (lines, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
         assert!(
@@ -3017,10 +3090,12 @@ mod tests {
             ],
         };
         let (mut enums, mut fields) = (Vec::new(), Vec::new());
+        let reserved = std::collections::HashSet::new();
         let mut ctx = VariantCtx {
             spec_base: "Foo",
             enum_defs: &mut enums,
             fields: &mut fields,
+            reserved: &reserved,
         };
         let (lines, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
         let enum_src = enums.join("\n");
@@ -3094,10 +3169,12 @@ mod tests {
             }],
         };
         let (mut enums, mut fields) = (Vec::new(), Vec::new());
+        let reserved = std::collections::HashSet::new();
         let mut ctx = VariantCtx {
             spec_base: "Foo",
             enum_defs: &mut enums,
             fields: &mut fields,
+            reserved: &reserved,
         };
         let (lines, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
         let enum_src = enums.join("\n");
@@ -3401,10 +3478,12 @@ mod tests {
             variant_groups: vec![],
         };
         let (mut enums, mut fields) = (Vec::new(), Vec::new());
+        let reserved = std::collections::HashSet::new();
         let mut ctx = VariantCtx {
             spec_base: "T",
             enum_defs: &mut enums,
             fields: &mut fields,
+            reserved: &reserved,
         };
         let (lines, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
         let code = lines.join("\n");
@@ -3440,10 +3519,12 @@ mod tests {
             variant_groups: vec![],
         };
         let (mut enums, mut fields) = (Vec::new(), Vec::new());
+        let reserved = std::collections::HashSet::new();
         let mut ctx = VariantCtx {
             spec_base: "T",
             enum_defs: &mut enums,
             fields: &mut fields,
+            reserved: &reserved,
         };
         emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
         assert_eq!(fields[0].0, "node_id_content");
@@ -3467,10 +3548,12 @@ mod tests {
             variant_groups: vec![],
         };
         let (mut enums, mut fields) = (Vec::new(), Vec::new());
+        let reserved = std::collections::HashSet::new();
         let mut ctx = VariantCtx {
             spec_base: "T",
             enum_defs: &mut enums,
             fields: &mut fields,
+            reserved: &reserved,
         };
         let (lines, _, _) = emit_child_builder(&node, "", &mut HashMap::new(), &mut ctx);
         assert!(fields.is_empty(), "no spec field for a malformed constant");

@@ -3744,6 +3744,23 @@ fn is_quiet(st: &Statement<'_>) -> bool {
 /// The first one in source order, not the first one every path reaches — a write past an
 /// `await` some execution performs is one the caller does not wait for, and the caller's own
 /// statements are all that this scanner reads.
+/// The regions of `f` that a CALL runs synchronously, whichever way the callee was resolved.
+///
+/// A generator builds an iterator and runs none of its body until something advances it; its
+/// PARAMETERS are still bound by the call, so a default there really does run. An `async`
+/// function is the same shape with a different cut, which [`synchronous_until`] draws.
+///
+/// One function because the callee arrives two ways. An inline `function*` expression has known
+/// this since the round it was reported for, and a class METHOD the resolution hands back read
+/// only `async` — so `(class { static *m(){ … } }).m()` had its whole body recorded as run.
+fn invoked_regions(f: &Function<'_>) -> Vec<Span> {
+    if f.generator {
+        vec![f.params.span]
+    } else {
+        synchronous_until(f.r#async, f.span, f.body.as_deref())
+    }
+}
+
 fn synchronous_until(
     is_async: bool,
     span: Span,
@@ -7211,10 +7228,7 @@ impl AllBindings {
             None => (construction_regions(callee, constructs), callee.span()),
         };
         let runs_now = if let Some(f) = static_called {
-            self.iife.push((
-                f.span,
-                synchronous_until(f.r#async, f.span, f.body.as_deref()),
-            ));
+            self.iife.push((f.span, invoked_regions(f)));
             true
         } else {
             match callee {
@@ -8278,6 +8292,17 @@ impl<'a> Visit<'a> for AllBindings {
                 self.visit_expression(test);
             }
         }
+        // The switch stops TESTING once a case matches, so a test written after the one that
+        // certainly matches is evaluated on no path: `switch ('a') { case 'a': break; case
+        // (current = other): break; }` performs no assignment. Reading every test as merely
+        // conditional made the binding ambiguous and dropped the reads through it.
+        //
+        // Only where a test really matched. `statically_selected_case` also answers with the
+        // DEFAULT when none does, and that is the case where every test was evaluated — so the
+        // index is taken only when it names a case that has one. The consequents are untouched:
+        // a later arm is still reachable by falling through from the matched one.
+        let matched = statically_selected_case(&stmt.discriminant, &stmt.cases)
+            .filter(|&i| stmt.cases[i].test.is_some());
         self.maybe_skipped(|s| {
             for (i, case) in stmt.cases.iter().enumerate() {
                 if i < guaranteed {
@@ -8285,8 +8310,16 @@ impl<'a> Visit<'a> for AllBindings {
                     for st in &case.consequent {
                         s.visit_statement(st);
                     }
-                } else {
-                    s.visit_switch_case(case);
+                    continue;
+                }
+                if let Some(test) = &case.test {
+                    let never = matched.is_some_and(|m| i > m);
+                    s.unreachable += u32::from(never);
+                    s.visit_expression(test);
+                    s.unreachable -= u32::from(never);
+                }
+                for st in &case.consequent {
+                    s.visit_statement(st);
                 }
             }
         });
@@ -8361,6 +8394,22 @@ impl<'a> Visit<'a> for AllBindings {
             self.after_the_iterable(stmt.right.span(), |s| {
                 s.visit_for_statement_left(&stmt.left);
                 s.walk_first_pass(&stmt.body);
+            });
+            self.blocks.pop();
+            self.loops.pop();
+            return;
+        }
+        // …and a value that cannot be iterated at all raises while the ITERATOR is obtained,
+        // before the target is bound and before the body is entered. `for (current of null) {}`
+        // writes nothing, and recording the target write invalidated the alias `current` held —
+        // the same predicate the array-literal spread and the array pattern already read, on the
+        // third construct that has to obtain an iterator.
+        if certainly_not_iterable(&stmt.right) {
+            self.after_the_iterable(stmt.right.span(), |s| {
+                s.unreachable += 1;
+                s.visit_for_statement_left(&stmt.left);
+                s.visit_statement(&stmt.body);
+                s.unreachable -= 1;
             });
             self.blocks.pop();
             self.loops.pop();
@@ -16651,6 +16700,106 @@ mod tests {
             ),
             vec!["second".to_string()],
             "last declaration wins where both really hoist",
+        );
+    }
+
+    /// A switch stops TESTING once a case matches, so a test written after the one that
+    /// certainly matches is evaluated on no path.
+    #[test]
+    fn a_case_test_after_the_matching_one_never_runs() {
+        let reaches = |body: &str| helper_reached_via(body).iter().any(|f| f.name == "id");
+        assert!(
+            reaches(
+                "var current = e; switch ('a') { case 'a': break; case (current = other): break; } parse(current);"
+            ),
+            "the later test is never evaluated, so the write never happens",
+        );
+        // The bound: a test written BEFORE the matching one is evaluated on the way to it.
+        assert!(
+            !reaches(
+                "var current = e; switch ('b') { case (current = other): break; case 'b': break; } parse(current);"
+            ),
+            "an earlier test runs and its write stands",
+        );
+        // The MATCHING case's own test is evaluated — it is the one that matched — so a write
+        // on the way to its value stands. `peel` reads a comma's last element, so a test can
+        // both perform a write and be the literal that selects.
+        assert!(
+            !reaches(
+                "var current = e; switch ('b') { case 'a': break; case (current = other, 'b'): break; } parse(current);"
+            ),
+            "the matching test runs and its write stands",
+        );
+        // …and where nothing matches, every test is evaluated — which is what falling to the
+        // DEFAULT means. `statically_selected_case` answers with the default's index there, and
+        // that index names no test, so nothing after it is dead.
+        assert!(
+            !reaches(
+                "var current = e; switch ('z') { case 'a': break; default: break; case (current = other, 'y'): break; } parse(current);"
+            ),
+            "falling to the default still evaluates every test",
+        );
+        // …and an undecidable discriminant settles nothing.
+        assert!(
+            !reaches(
+                "var current = e; switch (k) { case 'a': break; case (current = other): break; } parse(current);"
+            ),
+            "an unreadable discriminant leaves every test live",
+        );
+        // The CONSEQUENT of a later case is still reachable by falling through.
+        assert!(
+            !reaches(
+                "var current = e; switch ('a') { case 'a': case 'b': current = other; } parse(current);"
+            ),
+            "fallthrough reaches the later consequent",
+        );
+    }
+
+    /// Obtaining an iterator from something that cannot be iterated raises before the loop
+    /// target is bound, so `for (current of null) {}` writes nothing.
+    #[test]
+    fn a_for_of_over_something_uniterable_binds_nothing() {
+        let reaches = |body: &str| helper_reached_via(body).iter().any(|f| f.name == "id");
+        assert!(
+            reaches(
+                "var current = e; try { for (current of null) {} } catch (_) {} parse(current);"
+            ),
+            "the iterator is never obtained, so the target is never written",
+        );
+        assert!(
+            reaches("var current = e; try { for (current of 1) {} } catch (_) {} parse(current);"),
+            "a number is no more iterable than `null`",
+        );
+        // The bound: an iterable really may write the target.
+        assert!(
+            !reaches("var current = e; for (current of xs) {} parse(current);"),
+            "an unreadable right side leaves the write standing",
+        );
+    }
+
+    /// Calling a generator METHOD builds an iterator and runs none of its body, exactly as an
+    /// inline `function*` does — the class-method resolution read only `async`.
+    #[test]
+    fn a_generator_class_method_defers_its_body() {
+        let reaches = |body: &str| helper_reached_via(body).iter().any(|f| f.name == "id");
+        assert!(
+            reaches(
+                "var current = e; (class { static *m(){ current = other; } }).m(); parse(current);"
+            ),
+            "a static generator method runs none of its body",
+        );
+        assert!(
+            reaches(
+                "var current = e; (new (class { *m(){ current = other; } })).m(); parse(current);"
+            ),
+            "and neither does an instance one",
+        );
+        // The bound: an ordinary method really does run, and its write stands.
+        assert!(
+            !reaches(
+                "var current = e; (class { static m(){ current = other; } }).m(); parse(current);"
+            ),
+            "an ordinary static method runs now",
         );
     }
 

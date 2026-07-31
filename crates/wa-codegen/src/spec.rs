@@ -558,6 +558,8 @@ pub(crate) fn generate_spec(op: &IqStanzaDef, ns_const: &str, spec_name: &str) -
     let spec_base = spec_name.trim_end_matches("Spec").to_string();
     let mut variant_enums: Vec<String> = Vec::new();
     let mut variant_fields: Vec<(String, String, bool)> = Vec::new();
+    // The attribute field names, so a synthesized content field cannot collide with one.
+    let reserved: HashSet<String> = spec_fields.iter().map(|(n, _, _)| n.clone()).collect();
     let build_iq_lines = emit_build_iq(
         op,
         ns_const,
@@ -565,6 +567,7 @@ pub(crate) fn generate_spec(op: &IqStanzaDef, ns_const: &str, spec_name: &str) -
         &spec_base,
         &mut variant_enums,
         &mut variant_fields,
+        &reserved,
     );
 
     // ── Variant enums (top-level, before the struct that references them) ──
@@ -806,6 +809,7 @@ fn emit_build_iq(
     spec_base: &str,
     variant_enums: &mut Vec<String>,
     variant_fields: &mut Vec<(String, String, bool)>,
+    reserved: &HashSet<String>,
 ) -> Vec<String> {
     let mut lines = vec!["    fn build_iq(&self) -> InfoQuery<'static> {".to_string()];
     let target = if matches!(op.target, IqTarget::Group) {
@@ -818,6 +822,7 @@ fn emit_build_iq(
             spec_base,
             enum_defs: variant_enums,
             fields: variant_fields,
+            reserved,
         };
         let mut top_var_names: Vec<(String, bool)> = Vec::new();
         let mut used_names = std::collections::HashMap::new();
