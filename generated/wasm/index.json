@@ -1,7 +1,13 @@
 {
   "schemaVersion": "2.0.0",
-  "waVersion": "2.3000.1044236315",
+  "waVersion": "2.3000.1044659339",
   "binaries": [
+    {
+      "name": "/wasm/whatsapp/versioned/e55e43babf85e2c0fc76ec65dcb8d47beba0f58b03b135b37a5aaaff7fe70e2f/wa_voip_shared.wasm",
+      "modules": [
+        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
+      ]
+    },
     {
       "name": "crypto_utils_v2.wasm",
       "modules": [
@@ -81,6 +87,16 @@
         "WAWebBizAiAssetResolver"
       ],
       "wasmHint": []
+    },
+    {
+      "bxId": "14100",
+      "consumers": [
+        "WAWebVoipWebWasmLoader_ContentAddressed_internal"
+      ],
+      "wasmHint": [
+        "moduleName",
+        "wasmBinaryLiteral"
+      ]
     },
     {
       "bxId": "14943",

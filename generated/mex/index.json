@@ -1,6 +1,6 @@
 {
   "schemaVersion": "2.0.0",
-  "waVersion": "2.3000.1044236315",
+  "waVersion": "2.3000.1044659339",
   "operations": {
     "ACSServerProviderConfig": {
       "originalName": "WAWebACSServerProviderConfigQuery",
@@ -849,6 +849,66 @@
         }
       }
     },
+    "ContactManagerCustomerProfileUpsert": {
+      "originalName": "WAWebContactManagerCustomerProfileUpsertMutation",
+      "docId": "27789071790751197",
+      "operationKind": "mutation",
+      "variables": [
+        "input"
+      ],
+      "variablesShape": {
+        "input": [
+          "string"
+        ]
+      },
+      "response": {
+        "xfb_wa_upsert_customer_profiles": {
+          "profiles": [
+            {
+              "lid": "string"
+            }
+          ]
+        }
+      }
+    },
+    "ContactManagerCustomerProfiles": {
+      "originalName": "WAWebContactManagerCustomerProfilesQuery",
+      "docId": "27747880408206174",
+      "operationKind": "query",
+      "variables": [
+        "input"
+      ],
+      "variablesShape": {
+        "input": {
+          "candidate_lids": [
+            "string"
+          ],
+          "cursor": "string",
+          "page_size": "number",
+          "sort_column": "string",
+          "sort_descending": "string"
+        }
+      },
+      "response": {
+        "xfb_wa_customer_profiles": {
+          "cursor": "string",
+          "profiles": [
+            {
+              "acquisition_source": "string",
+              "email": "string",
+              "last_updates": [
+                {
+                  "ts": "string"
+                }
+              ],
+              "lead_stage": "string",
+              "lid": "string",
+              "name": "string"
+            }
+          ]
+        }
+      }
+    },
     "CreateInviteCode": {
       "originalName": "WAWebMexCreateInviteCodeJobMutation",
       "docId": "26155584267463745",
@@ -1087,7 +1147,7 @@
     },
     "DebugLabyrinthInboxSnapshot": {
       "originalName": "WAWebDebugLabyrinthInboxSnapshotQuery",
-      "docId": "27416732057922291",
+      "docId": "26544537655223129",
       "operationKind": "query",
       "variables": [
         "params"
@@ -4668,6 +4728,61 @@
         }
       }
     },
+    "TeamLinkCreateInvitation": {
+      "originalName": "WAWebTeamLinkCreateInvitationMutation",
+      "docId": "27693700016951648",
+      "operationKind": "mutation",
+      "variables": [
+        "employeeName",
+        "lid"
+      ],
+      "variablesShape": {
+        "employeeName": "string",
+        "lid": "string"
+      },
+      "response": {
+        "whatsapp_teamlink_create_agent_invitation": {
+          "employee_lid": "string",
+          "employee_name": "string",
+          "expires_at": "number",
+          "invitation_status": "string",
+          "nonce_code": "string"
+        }
+      }
+    },
+    "TeamLinkListInvitations": {
+      "originalName": "WAWebTeamLinkListInvitationsQuery",
+      "docId": "27966540672965115",
+      "operationKind": "query",
+      "response": {
+        "whatsapp_teamlink_list_agent_invitations": [
+          {
+            "employee_lid": "string",
+            "employee_name": "string",
+            "expires_at": "number",
+            "invitation_status": "string",
+            "nonce_code": "string"
+          }
+        ]
+      }
+    },
+    "TeamLinkRemoveInvitation": {
+      "originalName": "WAWebTeamLinkRemoveInvitationMutation",
+      "docId": "27015637738109068",
+      "operationKind": "mutation",
+      "variables": [
+        "lid"
+      ],
+      "variablesShape": {
+        "lid": "string"
+      },
+      "response": {
+        "whatsapp_teamlink_remove_agent_invitation": {
+          "removed": "string",
+          "was_onboarded": "boolean"
+        }
+      }
+    },
     "TransferCommunityOwnership": {
       "originalName": "WAWebMexTransferCommunityOwnershipJobMutation",
       "docId": "29643783178598899",
@@ -4990,6 +5105,20 @@
             }
           ]
         }
+      }
+    },
+    "usePasskeyUpsellEligibilityCheck": {
+      "originalName": "usePasskeyUpsellEligibilityCheckMutation",
+      "docId": "24998666569801021",
+      "operationKind": "mutation",
+      "variables": [
+        "encryptedContext"
+      ],
+      "variablesShape": {
+        "encryptedContext": "string"
+      },
+      "response": {
+        "xfb_upsell_passkey_post_reauth": "string"
       }
     },
     "useWAWebEstimatedDailyReach": {

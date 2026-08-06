@@ -1,6 +1,6 @@
 {
   "schemaVersion": "2.0.0",
-  "waVersion": "2.3000.1044236315",
+  "waVersion": "2.3000.1044659339",
   "stanzas": [
     {
       "stanzaType": "message",
@@ -2132,6 +2132,42 @@
     {
       "stanzaType": "message",
       "direction": "outgoing",
+      "moduleName": "WAWebSendCoexV2RetryMsgJob",
+      "exportedFunction": null,
+      "allExports": [
+        "buildCoexV2RetryStanza"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "id",
+          "kind": "string",
+          "required": true
+        },
+        {
+          "name": "to",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "type",
+          "kind": "dynamic",
+          "required": true
+        },
+        {
+          "name": "edit",
+          "kind": "dynamic",
+          "required": true
+        }
+      ],
+      "children": [],
+      "response": null
+    },
+    {
+      "stanzaType": "message",
+      "direction": "outgoing",
       "moduleName": "WAWebSendGroupSkmsgJob",
       "exportedFunction": null,
       "allExports": [
@@ -2536,6 +2572,7 @@
         "getBotAgentEngagementType",
         "isSelfCoexV2Hosted",
         "getIsBizBotFeedback",
+        "getBotStanzaType",
         "genCoexV2RelayBotNodeForTargets",
         "createFanoutMsgStanza",
         "genCsTokenBody"
@@ -2939,6 +2976,7 @@
       "exportedFunction": null,
       "allExports": [
         "canUseVoipStackForCallMessage",
+        "resetVoipInitReloadRequiredForTest",
         "handleCall"
       ],
       "namespace": null,
@@ -5122,6 +5160,7 @@
       "exportedFunction": null,
       "allExports": [
         "canUseVoipStackForCallMessage",
+        "resetVoipInitReloadRequiredForTest",
         "handleCall"
       ],
       "namespace": null,
@@ -6077,6 +6116,27 @@
       ],
       "response": null,
       "fragment": true
+    },
+    {
+      "stanzaType": "status",
+      "direction": "outgoing",
+      "moduleName": "WASmaxOutSpamStatusReportV2Request",
+      "exportedFunction": null,
+      "allExports": [
+        "makeStatusReportV2Request"
+      ],
+      "namespace": null,
+      "subtype": null,
+      "target": null,
+      "attrs": [
+        {
+          "name": "from",
+          "kind": "optional",
+          "required": false
+        }
+      ],
+      "children": [],
+      "response": null
     },
     {
       "stanzaType": "status",

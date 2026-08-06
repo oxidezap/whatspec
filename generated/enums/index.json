@@ -1,6 +1,6 @@
 {
   "schemaVersion": "2.0.0",
-  "waVersion": "2.3000.1044236315",
+  "waVersion": "2.3000.1044659339",
   "enums": [
     {
       "name": "DGWAuth",
@@ -2711,6 +2711,41 @@
       ]
     },
     {
+      "name": "BotProduct",
+      "module": "WAWebBotProduct",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "META_AI",
+          "value": "meta_ai"
+        },
+        {
+          "name": "OPEN_META_AI_FOR_GROUP",
+          "value": "open_meta_ai_for_group"
+        },
+        {
+          "name": "TEE_META_AI_GROUP",
+          "value": "tee_meta_ai_group"
+        },
+        {
+          "name": "SIDE_CHAT",
+          "value": "side_chat"
+        },
+        {
+          "name": "MANUS",
+          "value": "manus"
+        },
+        {
+          "name": "HATCH",
+          "value": "hatch"
+        },
+        {
+          "name": "THIRD_PARTY",
+          "value": "3p_bot"
+        }
+      ]
+    },
+    {
       "name": "BotProfileCategory",
       "module": "WAWebBotProfileCategory",
       "valueKind": "string",
@@ -3069,6 +3104,10 @@
         {
           "name": "AI_HANDOFF",
           "value": "ai_handoff"
+        },
+        {
+          "name": "TO_YOU",
+          "value": "to_you"
         }
       ]
     },
@@ -5178,6 +5217,10 @@
         {
           "name": "ContactManager",
           "value": "contactManager"
+        },
+        {
+          "name": "TeamLink",
+          "value": "teamLink"
         }
       ]
     },
@@ -6474,6 +6517,10 @@
         {
           "name": "SMARTGLASSES",
           "value": 24
+        },
+        {
+          "name": "WAIL",
+          "value": 25
         }
       ]
     },
@@ -10230,21 +10277,6 @@
       ]
     },
     {
-      "name": "AppState_v2585",
-      "module": "WAWebWindowsHybridBridgeNativeAppState.v2585",
-      "valueKind": "string",
-      "variants": [
-        {
-          "name": "Normal",
-          "value": "normal"
-        },
-        {
-          "name": "MinimizedToTray",
-          "value": "minimizedToTray"
-        }
-      ]
-    },
-    {
       "name": "AppState_v2586",
       "module": "WAWebWindowsHybridBridgeNativeAppState.v2586",
       "valueKind": "string",
@@ -10742,6 +10774,21 @@
     {
       "name": "AppState_v2630",
       "module": "WAWebWindowsHybridBridgeNativeAppState.v2630",
+      "valueKind": "string",
+      "variants": [
+        {
+          "name": "Normal",
+          "value": "normal"
+        },
+        {
+          "name": "MinimizedToTray",
+          "value": "minimizedToTray"
+        }
+      ]
+    },
+    {
+      "name": "AppState_v2631",
+      "module": "WAWebWindowsHybridBridgeNativeAppState.v2631",
       "valueKind": "string",
       "variants": [
         {

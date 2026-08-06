@@ -1,6 +1,6 @@
 {
   "schemaVersion": "2.0.0",
-  "waVersion": "2.3000.1044236315",
+  "waVersion": "2.3000.1044659339",
   "collections": [
     "regular",
     "regular_low",
@@ -555,24 +555,6 @@
         {
           "type": "literal",
           "value": "detected_outcomes_status_action"
-        }
-      ]
-    },
-    "DeviceCapabilities": {
-      "module": "WAWebDeviceCapabilitiesSync",
-      "name": "device_capabilities",
-      "collection": "regular_low",
-      "version": 7,
-      "scope": "account",
-      "baseClass": "AccountSyncdActionBase",
-      "valueField": "deviceCapabilities",
-      "valueProtoType": "DeviceCapabilities",
-      "valueEnumFields": null,
-      "chatJidIndex": null,
-      "indexParts": [
-        {
-          "type": "literal",
-          "value": "device_capabilities"
         }
       ]
     },

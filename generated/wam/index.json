@@ -1,6 +1,6 @@
 {
   "schemaVersion": "2.0.0",
-  "waVersion": "2.3000.1044236315",
+  "waVersion": "2.3000.1044659339",
   "events": [
     {
       "name": "GroupCreateC",
@@ -481,6 +481,16 @@
           "name": "pttAvgSpeechLoudnessReduction",
           "id": 14,
           "kind": "number"
+        },
+        {
+          "name": "pttCaptureSampleRateEffectiveHz",
+          "id": 56,
+          "kind": "integer"
+        },
+        {
+          "name": "pttCaptureSampleRateRequestedHz",
+          "id": 57,
+          "kind": "integer"
         },
         {
           "name": "pttDraftPlayCnt",
@@ -2328,6 +2338,11 @@
           "kind": "timer"
         },
         {
+          "name": "ca2dFailCount",
+          "id": 3091,
+          "kind": "integer"
+        },
+        {
           "name": "ca2dNetCathodeSfuRttMs",
           "id": 3081,
           "kind": "number"
@@ -2351,6 +2366,11 @@
           "name": "ca2dReceiverFirstFrameT",
           "id": 3075,
           "kind": "timer"
+        },
+        {
+          "name": "ca2dSuccCount",
+          "id": 3092,
+          "kind": "integer"
         },
         {
           "name": "callAcceptFuncT",
@@ -5161,6 +5181,16 @@
           "kind": "integer"
         },
         {
+          "name": "hbhDcConnectionLostCrash",
+          "id": 3083,
+          "kind": "integer"
+        },
+        {
+          "name": "hbhDcConnectionLostGoaway",
+          "id": 3084,
+          "kind": "integer"
+        },
+        {
           "name": "hbhDcMsgsReceivedCount",
           "id": 3057,
           "kind": "integer"
@@ -5186,9 +5216,39 @@
           "kind": "integer"
         },
         {
+          "name": "hbhDcReconnectSuccess",
+          "id": 3085,
+          "kind": "integer"
+        },
+        {
           "name": "hbhDcSetupAvgT",
           "id": 3059,
           "kind": "timer"
+        },
+        {
+          "name": "hbhDcSframeDecryptCount",
+          "id": 3086,
+          "kind": "integer"
+        },
+        {
+          "name": "hbhDcSframeDecryptFailCount",
+          "id": 3087,
+          "kind": "integer"
+        },
+        {
+          "name": "hbhDcSframeEncryptCount",
+          "id": 3088,
+          "kind": "integer"
+        },
+        {
+          "name": "hbhDcStandbyRearm",
+          "id": 3089,
+          "kind": "integer"
+        },
+        {
+          "name": "hbhDcTeardownCount",
+          "id": 3090,
+          "kind": "integer"
         },
         {
           "name": "hbhDtlsConnectionState",
@@ -15021,7 +15081,6 @@
       "consumers": [
         "WAWebCrashlog",
         "WAWebWindowsHybridBridgeWam",
-        "WAWebWindowsHybridBridgeWam.v2585",
         "WAWebWindowsHybridBridgeWam.v2586",
         "WAWebWindowsHybridBridgeWam.v2587",
         "WAWebWindowsHybridBridgeWam.v2589",
@@ -15055,7 +15114,8 @@
         "WAWebWindowsHybridBridgeWam.v2627",
         "WAWebWindowsHybridBridgeWam.v2628",
         "WAWebWindowsHybridBridgeWam.v2629",
-        "WAWebWindowsHybridBridgeWam.v2630"
+        "WAWebWindowsHybridBridgeWam.v2630",
+        "WAWebWindowsHybridBridgeWam.v2631"
       ]
     },
     {
@@ -16610,7 +16670,8 @@
         }
       ],
       "consumers": [
-        "WAWebWamAppLaunchReporter"
+        "WAWebWamAppLaunchReporter",
+        "WAWebWindowsWamAppLaunchReporter"
       ]
     },
     {
@@ -17348,6 +17409,16 @@
           "name": "installedTotalStickerPackCount",
           "id": 114,
           "kind": "integer"
+        },
+        {
+          "name": "interopContactsSize",
+          "id": 260,
+          "kind": "integer"
+        },
+        {
+          "name": "interopContactsSizePerIntegrator",
+          "id": 261,
+          "kind": "string"
         },
         {
           "name": "isCanonicalEntPresent",
@@ -18542,7 +18613,8 @@
         "WAWebWindowsHybridBridgeWam.v2627",
         "WAWebWindowsHybridBridgeWam.v2628",
         "WAWebWindowsHybridBridgeWam.v2629",
-        "WAWebWindowsHybridBridgeWam.v2630"
+        "WAWebWindowsHybridBridgeWam.v2630",
+        "WAWebWindowsHybridBridgeWam.v2631"
       ]
     },
     {
@@ -24091,6 +24163,7 @@
         }
       ],
       "consumers": [
+        "WAWebConsumerPaymentsHomeLogger",
         "WAWebPaymentsUserActionLogging",
         "WAWebPixWamLogger"
       ]
@@ -35431,6 +35504,11 @@
           "kind": "integer"
         },
         {
+          "name": "aiQpPromotionId",
+          "id": 54,
+          "kind": "string"
+        },
+        {
           "name": "aiSessionId",
           "id": 18,
           "kind": "string"
@@ -37241,6 +37319,12 @@
           "id": 1,
           "kind": "enum",
           "module": "WAWebWamEnumStickerErrorType"
+        },
+        {
+          "name": "stickerMessageType",
+          "id": 2,
+          "kind": "enum",
+          "module": "WAWebWamEnumStickerSendMessageType"
         }
       ],
       "consumers": [
@@ -42278,6 +42362,12 @@
           "module": "WAWebWamEnumMediaType"
         },
         {
+          "name": "statusPlaceholderType",
+          "id": 56,
+          "kind": "enum",
+          "module": "WAWebWamEnumStatusPlaceholderType"
+        },
+        {
           "name": "statusPogIndex",
           "id": 15,
           "kind": "integer"
@@ -44498,6 +44588,11 @@
       ],
       "fields": [
         {
+          "name": "actionIndex",
+          "id": 8,
+          "kind": "integer"
+        },
+        {
           "name": "attributionType",
           "id": 1,
           "kind": "enum",
@@ -44515,10 +44610,35 @@
           "module": "WAWebWamEnumInlineVideoType"
         },
         {
+          "name": "linkLoadTime",
+          "id": 9,
+          "kind": "integer"
+        },
+        {
+          "name": "linkOpenResult",
+          "id": 10,
+          "kind": "string"
+        },
+        {
+          "name": "psaCampaignId",
+          "id": 11,
+          "kind": "string"
+        },
+        {
           "name": "statusCategory",
           "id": 4,
           "kind": "enum",
           "module": "WAWebWamEnumStatusCategory"
+        },
+        {
+          "name": "statusId",
+          "id": 12,
+          "kind": "string"
+        },
+        {
+          "name": "statusViewerSessionId",
+          "id": 13,
+          "kind": "integer"
         },
         {
           "name": "urlStatusClicked",
@@ -46715,6 +46835,89 @@
       ]
     },
     {
+      "name": "SubscriptionUserAction",
+      "code": 7458,
+      "module": "WAWebSubscriptionUserActionWamEvent",
+      "channel": "regular",
+      "weights": [
+        1,
+        1,
+        1
+      ],
+      "fields": [
+        {
+          "name": "wsuaAction",
+          "id": 1,
+          "kind": "enum",
+          "module": "WAWebWamEnumWsuaAction"
+        },
+        {
+          "name": "wsuaActionTarget",
+          "id": 2,
+          "kind": "enum",
+          "module": "WAWebWamEnumWsuaActionTarget"
+        },
+        {
+          "name": "wsuaActiveSubscriptions",
+          "id": 10,
+          "kind": "string"
+        },
+        {
+          "name": "wsuaBenefitGroup",
+          "id": 11,
+          "kind": "string"
+        },
+        {
+          "name": "wsuaBenefitsShown",
+          "id": 9,
+          "kind": "string"
+        },
+        {
+          "name": "wsuaProductType",
+          "id": 3,
+          "kind": "enum",
+          "module": "WAWebWamEnumWsuaProductType"
+        },
+        {
+          "name": "wsuaQuickPromotionId",
+          "id": 4,
+          "kind": "string"
+        },
+        {
+          "name": "wsuaReferral",
+          "id": 5,
+          "kind": "enum",
+          "module": "WAWebWamEnumWsuaReferral"
+        },
+        {
+          "name": "wsuaScreen",
+          "id": 6,
+          "kind": "enum",
+          "module": "WAWebWamEnumWsuaScreen"
+        },
+        {
+          "name": "wsuaScreenElement",
+          "id": 7,
+          "kind": "enum",
+          "module": "WAWebWamEnumWsuaScreenElement"
+        },
+        {
+          "name": "wsuaSessionId",
+          "id": 8,
+          "kind": "string"
+        },
+        {
+          "name": "wsuaTier",
+          "id": 12,
+          "kind": "enum",
+          "module": "WAWebWamEnumWsuaTier"
+        }
+      ],
+      "consumers": [
+        "WAWebMetaOneUpsellLogger"
+      ]
+    },
+    {
       "name": "WebcWebtpPdfViewer",
       "code": 7506,
       "module": "WAWebWebcWebtpPdfViewerWamEvent",
@@ -46894,6 +47097,12 @@
           "name": "groupJid",
           "id": 5,
           "kind": "string"
+        },
+        {
+          "name": "groupSuspensionAppealEntryPoint",
+          "id": 7,
+          "kind": "enum",
+          "module": "WAWebWamEnumGroupSuspensionAppealEntryPoint"
         },
         {
           "name": "groupSuspensionAppealErrorMessage",
@@ -47338,6 +47547,33 @@
       ],
       "consumers": [
         "WAWebMerlinImpressionManager"
+      ]
+    },
+    {
+      "name": "PathfinderFrameworkHealth",
+      "code": 7688,
+      "module": "WAWebPathfinderFrameworkHealthWamEvent",
+      "channel": "regular",
+      "weights": [
+        1,
+        1,
+        1
+      ],
+      "fields": [
+        {
+          "name": "pathfinderHealthEventData",
+          "id": 1,
+          "kind": "string"
+        },
+        {
+          "name": "pathfinderHealthEventType",
+          "id": 2,
+          "kind": "enum",
+          "module": "WAWebWamEnumPathfinderHealthEventType"
+        }
+      ],
+      "consumers": [
+        "WAWebPathfinderHealthReporter"
       ]
     },
     {
@@ -48523,6 +48759,11 @@
         {
           "name": "hasUn",
           "id": 6,
+          "kind": "boolean"
+        },
+        {
+          "name": "inDb",
+          "id": 10,
           "kind": "boolean"
         },
         {
@@ -50981,6 +51222,10 @@
         {
           "key": "CHANNEL_ADMIN_PROFILES_ADOPTION",
           "value": 122
+        },
+        {
+          "key": "BACKUPS_AUTH_ERROR",
+          "value": 123
         }
       ]
     },
@@ -52983,6 +53228,14 @@
         {
           "key": "CALL_INFO_CALL_LINK_MINI_CONTACT_SHEET",
           "value": 87
+        },
+        {
+          "key": "GROUP_INFO_BOTTOM_SHEET_CHATS_TAB",
+          "value": 88
+        },
+        {
+          "key": "GROUP_INFO_BOTTOM_SHEET_CALLS_TAB",
+          "value": 89
         }
       ]
     },
@@ -55237,6 +55490,14 @@
         {
           "key": "CHANNEL_NOTIFICATIONS_SETTINGS",
           "value": 26
+        },
+        {
+          "key": "CHAT_LIST",
+          "value": 27
+        },
+        {
+          "key": "ARCHIVED_CHATS",
+          "value": 28
         }
       ]
     },
@@ -55635,6 +55896,10 @@
         {
           "key": "BROADCAST_LIST",
           "value": 4
+        },
+        {
+          "key": "CHANNEL",
+          "value": 5
         }
       ]
     },
@@ -62761,6 +63026,10 @@
         {
           "key": "ATTACHMENT_TRAY",
           "value": 91
+        },
+        {
+          "key": "BIZ_PROFILE_CONNECTED_MEDIA",
+          "value": 92
         }
       ]
     },
@@ -64709,6 +64978,16 @@
         {
           "key": "LARGE",
           "value": 5
+        }
+      ]
+    },
+    {
+      "name": "GROUP_SUSPENSION_APPEAL_ENTRY_POINT",
+      "module": "WAWebWamEnumGroupSuspensionAppealEntryPoint",
+      "variants": [
+        {
+          "key": "SPAM_FOLDER",
+          "value": 1
         }
       ]
     },
@@ -67701,6 +67980,14 @@
         {
           "key": "CHAT_EMPTY_STATE",
           "value": 42
+        },
+        {
+          "key": "GROUP_INFO_BOTTOM_SHEET_CHATS_TAB",
+          "value": 43
+        },
+        {
+          "key": "GROUP_INFO_BOTTOM_SHEET_CALLS_TAB",
+          "value": 44
         }
       ]
     },
@@ -78087,6 +78374,92 @@
       ]
     },
     {
+      "name": "PATHFINDER_HEALTH_EVENT_TYPE",
+      "module": "WAWebWamEnumPathfinderHealthEventType",
+      "variants": [
+        {
+          "key": "CHANNEL_SEND_FAILURE",
+          "value": 1
+        },
+        {
+          "key": "EVENT_PROCESSING_EXCEPTION",
+          "value": 2
+        },
+        {
+          "key": "INTERACTION_BUFFER_OVERFLOW",
+          "value": 3
+        },
+        {
+          "key": "PRE_INTERACTION_BUFFER_OVERFLOW",
+          "value": 4
+        },
+        {
+          "key": "DISK_WRITE_FAILURE",
+          "value": 5
+        },
+        {
+          "key": "DISK_READ_FAILURE",
+          "value": 6
+        },
+        {
+          "key": "FILE_ROTATION_FAILURE",
+          "value": 7
+        },
+        {
+          "key": "SERIALIZATION_FAILURE",
+          "value": 8
+        },
+        {
+          "key": "CORRUPT_DATA_SKIPPED",
+          "value": 9
+        },
+        {
+          "key": "DISK_STORE_DEGRADATION",
+          "value": 10
+        },
+        {
+          "key": "LOGGER_EXCEPTION",
+          "value": 11
+        },
+        {
+          "key": "MALFORMED_METADATA",
+          "value": 12
+        },
+        {
+          "key": "TRACE_PROVIDER_FAILURE",
+          "value": 13
+        },
+        {
+          "key": "DIRECTORY_CREATION_FAILURE",
+          "value": 14
+        },
+        {
+          "key": "FILE_DELETE_FAILURE",
+          "value": 15
+        },
+        {
+          "key": "SESSION_ID_UNAVAILABLE",
+          "value": 16
+        },
+        {
+          "key": "RESOURCE_NAME_RESOLUTION_FAILED",
+          "value": 17
+        },
+        {
+          "key": "UNSUPPORTED_USER_ACTION",
+          "value": 18
+        },
+        {
+          "key": "MAIN_THREAD_FILE_IO",
+          "value": 19
+        },
+        {
+          "key": "WEB_SESSION_FOOTPRINT",
+          "value": 20
+        }
+      ]
+    },
+    {
       "name": "PAYMENT_ACTION_TARGETS",
       "module": "WAWebWamEnumPaymentActionTargets",
       "variants": [
@@ -79561,6 +79934,30 @@
         {
           "key": "PASSKEY_BLOCKED_EDIT_DELETE_PIX",
           "value": 368
+        },
+        {
+          "key": "SPLIT_REQUEST_SELECT_CONTACT",
+          "value": 369
+        },
+        {
+          "key": "VIEW_DETAILS_BUTTON",
+          "value": 370
+        },
+        {
+          "key": "VIEW_SPLIT_EXPENSE_BUTTON",
+          "value": 371
+        },
+        {
+          "key": "ACCEPT_TOS",
+          "value": 372
+        },
+        {
+          "key": "CREATE_PAYMENT_ACCOUNT",
+          "value": 373
+        },
+        {
+          "key": "PAYMENTS_HOME_MANAGE_PIX_KEYS",
+          "value": 374
         }
       ]
     },
@@ -82021,6 +82418,10 @@
         {
           "key": "CUSTOM_LIST",
           "value": 8
+        },
+        {
+          "key": "GROUP_STATUS",
+          "value": 9
         }
       ]
     },
@@ -82527,6 +82928,10 @@
         {
           "key": "CONVERSATION_STARTER",
           "value": 2
+        },
+        {
+          "key": "AI_HOME_QP",
+          "value": 3
         }
       ]
     },
@@ -85157,6 +85562,10 @@
         {
           "key": "ONLY_SHARE_WITH_CUSTOM_LIST",
           "value": 5
+        },
+        {
+          "key": "GROUP_STATUS",
+          "value": 6
         }
       ]
     },
@@ -85299,6 +85708,10 @@
         {
           "key": "IS_TEXT_MESSAGE_ANIMATION_ENABLED",
           "value": 33
+        },
+        {
+          "key": "STOCK_WALLPAPER_IMAGE_ID",
+          "value": 34
         }
       ]
     },
@@ -86833,6 +87246,10 @@
         {
           "key": "DRAFT",
           "value": 8
+        },
+        {
+          "key": "LOCATION",
+          "value": 9
         }
       ]
     },
@@ -87117,6 +87534,18 @@
         {
           "key": "CHANNEL_THREAD_SCREEN_PROFILE_RING",
           "value": 61
+        },
+        {
+          "key": "GROUP_STATUS_REPLY_WITH_STATUS",
+          "value": 62
+        },
+        {
+          "key": "GROUP_INFO_BOTTOM_SHEET_CHATS_TAB",
+          "value": 63
+        },
+        {
+          "key": "GROUP_INFO_BOTTOM_SHEET_CALLS_TAB",
+          "value": 64
         }
       ]
     },
@@ -87765,6 +88194,22 @@
         {
           "key": "POST_NEXT_TAP",
           "value": 157
+        },
+        {
+          "key": "MEDIA_PICKER_LOCATION",
+          "value": 158
+        },
+        {
+          "key": "LOCATION_ICON_TAPPED",
+          "value": 159
+        },
+        {
+          "key": "CHANGE_LOCATION_FORMAT",
+          "value": 160
+        },
+        {
+          "key": "CHANGE_BACKGROUND_COLOR",
+          "value": 161
         }
       ]
     },
@@ -87893,6 +88338,10 @@
         {
           "key": "ADD_YOURS_RESPONSE",
           "value": 11
+        },
+        {
+          "key": "REPLY_WITH_STATUS",
+          "value": 12
         }
       ]
     },
@@ -88047,6 +88496,28 @@
         {
           "key": "HD",
           "value": 1
+        }
+      ]
+    },
+    {
+      "name": "STATUS_PLACEHOLDER_TYPE",
+      "module": "WAWebWamEnumStatusPlaceholderType",
+      "variants": [
+        {
+          "key": "NONE",
+          "value": 1
+        },
+        {
+          "key": "PLACEHOLDER",
+          "value": 2
+        },
+        {
+          "key": "NOT_VIEWABLE",
+          "value": 3
+        },
+        {
+          "key": "FUTUREPROOF",
+          "value": 4
         }
       ]
     },
@@ -88323,6 +88794,14 @@
         {
           "key": "CONTACTS_TAB",
           "value": 59
+        },
+        {
+          "key": "GROUP_STATUS_REPLY_WITH_STATUS",
+          "value": 60
+        },
+        {
+          "key": "GROUP_CHAT_ATTACHMENT_TRAY",
+          "value": 61
         }
       ]
     },
@@ -88765,6 +89244,14 @@
         {
           "key": "CUSTOM_AUDIENCE_CONTACT_PICKER_NEXT_CLICKED",
           "value": 44
+        },
+        {
+          "key": "GROUP_STATUS_PICKER_LAUNCHED",
+          "value": 45
+        },
+        {
+          "key": "GROUP_STATUS_CLICKED",
+          "value": 46
         }
       ]
     },
@@ -88839,6 +89326,10 @@
         {
           "key": "CUSTOM_LIST",
           "value": 5
+        },
+        {
+          "key": "GROUP_STATUS",
+          "value": 6
         }
       ]
     },
@@ -89187,6 +89678,10 @@
         {
           "key": "INLINE_VIDEO",
           "value": 9
+        },
+        {
+          "key": "LOCATION",
+          "value": 10
         }
       ]
     },
@@ -93189,6 +93684,10 @@
         {
           "key": "PINBOARD",
           "value": 260
+        },
+        {
+          "key": "MERCHANT_APP_STORE",
+          "value": 261
         }
       ]
     },
@@ -97107,6 +97606,34 @@
         {
           "key": "LIST",
           "value": 4
+        },
+        {
+          "key": "SETTINGS_BACKUP_PROVIDER_ROW",
+          "value": 5
+        },
+        {
+          "key": "SETTINGS_FINISH_BACKUP_SETUP_BANNER",
+          "value": 6
+        },
+        {
+          "key": "SETTINGS_FIX_ENCRYPTION_BANNER",
+          "value": 7
+        },
+        {
+          "key": "SETTINGS_ENABLE_CLOUD_BACKUPS_BANNER",
+          "value": 8
+        },
+        {
+          "key": "CHAT_LIST_FIX_ENCRYPTION_BANNER",
+          "value": 9
+        },
+        {
+          "key": "REGISTRATION_RESTORE_SETUP",
+          "value": 10
+        },
+        {
+          "key": "CHAT_LIST_BACKUP_SETUP_PROMPT",
+          "value": 11
         }
       ]
     },
@@ -97169,6 +97696,194 @@
         {
           "key": "STICKER_GENERIC",
           "value": 14
+        },
+        {
+          "key": "BACKUP_PROVIDER_SELECTION",
+          "value": 15
+        },
+        {
+          "key": "BACKUP_NEW_USER_SETUP",
+          "value": 16
+        }
+      ]
+    },
+    {
+      "name": "WSUA_ACTION",
+      "module": "WAWebWamEnumWsuaAction",
+      "variants": [
+        {
+          "key": "CLICK",
+          "value": 1
+        },
+        {
+          "key": "DISMISS",
+          "value": 2
+        },
+        {
+          "key": "VIEW",
+          "value": 3
+        }
+      ]
+    },
+    {
+      "name": "WSUA_ACTION_TARGET",
+      "module": "WAWebWamEnumWsuaActionTarget",
+      "variants": [
+        {
+          "key": "OK_BUTTON",
+          "value": 1
+        },
+        {
+          "key": "NOT_NOW_BUTTON",
+          "value": 2
+        },
+        {
+          "key": "JOIN_WAITLIST_DEEPLINK",
+          "value": 3
+        },
+        {
+          "key": "JOIN_WAITLIST_BUTTON",
+          "value": 4
+        },
+        {
+          "key": "LEAVE_WAITLIST_BUTTON",
+          "value": 5
+        },
+        {
+          "key": "UNDO_BUTTON",
+          "value": 6
+        },
+        {
+          "key": "SUBSCRIPTIONS_ENTRY_POINT_LIST_ITEM",
+          "value": 7
+        },
+        {
+          "key": "APP_ICON",
+          "value": 8
+        },
+        {
+          "key": "APP_THEME",
+          "value": 9
+        },
+        {
+          "key": "EXPLORE_BENEFITS",
+          "value": 10
+        },
+        {
+          "key": "GET_WHATSAPP_PLUS_BUTTON",
+          "value": 11
+        },
+        {
+          "key": "EXPLORE_BENEFITS_BUTTON",
+          "value": 12
+        },
+        {
+          "key": "CALL_RINGTONE_LIST_ITEM",
+          "value": 13
+        },
+        {
+          "key": "VIEW_STICKER_PACK",
+          "value": 14
+        },
+        {
+          "key": "CHAT_PIN",
+          "value": 15
+        },
+        {
+          "key": "UPSELL_CTA",
+          "value": 16
+        },
+        {
+          "key": "MANAGE_BUTTON",
+          "value": 17
+        },
+        {
+          "key": "LEARN_MORE",
+          "value": 18
+        },
+        {
+          "key": "DISMISS_BUTTON",
+          "value": 19
+        },
+        {
+          "key": "SUBSCRIPTIONS_ENTRY_POINT",
+          "value": 20
+        },
+        {
+          "key": "CONTINUE_BUTTON",
+          "value": 21
+        },
+        {
+          "key": "WHATSAPP_PLUS",
+          "value": 22
+        },
+        {
+          "key": "META_AI",
+          "value": 23
+        },
+        {
+          "key": "LIST_THEME",
+          "value": 24
+        },
+        {
+          "key": "LIST_ALERT_TONE",
+          "value": 25
+        },
+        {
+          "key": "LIST_RINGTONE",
+          "value": 26
+        },
+        {
+          "key": "QUICK_PROMOTION_DEEPLINK",
+          "value": 27
+        },
+        {
+          "key": "ADD_FULL_NAME_BUTTON",
+          "value": 28
+        },
+        {
+          "key": "PREMIUM_STICKER_PACK",
+          "value": 29
+        },
+        {
+          "key": "PREMIUM_STICKER",
+          "value": 30
+        },
+        {
+          "key": "META_ONE_CONSUMER",
+          "value": 31
+        },
+        {
+          "key": "GET_MORE_WITH_ONE_SUB",
+          "value": 32
+        },
+        {
+          "key": "GET_MORE_FOR_LESS",
+          "value": 33
+        },
+        {
+          "key": "VIEW_ALL_PLANS",
+          "value": 34
+        },
+        {
+          "key": "VIEW_ALL_BENEFITS",
+          "value": 35
+        },
+        {
+          "key": "VIEW_ALL_BENEFITS_BUTTON",
+          "value": 36
+        },
+        {
+          "key": "UPSELL_CARD",
+          "value": 37
+        },
+        {
+          "key": "META_ONE_BUSINESS_ENTRY_POINT",
+          "value": 38
+        },
+        {
+          "key": "GET_META_ONE_BUSINESS",
+          "value": 39
         }
       ]
     },
@@ -97199,6 +97914,526 @@
         {
           "key": "META_ONE_BUSINESS",
           "value": 6
+        }
+      ]
+    },
+    {
+      "name": "WSUA_REFERRAL",
+      "module": "WAWebWamEnumWsuaReferral",
+      "variants": [
+        {
+          "key": "SETTINGS",
+          "value": 1
+        },
+        {
+          "key": "APPEARANCE_SETTINGS",
+          "value": 2
+        },
+        {
+          "key": "APP_ICON_SETTINGS",
+          "value": 3
+        },
+        {
+          "key": "APP_THEME_SETTINGS",
+          "value": 4
+        },
+        {
+          "key": "DEFAULT_RINGTONE",
+          "value": 5
+        },
+        {
+          "key": "CHAT_RINGTONE",
+          "value": 6
+        },
+        {
+          "key": "STICKER_TRAY",
+          "value": 7
+        },
+        {
+          "key": "STICKER_RECEIVED",
+          "value": 8
+        },
+        {
+          "key": "CHAT_PIN",
+          "value": 9
+        },
+        {
+          "key": "BUSINESS_TOOLS",
+          "value": 10
+        },
+        {
+          "key": "CALLS_TAB",
+          "value": 11
+        },
+        {
+          "key": "BUSINESS_CARD",
+          "value": 12
+        },
+        {
+          "key": "CONVERSATION_THREAD",
+          "value": 13
+        },
+        {
+          "key": "NOTIFICATION",
+          "value": 14
+        },
+        {
+          "key": "QUICK_PROMOTION",
+          "value": 15
+        },
+        {
+          "key": "CUSTOM_URL",
+          "value": 16
+        },
+        {
+          "key": "LINKED_DEVICES",
+          "value": 17
+        },
+        {
+          "key": "LIST_THEME",
+          "value": 18
+        },
+        {
+          "key": "LIST_ALERT_TONE",
+          "value": 19
+        },
+        {
+          "key": "LIST_RINGTONE",
+          "value": 20
+        },
+        {
+          "key": "META_AI_THINKING",
+          "value": 21
+        },
+        {
+          "key": "META_AI_IMAGINE",
+          "value": 22
+        },
+        {
+          "key": "META_AI_VIDEO",
+          "value": 23
+        },
+        {
+          "key": "META_AI_SETTINGS",
+          "value": 24
+        },
+        {
+          "key": "VALUE_SCREEN",
+          "value": 25
+        },
+        {
+          "key": "META_ONE_ELIGIBLE_BOTTOMSHEET",
+          "value": 26
+        },
+        {
+          "key": "BUSINESS_BROADCAST_HOME",
+          "value": 27
+        },
+        {
+          "key": "BUSINESS_BROADCAST_THREAD",
+          "value": 28
+        },
+        {
+          "key": "BUSINESS_BROADCAST_REVIEW_SCREEN",
+          "value": 29
+        },
+        {
+          "key": "BIZ_AI_AGENT_THREAD",
+          "value": 30
+        },
+        {
+          "key": "BIZ_AI_HOME",
+          "value": 31
+        },
+        {
+          "key": "CHAT_LIST",
+          "value": 32
+        },
+        {
+          "key": "BIZ_AI_THREAD",
+          "value": 33
+        },
+        {
+          "key": "BIZ_AI",
+          "value": 34
+        }
+      ]
+    },
+    {
+      "name": "WSUA_SCREEN",
+      "module": "WAWebWamEnumWsuaScreen",
+      "variants": [
+        {
+          "key": "SETTINGS",
+          "value": 1
+        },
+        {
+          "key": "ON_WAITLIST_BOTTOMSHEET",
+          "value": 2
+        },
+        {
+          "key": "JOIN_WAITLIST_BOTTOMSHEET",
+          "value": 3
+        },
+        {
+          "key": "QUICK_PROMOTION",
+          "value": 4
+        },
+        {
+          "key": "APPEARANCE_SETTINGS",
+          "value": 5
+        },
+        {
+          "key": "APP_ICON_SETTINGS",
+          "value": 6
+        },
+        {
+          "key": "APP_THEME_SETTINGS",
+          "value": 7
+        },
+        {
+          "key": "PROMO_BOTTOMSHEET",
+          "value": 8
+        },
+        {
+          "key": "DEFAULT_NOTIFICATION_SETTINGS",
+          "value": 9
+        },
+        {
+          "key": "DEFAULT_RINGTONE",
+          "value": 10
+        },
+        {
+          "key": "CHAT_NOTIFICATION_SETTINGS",
+          "value": 11
+        },
+        {
+          "key": "CHAT_RINGTONE",
+          "value": 12
+        },
+        {
+          "key": "STICKER_TRAY",
+          "value": 13
+        },
+        {
+          "key": "STICKER_RECEIVED",
+          "value": 14
+        },
+        {
+          "key": "CHAT_HOME",
+          "value": 15
+        },
+        {
+          "key": "LIST_SETTINGS",
+          "value": 16
+        },
+        {
+          "key": "LINKED_DEVICES",
+          "value": 17
+        },
+        {
+          "key": "CUSTOM_URL",
+          "value": 18
+        },
+        {
+          "key": "BUSINESS_TOOLS",
+          "value": 19
+        },
+        {
+          "key": "SUBSCRIPTION_MANAGEMENT",
+          "value": 20
+        },
+        {
+          "key": "MESSAGE_CAPPING",
+          "value": 21
+        },
+        {
+          "key": "PRIVACY_INTERSTITIAL",
+          "value": 22
+        },
+        {
+          "key": "PROTECTED_ACCOUNTS",
+          "value": 23
+        },
+        {
+          "key": "EDIT_PROFILE",
+          "value": 24
+        },
+        {
+          "key": "CALLS_TAB",
+          "value": 25
+        },
+        {
+          "key": "BUSINESS_CARD",
+          "value": 26
+        },
+        {
+          "key": "CHAT_ASSIGNMENT",
+          "value": 27
+        },
+        {
+          "key": "BB_CREDITS",
+          "value": 28
+        },
+        {
+          "key": "NOTIFICATIONS",
+          "value": 29
+        },
+        {
+          "key": "EDUCATION",
+          "value": 30
+        },
+        {
+          "key": "VALUE_SCREEN",
+          "value": 31
+        },
+        {
+          "key": "SUB_HUB",
+          "value": 32
+        },
+        {
+          "key": "CHAT_THREAD",
+          "value": 33
+        },
+        {
+          "key": "META_AI_SETTINGS",
+          "value": 34
+        },
+        {
+          "key": "VALID_NAME_BOTTOMSHEET",
+          "value": 35
+        },
+        {
+          "key": "CHAT_THREAD_THINKING",
+          "value": 36
+        },
+        {
+          "key": "CHAT_THREAD_IMAGINE",
+          "value": 37
+        },
+        {
+          "key": "CHAT_THREAD_VIDEO",
+          "value": 38
+        },
+        {
+          "key": "PROMO_ELIGIBILITY_CHECK",
+          "value": 39
+        },
+        {
+          "key": "TIER_SELECTION_SCREEN",
+          "value": 40
+        },
+        {
+          "key": "AI_TAB_THINKING",
+          "value": 41
+        },
+        {
+          "key": "META_ONE_ELIGIBLE_BOTTOMSHEET",
+          "value": 42
+        },
+        {
+          "key": "BUSINESS_BROADCAST_HOME",
+          "value": 43
+        },
+        {
+          "key": "BUSINESS_BROADCAST_THREAD",
+          "value": 44
+        },
+        {
+          "key": "BUSINESS_BROADCAST_REVIEW_SCREEN",
+          "value": 45
+        },
+        {
+          "key": "BIZ_AI_AGENT_THREAD",
+          "value": 46
+        },
+        {
+          "key": "BIZ_AI_HOME",
+          "value": 47
+        },
+        {
+          "key": "CHAT_LIST",
+          "value": 48
+        },
+        {
+          "key": "AI_HANDOFF",
+          "value": 49
+        },
+        {
+          "key": "SMART_COMPOSER",
+          "value": 50
+        },
+        {
+          "key": "CUSTOMER_LEAD_GEN",
+          "value": 51
+        },
+        {
+          "key": "APPT_BOOKING",
+          "value": 52
+        },
+        {
+          "key": "PAYMENT_CHECKOUT",
+          "value": 53
+        },
+        {
+          "key": "AI_RESPONSES",
+          "value": 54
+        }
+      ]
+    },
+    {
+      "name": "WSUA_SCREEN_ELEMENT",
+      "module": "WAWebWamEnumWsuaScreenElement",
+      "variants": [
+        {
+          "key": "QP_BANNER",
+          "value": 1
+        },
+        {
+          "key": "LEAVE_WAITLIST_TOAST",
+          "value": 2
+        },
+        {
+          "key": "LIST_ITEM",
+          "value": 3
+        },
+        {
+          "key": "SUBSCRIPTIONS_LIST_ITEM",
+          "value": 4
+        },
+        {
+          "key": "APP_ICON",
+          "value": 5
+        },
+        {
+          "key": "APP_THEME",
+          "value": 6
+        },
+        {
+          "key": "EXPLORE_BENEFITS",
+          "value": 7
+        },
+        {
+          "key": "GET_WHATSAPP_PLUS_BUTTON",
+          "value": 8
+        },
+        {
+          "key": "CALL_RINGTONE_LIST_ITEM",
+          "value": 9
+        },
+        {
+          "key": "CHAT_PIN",
+          "value": 10
+        },
+        {
+          "key": "UPSELL_BANNER",
+          "value": 11
+        },
+        {
+          "key": "EDUCATION_CARD",
+          "value": 12
+        },
+        {
+          "key": "BADGE",
+          "value": 13
+        },
+        {
+          "key": "LIST_THEME",
+          "value": 14
+        },
+        {
+          "key": "LIST_ALERT_TONE",
+          "value": 15
+        },
+        {
+          "key": "LIST_RINGTONE",
+          "value": 16
+        },
+        {
+          "key": "UNIFIED_RESPONSE_UPSELL",
+          "value": 17
+        },
+        {
+          "key": "TOAST_BANNER",
+          "value": 18
+        },
+        {
+          "key": "META_ONE_BENEFITS",
+          "value": 19
+        },
+        {
+          "key": "PREMIUM_STICKER_PACK",
+          "value": 20
+        },
+        {
+          "key": "PREMIUM_STICKER",
+          "value": 21
+        },
+        {
+          "key": "GET_MORE_WITH_ONE_SUB",
+          "value": 22
+        },
+        {
+          "key": "GET_MORE_FOR_LESS",
+          "value": 23
+        },
+        {
+          "key": "TIER_CARD",
+          "value": 24
+        },
+        {
+          "key": "UPSELL_CARD",
+          "value": 25
+        },
+        {
+          "key": "BENEFITS_LIST",
+          "value": 26
+        },
+        {
+          "key": "BB_NUX",
+          "value": 27
+        },
+        {
+          "key": "BB_LIMIT_REACHED",
+          "value": 28
+        },
+        {
+          "key": "BB_APPROACHING_LIMIT",
+          "value": 29
+        },
+        {
+          "key": "BB_CREDIT_EXPIRED",
+          "value": 30
+        },
+        {
+          "key": "BIZ_AI_NEARING_LIMIT",
+          "value": 31
+        },
+        {
+          "key": "BIZ_AI_LIMIT_REACHED",
+          "value": 32
+        },
+        {
+          "key": "BIZ_AI_META_ONE_ENTRYPOINT",
+          "value": 33
+        }
+      ]
+    },
+    {
+      "name": "WSUA_TIER",
+      "module": "WAWebWamEnumWsuaTier",
+      "variants": [
+        {
+          "key": "TIER_1",
+          "value": 1
+        },
+        {
+          "key": "TIER_2",
+          "value": 2
+        },
+        {
+          "key": "TIER_3",
+          "value": 3
         }
       ]
     },
