@@ -311,12 +311,6 @@
               },
               {
                 "method": "attrString",
-                "name": "content",
-                "type": "string",
-                "required": true
-              },
-              {
-                "method": "attrString",
                 "name": "thread_msg_id",
                 "type": "string",
                 "required": false
@@ -1512,12 +1506,6 @@
             "name": "type",
             "type": "string",
             "required": false
-          },
-          {
-            "method": "attrJidWithType",
-            "name": "content",
-            "type": "jid_typed",
-            "required": true
           },
           {
             "method": "attrDeviceJid",
