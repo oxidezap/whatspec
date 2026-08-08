@@ -320,7 +320,7 @@ fn field_from_call(
         match arg0.and_then(as_string_lit) {
             Some(name) => name,
             None => {
-                unresolved.push(format!("{COMPUTED_ATTR_NAME}@{method}"));
+                unresolved.push(format!("{COMPUTED_ATTR_NAME}@{method}:{}", call.span.start));
                 return None;
             }
         }
@@ -550,6 +550,11 @@ fn base_identifier<'b>(expr: &'b Expression<'_>) -> Option<&'b str> {
 /// happen: the fallback named the field `content`, and since `attrString` is not a
 /// `maybe` spelling it was published as REQUIRED. The generated parser then rejected
 /// every element that correctly lacked the attribute.
+///
+/// Carries the call's own position, for the reason [`SHADOWED_READ`] carries its site:
+/// `dropsByReason` folds these through a set, so two computed reads in one parser
+/// keyed only by the accessor would count once and the ratchet would not move when a
+/// third appeared. The name is what cannot be recovered here, so position stands in.
 const COMPUTED_ATTR_NAME: &str = "attributeNameNotLiteral";
 
 /// The `dropsByReason` key for a read inside a callback that re-binds the parser's
@@ -2021,13 +2026,17 @@ impl ParserAnalyzer<'_, '_> {
             // Reached without a guard, the node IS required however an earlier guarded read
             // left it — the lookup reuses what is there and would keep the weaker claim.
             let unguarded = path.last().is_some_and(|l| l.method == "child");
-            let Some(read) = self.read_field(method, call) else {
-                return;
-            };
+            // Read before the node lookup, so a read that publishes nothing still
+            // leaves the node's own requiredness recorded: reaching `<meta>` without
+            // a guard says `<meta>` is there whatever the read off it turned out to
+            // be, and dropping that with the field would weaken an unrelated claim.
+            let read = self.read_field(method, call);
             if let Some(node) = node_at_mut(&mut self.fields, &path) {
                 node.required |= unguarded;
-                let kids = node.children.get_or_insert_with(Vec::new);
-                merge_or_push(kids, read, &mut self.unresolved);
+                if let Some(read) = read {
+                    let kids = node.children.get_or_insert_with(Vec::new);
+                    merge_or_push(kids, read, &mut self.unresolved);
+                }
             }
             return;
         }
@@ -12333,10 +12342,11 @@ mod tests {
             "no invented attribute: {:?}",
             r.fields
         );
-        assert_eq!(
-            r.unresolved,
-            ["attributeNameNotLiteral@attrString"],
-            "and the read is reported rather than silently dropped"
+        assert_eq!(r.unresolved.len(), 1, "reported once: {:?}", r.unresolved);
+        assert!(
+            r.unresolved[0].starts_with("attributeNameNotLiteral@attrString:"),
+            "named by accessor and site: {:?}",
+            r.unresolved
         );
     }
 
@@ -12362,6 +12372,46 @@ mod tests {
                 .iter()
                 .any(|f| f.name == "content"),
             "meta must carry no invented content: {:?}",
+            meta.children
+        );
+    }
+
+    #[test]
+    fn two_computed_reads_in_one_parser_are_counted_separately() {
+        // `dropsByReason` folds these through a set, so keying only by the
+        // accessor would count both as one — and the ratchet would not move
+        // when a third appeared. The same reasoning `SHADOWED_READ` follows.
+        let r = analyze_parser_ast(r#"{ e.attrString(k); e.attrString(j); }"#, "e");
+
+        let computed: Vec<&String> = r
+            .unresolved
+            .iter()
+            .filter(|u| u.starts_with(COMPUTED_ATTR_NAME))
+            .collect();
+        assert_eq!(computed.len(), 2, "both reads counted: {computed:?}");
+        assert_ne!(computed[0], computed[1], "and distinguishable");
+    }
+
+    #[test]
+    fn a_node_reached_unguarded_stays_required_when_its_read_publishes_nothing() {
+        // The node's requiredness is about the node, not about the read taken
+        // off it: reaching `<meta>` without a guard says `<meta>` is there
+        // whatever that read turned out to be. Returning early on a computed
+        // name dropped the two together.
+        let r = analyze_parser_ast(r#"{ e.child("meta").attrString(k); }"#, "e");
+
+        let meta = r
+            .fields
+            .iter()
+            .find(|f| f.name == "meta")
+            .unwrap_or_else(|| panic!("the child is recorded: {:?}", r.fields));
+        assert!(
+            meta.required,
+            "reached through `child` with no guard, so required"
+        );
+        assert!(
+            meta.children.as_deref().unwrap_or_default().is_empty(),
+            "and still publishes no invented field: {:?}",
             meta.children
         );
     }
