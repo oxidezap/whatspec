@@ -34728,7 +34728,8 @@
                   },
                   {
                     "name": "value",
-                    "kind": "string",
+                    "kind": "const",
+                    "value": "contact_blacklist",
                     "required": true
                   }
                 ],

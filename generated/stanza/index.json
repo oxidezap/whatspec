@@ -1790,7 +1790,8 @@
           "attrs": [
             {
               "name": "metering_type",
-              "kind": "string",
+              "kind": "const",
+              "value": "smb_mm",
               "required": true
             }
           ],
@@ -1806,12 +1807,14 @@
               "attrs": [
                 {
                   "name": "type",
-                  "kind": "string",
+                  "kind": "const",
+                  "value": "native_flow",
                   "required": true
                 },
                 {
                   "name": "v",
-                  "kind": "string",
+                  "kind": "const",
+                  "value": "1",
                   "required": true
                 }
               ],
@@ -1839,12 +1842,14 @@
           "attrs": [
             {
               "name": "type",
-              "kind": "string",
+              "kind": "const",
+              "value": "native_flow",
               "required": true
             },
             {
               "name": "v",
-              "kind": "string",
+              "kind": "const",
+              "value": "1",
               "required": true
             }
           ],
@@ -2050,7 +2055,8 @@
           "attrs": [
             {
               "name": "metering_type",
-              "kind": "string",
+              "kind": "const",
+              "value": "smb_mm",
               "required": true
             }
           ],
@@ -2226,7 +2232,8 @@
                 },
                 {
                   "name": "type",
-                  "kind": "string",
+                  "kind": "const",
+                  "value": "native_flow",
                   "required": true
                 }
               ],
@@ -5238,7 +5245,7 @@
         "default"
       ],
       "namespace": null,
-      "subtype": null,
+      "subtype": "offer_notice",
       "target": null,
       "attrs": [
         {
@@ -5259,7 +5266,8 @@
         },
         {
           "name": "type",
-          "kind": "string",
+          "kind": "const",
+          "value": "offer_notice",
           "required": true
         }
       ],
@@ -6749,7 +6757,8 @@
             },
             {
               "name": "value",
-              "kind": "string",
+              "kind": "const",
+              "value": "contact_blacklist",
               "required": true
             }
           ],
@@ -6808,7 +6817,8 @@
       "attrs": [
         {
           "name": "addressing_mode",
-          "kind": "string",
+          "kind": "const",
+          "value": "lid",
           "required": true
         }
       ],
