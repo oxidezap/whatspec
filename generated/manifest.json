@@ -5,7 +5,6 @@
     "incoming": {
       "dropsByReason": {
         "attributeNameNotLiteral": 2,
-        "response enum argument not structurally resolvable": 1,
         "shadowedCallbackRead": 7
       }
     },
@@ -14,7 +13,7 @@
       "constraints": {
         "errorArms": 645,
         "errorTexts": 577,
-        "fieldEnumRefs": 157,
+        "fieldEnumRefs": 234,
         "fieldLiterals": 1784,
         "referenceConstraints": 584,
         "typedErrorVariants": 104
@@ -29,7 +28,6 @@
         "incompatibleRepeatedRead": 1,
         "iq builder substring present but no AST iq call": 5,
         "mixin fragment (folded into requests, not a standalone stanza)": 66,
-        "response enum argument not structurally resolvable": 33,
         "shadowedCallbackRead": 5
       },
       "excludedFragments": 66,
@@ -71,12 +69,12 @@
     "incoming": {
       "file": "incoming/index.json",
       "schema": "schema/incoming.schema.json",
-      "sha256": "feaaaa76d0925423d24405ee08e9c140e30729d853c044bf4e1d8c4da4900cc6"
+      "sha256": "18c955020acfc3ea86bedb4186aac951ccafdf26ede0b05554926a3157d7749e"
     },
     "iq": {
       "file": "iq/index.json",
       "schema": "schema/iq.schema.json",
-      "sha256": "97ae8f920c0c6453f74c62d008662054e610178d8e83be0cde4161485cbaaea5"
+      "sha256": "99f10a56c71bbeb1d1827aed51b1c7927aab943c48de5349dc5ff5668fb65103"
     },
     "mex": {
       "file": "mex/index.json",

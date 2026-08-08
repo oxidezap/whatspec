@@ -10,7 +10,8 @@ use std::collections::{HashMap, HashSet};
 
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
-    AssignmentExpression, Expression, ObjectExpression, ObjectPropertyKind, VariableDeclarator,
+    AssignmentExpression, Expression, ObjectExpression, ObjectPropertyKind, PropertyKey,
+    VariableDeclarator,
 };
 use oxc_ast_visit::{Visit, walk};
 use wa_ir::{EnumValueKind, EnumVariant, EnumsIr, InternalEnumDef, Scalar};
@@ -1152,6 +1153,30 @@ fn collector_enum_object<'b, 'a>(
     all_constant_case(obj).then_some(obj)
 }
 
+/// The name a property key gives a variant.
+///
+/// `{0:"0"}` and `{"0":"0"}` are the same object — an unquoted numeric key is a
+/// string key, and JavaScript names it by `ToString(Number)` rather than by how
+/// the source spelled it, so `{0x10:…}` is `"16"` and `{1e3:…}` is `"1000"`.
+/// Reading the raw text would name those `"0x10"` and `"1e3"`, which is a
+/// spelling no runtime ever produces.
+///
+/// Only exact integers are accepted. A fractional or out-of-range key would need
+/// the rest of `ToString(Number)` — exponent thresholds, shortest-roundtrip
+/// digits — and no enum in the bundle has one, so the case is refused rather
+/// than approximated.
+fn enum_key_name(key: &PropertyKey) -> Option<String> {
+    if let Some(name) = property_key_name(key) {
+        return Some(name.to_string());
+    }
+    let PropertyKey::NumericLiteral(n) = key else {
+        return None;
+    };
+    let value = n.value;
+    (value.is_finite() && value.fract() == 0.0 && value.abs() <= 9_007_199_254_740_992.0)
+        .then(|| (value as i64).to_string())
+}
+
 /// Parse the enum body. Returns `None` for spread/computed keys, non-literal
 /// values, or mixed int/string value kinds.
 fn parse_enum(obj: &ObjectExpression) -> Option<EnumData> {
@@ -1161,7 +1186,7 @@ fn parse_enum(obj: &ObjectExpression) -> Option<EnumData> {
         let ObjectPropertyKind::ObjectProperty(p) = prop else {
             return None;
         };
-        let name = property_key_name(&p.key)?;
+        let name = enum_key_name(&p.key)?;
         let (k, value) = match &p.value {
             Expression::StringLiteral(s) => {
                 (EnumValueKind::String, Scalar::Str(s.value.to_string()))
@@ -1173,10 +1198,7 @@ fn parse_enum(obj: &ObjectExpression) -> Option<EnumData> {
             Some(prev) if prev != k => return None, // mixed → skip enum
             _ => {}
         }
-        variants.push(EnumVariant {
-            name: name.to_string(),
-            value,
-        });
+        variants.push(EnumVariant { name, value });
     }
     match kind {
         Some(k) if !variants.is_empty() => Some((k, variants)),
@@ -1720,6 +1742,62 @@ mod tests {
     fn run(src: &str) -> Vec<InternalEnumDef> {
         let defs = wa_transform::extract_module_definitions(src);
         extract_enums_from_modules(src, &defs, "1.0").enums
+    }
+
+    #[test]
+    fn a_numeric_key_is_named_by_its_value_not_by_its_spelling() {
+        // JavaScript names the property by `ToString(Number)`, so `0x10` is the
+        // key `"16"` and `1e3` is `"1000"`. Reading the source text instead would
+        // publish a variant name no runtime ever produces, and a consumer
+        // matching on it would match nothing.
+        let module = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={0x10:"a",1e3:"b"}; i.SPELLINGS=e
+        }),66);"#;
+        let def = resolve_named_enum(module, "M", "SPELLINGS").expect("resolves");
+        assert_eq!(
+            def.variants
+                .iter()
+                .map(|v| v.name.as_str())
+                .collect::<Vec<_>>(),
+            ["16", "1000"]
+        );
+    }
+
+    #[test]
+    fn a_fractional_key_is_refused_rather_than_approximated() {
+        // Naming `1.5` correctly means the rest of `ToString(Number)` — exponent
+        // thresholds and shortest-roundtrip digits. No enum in the bundle has
+        // one, so the case is refused, which leaves it counted as an
+        // unresolvable enum instead of published under a name that may be wrong.
+        let module = r#"__d("M",[],(function(t,n,r,o,a,i){
+            var e={1.5:"a"}; i.FRACTIONAL=e
+        }),66);"#;
+        assert!(resolve_named_enum(module, "M", "FRACTIONAL").is_none());
+    }
+
+    #[test]
+    fn a_numeric_key_names_a_variant_like_javascript_does() {
+        // `{0:"0"}` and `{"0":"0"}` are the same object: a numeric key is a string
+        // key written without quotes. Refusing the first lost whole enums —
+        // `WASmaxInReceiptEnums.ENUM_0_1_7`, the legal values of a receipt's `edit`,
+        // among them — and lost them as a silent `None` rather than as a variant.
+        let module = r#"__d("WASmaxInReceiptEnums",[],(function(t,n,r,o,a,i,l){
+            var e={0:"0",1:"1",7:"7"},s={all:"all",none:"none"};
+            i.ENUM_0_1_7=e,i.ENUM_ALL_NONE=s
+        }),66);"#;
+        let def = resolve_named_enum(module, "WASmaxInReceiptEnums", "ENUM_0_1_7")
+            .expect("a numeric-keyed enum resolves");
+        assert_eq!(
+            def.variants
+                .iter()
+                .map(|v| (v.name.as_str(), &v.value))
+                .collect::<Vec<_>>(),
+            [
+                ("0", &Scalar::Str("0".into())),
+                ("1", &Scalar::Str("1".into())),
+                ("7", &Scalar::Str("7".into())),
+            ]
+        );
     }
 
     #[test]
