@@ -232,6 +232,22 @@ fn classify_attr_node<'a>(
         {
             return with_enum(WapAttrKind::String, true, module, ename, None);
         }
+        // FORM B: `CUSTOM_STRING("literal")` — the builder writes exactly that,
+        // so the attribute is pinned. The same as writing the literal directly,
+        // which the branch at the top of this function already recognises;
+        // reaching it through the wire builder is the spelling WA uses when the
+        // surrounding code passes values in the same position.
+        //
+        // Losing the value cost a discriminator: two `<ack class="call">`
+        // builders differ in nothing else — one pins `type="offer_notice"`, the
+        // other computes it — and both were recorded as "a string attribute
+        // called type", which is one shape where there are two.
+        if method == "CUSTOM_STRING"
+            && let Some(arg) = call.arguments.first().and_then(arg_expr)
+            && let Some(literal) = as_string_lit(arg)
+        {
+            return owned(WapAttrKind::Const, Some(literal.to_string()), true);
+        }
         let kind = match method {
             "CUSTOM_STRING" | "STANZA_ID" => Some(WapAttrKind::String),
             "INT" => Some(WapAttrKind::Integer),
@@ -293,6 +309,39 @@ mod tests {
 
     fn no_aliases() -> AliasMap {
         AliasMap::default()
+    }
+
+    fn attrs_of(code: &str) -> Vec<WapAttrDef> {
+        let alloc = Allocator::default();
+        let ret = wa_oxc::parse_cjs(&alloc, code);
+        let call = first_call(&ret.program);
+        let wap = parse_wap_call(call, &no_aliases()).expect("wap");
+        extract_attrs_from_obj(wap.attrs_node.expect("attrs"), code, &no_aliases())
+    }
+
+    #[test]
+    fn a_string_literal_inside_custom_string_is_a_pinned_value() {
+        // `CUSTOM_STRING("offer_notice")` writes exactly that, so the attribute
+        // is pinned — the same as writing the literal directly, which this
+        // already recognised. Losing the value made two `<ack class="call">`
+        // builders indistinguishable: one pins `type`, the other computes it,
+        // and both looked like "a string attribute called type".
+        let attrs = attrs_of(
+            r#"e.wap("ack", {class:"call", type:o("WAWap").CUSTOM_STRING("offer_notice")});"#,
+        );
+        let pinned = attrs.iter().find(|a| a.name == "type").expect("type");
+        assert_eq!(pinned.kind, WapAttrKind::Const);
+        assert_eq!(pinned.value.as_deref(), Some("offer_notice"));
+        assert!(pinned.required);
+    }
+
+    #[test]
+    fn a_computed_custom_string_stays_a_plain_string() {
+        // The value is only known at run time, so there is nothing to pin.
+        let attrs = attrs_of(r#"e.wap("ack", {type:o("WAWap").CUSTOM_STRING(n)});"#);
+        let attr = attrs.iter().find(|a| a.name == "type").expect("type");
+        assert_eq!(attr.kind, WapAttrKind::String);
+        assert_eq!(attr.value, None);
     }
 
     #[test]
