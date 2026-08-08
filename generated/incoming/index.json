@@ -3349,7 +3349,25 @@
                 "name": "edit",
                 "wireName": "edit",
                 "type": "enum",
-                "required": true
+                "required": true,
+                "enumRef": {
+                  "name": "ENUM_0_1_7",
+                  "module": "WASmaxInReceiptEnums",
+                  "variants": [
+                    {
+                      "name": "0",
+                      "value": "0"
+                    },
+                    {
+                      "name": "1",
+                      "value": "1"
+                    },
+                    {
+                      "name": "7",
+                      "value": "7"
+                    }
+                  ]
+                }
               }
             ],
             "sameNode": true

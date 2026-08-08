@@ -69055,6 +69055,20 @@
                                 "wireName": "error",
                                 "type": "enum",
                                 "required": false,
+                                "enumRef": {
+                                  "name": "ENUM_304_419",
+                                  "module": "WASmaxInGroupsEnums",
+                                  "variants": [
+                                    {
+                                      "name": "304",
+                                      "value": "304"
+                                    },
+                                    {
+                                      "name": "419",
+                                      "value": "419"
+                                    }
+                                  ]
+                                },
                                 "sourcePath": [
                                   "membership_approval_request"
                                 ]
@@ -69753,6 +69767,20 @@
                                     "wireName": "error",
                                     "type": "enum",
                                     "required": false,
+                                    "enumRef": {
+                                      "name": "ENUM_304_419",
+                                      "module": "WASmaxInGroupsEnums",
+                                      "variants": [
+                                        {
+                                          "name": "304",
+                                          "value": "304"
+                                        },
+                                        {
+                                          "name": "419",
+                                          "value": "419"
+                                        }
+                                      ]
+                                    },
                                     "sourcePath": [
                                       "membership_approval_request"
                                     ]
@@ -72571,7 +72599,21 @@
                 "name": "error",
                 "wireName": "error",
                 "type": "enum",
-                "required": false
+                "required": false,
+                "enumRef": {
+                  "name": "ENUM_406_500",
+                  "module": "WASmaxInGroupsEnums",
+                  "variants": [
+                    {
+                      "name": "406",
+                      "value": "406"
+                    },
+                    {
+                      "name": "500",
+                      "value": "500"
+                    }
+                  ]
+                }
               }
             ],
             "repeats": false,
@@ -73794,7 +73836,21 @@
                     "name": "error",
                     "wireName": "error",
                     "type": "enum",
-                    "required": false
+                    "required": false,
+                    "enumRef": {
+                      "name": "ENUM_406_500",
+                      "module": "WASmaxInGroupsEnums",
+                      "variants": [
+                        {
+                          "name": "406",
+                          "value": "406"
+                        },
+                        {
+                          "name": "500",
+                          "value": "500"
+                        }
+                      ]
+                    }
                   }
                 ],
                 "repeats": false,
@@ -81039,7 +81095,29 @@
                 "name": "error",
                 "wireName": "error",
                 "type": "enum",
-                "required": false
+                "required": false,
+                "enumRef": {
+                  "name": "ENUM_403_404_406_419",
+                  "module": "WASmaxInGroupsEnums",
+                  "variants": [
+                    {
+                      "name": "403",
+                      "value": "403"
+                    },
+                    {
+                      "name": "404",
+                      "value": "404"
+                    },
+                    {
+                      "name": "406",
+                      "value": "406"
+                    },
+                    {
+                      "name": "419",
+                      "value": "419"
+                    }
+                  ]
+                }
               },
               {
                 "method": "",
@@ -81176,7 +81254,29 @@
                     "name": "error",
                     "wireName": "error",
                     "type": "enum",
-                    "required": false
+                    "required": false,
+                    "enumRef": {
+                      "name": "ENUM_403_404_406_419",
+                      "module": "WASmaxInGroupsEnums",
+                      "variants": [
+                        {
+                          "name": "403",
+                          "value": "403"
+                        },
+                        {
+                          "name": "404",
+                          "value": "404"
+                        },
+                        {
+                          "name": "406",
+                          "value": "406"
+                        },
+                        {
+                          "name": "419",
+                          "value": "419"
+                        }
+                      ]
+                    }
                   },
                   {
                     "method": "",
@@ -81939,7 +82039,21 @@
                 "name": "error",
                 "wireName": "error",
                 "type": "enum",
-                "required": false
+                "required": false,
+                "enumRef": {
+                  "name": "ENUM_404_419",
+                  "module": "WASmaxInGroupsEnums",
+                  "variants": [
+                    {
+                      "name": "404",
+                      "value": "404"
+                    },
+                    {
+                      "name": "419",
+                      "value": "419"
+                    }
+                  ]
+                }
               },
               {
                 "method": "",
@@ -82076,7 +82190,21 @@
                     "name": "error",
                     "wireName": "error",
                     "type": "enum",
-                    "required": false
+                    "required": false,
+                    "enumRef": {
+                      "name": "ENUM_404_419",
+                      "module": "WASmaxInGroupsEnums",
+                      "variants": [
+                        {
+                          "name": "404",
+                          "value": "404"
+                        },
+                        {
+                          "name": "419",
+                          "value": "419"
+                        }
+                      ]
+                    }
                   },
                   {
                     "method": "",
@@ -82205,7 +82333,21 @@
                     "name": "error",
                     "wireName": "error",
                     "type": "enum",
-                    "required": false
+                    "required": false,
+                    "enumRef": {
+                      "name": "ENUM_404_406",
+                      "module": "WASmaxInGroupsEnums",
+                      "variants": [
+                        {
+                          "name": "404",
+                          "value": "404"
+                        },
+                        {
+                          "name": "406",
+                          "value": "406"
+                        }
+                      ]
+                    }
                   },
                   {
                     "method": "",
@@ -90796,14 +90938,42 @@
                 "name": "p2pEligible",
                 "wireName": "p2p-eligible",
                 "type": "enum",
-                "required": false
+                "required": false,
+                "enumRef": {
+                  "name": "ENUM_0_1",
+                  "module": "WASmaxInBrPaymentEnums",
+                  "variants": [
+                    {
+                      "name": "0",
+                      "value": "0"
+                    },
+                    {
+                      "name": "1",
+                      "value": "1"
+                    }
+                  ]
+                }
               },
               {
                 "method": "maybeAttrEnum",
                 "name": "p2mEligible",
                 "wireName": "p2m-eligible",
                 "type": "enum",
-                "required": false
+                "required": false,
+                "enumRef": {
+                  "name": "ENUM_0_1",
+                  "module": "WASmaxInBrPaymentEnums",
+                  "variants": [
+                    {
+                      "name": "0",
+                      "value": "0"
+                    },
+                    {
+                      "name": "1",
+                      "value": "1"
+                    }
+                  ]
+                }
               },
               {
                 "method": "",
@@ -90963,14 +91133,42 @@
                     "name": "p2pEligible",
                     "wireName": "p2p-eligible",
                     "type": "enum",
-                    "required": false
+                    "required": false,
+                    "enumRef": {
+                      "name": "ENUM_0_1",
+                      "module": "WASmaxInBrPaymentEnums",
+                      "variants": [
+                        {
+                          "name": "0",
+                          "value": "0"
+                        },
+                        {
+                          "name": "1",
+                          "value": "1"
+                        }
+                      ]
+                    }
                   },
                   {
                     "method": "maybeAttrEnum",
                     "name": "p2mEligible",
                     "wireName": "p2m-eligible",
                     "type": "enum",
-                    "required": false
+                    "required": false,
+                    "enumRef": {
+                      "name": "ENUM_0_1",
+                      "module": "WASmaxInBrPaymentEnums",
+                      "variants": [
+                        {
+                          "name": "0",
+                          "value": "0"
+                        },
+                        {
+                          "name": "1",
+                          "value": "1"
+                        }
+                      ]
+                    }
                   },
                   {
                     "method": "",
@@ -91198,7 +91396,21 @@
                             "name": "needsDeviceBinding",
                             "wireName": "needs-device-binding",
                             "type": "enum",
-                            "required": true
+                            "required": true,
+                            "enumRef": {
+                              "name": "ENUM_0_1",
+                              "module": "WASmaxInBrPaymentEnums",
+                              "variants": [
+                                {
+                                  "name": "0",
+                                  "value": "0"
+                                },
+                                {
+                                  "name": "1",
+                                  "value": "1"
+                                }
+                              ]
+                            }
                           },
                           {
                             "method": "maybeAttrEnum",
@@ -91256,7 +91468,21 @@
                             "name": "automaticBinding",
                             "wireName": "automatic-binding",
                             "type": "enum",
-                            "required": false
+                            "required": false,
+                            "enumRef": {
+                              "name": "ENUM_0_1",
+                              "module": "WASmaxInBrPaymentEnums",
+                              "variants": [
+                                {
+                                  "name": "0",
+                                  "value": "0"
+                                },
+                                {
+                                  "name": "1",
+                                  "value": "1"
+                                }
+                              ]
+                            }
                           },
                           {
                             "method": "attrString",
@@ -91270,7 +91496,21 @@
                             "name": "verified",
                             "wireName": "verified",
                             "type": "enum",
-                            "required": true
+                            "required": true,
+                            "enumRef": {
+                              "name": "ENUM_0_1",
+                              "module": "WASmaxInBrPaymentEnums",
+                              "variants": [
+                                {
+                                  "name": "0",
+                                  "value": "0"
+                                },
+                                {
+                                  "name": "1",
+                                  "value": "1"
+                                }
+                              ]
+                            }
                           },
                           {
                             "method": "attrString",
@@ -91327,42 +91567,126 @@
                             "name": "defaultCredit",
                             "wireName": "default-credit",
                             "type": "enum",
-                            "required": true
+                            "required": true,
+                            "enumRef": {
+                              "name": "ENUM_0_1",
+                              "module": "WASmaxInBrPaymentEnums",
+                              "variants": [
+                                {
+                                  "name": "0",
+                                  "value": "0"
+                                },
+                                {
+                                  "name": "1",
+                                  "value": "1"
+                                }
+                              ]
+                            }
                           },
                           {
                             "method": "attrEnum",
                             "name": "defaultDebit",
                             "wireName": "default-debit",
                             "type": "enum",
-                            "required": true
+                            "required": true,
+                            "enumRef": {
+                              "name": "ENUM_0_1",
+                              "module": "WASmaxInBrPaymentEnums",
+                              "variants": [
+                                {
+                                  "name": "0",
+                                  "value": "0"
+                                },
+                                {
+                                  "name": "1",
+                                  "value": "1"
+                                }
+                              ]
+                            }
                           },
                           {
                             "method": "maybeAttrEnum",
                             "name": "defaultCreditP2p",
                             "wireName": "default-credit-p2p",
                             "type": "enum",
-                            "required": false
+                            "required": false,
+                            "enumRef": {
+                              "name": "ENUM_0_1",
+                              "module": "WASmaxInBrPaymentEnums",
+                              "variants": [
+                                {
+                                  "name": "0",
+                                  "value": "0"
+                                },
+                                {
+                                  "name": "1",
+                                  "value": "1"
+                                }
+                              ]
+                            }
                           },
                           {
                             "method": "maybeAttrEnum",
                             "name": "defaultCreditP2m",
                             "wireName": "default-credit-p2m",
                             "type": "enum",
-                            "required": false
+                            "required": false,
+                            "enumRef": {
+                              "name": "ENUM_0_1",
+                              "module": "WASmaxInBrPaymentEnums",
+                              "variants": [
+                                {
+                                  "name": "0",
+                                  "value": "0"
+                                },
+                                {
+                                  "name": "1",
+                                  "value": "1"
+                                }
+                              ]
+                            }
                           },
                           {
                             "method": "maybeAttrEnum",
                             "name": "defaultDebitP2p",
                             "wireName": "default-debit-p2p",
                             "type": "enum",
-                            "required": false
+                            "required": false,
+                            "enumRef": {
+                              "name": "ENUM_0_1",
+                              "module": "WASmaxInBrPaymentEnums",
+                              "variants": [
+                                {
+                                  "name": "0",
+                                  "value": "0"
+                                },
+                                {
+                                  "name": "1",
+                                  "value": "1"
+                                }
+                              ]
+                            }
                           },
                           {
                             "method": "maybeAttrEnum",
                             "name": "defaultDebitP2m",
                             "wireName": "default-debit-p2m",
                             "type": "enum",
-                            "required": false
+                            "required": false,
+                            "enumRef": {
+                              "name": "ENUM_0_1",
+                              "module": "WASmaxInBrPaymentEnums",
+                              "variants": [
+                                {
+                                  "name": "0",
+                                  "value": "0"
+                                },
+                                {
+                                  "name": "1",
+                                  "value": "1"
+                                }
+                              ]
+                            }
                           },
                           {
                             "method": "attrString",
@@ -91390,14 +91714,42 @@
                             "name": "p2pEligible",
                             "wireName": "p2p-eligible",
                             "type": "enum",
-                            "required": false
+                            "required": false,
+                            "enumRef": {
+                              "name": "ENUM_0_1",
+                              "module": "WASmaxInBrPaymentEnums",
+                              "variants": [
+                                {
+                                  "name": "0",
+                                  "value": "0"
+                                },
+                                {
+                                  "name": "1",
+                                  "value": "1"
+                                }
+                              ]
+                            }
                           },
                           {
                             "method": "maybeAttrEnum",
                             "name": "p2mEligible",
                             "wireName": "p2m-eligible",
                             "type": "enum",
-                            "required": false
+                            "required": false,
+                            "enumRef": {
+                              "name": "ENUM_0_1",
+                              "module": "WASmaxInBrPaymentEnums",
+                              "variants": [
+                                {
+                                  "name": "0",
+                                  "value": "0"
+                                },
+                                {
+                                  "name": "1",
+                                  "value": "1"
+                                }
+                              ]
+                            }
                           },
                           {
                             "method": "attrEnum",
@@ -91405,6 +91757,20 @@
                             "wireName": "editable",
                             "type": "enum",
                             "required": true,
+                            "enumRef": {
+                              "name": "ENUM_0_1",
+                              "module": "WASmaxInBrPaymentEnums",
+                              "variants": [
+                                {
+                                  "name": "0",
+                                  "value": "0"
+                                },
+                                {
+                                  "name": "1",
+                                  "value": "1"
+                                }
+                              ]
+                            },
                             "sourcePath": [
                               "capabilities"
                             ]
@@ -91415,6 +91781,20 @@
                             "wireName": "verifiable",
                             "type": "enum",
                             "required": true,
+                            "enumRef": {
+                              "name": "ENUM_0_1",
+                              "module": "WASmaxInBrPaymentEnums",
+                              "variants": [
+                                {
+                                  "name": "0",
+                                  "value": "0"
+                                },
+                                {
+                                  "name": "1",
+                                  "value": "1"
+                                }
+                              ]
+                            },
                             "sourcePath": [
                               "capabilities"
                             ]
@@ -91425,6 +91805,20 @@
                             "wireName": "default-eligible",
                             "type": "enum",
                             "required": true,
+                            "enumRef": {
+                              "name": "ENUM_0_1",
+                              "module": "WASmaxInBrPaymentEnums",
+                              "variants": [
+                                {
+                                  "name": "0",
+                                  "value": "0"
+                                },
+                                {
+                                  "name": "1",
+                                  "value": "1"
+                                }
+                              ]
+                            },
                             "sourcePath": [
                               "capabilities"
                             ]
@@ -91435,6 +91829,20 @@
                             "wireName": "default-eligible-p2p",
                             "type": "enum",
                             "required": false,
+                            "enumRef": {
+                              "name": "ENUM_0_1",
+                              "module": "WASmaxInBrPaymentEnums",
+                              "variants": [
+                                {
+                                  "name": "0",
+                                  "value": "0"
+                                },
+                                {
+                                  "name": "1",
+                                  "value": "1"
+                                }
+                              ]
+                            },
                             "sourcePath": [
                               "capabilities"
                             ]
@@ -91445,6 +91853,20 @@
                             "wireName": "default-eligible-p2m",
                             "type": "enum",
                             "required": false,
+                            "enumRef": {
+                              "name": "ENUM_0_1",
+                              "module": "WASmaxInBrPaymentEnums",
+                              "variants": [
+                                {
+                                  "name": "0",
+                                  "value": "0"
+                                },
+                                {
+                                  "name": "1",
+                                  "value": "1"
+                                }
+                              ]
+                            },
                             "sourcePath": [
                               "capabilities"
                             ]
@@ -91573,6 +91995,20 @@
                                 "wireName": "p2m-credit-eligible",
                                 "type": "enum",
                                 "required": true,
+                                "enumRef": {
+                                  "name": "ENUM_0_1",
+                                  "module": "WASmaxInBrPaymentEnums",
+                                  "variants": [
+                                    {
+                                      "name": "0",
+                                      "value": "0"
+                                    },
+                                    {
+                                      "name": "1",
+                                      "value": "1"
+                                    }
+                                  ]
+                                },
                                 "sourcePath": [
                                   "capabilities"
                                 ]
@@ -91583,6 +92019,20 @@
                                 "wireName": "p2m-debit-eligible",
                                 "type": "enum",
                                 "required": true,
+                                "enumRef": {
+                                  "name": "ENUM_0_1",
+                                  "module": "WASmaxInBrPaymentEnums",
+                                  "variants": [
+                                    {
+                                      "name": "0",
+                                      "value": "0"
+                                    },
+                                    {
+                                      "name": "1",
+                                      "value": "1"
+                                    }
+                                  ]
+                                },
                                 "sourcePath": [
                                   "capabilities"
                                 ]
@@ -91620,7 +92070,21 @@
                             "name": "verified",
                             "wireName": "verified",
                             "type": "enum",
-                            "required": true
+                            "required": true,
+                            "enumRef": {
+                              "name": "ENUM_0_1",
+                              "module": "WASmaxInBrPaymentEnums",
+                              "variants": [
+                                {
+                                  "name": "0",
+                                  "value": "0"
+                                },
+                                {
+                                  "name": "1",
+                                  "value": "1"
+                                }
+                              ]
+                            }
                           },
                           {
                             "method": "attrString",
@@ -91677,42 +92141,126 @@
                             "name": "defaultCredit",
                             "wireName": "default-credit",
                             "type": "enum",
-                            "required": true
+                            "required": true,
+                            "enumRef": {
+                              "name": "ENUM_0_1",
+                              "module": "WASmaxInBrPaymentEnums",
+                              "variants": [
+                                {
+                                  "name": "0",
+                                  "value": "0"
+                                },
+                                {
+                                  "name": "1",
+                                  "value": "1"
+                                }
+                              ]
+                            }
                           },
                           {
                             "method": "attrEnum",
                             "name": "defaultDebit",
                             "wireName": "default-debit",
                             "type": "enum",
-                            "required": true
+                            "required": true,
+                            "enumRef": {
+                              "name": "ENUM_0_1",
+                              "module": "WASmaxInBrPaymentEnums",
+                              "variants": [
+                                {
+                                  "name": "0",
+                                  "value": "0"
+                                },
+                                {
+                                  "name": "1",
+                                  "value": "1"
+                                }
+                              ]
+                            }
                           },
                           {
                             "method": "maybeAttrEnum",
                             "name": "defaultCreditP2p",
                             "wireName": "default-credit-p2p",
                             "type": "enum",
-                            "required": false
+                            "required": false,
+                            "enumRef": {
+                              "name": "ENUM_0_1",
+                              "module": "WASmaxInBrPaymentEnums",
+                              "variants": [
+                                {
+                                  "name": "0",
+                                  "value": "0"
+                                },
+                                {
+                                  "name": "1",
+                                  "value": "1"
+                                }
+                              ]
+                            }
                           },
                           {
                             "method": "maybeAttrEnum",
                             "name": "defaultCreditP2m",
                             "wireName": "default-credit-p2m",
                             "type": "enum",
-                            "required": false
+                            "required": false,
+                            "enumRef": {
+                              "name": "ENUM_0_1",
+                              "module": "WASmaxInBrPaymentEnums",
+                              "variants": [
+                                {
+                                  "name": "0",
+                                  "value": "0"
+                                },
+                                {
+                                  "name": "1",
+                                  "value": "1"
+                                }
+                              ]
+                            }
                           },
                           {
                             "method": "maybeAttrEnum",
                             "name": "defaultDebitP2p",
                             "wireName": "default-debit-p2p",
                             "type": "enum",
-                            "required": false
+                            "required": false,
+                            "enumRef": {
+                              "name": "ENUM_0_1",
+                              "module": "WASmaxInBrPaymentEnums",
+                              "variants": [
+                                {
+                                  "name": "0",
+                                  "value": "0"
+                                },
+                                {
+                                  "name": "1",
+                                  "value": "1"
+                                }
+                              ]
+                            }
                           },
                           {
                             "method": "maybeAttrEnum",
                             "name": "defaultDebitP2m",
                             "wireName": "default-debit-p2m",
                             "type": "enum",
-                            "required": false
+                            "required": false,
+                            "enumRef": {
+                              "name": "ENUM_0_1",
+                              "module": "WASmaxInBrPaymentEnums",
+                              "variants": [
+                                {
+                                  "name": "0",
+                                  "value": "0"
+                                },
+                                {
+                                  "name": "1",
+                                  "value": "1"
+                                }
+                              ]
+                            }
                           },
                           {
                             "method": "attrString",
@@ -91740,14 +92288,42 @@
                             "name": "p2pEligible",
                             "wireName": "p2p-eligible",
                             "type": "enum",
-                            "required": false
+                            "required": false,
+                            "enumRef": {
+                              "name": "ENUM_0_1",
+                              "module": "WASmaxInBrPaymentEnums",
+                              "variants": [
+                                {
+                                  "name": "0",
+                                  "value": "0"
+                                },
+                                {
+                                  "name": "1",
+                                  "value": "1"
+                                }
+                              ]
+                            }
                           },
                           {
                             "method": "maybeAttrEnum",
                             "name": "p2mEligible",
                             "wireName": "p2m-eligible",
                             "type": "enum",
-                            "required": false
+                            "required": false,
+                            "enumRef": {
+                              "name": "ENUM_0_1",
+                              "module": "WASmaxInBrPaymentEnums",
+                              "variants": [
+                                {
+                                  "name": "0",
+                                  "value": "0"
+                                },
+                                {
+                                  "name": "1",
+                                  "value": "1"
+                                }
+                              ]
+                            }
                           },
                           {
                             "method": "attrEnum",
@@ -91755,6 +92331,20 @@
                             "wireName": "editable",
                             "type": "enum",
                             "required": true,
+                            "enumRef": {
+                              "name": "ENUM_0_1",
+                              "module": "WASmaxInBrPaymentEnums",
+                              "variants": [
+                                {
+                                  "name": "0",
+                                  "value": "0"
+                                },
+                                {
+                                  "name": "1",
+                                  "value": "1"
+                                }
+                              ]
+                            },
                             "sourcePath": [
                               "capabilities"
                             ]
@@ -91765,6 +92355,20 @@
                             "wireName": "verifiable",
                             "type": "enum",
                             "required": true,
+                            "enumRef": {
+                              "name": "ENUM_0_1",
+                              "module": "WASmaxInBrPaymentEnums",
+                              "variants": [
+                                {
+                                  "name": "0",
+                                  "value": "0"
+                                },
+                                {
+                                  "name": "1",
+                                  "value": "1"
+                                }
+                              ]
+                            },
                             "sourcePath": [
                               "capabilities"
                             ]
@@ -91775,6 +92379,20 @@
                             "wireName": "default-eligible",
                             "type": "enum",
                             "required": true,
+                            "enumRef": {
+                              "name": "ENUM_0_1",
+                              "module": "WASmaxInBrPaymentEnums",
+                              "variants": [
+                                {
+                                  "name": "0",
+                                  "value": "0"
+                                },
+                                {
+                                  "name": "1",
+                                  "value": "1"
+                                }
+                              ]
+                            },
                             "sourcePath": [
                               "capabilities"
                             ]
@@ -91785,6 +92403,20 @@
                             "wireName": "default-eligible-p2p",
                             "type": "enum",
                             "required": false,
+                            "enumRef": {
+                              "name": "ENUM_0_1",
+                              "module": "WASmaxInBrPaymentEnums",
+                              "variants": [
+                                {
+                                  "name": "0",
+                                  "value": "0"
+                                },
+                                {
+                                  "name": "1",
+                                  "value": "1"
+                                }
+                              ]
+                            },
                             "sourcePath": [
                               "capabilities"
                             ]
@@ -91795,6 +92427,20 @@
                             "wireName": "default-eligible-p2m",
                             "type": "enum",
                             "required": false,
+                            "enumRef": {
+                              "name": "ENUM_0_1",
+                              "module": "WASmaxInBrPaymentEnums",
+                              "variants": [
+                                {
+                                  "name": "0",
+                                  "value": "0"
+                                },
+                                {
+                                  "name": "1",
+                                  "value": "1"
+                                }
+                              ]
+                            },
                             "sourcePath": [
                               "capabilities"
                             ]
@@ -91934,7 +92580,21 @@
                             "name": "verified",
                             "wireName": "verified",
                             "type": "enum",
-                            "required": true
+                            "required": true,
+                            "enumRef": {
+                              "name": "ENUM_0_1",
+                              "module": "WASmaxInBrPaymentEnums",
+                              "variants": [
+                                {
+                                  "name": "0",
+                                  "value": "0"
+                                },
+                                {
+                                  "name": "1",
+                                  "value": "1"
+                                }
+                              ]
+                            }
                           },
                           {
                             "method": "attrString",
@@ -91991,42 +92651,126 @@
                             "name": "defaultCredit",
                             "wireName": "default-credit",
                             "type": "enum",
-                            "required": true
+                            "required": true,
+                            "enumRef": {
+                              "name": "ENUM_0_1",
+                              "module": "WASmaxInBrPaymentEnums",
+                              "variants": [
+                                {
+                                  "name": "0",
+                                  "value": "0"
+                                },
+                                {
+                                  "name": "1",
+                                  "value": "1"
+                                }
+                              ]
+                            }
                           },
                           {
                             "method": "attrEnum",
                             "name": "defaultDebit",
                             "wireName": "default-debit",
                             "type": "enum",
-                            "required": true
+                            "required": true,
+                            "enumRef": {
+                              "name": "ENUM_0_1",
+                              "module": "WASmaxInBrPaymentEnums",
+                              "variants": [
+                                {
+                                  "name": "0",
+                                  "value": "0"
+                                },
+                                {
+                                  "name": "1",
+                                  "value": "1"
+                                }
+                              ]
+                            }
                           },
                           {
                             "method": "maybeAttrEnum",
                             "name": "defaultCreditP2p",
                             "wireName": "default-credit-p2p",
                             "type": "enum",
-                            "required": false
+                            "required": false,
+                            "enumRef": {
+                              "name": "ENUM_0_1",
+                              "module": "WASmaxInBrPaymentEnums",
+                              "variants": [
+                                {
+                                  "name": "0",
+                                  "value": "0"
+                                },
+                                {
+                                  "name": "1",
+                                  "value": "1"
+                                }
+                              ]
+                            }
                           },
                           {
                             "method": "maybeAttrEnum",
                             "name": "defaultCreditP2m",
                             "wireName": "default-credit-p2m",
                             "type": "enum",
-                            "required": false
+                            "required": false,
+                            "enumRef": {
+                              "name": "ENUM_0_1",
+                              "module": "WASmaxInBrPaymentEnums",
+                              "variants": [
+                                {
+                                  "name": "0",
+                                  "value": "0"
+                                },
+                                {
+                                  "name": "1",
+                                  "value": "1"
+                                }
+                              ]
+                            }
                           },
                           {
                             "method": "maybeAttrEnum",
                             "name": "defaultDebitP2p",
                             "wireName": "default-debit-p2p",
                             "type": "enum",
-                            "required": false
+                            "required": false,
+                            "enumRef": {
+                              "name": "ENUM_0_1",
+                              "module": "WASmaxInBrPaymentEnums",
+                              "variants": [
+                                {
+                                  "name": "0",
+                                  "value": "0"
+                                },
+                                {
+                                  "name": "1",
+                                  "value": "1"
+                                }
+                              ]
+                            }
                           },
                           {
                             "method": "maybeAttrEnum",
                             "name": "defaultDebitP2m",
                             "wireName": "default-debit-p2m",
                             "type": "enum",
-                            "required": false
+                            "required": false,
+                            "enumRef": {
+                              "name": "ENUM_0_1",
+                              "module": "WASmaxInBrPaymentEnums",
+                              "variants": [
+                                {
+                                  "name": "0",
+                                  "value": "0"
+                                },
+                                {
+                                  "name": "1",
+                                  "value": "1"
+                                }
+                              ]
+                            }
                           },
                           {
                             "method": "attrString",
@@ -92054,14 +92798,42 @@
                             "name": "p2pEligible",
                             "wireName": "p2p-eligible",
                             "type": "enum",
-                            "required": false
+                            "required": false,
+                            "enumRef": {
+                              "name": "ENUM_0_1",
+                              "module": "WASmaxInBrPaymentEnums",
+                              "variants": [
+                                {
+                                  "name": "0",
+                                  "value": "0"
+                                },
+                                {
+                                  "name": "1",
+                                  "value": "1"
+                                }
+                              ]
+                            }
                           },
                           {
                             "method": "maybeAttrEnum",
                             "name": "p2mEligible",
                             "wireName": "p2m-eligible",
                             "type": "enum",
-                            "required": false
+                            "required": false,
+                            "enumRef": {
+                              "name": "ENUM_0_1",
+                              "module": "WASmaxInBrPaymentEnums",
+                              "variants": [
+                                {
+                                  "name": "0",
+                                  "value": "0"
+                                },
+                                {
+                                  "name": "1",
+                                  "value": "1"
+                                }
+                              ]
+                            }
                           },
                           {
                             "method": "attrEnum",
@@ -92069,6 +92841,20 @@
                             "wireName": "editable",
                             "type": "enum",
                             "required": true,
+                            "enumRef": {
+                              "name": "ENUM_0_1",
+                              "module": "WASmaxInBrPaymentEnums",
+                              "variants": [
+                                {
+                                  "name": "0",
+                                  "value": "0"
+                                },
+                                {
+                                  "name": "1",
+                                  "value": "1"
+                                }
+                              ]
+                            },
                             "sourcePath": [
                               "capabilities"
                             ]
@@ -92079,6 +92865,20 @@
                             "wireName": "verifiable",
                             "type": "enum",
                             "required": true,
+                            "enumRef": {
+                              "name": "ENUM_0_1",
+                              "module": "WASmaxInBrPaymentEnums",
+                              "variants": [
+                                {
+                                  "name": "0",
+                                  "value": "0"
+                                },
+                                {
+                                  "name": "1",
+                                  "value": "1"
+                                }
+                              ]
+                            },
                             "sourcePath": [
                               "capabilities"
                             ]
@@ -92089,6 +92889,20 @@
                             "wireName": "default-eligible",
                             "type": "enum",
                             "required": true,
+                            "enumRef": {
+                              "name": "ENUM_0_1",
+                              "module": "WASmaxInBrPaymentEnums",
+                              "variants": [
+                                {
+                                  "name": "0",
+                                  "value": "0"
+                                },
+                                {
+                                  "name": "1",
+                                  "value": "1"
+                                }
+                              ]
+                            },
                             "sourcePath": [
                               "capabilities"
                             ]
@@ -92099,6 +92913,20 @@
                             "wireName": "default-eligible-p2p",
                             "type": "enum",
                             "required": false,
+                            "enumRef": {
+                              "name": "ENUM_0_1",
+                              "module": "WASmaxInBrPaymentEnums",
+                              "variants": [
+                                {
+                                  "name": "0",
+                                  "value": "0"
+                                },
+                                {
+                                  "name": "1",
+                                  "value": "1"
+                                }
+                              ]
+                            },
                             "sourcePath": [
                               "capabilities"
                             ]
@@ -92109,6 +92937,20 @@
                             "wireName": "default-eligible-p2m",
                             "type": "enum",
                             "required": false,
+                            "enumRef": {
+                              "name": "ENUM_0_1",
+                              "module": "WASmaxInBrPaymentEnums",
+                              "variants": [
+                                {
+                                  "name": "0",
+                                  "value": "0"
+                                },
+                                {
+                                  "name": "1",
+                                  "value": "1"
+                                }
+                              ]
+                            },
                             "sourcePath": [
                               "capabilities"
                             ]
@@ -92300,7 +93142,21 @@
                     "name": "isMpinSet",
                     "wireName": "is-mpin-set",
                     "type": "enum",
-                    "required": true
+                    "required": true,
+                    "enumRef": {
+                      "name": "ENUM_0_1",
+                      "module": "WASmaxInBrPaymentEnums",
+                      "variants": [
+                        {
+                          "name": "0",
+                          "value": "0"
+                        },
+                        {
+                          "name": "1",
+                          "value": "1"
+                        }
+                      ]
+                    }
                   },
                   {
                     "method": "attrInt",
@@ -92362,7 +93218,21 @@
                     "name": "pinFormatVersion",
                     "wireName": "pin-format-version",
                     "type": "enum",
-                    "required": true
+                    "required": true,
+                    "enumRef": {
+                      "name": "ENUM_1_2",
+                      "module": "WASmaxInBrPaymentEnums",
+                      "variants": [
+                        {
+                          "name": "1",
+                          "value": "1"
+                        },
+                        {
+                          "name": "2",
+                          "value": "2"
+                        }
+                      ]
+                    }
                   },
                   {
                     "method": "maybeAttrString",
@@ -92411,56 +93281,168 @@
                     "name": "isAadhaarEnabled",
                     "wireName": "is-aadhaar-enabled",
                     "type": "enum",
-                    "required": false
+                    "required": false,
+                    "enumRef": {
+                      "name": "ENUM_0_1",
+                      "module": "WASmaxInBrPaymentEnums",
+                      "variants": [
+                        {
+                          "name": "0",
+                          "value": "0"
+                        },
+                        {
+                          "name": "1",
+                          "value": "1"
+                        }
+                      ]
+                    }
                   },
                   {
                     "method": "maybeAttrEnum",
                     "name": "isInternationalPayEnabled",
                     "wireName": "is_international_pay_enabled",
                     "type": "enum",
-                    "required": false
+                    "required": false,
+                    "enumRef": {
+                      "name": "ENUM_0_1",
+                      "module": "WASmaxInBrPaymentEnums",
+                      "variants": [
+                        {
+                          "name": "0",
+                          "value": "0"
+                        },
+                        {
+                          "name": "1",
+                          "value": "1"
+                        }
+                      ]
+                    }
                   },
                   {
                     "method": "attrEnum",
                     "name": "defaultCredit",
                     "wireName": "default-credit",
                     "type": "enum",
-                    "required": true
+                    "required": true,
+                    "enumRef": {
+                      "name": "ENUM_0_1",
+                      "module": "WASmaxInBrPaymentEnums",
+                      "variants": [
+                        {
+                          "name": "0",
+                          "value": "0"
+                        },
+                        {
+                          "name": "1",
+                          "value": "1"
+                        }
+                      ]
+                    }
                   },
                   {
                     "method": "attrEnum",
                     "name": "defaultDebit",
                     "wireName": "default-debit",
                     "type": "enum",
-                    "required": true
+                    "required": true,
+                    "enumRef": {
+                      "name": "ENUM_0_1",
+                      "module": "WASmaxInBrPaymentEnums",
+                      "variants": [
+                        {
+                          "name": "0",
+                          "value": "0"
+                        },
+                        {
+                          "name": "1",
+                          "value": "1"
+                        }
+                      ]
+                    }
                   },
                   {
                     "method": "maybeAttrEnum",
                     "name": "defaultCreditP2p",
                     "wireName": "default-credit-p2p",
                     "type": "enum",
-                    "required": false
+                    "required": false,
+                    "enumRef": {
+                      "name": "ENUM_0_1",
+                      "module": "WASmaxInBrPaymentEnums",
+                      "variants": [
+                        {
+                          "name": "0",
+                          "value": "0"
+                        },
+                        {
+                          "name": "1",
+                          "value": "1"
+                        }
+                      ]
+                    }
                   },
                   {
                     "method": "maybeAttrEnum",
                     "name": "defaultCreditP2m",
                     "wireName": "default-credit-p2m",
                     "type": "enum",
-                    "required": false
+                    "required": false,
+                    "enumRef": {
+                      "name": "ENUM_0_1",
+                      "module": "WASmaxInBrPaymentEnums",
+                      "variants": [
+                        {
+                          "name": "0",
+                          "value": "0"
+                        },
+                        {
+                          "name": "1",
+                          "value": "1"
+                        }
+                      ]
+                    }
                   },
                   {
                     "method": "maybeAttrEnum",
                     "name": "defaultDebitP2p",
                     "wireName": "default-debit-p2p",
                     "type": "enum",
-                    "required": false
+                    "required": false,
+                    "enumRef": {
+                      "name": "ENUM_0_1",
+                      "module": "WASmaxInBrPaymentEnums",
+                      "variants": [
+                        {
+                          "name": "0",
+                          "value": "0"
+                        },
+                        {
+                          "name": "1",
+                          "value": "1"
+                        }
+                      ]
+                    }
                   },
                   {
                     "method": "maybeAttrEnum",
                     "name": "defaultDebitP2m",
                     "wireName": "default-debit-p2m",
                     "type": "enum",
-                    "required": false
+                    "required": false,
+                    "enumRef": {
+                      "name": "ENUM_0_1",
+                      "module": "WASmaxInBrPaymentEnums",
+                      "variants": [
+                        {
+                          "name": "0",
+                          "value": "0"
+                        },
+                        {
+                          "name": "1",
+                          "value": "1"
+                        }
+                      ]
+                    }
                   },
                   {
                     "method": "attrString",
@@ -92488,14 +93470,42 @@
                     "name": "p2pEligible",
                     "wireName": "p2p-eligible",
                     "type": "enum",
-                    "required": false
+                    "required": false,
+                    "enumRef": {
+                      "name": "ENUM_0_1",
+                      "module": "WASmaxInBrPaymentEnums",
+                      "variants": [
+                        {
+                          "name": "0",
+                          "value": "0"
+                        },
+                        {
+                          "name": "1",
+                          "value": "1"
+                        }
+                      ]
+                    }
                   },
                   {
                     "method": "maybeAttrEnum",
                     "name": "p2mEligible",
                     "wireName": "p2m-eligible",
                     "type": "enum",
-                    "required": false
+                    "required": false,
+                    "enumRef": {
+                      "name": "ENUM_0_1",
+                      "module": "WASmaxInBrPaymentEnums",
+                      "variants": [
+                        {
+                          "name": "0",
+                          "value": "0"
+                        },
+                        {
+                          "name": "1",
+                          "value": "1"
+                        }
+                      ]
+                    }
                   }
                 ],
                 "repeats": true
@@ -92605,21 +93615,63 @@
                     "name": "canSell",
                     "wireName": "can-sell",
                     "type": "enum",
-                    "required": true
+                    "required": true,
+                    "enumRef": {
+                      "name": "ENUM_0_1",
+                      "module": "WASmaxInBrPaymentEnums",
+                      "variants": [
+                        {
+                          "name": "0",
+                          "value": "0"
+                        },
+                        {
+                          "name": "1",
+                          "value": "1"
+                        }
+                      ]
+                    }
                   },
                   {
                     "method": "attrEnum",
                     "name": "canPayout",
                     "wireName": "can-payout",
                     "type": "enum",
-                    "required": true
+                    "required": true,
+                    "enumRef": {
+                      "name": "ENUM_0_1",
+                      "module": "WASmaxInBrPaymentEnums",
+                      "variants": [
+                        {
+                          "name": "0",
+                          "value": "0"
+                        },
+                        {
+                          "name": "1",
+                          "value": "1"
+                        }
+                      ]
+                    }
                   },
                   {
                     "method": "attrEnum",
                     "name": "canAddPayout",
                     "wireName": "can-add-payout",
                     "type": "enum",
-                    "required": true
+                    "required": true,
+                    "enumRef": {
+                      "name": "ENUM_0_1",
+                      "module": "WASmaxInBrPaymentEnums",
+                      "variants": [
+                        {
+                          "name": "0",
+                          "value": "0"
+                        },
+                        {
+                          "name": "1",
+                          "value": "1"
+                        }
+                      ]
+                    }
                   },
                   {
                     "method": "maybeAttrString",
@@ -92640,7 +93692,25 @@
                     "name": "pixOnboardingState",
                     "wireName": "pix-onboarding-state",
                     "type": "enum",
-                    "required": false
+                    "required": false,
+                    "enumRef": {
+                      "name": "ENUM_0_1_2",
+                      "module": "WASmaxInBrPaymentEnums",
+                      "variants": [
+                        {
+                          "name": "0",
+                          "value": "0"
+                        },
+                        {
+                          "name": "1",
+                          "value": "1"
+                        },
+                        {
+                          "name": "2",
+                          "value": "2"
+                        }
+                      ]
+                    }
                   },
                   {
                     "method": "attrString",
@@ -92668,14 +93738,42 @@
                     "name": "p2pEligible",
                     "wireName": "p2p-eligible",
                     "type": "enum",
-                    "required": false
+                    "required": false,
+                    "enumRef": {
+                      "name": "ENUM_0_1",
+                      "module": "WASmaxInBrPaymentEnums",
+                      "variants": [
+                        {
+                          "name": "0",
+                          "value": "0"
+                        },
+                        {
+                          "name": "1",
+                          "value": "1"
+                        }
+                      ]
+                    }
                   },
                   {
                     "method": "maybeAttrEnum",
                     "name": "p2mEligible",
                     "wireName": "p2m-eligible",
                     "type": "enum",
-                    "required": false
+                    "required": false,
+                    "enumRef": {
+                      "name": "ENUM_0_1",
+                      "module": "WASmaxInBrPaymentEnums",
+                      "variants": [
+                        {
+                          "name": "0",
+                          "value": "0"
+                        },
+                        {
+                          "name": "1",
+                          "value": "1"
+                        }
+                      ]
+                    }
                   },
                   {
                     "method": "child",
@@ -92773,14 +93871,42 @@
                                 "name": "p2pEligible",
                                 "wireName": "p2p-eligible",
                                 "type": "enum",
-                                "required": false
+                                "required": false,
+                                "enumRef": {
+                                  "name": "ENUM_0_1",
+                                  "module": "WASmaxInBrPaymentEnums",
+                                  "variants": [
+                                    {
+                                      "name": "0",
+                                      "value": "0"
+                                    },
+                                    {
+                                      "name": "1",
+                                      "value": "1"
+                                    }
+                                  ]
+                                }
                               },
                               {
                                 "method": "maybeAttrEnum",
                                 "name": "p2mEligible",
                                 "wireName": "p2m-eligible",
                                 "type": "enum",
-                                "required": false
+                                "required": false,
+                                "enumRef": {
+                                  "name": "ENUM_0_1",
+                                  "module": "WASmaxInBrPaymentEnums",
+                                  "variants": [
+                                    {
+                                      "name": "0",
+                                      "value": "0"
+                                    },
+                                    {
+                                      "name": "1",
+                                      "value": "1"
+                                    }
+                                  ]
+                                }
                               }
                             ],
                             "assertions": [
@@ -92839,14 +93965,42 @@
                                 "name": "p2pEligible",
                                 "wireName": "p2p-eligible",
                                 "type": "enum",
-                                "required": false
+                                "required": false,
+                                "enumRef": {
+                                  "name": "ENUM_0_1",
+                                  "module": "WASmaxInBrPaymentEnums",
+                                  "variants": [
+                                    {
+                                      "name": "0",
+                                      "value": "0"
+                                    },
+                                    {
+                                      "name": "1",
+                                      "value": "1"
+                                    }
+                                  ]
+                                }
                               },
                               {
                                 "method": "maybeAttrEnum",
                                 "name": "p2mEligible",
                                 "wireName": "p2m-eligible",
                                 "type": "enum",
-                                "required": false
+                                "required": false,
+                                "enumRef": {
+                                  "name": "ENUM_0_1",
+                                  "module": "WASmaxInBrPaymentEnums",
+                                  "variants": [
+                                    {
+                                      "name": "0",
+                                      "value": "0"
+                                    },
+                                    {
+                                      "name": "1",
+                                      "value": "1"
+                                    }
+                                  ]
+                                }
                               }
                             ],
                             "assertions": [
@@ -93062,14 +94216,42 @@
                     "name": "p2pEligible",
                     "wireName": "p2p-eligible",
                     "type": "enum",
-                    "required": false
+                    "required": false,
+                    "enumRef": {
+                      "name": "ENUM_0_1",
+                      "module": "WASmaxInBrPaymentEnums",
+                      "variants": [
+                        {
+                          "name": "0",
+                          "value": "0"
+                        },
+                        {
+                          "name": "1",
+                          "value": "1"
+                        }
+                      ]
+                    }
                   },
                   {
                     "method": "maybeAttrEnum",
                     "name": "p2mEligible",
                     "wireName": "p2m-eligible",
                     "type": "enum",
-                    "required": false
+                    "required": false,
+                    "enumRef": {
+                      "name": "ENUM_0_1",
+                      "module": "WASmaxInBrPaymentEnums",
+                      "variants": [
+                        {
+                          "name": "0",
+                          "value": "0"
+                        },
+                        {
+                          "name": "1",
+                          "value": "1"
+                        }
+                      ]
+                    }
                   },
                   {
                     "method": "",
@@ -93216,7 +94398,21 @@
                                 "name": "needsDeviceBinding",
                                 "wireName": "needs-device-binding",
                                 "type": "enum",
-                                "required": true
+                                "required": true,
+                                "enumRef": {
+                                  "name": "ENUM_0_1",
+                                  "module": "WASmaxInBrPaymentEnums",
+                                  "variants": [
+                                    {
+                                      "name": "0",
+                                      "value": "0"
+                                    },
+                                    {
+                                      "name": "1",
+                                      "value": "1"
+                                    }
+                                  ]
+                                }
                               },
                               {
                                 "method": "maybeAttrEnum",
@@ -93274,7 +94470,21 @@
                                 "name": "automaticBinding",
                                 "wireName": "automatic-binding",
                                 "type": "enum",
-                                "required": false
+                                "required": false,
+                                "enumRef": {
+                                  "name": "ENUM_0_1",
+                                  "module": "WASmaxInBrPaymentEnums",
+                                  "variants": [
+                                    {
+                                      "name": "0",
+                                      "value": "0"
+                                    },
+                                    {
+                                      "name": "1",
+                                      "value": "1"
+                                    }
+                                  ]
+                                }
                               },
                               {
                                 "method": "attrString",
@@ -93288,7 +94498,21 @@
                                 "name": "verified",
                                 "wireName": "verified",
                                 "type": "enum",
-                                "required": true
+                                "required": true,
+                                "enumRef": {
+                                  "name": "ENUM_0_1",
+                                  "module": "WASmaxInBrPaymentEnums",
+                                  "variants": [
+                                    {
+                                      "name": "0",
+                                      "value": "0"
+                                    },
+                                    {
+                                      "name": "1",
+                                      "value": "1"
+                                    }
+                                  ]
+                                }
                               },
                               {
                                 "method": "attrString",
@@ -93345,42 +94569,126 @@
                                 "name": "defaultCredit",
                                 "wireName": "default-credit",
                                 "type": "enum",
-                                "required": true
+                                "required": true,
+                                "enumRef": {
+                                  "name": "ENUM_0_1",
+                                  "module": "WASmaxInBrPaymentEnums",
+                                  "variants": [
+                                    {
+                                      "name": "0",
+                                      "value": "0"
+                                    },
+                                    {
+                                      "name": "1",
+                                      "value": "1"
+                                    }
+                                  ]
+                                }
                               },
                               {
                                 "method": "attrEnum",
                                 "name": "defaultDebit",
                                 "wireName": "default-debit",
                                 "type": "enum",
-                                "required": true
+                                "required": true,
+                                "enumRef": {
+                                  "name": "ENUM_0_1",
+                                  "module": "WASmaxInBrPaymentEnums",
+                                  "variants": [
+                                    {
+                                      "name": "0",
+                                      "value": "0"
+                                    },
+                                    {
+                                      "name": "1",
+                                      "value": "1"
+                                    }
+                                  ]
+                                }
                               },
                               {
                                 "method": "maybeAttrEnum",
                                 "name": "defaultCreditP2p",
                                 "wireName": "default-credit-p2p",
                                 "type": "enum",
-                                "required": false
+                                "required": false,
+                                "enumRef": {
+                                  "name": "ENUM_0_1",
+                                  "module": "WASmaxInBrPaymentEnums",
+                                  "variants": [
+                                    {
+                                      "name": "0",
+                                      "value": "0"
+                                    },
+                                    {
+                                      "name": "1",
+                                      "value": "1"
+                                    }
+                                  ]
+                                }
                               },
                               {
                                 "method": "maybeAttrEnum",
                                 "name": "defaultCreditP2m",
                                 "wireName": "default-credit-p2m",
                                 "type": "enum",
-                                "required": false
+                                "required": false,
+                                "enumRef": {
+                                  "name": "ENUM_0_1",
+                                  "module": "WASmaxInBrPaymentEnums",
+                                  "variants": [
+                                    {
+                                      "name": "0",
+                                      "value": "0"
+                                    },
+                                    {
+                                      "name": "1",
+                                      "value": "1"
+                                    }
+                                  ]
+                                }
                               },
                               {
                                 "method": "maybeAttrEnum",
                                 "name": "defaultDebitP2p",
                                 "wireName": "default-debit-p2p",
                                 "type": "enum",
-                                "required": false
+                                "required": false,
+                                "enumRef": {
+                                  "name": "ENUM_0_1",
+                                  "module": "WASmaxInBrPaymentEnums",
+                                  "variants": [
+                                    {
+                                      "name": "0",
+                                      "value": "0"
+                                    },
+                                    {
+                                      "name": "1",
+                                      "value": "1"
+                                    }
+                                  ]
+                                }
                               },
                               {
                                 "method": "maybeAttrEnum",
                                 "name": "defaultDebitP2m",
                                 "wireName": "default-debit-p2m",
                                 "type": "enum",
-                                "required": false
+                                "required": false,
+                                "enumRef": {
+                                  "name": "ENUM_0_1",
+                                  "module": "WASmaxInBrPaymentEnums",
+                                  "variants": [
+                                    {
+                                      "name": "0",
+                                      "value": "0"
+                                    },
+                                    {
+                                      "name": "1",
+                                      "value": "1"
+                                    }
+                                  ]
+                                }
                               },
                               {
                                 "method": "attrString",
@@ -93408,14 +94716,42 @@
                                 "name": "p2pEligible",
                                 "wireName": "p2p-eligible",
                                 "type": "enum",
-                                "required": false
+                                "required": false,
+                                "enumRef": {
+                                  "name": "ENUM_0_1",
+                                  "module": "WASmaxInBrPaymentEnums",
+                                  "variants": [
+                                    {
+                                      "name": "0",
+                                      "value": "0"
+                                    },
+                                    {
+                                      "name": "1",
+                                      "value": "1"
+                                    }
+                                  ]
+                                }
                               },
                               {
                                 "method": "maybeAttrEnum",
                                 "name": "p2mEligible",
                                 "wireName": "p2m-eligible",
                                 "type": "enum",
-                                "required": false
+                                "required": false,
+                                "enumRef": {
+                                  "name": "ENUM_0_1",
+                                  "module": "WASmaxInBrPaymentEnums",
+                                  "variants": [
+                                    {
+                                      "name": "0",
+                                      "value": "0"
+                                    },
+                                    {
+                                      "name": "1",
+                                      "value": "1"
+                                    }
+                                  ]
+                                }
                               },
                               {
                                 "method": "attrEnum",
@@ -93423,6 +94759,20 @@
                                 "wireName": "editable",
                                 "type": "enum",
                                 "required": true,
+                                "enumRef": {
+                                  "name": "ENUM_0_1",
+                                  "module": "WASmaxInBrPaymentEnums",
+                                  "variants": [
+                                    {
+                                      "name": "0",
+                                      "value": "0"
+                                    },
+                                    {
+                                      "name": "1",
+                                      "value": "1"
+                                    }
+                                  ]
+                                },
                                 "sourcePath": [
                                   "capabilities"
                                 ]
@@ -93433,6 +94783,20 @@
                                 "wireName": "verifiable",
                                 "type": "enum",
                                 "required": true,
+                                "enumRef": {
+                                  "name": "ENUM_0_1",
+                                  "module": "WASmaxInBrPaymentEnums",
+                                  "variants": [
+                                    {
+                                      "name": "0",
+                                      "value": "0"
+                                    },
+                                    {
+                                      "name": "1",
+                                      "value": "1"
+                                    }
+                                  ]
+                                },
                                 "sourcePath": [
                                   "capabilities"
                                 ]
@@ -93443,6 +94807,20 @@
                                 "wireName": "default-eligible",
                                 "type": "enum",
                                 "required": true,
+                                "enumRef": {
+                                  "name": "ENUM_0_1",
+                                  "module": "WASmaxInBrPaymentEnums",
+                                  "variants": [
+                                    {
+                                      "name": "0",
+                                      "value": "0"
+                                    },
+                                    {
+                                      "name": "1",
+                                      "value": "1"
+                                    }
+                                  ]
+                                },
                                 "sourcePath": [
                                   "capabilities"
                                 ]
@@ -93453,6 +94831,20 @@
                                 "wireName": "default-eligible-p2p",
                                 "type": "enum",
                                 "required": false,
+                                "enumRef": {
+                                  "name": "ENUM_0_1",
+                                  "module": "WASmaxInBrPaymentEnums",
+                                  "variants": [
+                                    {
+                                      "name": "0",
+                                      "value": "0"
+                                    },
+                                    {
+                                      "name": "1",
+                                      "value": "1"
+                                    }
+                                  ]
+                                },
                                 "sourcePath": [
                                   "capabilities"
                                 ]
@@ -93463,6 +94855,20 @@
                                 "wireName": "default-eligible-p2m",
                                 "type": "enum",
                                 "required": false,
+                                "enumRef": {
+                                  "name": "ENUM_0_1",
+                                  "module": "WASmaxInBrPaymentEnums",
+                                  "variants": [
+                                    {
+                                      "name": "0",
+                                      "value": "0"
+                                    },
+                                    {
+                                      "name": "1",
+                                      "value": "1"
+                                    }
+                                  ]
+                                },
                                 "sourcePath": [
                                   "capabilities"
                                 ]
@@ -93591,6 +94997,20 @@
                                     "wireName": "p2m-credit-eligible",
                                     "type": "enum",
                                     "required": true,
+                                    "enumRef": {
+                                      "name": "ENUM_0_1",
+                                      "module": "WASmaxInBrPaymentEnums",
+                                      "variants": [
+                                        {
+                                          "name": "0",
+                                          "value": "0"
+                                        },
+                                        {
+                                          "name": "1",
+                                          "value": "1"
+                                        }
+                                      ]
+                                    },
                                     "sourcePath": [
                                       "capabilities"
                                     ]
@@ -93601,6 +95021,20 @@
                                     "wireName": "p2m-debit-eligible",
                                     "type": "enum",
                                     "required": true,
+                                    "enumRef": {
+                                      "name": "ENUM_0_1",
+                                      "module": "WASmaxInBrPaymentEnums",
+                                      "variants": [
+                                        {
+                                          "name": "0",
+                                          "value": "0"
+                                        },
+                                        {
+                                          "name": "1",
+                                          "value": "1"
+                                        }
+                                      ]
+                                    },
                                     "sourcePath": [
                                       "capabilities"
                                     ]
@@ -93638,7 +95072,21 @@
                                 "name": "verified",
                                 "wireName": "verified",
                                 "type": "enum",
-                                "required": true
+                                "required": true,
+                                "enumRef": {
+                                  "name": "ENUM_0_1",
+                                  "module": "WASmaxInBrPaymentEnums",
+                                  "variants": [
+                                    {
+                                      "name": "0",
+                                      "value": "0"
+                                    },
+                                    {
+                                      "name": "1",
+                                      "value": "1"
+                                    }
+                                  ]
+                                }
                               },
                               {
                                 "method": "attrString",
@@ -93695,42 +95143,126 @@
                                 "name": "defaultCredit",
                                 "wireName": "default-credit",
                                 "type": "enum",
-                                "required": true
+                                "required": true,
+                                "enumRef": {
+                                  "name": "ENUM_0_1",
+                                  "module": "WASmaxInBrPaymentEnums",
+                                  "variants": [
+                                    {
+                                      "name": "0",
+                                      "value": "0"
+                                    },
+                                    {
+                                      "name": "1",
+                                      "value": "1"
+                                    }
+                                  ]
+                                }
                               },
                               {
                                 "method": "attrEnum",
                                 "name": "defaultDebit",
                                 "wireName": "default-debit",
                                 "type": "enum",
-                                "required": true
+                                "required": true,
+                                "enumRef": {
+                                  "name": "ENUM_0_1",
+                                  "module": "WASmaxInBrPaymentEnums",
+                                  "variants": [
+                                    {
+                                      "name": "0",
+                                      "value": "0"
+                                    },
+                                    {
+                                      "name": "1",
+                                      "value": "1"
+                                    }
+                                  ]
+                                }
                               },
                               {
                                 "method": "maybeAttrEnum",
                                 "name": "defaultCreditP2p",
                                 "wireName": "default-credit-p2p",
                                 "type": "enum",
-                                "required": false
+                                "required": false,
+                                "enumRef": {
+                                  "name": "ENUM_0_1",
+                                  "module": "WASmaxInBrPaymentEnums",
+                                  "variants": [
+                                    {
+                                      "name": "0",
+                                      "value": "0"
+                                    },
+                                    {
+                                      "name": "1",
+                                      "value": "1"
+                                    }
+                                  ]
+                                }
                               },
                               {
                                 "method": "maybeAttrEnum",
                                 "name": "defaultCreditP2m",
                                 "wireName": "default-credit-p2m",
                                 "type": "enum",
-                                "required": false
+                                "required": false,
+                                "enumRef": {
+                                  "name": "ENUM_0_1",
+                                  "module": "WASmaxInBrPaymentEnums",
+                                  "variants": [
+                                    {
+                                      "name": "0",
+                                      "value": "0"
+                                    },
+                                    {
+                                      "name": "1",
+                                      "value": "1"
+                                    }
+                                  ]
+                                }
                               },
                               {
                                 "method": "maybeAttrEnum",
                                 "name": "defaultDebitP2p",
                                 "wireName": "default-debit-p2p",
                                 "type": "enum",
-                                "required": false
+                                "required": false,
+                                "enumRef": {
+                                  "name": "ENUM_0_1",
+                                  "module": "WASmaxInBrPaymentEnums",
+                                  "variants": [
+                                    {
+                                      "name": "0",
+                                      "value": "0"
+                                    },
+                                    {
+                                      "name": "1",
+                                      "value": "1"
+                                    }
+                                  ]
+                                }
                               },
                               {
                                 "method": "maybeAttrEnum",
                                 "name": "defaultDebitP2m",
                                 "wireName": "default-debit-p2m",
                                 "type": "enum",
-                                "required": false
+                                "required": false,
+                                "enumRef": {
+                                  "name": "ENUM_0_1",
+                                  "module": "WASmaxInBrPaymentEnums",
+                                  "variants": [
+                                    {
+                                      "name": "0",
+                                      "value": "0"
+                                    },
+                                    {
+                                      "name": "1",
+                                      "value": "1"
+                                    }
+                                  ]
+                                }
                               },
                               {
                                 "method": "attrString",
@@ -93758,14 +95290,42 @@
                                 "name": "p2pEligible",
                                 "wireName": "p2p-eligible",
                                 "type": "enum",
-                                "required": false
+                                "required": false,
+                                "enumRef": {
+                                  "name": "ENUM_0_1",
+                                  "module": "WASmaxInBrPaymentEnums",
+                                  "variants": [
+                                    {
+                                      "name": "0",
+                                      "value": "0"
+                                    },
+                                    {
+                                      "name": "1",
+                                      "value": "1"
+                                    }
+                                  ]
+                                }
                               },
                               {
                                 "method": "maybeAttrEnum",
                                 "name": "p2mEligible",
                                 "wireName": "p2m-eligible",
                                 "type": "enum",
-                                "required": false
+                                "required": false,
+                                "enumRef": {
+                                  "name": "ENUM_0_1",
+                                  "module": "WASmaxInBrPaymentEnums",
+                                  "variants": [
+                                    {
+                                      "name": "0",
+                                      "value": "0"
+                                    },
+                                    {
+                                      "name": "1",
+                                      "value": "1"
+                                    }
+                                  ]
+                                }
                               },
                               {
                                 "method": "attrEnum",
@@ -93773,6 +95333,20 @@
                                 "wireName": "editable",
                                 "type": "enum",
                                 "required": true,
+                                "enumRef": {
+                                  "name": "ENUM_0_1",
+                                  "module": "WASmaxInBrPaymentEnums",
+                                  "variants": [
+                                    {
+                                      "name": "0",
+                                      "value": "0"
+                                    },
+                                    {
+                                      "name": "1",
+                                      "value": "1"
+                                    }
+                                  ]
+                                },
                                 "sourcePath": [
                                   "capabilities"
                                 ]
@@ -93783,6 +95357,20 @@
                                 "wireName": "verifiable",
                                 "type": "enum",
                                 "required": true,
+                                "enumRef": {
+                                  "name": "ENUM_0_1",
+                                  "module": "WASmaxInBrPaymentEnums",
+                                  "variants": [
+                                    {
+                                      "name": "0",
+                                      "value": "0"
+                                    },
+                                    {
+                                      "name": "1",
+                                      "value": "1"
+                                    }
+                                  ]
+                                },
                                 "sourcePath": [
                                   "capabilities"
                                 ]
@@ -93793,6 +95381,20 @@
                                 "wireName": "default-eligible",
                                 "type": "enum",
                                 "required": true,
+                                "enumRef": {
+                                  "name": "ENUM_0_1",
+                                  "module": "WASmaxInBrPaymentEnums",
+                                  "variants": [
+                                    {
+                                      "name": "0",
+                                      "value": "0"
+                                    },
+                                    {
+                                      "name": "1",
+                                      "value": "1"
+                                    }
+                                  ]
+                                },
                                 "sourcePath": [
                                   "capabilities"
                                 ]
@@ -93803,6 +95405,20 @@
                                 "wireName": "default-eligible-p2p",
                                 "type": "enum",
                                 "required": false,
+                                "enumRef": {
+                                  "name": "ENUM_0_1",
+                                  "module": "WASmaxInBrPaymentEnums",
+                                  "variants": [
+                                    {
+                                      "name": "0",
+                                      "value": "0"
+                                    },
+                                    {
+                                      "name": "1",
+                                      "value": "1"
+                                    }
+                                  ]
+                                },
                                 "sourcePath": [
                                   "capabilities"
                                 ]
@@ -93813,6 +95429,20 @@
                                 "wireName": "default-eligible-p2m",
                                 "type": "enum",
                                 "required": false,
+                                "enumRef": {
+                                  "name": "ENUM_0_1",
+                                  "module": "WASmaxInBrPaymentEnums",
+                                  "variants": [
+                                    {
+                                      "name": "0",
+                                      "value": "0"
+                                    },
+                                    {
+                                      "name": "1",
+                                      "value": "1"
+                                    }
+                                  ]
+                                },
                                 "sourcePath": [
                                   "capabilities"
                                 ]
@@ -93952,7 +95582,21 @@
                                 "name": "verified",
                                 "wireName": "verified",
                                 "type": "enum",
-                                "required": true
+                                "required": true,
+                                "enumRef": {
+                                  "name": "ENUM_0_1",
+                                  "module": "WASmaxInBrPaymentEnums",
+                                  "variants": [
+                                    {
+                                      "name": "0",
+                                      "value": "0"
+                                    },
+                                    {
+                                      "name": "1",
+                                      "value": "1"
+                                    }
+                                  ]
+                                }
                               },
                               {
                                 "method": "attrString",
@@ -94009,42 +95653,126 @@
                                 "name": "defaultCredit",
                                 "wireName": "default-credit",
                                 "type": "enum",
-                                "required": true
+                                "required": true,
+                                "enumRef": {
+                                  "name": "ENUM_0_1",
+                                  "module": "WASmaxInBrPaymentEnums",
+                                  "variants": [
+                                    {
+                                      "name": "0",
+                                      "value": "0"
+                                    },
+                                    {
+                                      "name": "1",
+                                      "value": "1"
+                                    }
+                                  ]
+                                }
                               },
                               {
                                 "method": "attrEnum",
                                 "name": "defaultDebit",
                                 "wireName": "default-debit",
                                 "type": "enum",
-                                "required": true
+                                "required": true,
+                                "enumRef": {
+                                  "name": "ENUM_0_1",
+                                  "module": "WASmaxInBrPaymentEnums",
+                                  "variants": [
+                                    {
+                                      "name": "0",
+                                      "value": "0"
+                                    },
+                                    {
+                                      "name": "1",
+                                      "value": "1"
+                                    }
+                                  ]
+                                }
                               },
                               {
                                 "method": "maybeAttrEnum",
                                 "name": "defaultCreditP2p",
                                 "wireName": "default-credit-p2p",
                                 "type": "enum",
-                                "required": false
+                                "required": false,
+                                "enumRef": {
+                                  "name": "ENUM_0_1",
+                                  "module": "WASmaxInBrPaymentEnums",
+                                  "variants": [
+                                    {
+                                      "name": "0",
+                                      "value": "0"
+                                    },
+                                    {
+                                      "name": "1",
+                                      "value": "1"
+                                    }
+                                  ]
+                                }
                               },
                               {
                                 "method": "maybeAttrEnum",
                                 "name": "defaultCreditP2m",
                                 "wireName": "default-credit-p2m",
                                 "type": "enum",
-                                "required": false
+                                "required": false,
+                                "enumRef": {
+                                  "name": "ENUM_0_1",
+                                  "module": "WASmaxInBrPaymentEnums",
+                                  "variants": [
+                                    {
+                                      "name": "0",
+                                      "value": "0"
+                                    },
+                                    {
+                                      "name": "1",
+                                      "value": "1"
+                                    }
+                                  ]
+                                }
                               },
                               {
                                 "method": "maybeAttrEnum",
                                 "name": "defaultDebitP2p",
                                 "wireName": "default-debit-p2p",
                                 "type": "enum",
-                                "required": false
+                                "required": false,
+                                "enumRef": {
+                                  "name": "ENUM_0_1",
+                                  "module": "WASmaxInBrPaymentEnums",
+                                  "variants": [
+                                    {
+                                      "name": "0",
+                                      "value": "0"
+                                    },
+                                    {
+                                      "name": "1",
+                                      "value": "1"
+                                    }
+                                  ]
+                                }
                               },
                               {
                                 "method": "maybeAttrEnum",
                                 "name": "defaultDebitP2m",
                                 "wireName": "default-debit-p2m",
                                 "type": "enum",
-                                "required": false
+                                "required": false,
+                                "enumRef": {
+                                  "name": "ENUM_0_1",
+                                  "module": "WASmaxInBrPaymentEnums",
+                                  "variants": [
+                                    {
+                                      "name": "0",
+                                      "value": "0"
+                                    },
+                                    {
+                                      "name": "1",
+                                      "value": "1"
+                                    }
+                                  ]
+                                }
                               },
                               {
                                 "method": "attrString",
@@ -94072,14 +95800,42 @@
                                 "name": "p2pEligible",
                                 "wireName": "p2p-eligible",
                                 "type": "enum",
-                                "required": false
+                                "required": false,
+                                "enumRef": {
+                                  "name": "ENUM_0_1",
+                                  "module": "WASmaxInBrPaymentEnums",
+                                  "variants": [
+                                    {
+                                      "name": "0",
+                                      "value": "0"
+                                    },
+                                    {
+                                      "name": "1",
+                                      "value": "1"
+                                    }
+                                  ]
+                                }
                               },
                               {
                                 "method": "maybeAttrEnum",
                                 "name": "p2mEligible",
                                 "wireName": "p2m-eligible",
                                 "type": "enum",
-                                "required": false
+                                "required": false,
+                                "enumRef": {
+                                  "name": "ENUM_0_1",
+                                  "module": "WASmaxInBrPaymentEnums",
+                                  "variants": [
+                                    {
+                                      "name": "0",
+                                      "value": "0"
+                                    },
+                                    {
+                                      "name": "1",
+                                      "value": "1"
+                                    }
+                                  ]
+                                }
                               },
                               {
                                 "method": "attrEnum",
@@ -94087,6 +95843,20 @@
                                 "wireName": "editable",
                                 "type": "enum",
                                 "required": true,
+                                "enumRef": {
+                                  "name": "ENUM_0_1",
+                                  "module": "WASmaxInBrPaymentEnums",
+                                  "variants": [
+                                    {
+                                      "name": "0",
+                                      "value": "0"
+                                    },
+                                    {
+                                      "name": "1",
+                                      "value": "1"
+                                    }
+                                  ]
+                                },
                                 "sourcePath": [
                                   "capabilities"
                                 ]
@@ -94097,6 +95867,20 @@
                                 "wireName": "verifiable",
                                 "type": "enum",
                                 "required": true,
+                                "enumRef": {
+                                  "name": "ENUM_0_1",
+                                  "module": "WASmaxInBrPaymentEnums",
+                                  "variants": [
+                                    {
+                                      "name": "0",
+                                      "value": "0"
+                                    },
+                                    {
+                                      "name": "1",
+                                      "value": "1"
+                                    }
+                                  ]
+                                },
                                 "sourcePath": [
                                   "capabilities"
                                 ]
@@ -94107,6 +95891,20 @@
                                 "wireName": "default-eligible",
                                 "type": "enum",
                                 "required": true,
+                                "enumRef": {
+                                  "name": "ENUM_0_1",
+                                  "module": "WASmaxInBrPaymentEnums",
+                                  "variants": [
+                                    {
+                                      "name": "0",
+                                      "value": "0"
+                                    },
+                                    {
+                                      "name": "1",
+                                      "value": "1"
+                                    }
+                                  ]
+                                },
                                 "sourcePath": [
                                   "capabilities"
                                 ]
@@ -94117,6 +95915,20 @@
                                 "wireName": "default-eligible-p2p",
                                 "type": "enum",
                                 "required": false,
+                                "enumRef": {
+                                  "name": "ENUM_0_1",
+                                  "module": "WASmaxInBrPaymentEnums",
+                                  "variants": [
+                                    {
+                                      "name": "0",
+                                      "value": "0"
+                                    },
+                                    {
+                                      "name": "1",
+                                      "value": "1"
+                                    }
+                                  ]
+                                },
                                 "sourcePath": [
                                   "capabilities"
                                 ]
@@ -94127,6 +95939,20 @@
                                 "wireName": "default-eligible-p2m",
                                 "type": "enum",
                                 "required": false,
+                                "enumRef": {
+                                  "name": "ENUM_0_1",
+                                  "module": "WASmaxInBrPaymentEnums",
+                                  "variants": [
+                                    {
+                                      "name": "0",
+                                      "value": "0"
+                                    },
+                                    {
+                                      "name": "1",
+                                      "value": "1"
+                                    }
+                                  ]
+                                },
                                 "sourcePath": [
                                   "capabilities"
                                 ]
@@ -94318,7 +96144,21 @@
                         "name": "isMpinSet",
                         "wireName": "is-mpin-set",
                         "type": "enum",
-                        "required": true
+                        "required": true,
+                        "enumRef": {
+                          "name": "ENUM_0_1",
+                          "module": "WASmaxInBrPaymentEnums",
+                          "variants": [
+                            {
+                              "name": "0",
+                              "value": "0"
+                            },
+                            {
+                              "name": "1",
+                              "value": "1"
+                            }
+                          ]
+                        }
                       },
                       {
                         "method": "attrInt",
@@ -94380,7 +96220,21 @@
                         "name": "pinFormatVersion",
                         "wireName": "pin-format-version",
                         "type": "enum",
-                        "required": true
+                        "required": true,
+                        "enumRef": {
+                          "name": "ENUM_1_2",
+                          "module": "WASmaxInBrPaymentEnums",
+                          "variants": [
+                            {
+                              "name": "1",
+                              "value": "1"
+                            },
+                            {
+                              "name": "2",
+                              "value": "2"
+                            }
+                          ]
+                        }
                       },
                       {
                         "method": "maybeAttrString",
@@ -94429,56 +96283,168 @@
                         "name": "isAadhaarEnabled",
                         "wireName": "is-aadhaar-enabled",
                         "type": "enum",
-                        "required": false
+                        "required": false,
+                        "enumRef": {
+                          "name": "ENUM_0_1",
+                          "module": "WASmaxInBrPaymentEnums",
+                          "variants": [
+                            {
+                              "name": "0",
+                              "value": "0"
+                            },
+                            {
+                              "name": "1",
+                              "value": "1"
+                            }
+                          ]
+                        }
                       },
                       {
                         "method": "maybeAttrEnum",
                         "name": "isInternationalPayEnabled",
                         "wireName": "is_international_pay_enabled",
                         "type": "enum",
-                        "required": false
+                        "required": false,
+                        "enumRef": {
+                          "name": "ENUM_0_1",
+                          "module": "WASmaxInBrPaymentEnums",
+                          "variants": [
+                            {
+                              "name": "0",
+                              "value": "0"
+                            },
+                            {
+                              "name": "1",
+                              "value": "1"
+                            }
+                          ]
+                        }
                       },
                       {
                         "method": "attrEnum",
                         "name": "defaultCredit",
                         "wireName": "default-credit",
                         "type": "enum",
-                        "required": true
+                        "required": true,
+                        "enumRef": {
+                          "name": "ENUM_0_1",
+                          "module": "WASmaxInBrPaymentEnums",
+                          "variants": [
+                            {
+                              "name": "0",
+                              "value": "0"
+                            },
+                            {
+                              "name": "1",
+                              "value": "1"
+                            }
+                          ]
+                        }
                       },
                       {
                         "method": "attrEnum",
                         "name": "defaultDebit",
                         "wireName": "default-debit",
                         "type": "enum",
-                        "required": true
+                        "required": true,
+                        "enumRef": {
+                          "name": "ENUM_0_1",
+                          "module": "WASmaxInBrPaymentEnums",
+                          "variants": [
+                            {
+                              "name": "0",
+                              "value": "0"
+                            },
+                            {
+                              "name": "1",
+                              "value": "1"
+                            }
+                          ]
+                        }
                       },
                       {
                         "method": "maybeAttrEnum",
                         "name": "defaultCreditP2p",
                         "wireName": "default-credit-p2p",
                         "type": "enum",
-                        "required": false
+                        "required": false,
+                        "enumRef": {
+                          "name": "ENUM_0_1",
+                          "module": "WASmaxInBrPaymentEnums",
+                          "variants": [
+                            {
+                              "name": "0",
+                              "value": "0"
+                            },
+                            {
+                              "name": "1",
+                              "value": "1"
+                            }
+                          ]
+                        }
                       },
                       {
                         "method": "maybeAttrEnum",
                         "name": "defaultCreditP2m",
                         "wireName": "default-credit-p2m",
                         "type": "enum",
-                        "required": false
+                        "required": false,
+                        "enumRef": {
+                          "name": "ENUM_0_1",
+                          "module": "WASmaxInBrPaymentEnums",
+                          "variants": [
+                            {
+                              "name": "0",
+                              "value": "0"
+                            },
+                            {
+                              "name": "1",
+                              "value": "1"
+                            }
+                          ]
+                        }
                       },
                       {
                         "method": "maybeAttrEnum",
                         "name": "defaultDebitP2p",
                         "wireName": "default-debit-p2p",
                         "type": "enum",
-                        "required": false
+                        "required": false,
+                        "enumRef": {
+                          "name": "ENUM_0_1",
+                          "module": "WASmaxInBrPaymentEnums",
+                          "variants": [
+                            {
+                              "name": "0",
+                              "value": "0"
+                            },
+                            {
+                              "name": "1",
+                              "value": "1"
+                            }
+                          ]
+                        }
                       },
                       {
                         "method": "maybeAttrEnum",
                         "name": "defaultDebitP2m",
                         "wireName": "default-debit-p2m",
                         "type": "enum",
-                        "required": false
+                        "required": false,
+                        "enumRef": {
+                          "name": "ENUM_0_1",
+                          "module": "WASmaxInBrPaymentEnums",
+                          "variants": [
+                            {
+                              "name": "0",
+                              "value": "0"
+                            },
+                            {
+                              "name": "1",
+                              "value": "1"
+                            }
+                          ]
+                        }
                       },
                       {
                         "method": "attrString",
@@ -94506,14 +96472,42 @@
                         "name": "p2pEligible",
                         "wireName": "p2p-eligible",
                         "type": "enum",
-                        "required": false
+                        "required": false,
+                        "enumRef": {
+                          "name": "ENUM_0_1",
+                          "module": "WASmaxInBrPaymentEnums",
+                          "variants": [
+                            {
+                              "name": "0",
+                              "value": "0"
+                            },
+                            {
+                              "name": "1",
+                              "value": "1"
+                            }
+                          ]
+                        }
                       },
                       {
                         "method": "maybeAttrEnum",
                         "name": "p2mEligible",
                         "wireName": "p2m-eligible",
                         "type": "enum",
-                        "required": false
+                        "required": false,
+                        "enumRef": {
+                          "name": "ENUM_0_1",
+                          "module": "WASmaxInBrPaymentEnums",
+                          "variants": [
+                            {
+                              "name": "0",
+                              "value": "0"
+                            },
+                            {
+                              "name": "1",
+                              "value": "1"
+                            }
+                          ]
+                        }
                       }
                     ],
                     "repeats": true
@@ -94623,21 +96617,63 @@
                         "name": "canSell",
                         "wireName": "can-sell",
                         "type": "enum",
-                        "required": true
+                        "required": true,
+                        "enumRef": {
+                          "name": "ENUM_0_1",
+                          "module": "WASmaxInBrPaymentEnums",
+                          "variants": [
+                            {
+                              "name": "0",
+                              "value": "0"
+                            },
+                            {
+                              "name": "1",
+                              "value": "1"
+                            }
+                          ]
+                        }
                       },
                       {
                         "method": "attrEnum",
                         "name": "canPayout",
                         "wireName": "can-payout",
                         "type": "enum",
-                        "required": true
+                        "required": true,
+                        "enumRef": {
+                          "name": "ENUM_0_1",
+                          "module": "WASmaxInBrPaymentEnums",
+                          "variants": [
+                            {
+                              "name": "0",
+                              "value": "0"
+                            },
+                            {
+                              "name": "1",
+                              "value": "1"
+                            }
+                          ]
+                        }
                       },
                       {
                         "method": "attrEnum",
                         "name": "canAddPayout",
                         "wireName": "can-add-payout",
                         "type": "enum",
-                        "required": true
+                        "required": true,
+                        "enumRef": {
+                          "name": "ENUM_0_1",
+                          "module": "WASmaxInBrPaymentEnums",
+                          "variants": [
+                            {
+                              "name": "0",
+                              "value": "0"
+                            },
+                            {
+                              "name": "1",
+                              "value": "1"
+                            }
+                          ]
+                        }
                       },
                       {
                         "method": "maybeAttrString",
@@ -94658,7 +96694,25 @@
                         "name": "pixOnboardingState",
                         "wireName": "pix-onboarding-state",
                         "type": "enum",
-                        "required": false
+                        "required": false,
+                        "enumRef": {
+                          "name": "ENUM_0_1_2",
+                          "module": "WASmaxInBrPaymentEnums",
+                          "variants": [
+                            {
+                              "name": "0",
+                              "value": "0"
+                            },
+                            {
+                              "name": "1",
+                              "value": "1"
+                            },
+                            {
+                              "name": "2",
+                              "value": "2"
+                            }
+                          ]
+                        }
                       },
                       {
                         "method": "attrString",
@@ -94686,14 +96740,42 @@
                         "name": "p2pEligible",
                         "wireName": "p2p-eligible",
                         "type": "enum",
-                        "required": false
+                        "required": false,
+                        "enumRef": {
+                          "name": "ENUM_0_1",
+                          "module": "WASmaxInBrPaymentEnums",
+                          "variants": [
+                            {
+                              "name": "0",
+                              "value": "0"
+                            },
+                            {
+                              "name": "1",
+                              "value": "1"
+                            }
+                          ]
+                        }
                       },
                       {
                         "method": "maybeAttrEnum",
                         "name": "p2mEligible",
                         "wireName": "p2m-eligible",
                         "type": "enum",
-                        "required": false
+                        "required": false,
+                        "enumRef": {
+                          "name": "ENUM_0_1",
+                          "module": "WASmaxInBrPaymentEnums",
+                          "variants": [
+                            {
+                              "name": "0",
+                              "value": "0"
+                            },
+                            {
+                              "name": "1",
+                              "value": "1"
+                            }
+                          ]
+                        }
                       },
                       {
                         "method": "child",
@@ -94791,14 +96873,42 @@
                                     "name": "p2pEligible",
                                     "wireName": "p2p-eligible",
                                     "type": "enum",
-                                    "required": false
+                                    "required": false,
+                                    "enumRef": {
+                                      "name": "ENUM_0_1",
+                                      "module": "WASmaxInBrPaymentEnums",
+                                      "variants": [
+                                        {
+                                          "name": "0",
+                                          "value": "0"
+                                        },
+                                        {
+                                          "name": "1",
+                                          "value": "1"
+                                        }
+                                      ]
+                                    }
                                   },
                                   {
                                     "method": "maybeAttrEnum",
                                     "name": "p2mEligible",
                                     "wireName": "p2m-eligible",
                                     "type": "enum",
-                                    "required": false
+                                    "required": false,
+                                    "enumRef": {
+                                      "name": "ENUM_0_1",
+                                      "module": "WASmaxInBrPaymentEnums",
+                                      "variants": [
+                                        {
+                                          "name": "0",
+                                          "value": "0"
+                                        },
+                                        {
+                                          "name": "1",
+                                          "value": "1"
+                                        }
+                                      ]
+                                    }
                                   }
                                 ],
                                 "assertions": [
@@ -94857,14 +96967,42 @@
                                     "name": "p2pEligible",
                                     "wireName": "p2p-eligible",
                                     "type": "enum",
-                                    "required": false
+                                    "required": false,
+                                    "enumRef": {
+                                      "name": "ENUM_0_1",
+                                      "module": "WASmaxInBrPaymentEnums",
+                                      "variants": [
+                                        {
+                                          "name": "0",
+                                          "value": "0"
+                                        },
+                                        {
+                                          "name": "1",
+                                          "value": "1"
+                                        }
+                                      ]
+                                    }
                                   },
                                   {
                                     "method": "maybeAttrEnum",
                                     "name": "p2mEligible",
                                     "wireName": "p2m-eligible",
                                     "type": "enum",
-                                    "required": false
+                                    "required": false,
+                                    "enumRef": {
+                                      "name": "ENUM_0_1",
+                                      "module": "WASmaxInBrPaymentEnums",
+                                      "variants": [
+                                        {
+                                          "name": "0",
+                                          "value": "0"
+                                        },
+                                        {
+                                          "name": "1",
+                                          "value": "1"
+                                        }
+                                      ]
+                                    }
                                   }
                                 ],
                                 "assertions": [
@@ -95080,14 +97218,42 @@
                         "name": "p2pEligible",
                         "wireName": "p2p-eligible",
                         "type": "enum",
-                        "required": false
+                        "required": false,
+                        "enumRef": {
+                          "name": "ENUM_0_1",
+                          "module": "WASmaxInBrPaymentEnums",
+                          "variants": [
+                            {
+                              "name": "0",
+                              "value": "0"
+                            },
+                            {
+                              "name": "1",
+                              "value": "1"
+                            }
+                          ]
+                        }
                       },
                       {
                         "method": "maybeAttrEnum",
                         "name": "p2mEligible",
                         "wireName": "p2m-eligible",
                         "type": "enum",
-                        "required": false
+                        "required": false,
+                        "enumRef": {
+                          "name": "ENUM_0_1",
+                          "module": "WASmaxInBrPaymentEnums",
+                          "variants": [
+                            {
+                              "name": "0",
+                              "value": "0"
+                            },
+                            {
+                              "name": "1",
+                              "value": "1"
+                            }
+                          ]
+                        }
                       },
                       {
                         "method": "",
