@@ -4,6 +4,7 @@
   "diagnostics": {
     "incoming": {
       "dropsByReason": {
+        "attributeNameNotLiteral": 2,
         "response enum argument not structurally resolvable": 1,
         "shadowedCallbackRead": 7
       }
@@ -42,6 +43,7 @@
       "degraded": 5,
       "dropsByReason": {
         "action enum table not structurally resolvable": 1,
+        "attributeNameNotLiteral": 1,
         "contentBytes": 1,
         "shadowedCallbackRead": 1
       },
@@ -69,7 +71,7 @@
     "incoming": {
       "file": "incoming/index.json",
       "schema": "schema/incoming.schema.json",
-      "sha256": "97a08019f3c1790d8fc5d878c3a6d546fd0d1ea0a11aceb0aee9114177104fc8"
+      "sha256": "feaaaa76d0925423d24405ee08e9c140e30729d853c044bf4e1d8c4da4900cc6"
     },
     "iq": {
       "file": "iq/index.json",
@@ -84,7 +86,7 @@
     "notif": {
       "file": "notif/index.json",
       "schema": "schema/notif.schema.json",
-      "sha256": "34c88a43a2ce2fa5650ef39207943b870e34077d83fe3a5e542f1a9690687631"
+      "sha256": "cc09f68856975f293e7eae1bf9e5960a2b210e0b220874d5a49ef45cb9b7e0c6"
     },
     "proto": {
       "file": "proto/WAProto.proto",

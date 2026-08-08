@@ -302,15 +302,28 @@ fn field_from_call(
     module_scope: &ModuleScope,
     undefined_shadowed: bool,
     unresolved: &mut Vec<String>,
-) -> ParsedField {
+) -> Option<ParsedField> {
     let arg0 = call.arguments.first().and_then(arg_expr);
     // A content accessor reads the element's content and names no attribute, so its
     // first argument is never the field name — `contentEnum(TABLE)` would otherwise be
     // named after nothing at all.
+    //
+    // An attribute accessor is the opposite: its first argument IS the name, and when
+    // that argument is not a literal — `e.attrString(k)` — the name is unknowable here.
+    // Falling back to `"content"` invented an attribute the element never carries, and
+    // since `attrString` is not a `maybe` spelling it was invented as REQUIRED: the
+    // generated parser then rejected every stanza that (correctly) lacked it. Reporting
+    // the read as unresolved says the same thing without publishing a field.
     let field_name = if wap::is_content_method(method) {
         "content"
     } else {
-        arg0.and_then(as_string_lit).unwrap_or("content")
+        match arg0.and_then(as_string_lit) {
+            Some(name) => name,
+            None => {
+                unresolved.push(format!("{COMPUTED_ATTR_NAME}@{method}:{}", call.span.start));
+                return None;
+            }
+        }
     };
     let mut f = mk_field(
         method,
@@ -413,7 +426,7 @@ fn field_from_call(
         EnumSource::Unresolved => f.pending_enum_ref = Some(wa_ir::PendingEnum::Unresolvable),
         EnumSource::NotAnEnum => {}
     }
-    f
+    Some(f)
 }
 
 /// Find an existing top-level field by `tag`, or create one (a `child`-style
@@ -529,6 +542,20 @@ fn base_identifier<'b>(expr: &'b Expression<'_>) -> Option<&'b str> {
     }
     base_identifier(callee_object(as_call(expr)?)?)
 }
+
+/// The `dropsByReason` key for an attribute read whose name is not a string literal.
+///
+/// `e.attrString(k)` names an attribute only the running program knows. Nothing can be
+/// published for it — and inventing one is worse than dropping it, which is what used to
+/// happen: the fallback named the field `content`, and since `attrString` is not a
+/// `maybe` spelling it was published as REQUIRED. The generated parser then rejected
+/// every element that correctly lacked the attribute.
+///
+/// Carries the call's own position, for the reason [`SHADOWED_READ`] carries its site:
+/// `dropsByReason` folds these through a set, so two computed reads in one parser
+/// keyed only by the accessor would count once and the ratchet would not move when a
+/// third appeared. The name is what cannot be recovered here, so position stands in.
+const COMPUTED_ATTR_NAME: &str = "attributeNameNotLiteral";
 
 /// The `dropsByReason` key for a read inside a callback that re-binds the parser's
 /// parameter and that no recursion covered.
@@ -1752,14 +1779,14 @@ impl ParserAnalyzer<'_, '_> {
     /// A read, with the accessor's requiredness tempered by where it sits: guarded by
     /// `hasChild(…) ? … : null` it is not required of every element, however unconditional
     /// the accessor itself looks.
-    fn read_field(&mut self, method: &str, call: &CallExpression) -> ParsedField {
+    fn read_field(&mut self, method: &str, call: &CallExpression) -> Option<ParsedField> {
         let mut f = field_from_call(
             method,
             call,
             self.module,
             self.local_bindings.shadows("undefined", call.span),
             &mut self.unresolved,
-        );
+        )?;
         let wire = f.wire_name.clone().unwrap_or_else(|| f.name.clone());
         let node = callee_object(call)
             .and_then(receiver_path)
@@ -1767,7 +1794,7 @@ impl ParserAnalyzer<'_, '_> {
         if self.presence_guarded(&node, &wire) {
             f.required = false;
         }
-        f
+        Some(f)
     }
 
     /// Whether an enclosing guard asked whether this very field, on this very node, is
@@ -1970,7 +1997,9 @@ impl ParserAnalyzer<'_, '_> {
 
         // ── Attr/content accessor on the param directly ──
         if is_value_method(method) && obj_is_param {
-            let read = self.read_field(method, call);
+            let Some(read) = self.read_field(method, call) else {
+                return;
+            };
             // Merged, not appended: the same attribute read twice is one field, and two
             // entries let a guarded copy sit in front of the read that always happens.
             merge_or_push(&mut self.fields, read, &mut self.unresolved);
@@ -1997,11 +2026,17 @@ impl ParserAnalyzer<'_, '_> {
             // Reached without a guard, the node IS required however an earlier guarded read
             // left it — the lookup reuses what is there and would keep the weaker claim.
             let unguarded = path.last().is_some_and(|l| l.method == "child");
+            // Read before the node lookup, so a read that publishes nothing still
+            // leaves the node's own requiredness recorded: reaching `<meta>` without
+            // a guard says `<meta>` is there whatever the read off it turned out to
+            // be, and dropping that with the field would weaken an unrelated claim.
             let read = self.read_field(method, call);
             if let Some(node) = node_at_mut(&mut self.fields, &path) {
                 node.required |= unguarded;
-                let kids = node.children.get_or_insert_with(Vec::new);
-                merge_or_push(kids, read, &mut self.unresolved);
+                if let Some(read) = read {
+                    let kids = node.children.get_or_insert_with(Vec::new);
+                    merge_or_push(kids, read, &mut self.unresolved);
+                }
             }
             return;
         }
@@ -2106,7 +2141,9 @@ impl ParserAnalyzer<'_, '_> {
                 .and_then(|n| self.child_vars.get(n))
                 .cloned()
         {
-            let read = self.read_field(method, call);
+            let Some(read) = self.read_field(method, call) else {
+                return;
+            };
             if let Some(node) = node_at_mut(&mut self.fields, &path) {
                 let kids = node.children.get_or_insert_with(Vec::new);
                 // The same reconciliation the direct and chained reads get: a guarded copy
@@ -9498,7 +9535,11 @@ impl<'a> Visit<'a> for DiscriminatorFinder<'_> {
                 && let Some(wire) = arg_str(call, 0)
             {
                 let mut discard = Vec::new();
-                let mut f = field_from_call(method, call, self.module, false, &mut discard);
+                // The literal name is checked above, so this cannot decline.
+                let Some(mut f) = field_from_call(method, call, self.module, false, &mut discard)
+                else {
+                    return;
+                };
                 f.name = wire.to_string();
                 f.wire_name = None;
                 let extent = self.blocks.last().copied();
@@ -12284,6 +12325,125 @@ mod tests {
             "guarded by hasAttr"
         );
         assert!(by("id", "attrString").required, "this one is not guarded");
+    }
+
+    #[test]
+    fn an_attribute_read_with_a_computed_name_publishes_no_field() {
+        // `e.attrString(k)` names an attribute this scanner cannot know. Naming
+        // it `"content"` — the fallback that used to apply — invented an
+        // attribute the element never carries, and since `attrString` is not a
+        // `maybe` spelling it was invented as REQUIRED. The generated parser
+        // then rejected every stanza that correctly lacked it, which is how a
+        // real `<message>` stopped matching its own shape.
+        let r = analyze_parser_ast(r#"{ e.attrString(k); }"#, "e");
+
+        assert!(
+            !r.fields.iter().any(|f| f.name == "content"),
+            "no invented attribute: {:?}",
+            r.fields
+        );
+        assert_eq!(r.unresolved.len(), 1, "reported once: {:?}", r.unresolved);
+        assert!(
+            r.unresolved[0].starts_with("attributeNameNotLiteral@attrString:"),
+            "named by accessor and site: {:?}",
+            r.unresolved
+        );
+    }
+
+    #[test]
+    fn a_computed_name_on_a_child_does_not_reach_the_child_either() {
+        // The same read one level down, which is where it was found: a `<meta>`
+        // carrying one computed attribute read had `content` added to it.
+        let r = analyze_parser_ast(
+            r#"{ var m = e.maybeChild("meta"); if (m != null) { m.attrString(k); } }"#,
+            "e",
+        );
+
+        let meta = r
+            .fields
+            .iter()
+            .find(|f| f.name == "meta")
+            .expect("the child is still read");
+        assert!(
+            !meta
+                .children
+                .as_deref()
+                .unwrap_or_default()
+                .iter()
+                .any(|f| f.name == "content"),
+            "meta must carry no invented content: {:?}",
+            meta.children
+        );
+    }
+
+    #[test]
+    fn two_computed_reads_in_one_parser_are_counted_separately() {
+        // `dropsByReason` folds these through a set, so keying only by the
+        // accessor would count both as one — and the ratchet would not move
+        // when a third appeared. The same reasoning `SHADOWED_READ` follows.
+        let r = analyze_parser_ast(r#"{ e.attrString(k); e.attrString(j); }"#, "e");
+
+        let computed: Vec<&String> = r
+            .unresolved
+            .iter()
+            .filter(|u| u.starts_with(COMPUTED_ATTR_NAME))
+            .collect();
+        assert_eq!(computed.len(), 2, "both reads counted: {computed:?}");
+        assert_ne!(computed[0], computed[1], "and distinguishable");
+    }
+
+    #[test]
+    fn a_node_reached_unguarded_stays_required_when_its_read_publishes_nothing() {
+        // The node's requiredness is about the node, not about the read taken
+        // off it: reaching `<meta>` without a guard says `<meta>` is there
+        // whatever that read turned out to be. Returning early on a computed
+        // name dropped the two together.
+        let r = analyze_parser_ast(r#"{ e.child("meta").attrString(k); }"#, "e");
+
+        let meta = r
+            .fields
+            .iter()
+            .find(|f| f.name == "meta")
+            .unwrap_or_else(|| panic!("the child is recorded: {:?}", r.fields));
+        assert!(
+            meta.required,
+            "reached through `child` with no guard, so required"
+        );
+        assert!(
+            meta.children.as_deref().unwrap_or_default().is_empty(),
+            "and still publishes no invented field: {:?}",
+            meta.children
+        );
+    }
+
+    #[test]
+    fn a_content_accessor_still_names_its_field_content() {
+        // The fallback exists for these: a content accessor reads the element's
+        // body and names no attribute, so `content` is its real name and not a
+        // guess. Removing the guess must not remove this.
+        let r = analyze_parser_ast(r#"{ e.contentBytes(); }"#, "e");
+
+        let f = r
+            .fields
+            .iter()
+            .find(|f| f.method == "contentBytes")
+            .expect("the content read is kept");
+        assert_eq!(f.name, "content");
+        assert!(f.required, "a content accessor is not a `maybe` spelling");
+    }
+
+    #[test]
+    fn a_literal_attribute_name_is_unaffected() {
+        let r = analyze_parser_ast(r#"{ e.attrString("id"); e.maybeAttrString("t"); }"#, "e");
+
+        let by = |n: &str| {
+            r.fields
+                .iter()
+                .find(|f| f.name == n)
+                .unwrap_or_else(|| panic!("{n} in {:?}", r.fields))
+        };
+        assert!(by("id").required);
+        assert!(!by("t").required);
     }
 
     #[test]

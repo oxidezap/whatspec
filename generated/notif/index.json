@@ -985,14 +985,7 @@
       "content": {
         "parserName": "incomingNewsletterNotificationParser",
         "assertions": [],
-        "fields": [
-          {
-            "method": "attrFromJid",
-            "name": "content",
-            "type": "jid",
-            "required": true
-          }
-        ]
+        "fields": []
       }
     },
     {
