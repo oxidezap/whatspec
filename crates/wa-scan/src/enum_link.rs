@@ -305,6 +305,7 @@ mod tests {
                 module: module.into(),
                 variants: Vec::new(),
             }),
+            arg_path: None,
         }
     }
 

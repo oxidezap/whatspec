@@ -93,8 +93,24 @@ pub enum Scalar {
 /// The migration is one variant wide: handle (or ignore) `kind: "reference"` on response
 /// assertions. Everything else in 2.0.0 is opt-in.
 ///
+/// # 2.1.0 — the builder side of a request
+///
+/// The IR gained a dimension it did not have: where a value goes in the argument object
+/// of WA's own request builder ([`WapArgSegment`], on nodes, attributes and element
+/// contents), the cardinality of a request child ([`WapChildPresence`], plus
+/// [`WapChildNode::repeat_min`]/[`repeat_max`]), and element contents that used to stop
+/// at the mixin boundary.
+///
+/// A minor bump, and the claim is checked rather than assumed: every new property is
+/// optional and skipped at its default, no existing field's value space widened, and
+/// every committed `*/index.json` validates clean against its own 2.0.0 schema (0 errors
+/// across all 11 domains). A 2.0 consumer reads the new documents unchanged. What
+/// changed *value* is `content` on 38 request nodes that previously had none — a field
+/// that was already optional, now populated where the builder does supply a payload.
+///
 /// [`AssertionKind`]: crate::AssertionKind
-pub const SCHEMA_VERSION: &str = "2.0.0";
+/// [`repeat_max`]: crate::WapChildNode::repeat_max
+pub const SCHEMA_VERSION: &str = "2.1.0";
 
 /// Envelope that stamps a domain IR document with [`SCHEMA_VERSION`] at emit
 /// time, without altering the inner document's shape.

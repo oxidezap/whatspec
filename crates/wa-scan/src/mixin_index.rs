@@ -489,6 +489,7 @@ pub(crate) fn merge_children(into: &mut Vec<WapChildNode>, from: &[WapChildNode]
             // A fragment that marks the child repeated promotes it (the local build
             // may have seen a single template).
             existing.repeats = existing.repeats || fc.repeats;
+            crate::request::adopt_builder_facts(existing, fc);
             // Union variant groups (a node can carry several disjunctions); dedup so
             // a re-merge of the same fragment doesn't duplicate a group.
             for g in &fc.variant_groups {
@@ -515,6 +516,7 @@ mod tests {
             value: None,
             required: false,
             enum_ref: None,
+            arg_path: None,
         }
     }
 
@@ -526,6 +528,7 @@ mod tests {
             content: None,
             repeats: false,
             variant_groups: Vec::new(),
+            ..Default::default()
         }
     }
 
@@ -694,6 +697,66 @@ mod tests {
         assert_eq!(into.len(), 1, "same tag merges, not duplicates");
         let names: Vec<_> = into[0].attrs.iter().map(|a| a.name.as_str()).collect();
         assert_eq!(names, vec!["jid", "spam_flow"]);
+    }
+
+    #[test]
+    fn merge_children_carries_the_builder_facts_of_a_folded_fragment() {
+        // `mergeStanzas` folds a fragment onto a destination with the same tag, and the
+        // merge used to union attrs and children and drop everything else — so a mixin's
+        // `<subject>` arrived at the request as a bare tag, and a cardinality resolved at
+        // the fragment's own call site was lost with it.
+        //
+        // Unexercised by the current bundle (every mixin that carries these builds a tag
+        // the destination does not already have, so it is appended whole), which is
+        // exactly why it is asserted directly: the loss would be silent and would look
+        // like an extraction gap rather than a merge that discards.
+        let mut into = vec![node("subject", &[], vec![])];
+        let mut frag = node("subject", &[], vec![]);
+        frag.content = Some(wa_ir::WapContent {
+            kind: wa_ir::WapContentKind::Dynamic,
+            arg_path: Some(vec![wa_ir::WapArgSegment {
+                key: "subjectElementValue".to_string(),
+                list: false,
+            }]),
+            ..Default::default()
+        });
+        frag.presence = wa_ir::WapChildPresence::Optional;
+        frag.arg_path = Some(vec![wa_ir::WapArgSegment {
+            key: "subjectArgs".to_string(),
+            list: false,
+        }]);
+        merge_children(&mut into, &[frag]);
+        assert_eq!(into.len(), 1, "same tag merges, not duplicates");
+        let merged = &into[0];
+        assert_eq!(
+            merged
+                .content
+                .as_ref()
+                .and_then(|c| c.arg_path.as_ref())
+                .map(|p| p[0].key.as_str()),
+            Some("subjectElementValue"),
+            "the element value survives the fold"
+        );
+        assert_eq!(merged.presence, wa_ir::WapChildPresence::Optional);
+        assert_eq!(
+            merged.arg_path.as_ref().map(|p| p[0].key.as_str()),
+            Some("subjectArgs")
+        );
+    }
+
+    #[test]
+    fn merge_children_does_not_overwrite_the_destinations_own_facts() {
+        // Fill-if-empty, not overwrite: the destination is the node built at the call
+        // site and is the more specific description. A fragment only ever ADDS.
+        let mut into = vec![node("body", &[], vec![])];
+        into[0].presence = wa_ir::WapChildPresence::PresenceFlag;
+        into[0].repeat_max = Some(10);
+        let mut frag = node("body", &[], vec![]);
+        frag.presence = wa_ir::WapChildPresence::Optional;
+        frag.repeat_max = Some(99);
+        merge_children(&mut into, &[frag]);
+        assert_eq!(into[0].presence, wa_ir::WapChildPresence::PresenceFlag);
+        assert_eq!(into[0].repeat_max, Some(10));
     }
 
     #[test]

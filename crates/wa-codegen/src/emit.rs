@@ -2465,6 +2465,7 @@ mod tests {
             value: value.map(|v| v.into()),
             required: false,
             enum_ref: None,
+            arg_path: None,
         }
     }
     fn leaf(tag: &str) -> WapChildNode {
@@ -2475,6 +2476,7 @@ mod tests {
             content: None,
             repeats: false,
             variant_groups: vec![],
+            ..Default::default()
         }
     }
 
@@ -2563,6 +2565,7 @@ mod tests {
             content: None,
             repeats: true,
             variant_groups: vec![],
+            ..Default::default()
         };
         let node = WapChildNode {
             tag: "config".into(),
@@ -2577,6 +2580,7 @@ mod tests {
                     children: vec![item],
                 }],
             }],
+            ..Default::default()
         };
         let (mut enums, mut fields) = (Vec::new(), Vec::new());
         let reserved = std::collections::HashSet::new();
@@ -2887,6 +2891,7 @@ mod tests {
                 content: None,
                 repeats: false,
                 variant_groups: groups,
+                ..Default::default()
             };
             let (mut enums, mut fields) = (Vec::new(), Vec::new());
             let reserved = std::collections::HashSet::new();
@@ -3005,6 +3010,7 @@ mod tests {
             content: None,
             repeats: true,
             variant_groups: vec![],
+            ..Default::default()
         };
         let node = WapChildNode {
             tag: "config".into(),
@@ -3019,6 +3025,7 @@ mod tests {
                     children: vec![kid("type"), kid("2fa")],
                 }],
             }],
+            ..Default::default()
         };
         let (mut enums, mut fields) = (Vec::new(), Vec::new());
         let reserved = std::collections::HashSet::new();
@@ -3056,6 +3063,7 @@ mod tests {
                     children: vec![kid("type")],
                 }],
             }],
+            ..Default::default()
         };
         let (mut enums, mut fields) = (Vec::new(), Vec::new());
         let reserved = std::collections::HashSet::new();
@@ -3089,6 +3097,7 @@ mod tests {
                     children: vec![kid("my-tag")],
                 }],
             }],
+            ..Default::default()
         };
         let (mut enums, mut fields) = (Vec::new(), Vec::new());
         let reserved = std::collections::HashSet::new();
@@ -3121,6 +3130,7 @@ mod tests {
             content: None,
             repeats: true,
             variant_groups: vec![],
+            ..Default::default()
         };
         let node = WapChildNode {
             tag: "config".into(),
@@ -3135,6 +3145,7 @@ mod tests {
                     children: vec![kid("foo-bar"), kid("foo_bar")],
                 }],
             }],
+            ..Default::default()
         };
         let (mut enums, mut fields) = (Vec::new(), Vec::new());
         let reserved = std::collections::HashSet::new();
@@ -3173,6 +3184,7 @@ mod tests {
                     children: vec![kid("item")],
                 }],
             }],
+            ..Default::default()
         };
         let (mut enums, mut fields) = (Vec::new(), Vec::new());
         let mut ctx = VariantCtx {
@@ -3205,6 +3217,7 @@ mod tests {
             content: None,
             repeats: true,
             variant_groups: vec![],
+            ..Default::default()
         };
         let node = WapChildNode {
             tag: "config".into(),
@@ -3219,6 +3232,7 @@ mod tests {
                     children: vec![item],
                 }],
             }],
+            ..Default::default()
         };
         let (mut enums, mut fields) = (Vec::new(), Vec::new());
         let reserved = std::collections::HashSet::new();
@@ -3265,6 +3279,7 @@ mod tests {
                     children: vec![nested],
                 }],
             }],
+            ..Default::default()
         };
         let (mut enums, mut fields) = (Vec::new(), Vec::new());
         let reserved = std::collections::HashSet::new();
@@ -3310,6 +3325,7 @@ mod tests {
                     children: vec![nested],
                 }],
             }],
+            ..Default::default()
         };
         let (mut enums, mut fields) = (Vec::new(), Vec::new());
         let reserved = std::collections::HashSet::new();
@@ -3486,6 +3502,7 @@ mod tests {
                     ],
                 },
             ],
+            ..Default::default()
         };
         let (mut enums, mut fields) = (Vec::new(), Vec::new());
         let reserved = std::collections::HashSet::new();
@@ -3567,6 +3584,7 @@ mod tests {
                 optional: false,
                 variants: vec![mk("appid"), mk("voip"), mk("endpoint")],
             }],
+            ..Default::default()
         };
         let (mut enums, mut fields) = (Vec::new(), Vec::new());
         let reserved = std::collections::HashSet::new();
@@ -3788,6 +3806,7 @@ mod tests {
             content: None,
             repeats: false,
             variant_groups: vec![],
+            ..Default::default()
         };
         let (lines, var, _) = build1(&child);
         let code = lines.join("\n");
@@ -3820,6 +3839,7 @@ mod tests {
             content: None,
             repeats: false,
             variant_groups: vec![],
+            ..Default::default()
         };
         let (lines, _, _) = build1(&parent);
         let code = lines.join("\n");
@@ -3850,6 +3870,7 @@ mod tests {
             }),
             repeats: false,
             variant_groups: vec![],
+            ..Default::default()
         };
         let (lines, _, _) = build1(&node);
         let code = lines.join("\n");
@@ -3878,6 +3899,7 @@ mod tests {
             }),
             repeats: false,
             variant_groups: vec![],
+            ..Default::default()
         };
         let (mut enums, mut fields) = (Vec::new(), Vec::new());
         let reserved = std::collections::HashSet::new();
@@ -3953,6 +3975,7 @@ mod tests {
             }),
             repeats: false,
             variant_groups: vec![],
+            ..Default::default()
         };
         let (mut enums, mut fields) = (Vec::new(), Vec::new());
         let reserved = std::collections::HashSet::new();
@@ -3984,6 +4007,7 @@ mod tests {
             }),
             repeats: false,
             variant_groups: vec![],
+            ..Default::default()
         };
         let (mut enums, mut fields) = (Vec::new(), Vec::new());
         let reserved = std::collections::HashSet::new();

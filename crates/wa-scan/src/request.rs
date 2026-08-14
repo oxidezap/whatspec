@@ -18,13 +18,16 @@ use std::collections::{BTreeMap, HashMap};
 
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
-    Argument, ArrowFunctionExpression, AssignmentExpression, Expression, Function, Program,
-    Statement, VariableDeclaration,
+    Argument, ArrowFunctionExpression, AssignmentExpression, Expression, Function,
+    ObjectPropertyKind, Program, PropertyKey, Statement, VariableDeclaration,
 };
 use oxc_ast_visit::{Visit, walk};
 use oxc_span::GetSpan;
 use oxc_syntax::scope::ScopeFlags;
-use wa_ir::{WapChildNode, WapContent, WapContentKind};
+use wa_ir::{
+    WapArgPath, WapArgSegment, WapAttrDef, WapAttrKind, WapChildNode, WapChildPresence, WapContent,
+    WapContentKind,
+};
 
 use crate::alias::{AliasMap, build_alias_map, resolve_owner};
 use crate::attrs::{extract_attrs_from_obj, parse_wap_call};
@@ -45,13 +48,36 @@ const BIG_ENDIAN_CONTENT: &str = "BIG_ENDIAN_CONTENT";
 /// Distinguishes a value payload from a child node structurally: a string literal
 /// is a fixed `Const`; `BIG_ENDIAN_CONTENT(x, n)` is `n` bytes; a member value
 /// reference (`e.keyPair.pubKey`, `e.signature`) is opaque `Dynamic` bytes/text.
-/// A bare identifier is deliberately ignored — it may be a node variable resolved
-/// elsewhere, not content.
-fn leaf_content(child_args: &[Argument]) -> Option<WapContent> {
+///
+/// A bare identifier is content only when it resolves to an argument path. That
+/// discriminates the two things a minified identifier can be in this position: WA's
+/// builders bind the payload to a local first (`var t = e.subjectElementValue;
+/// smax("subject", null, t)` — `<subject>`'s whole payload), while a node variable
+/// (`var n = smax("body", …); smax("description", null, n)`) is a child and roots at no
+/// parameter. Ignoring identifiers outright was the safe half of that distinction and
+/// dropped the payload of every request whose builder destructures first — which is
+/// every builder that lives behind a mixin.
+fn leaf_content(
+    child_args: &[Argument],
+    scope: &VarScope,
+    module_source: &str,
+    ref_off: Option<usize>,
+) -> Option<WapContent> {
     if child_args.len() != 1 {
         return None;
     }
-    content_of_expr(arg_expr(child_args.first()?)?)
+    let e = arg_expr(child_args.first()?)?;
+    let path = relative_arg_path(e, scope, module_source, ref_off, 0).filter(|p| !p.is_empty());
+    let mut content = content_of_expr(e).or_else(|| {
+        path.is_some().then_some(WapContent {
+            kind: WapContentKind::Dynamic,
+            ..Default::default()
+        })
+    })?;
+    if content.arg_path.is_none() {
+        content.arg_path = path;
+    }
+    Some(content)
 }
 
 fn content_of_expr(e: &Expression) -> Option<WapContent> {
@@ -131,11 +157,37 @@ struct VarInit {
 #[derive(Default)]
 pub(crate) struct VarScope {
     vars: HashMap<String, Vec<VarInit>>,
+    /// Every tracked function as `(body_start, body_end, first_parameter_name)`.
+    ///
+    /// A smax builder/template takes exactly one argument object, so the first
+    /// parameter *is* the argument root: every `var x = <param>.<key>` inside the body
+    /// names a path into it. Recorded here rather than derived from the body, because
+    /// the parameter list lives in the function header — outside the body span the
+    /// resolver re-parses.
+    fn_params: Vec<(usize, usize, String)>,
 }
 
 impl VarScope {
     fn push(&mut self, name: &str, init: VarInit) {
         self.vars.entry(name.to_string()).or_default().push(init);
+    }
+
+    /// The argument-object parameter of the innermost tracked function containing
+    /// `off` — the root identifier a member chain must start at for it to be an
+    /// argument path. `None` when the offset is outside every tracked function, when
+    /// the context is unknown, or when the enclosing function takes no parameter (a
+    /// marker template like `function u(){ return smax("locked", null) }`, which reads
+    /// no arguments at all).
+    ///
+    /// The innermost wins: a template function nested inside a builder shadows the
+    /// builder's own parameter, exactly as JS scoping does with the minifier's reused
+    /// single-letter names.
+    fn arg_root_at(&self, off: usize) -> Option<(usize, usize, &str)> {
+        self.fn_params
+            .iter()
+            .filter(|(s, e, _)| *s <= off && off <= *e)
+            .min_by_key(|(s, e, _)| e.saturating_sub(*s))
+            .map(|(s, e, name)| (*s, *e, name.as_str()))
     }
 }
 
@@ -206,6 +258,12 @@ impl<'a> Visit<'a> for ScopeBuilder {
         let pushed = fn_body_span(func);
         if let Some(span) = pushed {
             self.fn_stack.push(span);
+            // The single argument object every smax builder/template takes. Recorded
+            // here because the parameter list is in the header, outside the body span
+            // the resolver later re-parses in isolation.
+            if let Some(param) = first_param_name(func) {
+                self.scope.fn_params.push((span.0, span.1, param));
+            }
         }
         walk::walk_function(self, func, flags);
         if pushed.is_some() {
@@ -246,10 +304,236 @@ impl<'a> Visit<'a> for ScopeBuilder {
     }
 }
 
+/// The argument-object parameter of a function that takes EXACTLY one — the smax
+/// builder/template shape (`function e(e){ var t = e.participantJid; … }`).
+///
+/// The arity test is the structural definition of "has an argument object", and it is
+/// what keeps this honest across the two builder families in the IQ domain. Every
+/// `WASmaxOut*Request` builder takes one options object, so a path into it is a
+/// complete address. The legacy `WAWeb*Job` builders take positional parameters
+/// (`function(e, t)`); a path there would name a key without naming which parameter it
+/// hangs off, which reads like an address and is not one. Those requests get no path
+/// and are counted instead.
+///
+/// `None` also for a zero-arg function — a presence-marker template reads no arguments
+/// at all — and for a destructuring pattern.
+fn first_param_name(f: &Function) -> Option<String> {
+    if f.params.items.len() != 1 || f.params.rest.is_some() {
+        return None;
+    }
+    f.params
+        .items
+        .first()?
+        .pattern
+        .get_identifier_name()
+        .map(|n| n.to_string())
+}
+
 fn fn_body_span(f: &Function) -> Option<(usize, usize)> {
     f.body
         .as_ref()
         .map(|b| (b.span.start as usize, b.span.end as usize))
+}
+
+// ─── Argument paths (the builder side of the contract) ───────────────────────────
+//
+// Every value a request carries is read off the single argument object WA's builder
+// takes. The path is recovered from two structural facts and nothing else: a builder
+// or template function's FIRST parameter is that argument object, and a `var x =
+// <param>.<key>` inside its body binds `x` to `<key>`. Names are never pattern-matched
+// — `…Args`, `has…` and `any…` are WA conventions that make the IR readable, not
+// evidence about where a value goes.
+//
+// Composition is by prefixing rather than by threading a context down the recursion:
+// each function body resolves its paths relative to its OWN argument root, and the
+// call site that supplies that root (a `REPEATED_CHILD` list, an `OPTIONAL_CHILD`
+// argument object, a `merge…Mixin` argument) prefixes the subtree it just resolved.
+// A nested combinator therefore composes automatically, and no resolution function
+// needs to know how deep it sits.
+
+/// Max identifier hops while chasing `var a = b, b = e.key` aliases. Bounds the
+/// self-recursion in [`relative_arg_path`] so a cyclic reassignment can't loop.
+const MAX_ALIAS_DEPTH: u32 = 8;
+
+/// Prepend `prefix` to every argument path in `nodes` (and their attrs/content),
+/// in place. This is how a template's self-relative paths become absolute: the
+/// caller knows which argument object it handed the template, the template does not.
+fn prefix_arg_paths(nodes: &mut [WapChildNode], prefix: &[WapArgSegment]) {
+    if prefix.is_empty() {
+        return;
+    }
+    for n in nodes {
+        prefix_one(&mut n.arg_path, prefix);
+        for a in &mut n.attrs {
+            prefix_one(&mut a.arg_path, prefix);
+        }
+        if let Some(c) = n.content.as_mut() {
+            prefix_one(&mut c.arg_path, prefix);
+        }
+        for g in &mut n.variant_groups {
+            for v in &mut g.variants {
+                for a in &mut v.attrs {
+                    prefix_one(&mut a.arg_path, prefix);
+                }
+                prefix_arg_paths(&mut v.children, prefix);
+            }
+        }
+        prefix_arg_paths(&mut n.children, prefix);
+    }
+}
+
+fn prefix_one(path: &mut Option<WapArgPath>, prefix: &[WapArgSegment]) {
+    if let Some(p) = path.as_mut() {
+        let mut full = prefix.to_vec();
+        full.append(p);
+        *p = full;
+    }
+}
+
+/// The argument path an expression reads, relative to the argument root of the
+/// function `ref_off` sits in. `Some(vec![])` means "the argument object itself"
+/// (a bare reference to the parameter). `None` means not structurally recoverable —
+/// the caller counts it rather than inventing one.
+fn relative_arg_path(
+    e: &Expression,
+    scope: &VarScope,
+    module_source: &str,
+    ref_off: Option<usize>,
+    depth: u32,
+) -> Option<WapArgPath> {
+    if depth > MAX_ALIAS_DEPTH {
+        return None;
+    }
+    let (fn_start, fn_end, root) = scope.arg_root_at(ref_off?)?;
+
+    if let Expression::ParenthesizedExpression(p) = e {
+        return relative_arg_path(&p.expression, scope, module_source, ref_off, depth);
+    }
+
+    // `<param>` itself → the whole argument object.
+    if let Some(name) = as_identifier(e) {
+        if name == root {
+            return Some(Vec::new());
+        }
+        // A local alias: `var a = t.participantArgs`. Only initializers written INSIDE
+        // the enclosing function count. The module scope is flat and name-keyed, and the
+        // minifier reuses `a`/`i`/`t` in every sibling builder of the same module, so
+        // without the lexical bound one function's `i = t.descriptionArgs` and another's
+        // `i = optionalMerge(…)` are the same entry — and the first one that happens to
+        // resolve wins, pointing a child at a stranger's argument.
+        let inits = scope.vars.get(name)?;
+        for init in inits {
+            if init.init_start < fn_start || init.init_end > fn_end {
+                continue;
+            }
+            if let Some((s, en)) = init.owner_fn
+                && !matches!(ref_off, Some(o) if s <= o && o < en)
+            {
+                continue;
+            }
+            let slice = &module_source[init.init_start..init.init_end];
+            let alloc = Allocator::default();
+            let parsed = wa_oxc::parse_cjs(&alloc, slice);
+            if let Some(expr) = first_expression(&parsed.program)
+                && let Some(p) = relative_arg_path(expr, scope, module_source, ref_off, depth + 1)
+            {
+                return Some(p);
+            }
+        }
+        return None;
+    }
+
+    // `<param>.a.b` → ["a", "b"]. Computed members (`x[i]`) are not a static key and
+    // stop the walk.
+    if e.as_member_expression().is_some() {
+        let mut keys = Vec::new();
+        let mut cur = e;
+        loop {
+            let Some(m) = cur.as_member_expression() else {
+                break;
+            };
+            let prop = m.static_property_name()?;
+            keys.push(prop.to_string());
+            cur = m.object();
+        }
+        keys.reverse();
+        let base = relative_arg_path(cur, scope, module_source, ref_off, depth + 1)?;
+        let mut out = base;
+        out.extend(
+            keys.into_iter()
+                .map(|key| WapArgSegment { key, list: false }),
+        );
+        return Some(out);
+    }
+
+    // A value coercion — `WAWap.JID(t)`, `OPTIONAL(WAWap.JID, n)`, `CUSTOM_STRING(t)`.
+    // The value is whichever argument resolves; a coercion-function reference
+    // (`o("WAWap").JID`) is rooted at a `require` call, not at the parameter, so it
+    // never resolves and cannot be mistaken for the value.
+    if let Some(call) = as_call(e) {
+        for a in &call.arguments {
+            if let Some(ae) = arg_expr(a)
+                && let Some(p) = relative_arg_path(ae, scope, module_source, ref_off, depth + 1)
+            {
+                return Some(p);
+            }
+        }
+        return None;
+    }
+
+    // `cond ? a : b` — recoverable only when both branches read the SAME argument
+    // (the common `x != null ? x : default` shape). Divergent branches are ambiguous:
+    // one path cannot describe two sources, so report nothing rather than pick.
+    if let Expression::ConditionalExpression(c) = e {
+        let a = relative_arg_path(&c.consequent, scope, module_source, ref_off, depth + 1);
+        let b = relative_arg_path(&c.alternate, scope, module_source, ref_off, depth + 1);
+        return match (a, b) {
+            (Some(x), Some(y)) if x == y => Some(x),
+            (Some(x), None) => Some(x),
+            (None, Some(y)) => Some(y),
+            _ => None,
+        };
+    }
+
+    None
+}
+
+/// Fill in `arg_path` on each attribute of a node whose attrs came from `attrs_node`.
+///
+/// A `Const` attribute is skipped: the builder writes the literal itself, so there is
+/// no argument to point at, and an absent path there means "nothing to supply" rather
+/// than "we failed".
+fn annotate_attr_arg_paths(
+    attrs: &mut [WapAttrDef],
+    attrs_node: &Expression,
+    scope: &VarScope,
+    module_source: &str,
+    ref_off: Option<usize>,
+) {
+    let Expression::ObjectExpression(obj) = attrs_node else {
+        return;
+    };
+    for prop in &obj.properties {
+        let ObjectPropertyKind::ObjectProperty(p) = prop else {
+            continue;
+        };
+        let PropertyKey::StaticIdentifier(key) = &p.key else {
+            continue;
+        };
+        let Some(attr) = attrs.iter_mut().find(|a| a.name == key.name.as_str()) else {
+            continue;
+        };
+        if attr.kind == WapAttrKind::Const {
+            continue;
+        }
+        // An empty path (a bare reference to the argument object) is not an
+        // attribute source; only a keyed read is.
+        if let Some(path) = relative_arg_path(&p.value, scope, module_source, ref_off, 0)
+            && !path.is_empty()
+        {
+            attr.arg_path = Some(path);
+        }
+    }
 }
 
 /// Resolve a `wap()` child-argument expression into zero or more child nodes.
@@ -326,10 +610,13 @@ pub(crate) fn resolve_child_node(
     if let Some(call) = as_call(node)
         && let Some(wap) = parse_wap_call(call, aliases)
     {
-        let attrs = wap
+        let mut attrs = wap
             .attrs_node
             .map(|n| extract_attrs_from_obj(n, node_source, aliases))
             .unwrap_or_default();
+        if let Some(n) = wap.attrs_node {
+            annotate_attr_arg_paths(&mut attrs, n, scope, module_source, ref_off);
+        }
         let mut children = Vec::new();
         for child_arg in wap.child_args {
             if let Some(ce) = arg_expr(child_arg) {
@@ -347,7 +634,7 @@ pub(crate) fn resolve_child_node(
             }
         }
         let content = if children.is_empty() {
-            leaf_content(wap.child_args)
+            leaf_content(wap.child_args, scope, module_source, ref_off)
         } else {
             None
         };
@@ -358,6 +645,7 @@ pub(crate) fn resolve_child_node(
             content,
             repeats: false,
             variant_groups: Vec::new(),
+            ..Default::default()
         }];
     }
 
@@ -463,9 +751,9 @@ pub(crate) fn resolve_child_node(
     {
         let owner = callee_object(call).and_then(|o| resolve_owner(o, aliases));
         let repeated = owner == Some("WASmaxChildren") && method == "REPEATED_CHILD";
-        let optional = owner == Some("WASmaxChildren")
-            && matches!(method, "OPTIONAL_CHILD" | "HAS_OPTIONAL_CHILD");
-        if (repeated || optional)
+        let optional = owner == Some("WASmaxChildren") && method == "OPTIONAL_CHILD";
+        let presence_flag = owner == Some("WASmaxChildren") && method == "HAS_OPTIONAL_CHILD";
+        if (repeated || optional || presence_flag)
             && let Some(first) = call.arguments.first().and_then(arg_expr)
         {
             let mut r = resolve_template_arg(
@@ -479,9 +767,52 @@ pub(crate) fn resolve_child_node(
                 depth,
                 ref_off,
             );
+            // The 2nd argument is what the combinator feeds the template: the list for
+            // REPEATED_CHILD, the argument object for OPTIONAL_CHILD, the boolean for
+            // HAS_OPTIONAL_CHILD. It is therefore both this node's own argument path
+            // and the prefix that turns the template's self-relative paths absolute —
+            // the template resolved above knows nothing about where it was called from.
+            let node_path = call
+                .arguments
+                .get(1)
+                .and_then(arg_expr)
+                .and_then(|e| relative_arg_path(e, scope, module_source, ref_off, 0))
+                .filter(|p| !p.is_empty());
             if repeated {
+                // `[]` marks the ONE segment a consumer must index: REPEATED_CHILD calls
+                // the template once per element, so everything the template reads lives
+                // on an element. OPTIONAL_CHILD hands the object over whole and gets no
+                // marker — the same suffix in the wrong place writes the value where the
+                // vendor builder never reads it.
+                let (min, max) = repeat_bounds(call);
+                let listed = node_path.map(|mut p| {
+                    if let Some(last) = p.last_mut() {
+                        last.list = true;
+                    }
+                    p
+                });
+                if let Some(prefix) = listed.as_deref() {
+                    prefix_arg_paths(&mut r, prefix);
+                }
                 for c in &mut r {
                     c.repeats = true;
+                    c.repeat_min = min;
+                    c.repeat_max = max;
+                    c.arg_path = listed.clone();
+                }
+            } else {
+                if let Some(prefix) = node_path.as_deref()
+                    && optional
+                {
+                    prefix_arg_paths(&mut r, prefix);
+                }
+                for c in &mut r {
+                    c.presence = if optional {
+                        WapChildPresence::Optional
+                    } else {
+                        WapChildPresence::PresenceFlag
+                    };
+                    c.arg_path = node_path.clone();
                 }
             }
             if !r.is_empty() {
@@ -554,7 +885,24 @@ pub(crate) fn resolve_child_node(
                 if let Some(name) = mixin
                     && let Some(contrib) = contribs.get(&name)
                 {
-                    apply_contribution(&mut out, contrib, is_optional_merge);
+                    // A mixin resolves its own paths against the argument object the
+                    // caller hands it — the 2nd argument of `merge…(dst, args)`, the
+                    // 3rd of `optionalMerge(mergeFn, dst, args)`. Prefixing here is what
+                    // makes `namedSubjectOrUnnamedSubjectFallbackMixinGroupArgs`
+                    // reachable from the request root; without it the mixin's paths
+                    // would silently claim to start at the request's own arguments.
+                    let args_idx = if is_optional_merge { 2 } else { 1 };
+                    let prefix = call
+                        .arguments
+                        .get(args_idx)
+                        .and_then(arg_expr)
+                        .and_then(|e| relative_arg_path(e, scope, module_source, ref_off, 0))
+                        .filter(|p| !p.is_empty());
+                    let mut contrib = contrib.clone();
+                    if let Some(prefix) = prefix.as_deref() {
+                        prefix_arg_paths(&mut contrib, prefix);
+                    }
+                    apply_contribution(&mut out, &contrib, is_optional_merge);
                 }
             }
             if !out.is_empty() {
@@ -598,6 +946,26 @@ pub(crate) fn resolve_child_node(
     }
 
     Vec::new()
+}
+
+/// The `min`/`max` of `REPEATED_CHILD(template, list, min, max)`, each recovered
+/// independently when it is a non-negative integer literal.
+///
+/// Independently, because the two non-literal forms are worth telling apart and the
+/// emitted document already can: WA writes an unbounded maximum as `1/0`, so
+/// `repeat_min` present with `repeat_max` absent means "at least min, no ceiling",
+/// while a child with neither bound came from a `.map()` that states no bound at all.
+/// Collapsing both to "no bounds" would have made an explicitly unbounded list
+/// indistinguishable from an unmeasured one.
+fn repeat_bounds(call: &oxc_ast::ast::CallExpression) -> (Option<u32>, Option<u32>) {
+    let lit = |i: usize| {
+        call.arguments
+            .get(i)
+            .and_then(arg_expr)
+            .and_then(as_int)
+            .and_then(|n| u32::try_from(n).ok())
+    };
+    (lit(2), lit(3))
 }
 
 /// `o("Module").fn` (a member whose object is a `require` call) → `(Module, fn)`.
@@ -666,11 +1034,34 @@ fn merge_node_into(d: &mut WapChildNode, src: &WapChildNode, optional: bool) {
     // promotes a locally-singular child, mirroring `mixin_index::merge_children` so a
     // repeated child folded onto an existing tag isn't silently treated as singular.
     d.repeats = d.repeats || src.repeats;
+    adopt_builder_facts(d, src);
     crate::mixin_index::merge_children(&mut d.children, &src.children);
     for g in &src.variant_groups {
         let mut g2 = g.clone();
         g2.optional = g2.optional || optional;
         d.variant_groups.push(g2);
+    }
+}
+
+/// Take from a merged-in fragment the builder facts the destination doesn't have:
+/// element content, cardinality, repeat bounds, argument path.
+///
+/// Fill-if-empty rather than overwrite — the destination is the node built at the call
+/// site and is the more specific description; a fragment only ever ADDS, mirroring
+/// `mergeStanzas`. This is where a mixin's element value stops disappearing: the merge
+/// used to union attrs and children and drop everything else, so a `<subject>` built in
+/// a mixin arrived at the request as a bare tag.
+pub(crate) fn adopt_builder_facts(d: &mut WapChildNode, src: &WapChildNode) {
+    if d.content.is_none() {
+        d.content = src.content.clone();
+    }
+    if d.presence.is_required() {
+        d.presence = src.presence;
+    }
+    d.repeat_min = d.repeat_min.or(src.repeat_min);
+    d.repeat_max = d.repeat_max.or(src.repeat_max);
+    if d.arg_path.is_none() {
+        d.arg_path = src.arg_path.clone();
     }
 }
 
@@ -875,6 +1266,16 @@ fn resolve_function_returns_each(
             .or_default()
             .extend(ginits.iter().cloned());
     }
+    // Argument roots follow the same shift-then-inherit rule as the vars. The body slice
+    // re-parse cannot see this function's OWN parameter (it lives in the header, outside
+    // the span), so the module scope's entry is the one that answers `arg_root_at` here —
+    // dropping it made every path resolved through a template return come out empty.
+    for (s, e, name) in &mut merged.fn_params {
+        *s += body_start;
+        *e += body_start;
+        let _ = name;
+    }
+    merged.fn_params.extend(scope.fn_params.iter().cloned());
     let mut per_return = Vec::new();
     for arg_src in collect_return_arg_sources(body) {
         let alloc2 = Allocator::default();
@@ -1181,9 +1582,12 @@ impl<'a> Visit<'a> for WapCollector<'_> {
                 tag: wap.tag.to_string(),
                 attrs,
                 children: Vec::new(),
-                content: leaf_content(wap.child_args),
+                // A flat sweep over a body with no reference context: argument paths
+                // are unrecoverable here by construction, and stay absent.
+                content: leaf_content(wap.child_args, &VarScope::default(), "", None),
                 repeats: false,
                 variant_groups: Vec::new(),
+                ..Default::default()
             });
         }
         walk::walk_call_expression(self, call);
@@ -1315,6 +1719,274 @@ mod tests {
         )
     }
 
+    /// Resolve the return value of a named builder function in `code`, the way the IQ
+    /// scanner reaches a request's children — inside a function, so the argument-path
+    /// machinery has a reference context and an argument root to work from. [`resolve`]
+    /// deliberately has neither.
+    fn resolve_builder(code: &str, fn_name: &str) -> Vec<WapChildNode> {
+        let alloc = Allocator::default();
+        let ret = wa_oxc::parse_cjs(&alloc, code);
+        let scope = build_var_scope(&ret.program);
+        let aliases = build_alias_map(&ret.program);
+        let (bs, be) = scope
+            .vars
+            .get(fn_name)
+            .and_then(|inits| inits.iter().find_map(|vi| vi.fn_body))
+            .unwrap_or_else(|| panic!("no function body for `{fn_name}`"));
+        let out = resolve_function_return(
+            bs,
+            be,
+            &scope,
+            code,
+            &aliases,
+            None,
+            &HelperIndex::default(),
+            0,
+        );
+        // A builder returns the `<iq>`; the tests are about its children, which is also
+        // what the IQ scanner keeps.
+        match out.as_slice() {
+            [root] if root.tag == "iq" => root.children.clone(),
+            _ => out,
+        }
+    }
+
+    fn path_of(p: &Option<WapArgPath>) -> Vec<(String, bool)> {
+        p.iter()
+            .flatten()
+            .map(|s| (s.key.clone(), s.list))
+            .collect()
+    }
+
+    #[test]
+    fn element_value_survives_a_destructured_local() {
+        // `smax("subject", null, t)` where `t` was destructured off the builder's
+        // argument object. The payload of a group rename is the element's content and
+        // nothing else, so a builder that binds it to a local first must still yield it.
+        let code = r#"
+            function b(e){ var t = e.subjectElementValue;
+              return o("WASmaxJsx").smax("iq", null, o("WASmaxJsx").smax("subject", null, t)); }
+        "#;
+        let out = resolve_builder(code, "b");
+        let subject = out
+            .iter()
+            .find(|c| c.tag == "subject")
+            .expect("subject child");
+        let content = subject
+            .content
+            .as_ref()
+            .expect("`<subject>` carries its element value");
+        assert_eq!(
+            path_of(&content.arg_path),
+            vec![("subjectElementValue".to_string(), false)]
+        );
+    }
+
+    #[test]
+    fn a_node_variable_is_still_a_child_not_content() {
+        // The other half of the identifier rule: a local bound to a `smax(…)` call is a
+        // CHILD. It roots at no parameter, so it yields no path and no content — the
+        // discrimination that lets the test above be safe.
+        let code = r#"
+            function b(e){ var n = o("WASmaxJsx").smax("body", null);
+              return o("WASmaxJsx").smax("description", null, n); }
+        "#;
+        let out = resolve_builder(code, "b");
+        let desc = out.iter().find(|c| c.tag == "description").expect("desc");
+        assert!(desc.content.is_none(), "content: {:?}", desc.content);
+        assert_eq!(
+            desc.children
+                .iter()
+                .map(|c| c.tag.as_str())
+                .collect::<Vec<_>>(),
+            vec!["body"]
+        );
+    }
+
+    #[test]
+    fn repeated_child_arg_path_marks_the_list_segment() {
+        // `REPEATED_CHILD(tmpl, list, min, max)` calls the template once per element, so
+        // the LIST segment is indexed and the template's own keys are not.
+        let code = r#"
+            function t(e){ var j = e.participantJid;
+              return o("WASmaxJsx").smax("participant", {jid: o("WAWap").JID(j)}); }
+            function b(e){ var a = e.participantArgs;
+              return o("WASmaxJsx").smax("iq", null,
+                o("WASmaxChildren").REPEATED_CHILD(t, a, 1, 1024)); }
+        "#;
+        let out = resolve_builder(code, "b");
+        let p = out.iter().find(|c| c.tag == "participant").expect("child");
+        assert!(p.repeats);
+        assert_eq!(p.presence, WapChildPresence::Required);
+        assert_eq!((p.repeat_min, p.repeat_max), (Some(1), Some(1024)));
+        assert_eq!(
+            path_of(&p.arg_path),
+            vec![("participantArgs".to_string(), true)],
+            "the node addresses the list itself"
+        );
+        assert_eq!(
+            path_of(&p.attrs[0].arg_path),
+            vec![
+                ("participantArgs".to_string(), true),
+                ("participantJid".to_string(), false)
+            ],
+            "`[]` on the list segment, never on the key read off an element"
+        );
+    }
+
+    #[test]
+    fn optional_child_arg_path_carries_no_list_marker() {
+        // The mirror of the test above, and the reason both exist: `OPTIONAL_CHILD`
+        // hands the argument object to the template WHOLE. Indexing it would write the
+        // value where the vendor builder never reads, so no segment may be marked.
+        let code = r#"
+            function t(e){ var i = e.descriptionId;
+              return o("WASmaxJsx").smax("description", {id: o("WAWap").CUSTOM_STRING(i)}); }
+            function b(e){ var d = e.descriptionArgs;
+              return o("WASmaxJsx").smax("iq", null,
+                o("WASmaxChildren").OPTIONAL_CHILD(t, d)); }
+        "#;
+        let out = resolve_builder(code, "b");
+        let d = out.iter().find(|c| c.tag == "description").expect("child");
+        assert_eq!(d.presence, WapChildPresence::Optional);
+        assert!(!d.repeats);
+        assert_eq!((d.repeat_min, d.repeat_max), (None, None));
+        assert_eq!(
+            path_of(&d.arg_path),
+            vec![("descriptionArgs".to_string(), false)]
+        );
+        assert_eq!(
+            path_of(&d.attrs[0].arg_path),
+            vec![
+                ("descriptionArgs".to_string(), false),
+                ("descriptionId".to_string(), false)
+            ]
+        );
+        assert!(
+            d.arg_path
+                .iter()
+                .flatten()
+                .chain(d.attrs.iter().flat_map(|a| a.arg_path.iter().flatten()))
+                .all(|s| !s.list),
+            "no segment of an OPTIONAL_CHILD path may be marked as a list"
+        );
+    }
+
+    #[test]
+    fn the_three_cardinalities_are_distinguishable() {
+        // Required, optional and presence-marker children that are all empty on the
+        // wire. Without `presence` the three are the same `{tag, [], []}` node, and a
+        // consumer cannot tell which one it may model as a `bool`.
+        let code = r#"
+            function req(){ return o("WASmaxJsx").smax("always", null); }
+            function opt(e){ var x = e.optArgs; return o("WASmaxJsx").smax("maybe", null); }
+            function flag(){ return o("WASmaxJsx").smax("locked", null); }
+            function b(e){ var a = e.optArgs, l = e.hasLocked;
+              return o("WASmaxJsx").smax("iq", null, [req(),
+                o("WASmaxChildren").OPTIONAL_CHILD(opt, a),
+                o("WASmaxChildren").HAS_OPTIONAL_CHILD(flag, l)]); }
+        "#;
+        let out = resolve_builder(code, "b");
+        let by = |tag: &str| {
+            out.iter()
+                .find(|c| c.tag == tag)
+                .unwrap_or_else(|| panic!("{tag}: {out:?}"))
+                .presence
+        };
+        assert_eq!(by("always"), WapChildPresence::Required);
+        assert_eq!(by("maybe"), WapChildPresence::Optional);
+        assert_eq!(by("locked"), WapChildPresence::PresenceFlag);
+        assert_eq!(
+            path_of(&out.iter().find(|c| c.tag == "locked").unwrap().arg_path),
+            vec![("hasLocked".to_string(), false)],
+            "a presence marker addresses its boolean, not an argument object"
+        );
+    }
+
+    #[test]
+    fn an_unbounded_max_leaves_only_the_minimum() {
+        // WA writes an open upper bound as `1/0`. Recovering `min` anyway is what keeps
+        // "at least one, no ceiling" distinguishable from a `.map()` child that states
+        // no bound at all — the latter has neither.
+        let code = r#"
+            function t(e){ return o("WASmaxJsx").smax("item", null); }
+            function b(e){ var a = e.itemArgs;
+              return o("WASmaxJsx").smax("iq", null,
+                o("WASmaxChildren").REPEATED_CHILD(t, a, 0, 1/0)); }
+        "#;
+        let out = resolve_builder(code, "b");
+        let item = out.iter().find(|c| c.tag == "item").expect("item");
+        assert_eq!((item.repeat_min, item.repeat_max), (Some(0), None));
+    }
+
+    /// Resolve a builder's return the way `module.rs` does when it walks an `<iq>` call:
+    /// against the MODULE scope, at the reference's real module offset. Distinct from
+    /// [`resolve_builder`], which re-parses the body first and so puts the body's own
+    /// declarations ahead of the module's — masking exactly the name collisions the flat
+    /// scope creates.
+    fn resolve_in_module(code: &str, fn_name: &str) -> Vec<WapChildNode> {
+        let alloc = Allocator::default();
+        let ret = wa_oxc::parse_cjs(&alloc, code);
+        let scope = build_var_scope(&ret.program);
+        let aliases = build_alias_map(&ret.program);
+        let fn_at = code
+            .find(&format!("function {fn_name}("))
+            .unwrap_or_else(|| panic!("no `{fn_name}` in the source"));
+        let ret_at = code[fn_at..].find("return ").expect("a return") + fn_at + "return ".len();
+        let end = code[ret_at..].find(";").expect("a terminator") + ret_at;
+        let owned = format!("({});", &code[ret_at..end]);
+        let alloc2 = Allocator::default();
+        let ret2 = wa_oxc::parse_cjs(&alloc2, &owned);
+        let expr = first_expression(&ret2.program).unwrap();
+        let out = resolve_child_node(
+            expr,
+            &owned,
+            &scope,
+            code,
+            &aliases,
+            None,
+            &HelperIndex::default(),
+            0,
+            Some(ret_at),
+        );
+        match out.as_slice() {
+            [root] if root.tag == "iq" => root.children.clone(),
+            _ => out,
+        }
+    }
+
+    #[test]
+    fn a_siblings_local_cannot_donate_an_argument_path() {
+        // The minifier reuses `a` in every builder of a module and the variable scope is
+        // flat and name-keyed, so the sibling declared FIRST is the first candidate for
+        // the name. Only an initializer written inside the enclosing function may name a
+        // path, or `<other>` here is addressed as `wrongArgs` — the shape that had
+        // `GroupsCreate`'s `<description>` reading out of `participantArgs`.
+        let code = r#"
+            function sibling(e){ var a = e.wrongArgs; return o("WASmaxJsx").smax("x", null); }
+            function t(e){ return o("WASmaxJsx").smax("other", null); }
+            function b(e){ var a = e.rightArgs;
+              return o("WASmaxJsx").smax("iq", null, o("WASmaxChildren").OPTIONAL_CHILD(t, a)); }
+        "#;
+        let out = resolve_in_module(code, "b");
+        let n = out.iter().find(|c| c.tag == "other").expect("child");
+        assert_eq!(path_of(&n.arg_path), vec![("rightArgs".to_string(), false)]);
+    }
+
+    #[test]
+    fn a_multi_parameter_builder_yields_no_argument_path() {
+        // A legacy `WAWeb*Job` builder takes positional parameters, so a bare key would
+        // name a property without naming which parameter it hangs off. That reads like
+        // an address and is not one, so nothing is emitted.
+        let code = r#"
+            function b(e, t){ var j = e.jid;
+              return o("WAWap").wap("iq", null, o("WAWap").wap("user", {jid: j})); }
+        "#;
+        let out = resolve_builder(code, "b");
+        let u = out.iter().find(|c| c.tag == "user").expect("user");
+        assert!(u.attrs[0].arg_path.is_none(), "{:?}", u.attrs[0]);
+    }
+
     /// Like [`resolve`], but with cross-module mixin contributions available (Phase
     /// 3): a `merge…Mixin(dst,…)` folds the mixin's attrs/children into `dst`.
     fn resolve_with(
@@ -1426,11 +2098,13 @@ mod tests {
                     value: None,
                     required: false,
                     enum_ref: None,
+                    arg_path: None,
                 })
                 .collect(),
             children: Vec::new(),
             repeats: false,
             variant_groups: Vec::new(),
+            ..Default::default()
         }
     }
 
@@ -1734,6 +2408,7 @@ mod tests {
             content: None,
             repeats: false,
             variant_groups: vec![],
+            ..Default::default()
         };
         let src = WapChildNode {
             tag: "item".into(),
@@ -1742,6 +2417,7 @@ mod tests {
             content: None,
             repeats: true,
             variant_groups: vec![],
+            ..Default::default()
         };
         merge_node_into(&mut dst, &src, false);
         assert!(

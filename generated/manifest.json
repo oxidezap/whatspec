@@ -9,6 +9,18 @@
       }
     },
     "iq": {
+      "builder": {
+        "argPathAttrs": 225,
+        "argPathAttrsMissing": 57,
+        "argPathChildren": 99,
+        "argPathChildrenMissing": 21,
+        "argPathContents": 51,
+        "argPathContentsMissing": 9,
+        "elementValues": 61,
+        "optionalChildren": 33,
+        "presenceFlagChildren": 31,
+        "repeatBounds": 35
+      },
       "candidateModules": 207,
       "constraints": {
         "errorArms": 645,
@@ -54,37 +66,37 @@
     "abprops": {
       "file": "abprops/index.json",
       "schema": "schema/abprops.schema.json",
-      "sha256": "8e935cd88d28fa8e2c87dee73405a4611266f7bdd4c0f6f62c2764656fc29c0a"
+      "sha256": "aaa7299dc771af28bac19f966844bfb4d73ebbeca83493c0e50087e986c7c02c"
     },
     "appstate": {
       "file": "appstate/index.json",
       "schema": "schema/appstate.schema.json",
-      "sha256": "3ab0c56c54d0ba6c0e2e5b319737b799258f881a158deada1dcf8c6233d84eb8"
+      "sha256": "556fb4de60cdf767ddfc281749ca779407b9e0fe1d94f972658a2a7713af52bb"
     },
     "enums": {
       "file": "enums/index.json",
       "schema": "schema/enums.schema.json",
-      "sha256": "031e7e83d08ab71be97fe23e056e99ad590bd23dd49aec34061670d49819ed03"
+      "sha256": "39be901096646950aaf1117710fa2bbc96a7da1568dd309961197470560af332"
     },
     "incoming": {
       "file": "incoming/index.json",
       "schema": "schema/incoming.schema.json",
-      "sha256": "18c955020acfc3ea86bedb4186aac951ccafdf26ede0b05554926a3157d7749e"
+      "sha256": "fa5c6e42bc22a8ed7f28d0a5e56df57891121672a55c92b29d8251d9df24e3bc"
     },
     "iq": {
       "file": "iq/index.json",
       "schema": "schema/iq.schema.json",
-      "sha256": "e59a905faf82c17a0ea21bb20b8b16f87d91fbc04cbaba3d74be7f231b0b2beb"
+      "sha256": "7edcd8ab7eada99337b999263c128b798ecccfb5f27cd8a7da9dc18f8d1c2d1d"
     },
     "mex": {
       "file": "mex/index.json",
       "schema": "schema/mex.schema.json",
-      "sha256": "e381c86874d16ec39d817fd85592b6b5e4423a68831219d5b790341993fd0b1f"
+      "sha256": "7513715db6a2320017373a3008360d6776e413abc3f878a4d2c1d9e185842718"
     },
     "notif": {
       "file": "notif/index.json",
       "schema": "schema/notif.schema.json",
-      "sha256": "cc09f68856975f293e7eae1bf9e5960a2b210e0b220874d5a49ef45cb9b7e0c6"
+      "sha256": "7a8494583ed4d7273a2a6de9a394927e1954c7eb7219efc7621123928c7ea86a"
     },
     "proto": {
       "file": "proto/WAProto.proto",
@@ -93,27 +105,27 @@
     "srvreq": {
       "file": "srvreq/index.json",
       "schema": "schema/srvreq.schema.json",
-      "sha256": "baec73c91ac79abc8a94f7da62ea5ae7241c1af3b44d68d5392ea46fa0d05ccd"
+      "sha256": "0c1fc1cab4b8696976160783484d272fa805ce86502bc0f0af100bfe53f49c7f"
     },
     "stanza": {
       "file": "stanza/index.json",
       "schema": "schema/stanza.schema.json",
-      "sha256": "57be7bb39e0e5514e1c2c0ee9aa9a22b11f7d2b53893d0b908fdbc9c7bdfffa8"
+      "sha256": "2445444c1efb042bd60931140861ba50c3fe8ee5b39cb8db430c106454c46ab6"
     },
     "tokens": {
       "file": "tokens/index.json",
       "schema": "schema/tokens.schema.json",
-      "sha256": "6d45399515cdc6ec55528aa56e36ecf566f06290039e3ed37a5561a272cb89f9"
+      "sha256": "5444a57d2b09b5f24bc7e70f5afcea555831424ec72ba5340d6659f3ba08dcfa"
     },
     "wam": {
       "file": "wam/index.json",
       "schema": "schema/wam.schema.json",
-      "sha256": "58c0e27e87a88b36a66a39f0202a9ca39679d2345ee5e31c92e74baca316784a"
+      "sha256": "66a10dc02b407f6412c3df06377b39274cdafa9087e7740164f9cdc93d2adc21"
     },
     "wasm": {
       "file": "wasm/index.json",
       "schema": "schema/wasm.schema.json",
-      "sha256": "eb728ed0e4d2a6c8952a6369b4adc79c2c9ddd1ba0fe2719a2f1209a6a42e461"
+      "sha256": "6ab4e4bb90597619732f15beb87960117b3958d34334b8c5d454743cd33766e5"
     }
   },
   "enumDefs": 328,
@@ -123,7 +135,7 @@
   "mexOperations": 137,
   "notifTypes": 27,
   "protoEntities": 268,
-  "schemaVersion": "2.0.0",
+  "schemaVersion": "2.1.0",
   "serverRequestDefs": 22,
   "stanzaDefs": 179,
   "tokenDoubleByte": 1024,

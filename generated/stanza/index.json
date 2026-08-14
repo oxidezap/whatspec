@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "2.0.0",
+  "schemaVersion": "2.1.0",
   "waVersion": "2.3000.1044659339",
   "stanzas": [
     {
@@ -103,7 +103,12 @@
             {
               "name": "contenttype",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "metaContenttype"
+                }
+              ]
             }
           ],
           "children": [],
@@ -182,7 +187,12 @@
             {
               "name": "contenttype",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "metaContenttype"
+                }
+              ]
             }
           ],
           "children": [],
@@ -224,7 +234,12 @@
             {
               "name": "contenttype",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "metaContenttype"
+                }
+              ]
             }
           ],
           "children": [],
@@ -298,7 +313,13 @@
           "tag": "ctwa_attribution",
           "attrs": [],
           "children": [],
-          "repeats": false
+          "repeats": false,
+          "presence": "optional",
+          "argPath": [
+            {
+              "key": "ctwaAttributionArgs"
+            }
+          ]
         }
       ],
       "response": null,
@@ -323,7 +344,12 @@
             {
               "name": "contenttype",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "metaContenttype"
+                }
+              ]
             }
           ],
           "children": [],
@@ -352,7 +378,12 @@
             {
               "name": "message_association_type",
               "kind": "string",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "metaMessageAssociationType"
+                }
+              ]
             }
           ],
           "children": [],
@@ -381,7 +412,12 @@
             {
               "name": "premium_type",
               "kind": "string",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "metaPremiumType"
+                }
+              ]
             }
           ],
           "children": [],
@@ -410,7 +446,12 @@
             {
               "name": "origin",
               "kind": "string",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "metaOrigin"
+                }
+              ]
             }
           ],
           "children": [],
@@ -518,7 +559,12 @@
             {
               "name": "mediatype",
               "kind": "string",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "plaintextMediatype"
+                }
+              ]
             }
           ],
           "children": [],
@@ -618,7 +664,27 @@
               "tag": "vote",
               "attrs": [],
               "children": [],
-              "repeats": true
+              "content": {
+                "kind": "dynamic",
+                "argPath": [
+                  {
+                    "key": "voteArgs",
+                    "list": true
+                  },
+                  {
+                    "key": "voteElementValue"
+                  }
+                ]
+              },
+              "repeats": true,
+              "repeatMin": 0,
+              "repeatMax": 1000,
+              "argPath": [
+                {
+                  "key": "voteArgs",
+                  "list": true
+                }
+              ]
             }
           ],
           "repeats": false
@@ -692,7 +758,12 @@
             {
               "name": "code",
               "kind": "string",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "reactionCode"
+                }
+              ]
             }
           ],
           "children": [],
@@ -811,12 +882,22 @@
             {
               "name": "parent_server_id",
               "kind": "integer",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "metaParentServerId"
+                }
+              ]
             },
             {
               "name": "response_server_id",
               "kind": "string",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "metaResponseServerId"
+                }
+              ]
             }
           ],
           "children": [],
@@ -964,7 +1045,12 @@
             {
               "name": "content_id",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "plaintextContentId"
+                }
+              ]
             }
           ],
           "children": [],
@@ -1128,7 +1214,12 @@
             {
               "name": "contenttype",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "metaContenttype"
+                }
+              ]
             }
           ],
           "children": [],
@@ -1179,7 +1270,15 @@
           "tag": "extension_screen",
           "attrs": [],
           "children": [],
-          "repeats": true
+          "repeats": true,
+          "repeatMin": 1,
+          "repeatMax": 100,
+          "argPath": [
+            {
+              "key": "extensionScreenArgs",
+              "list": true
+            }
+          ]
         }
       ],
       "response": null,
@@ -1232,7 +1331,12 @@
             {
               "name": "reported_link",
               "kind": "string",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "iabReportedLink"
+                }
+              ]
             }
           ],
           "children": [],
@@ -1283,7 +1387,13 @@
           "tag": "raw",
           "attrs": [],
           "children": [],
-          "repeats": false
+          "repeats": false,
+          "presence": "optional",
+          "argPath": [
+            {
+              "key": "rawArgs"
+            }
+          ]
         }
       ],
       "response": null,
@@ -1336,16 +1446,49 @@
             {
               "name": "mediatype",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "rawArgs"
+                },
+                {
+                  "key": "rawMediatype"
+                }
+              ]
             },
             {
               "name": "local_message_type",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "rawArgs"
+                },
+                {
+                  "key": "rawLocalMessageType"
+                }
+              ]
             }
           ],
           "children": [],
-          "repeats": false
+          "content": {
+            "kind": "dynamic",
+            "argPath": [
+              {
+                "key": "rawArgs"
+              },
+              {
+                "key": "rawElementValue"
+              }
+            ]
+          },
+          "repeats": false,
+          "presence": "optional",
+          "argPath": [
+            {
+              "key": "rawArgs"
+            }
+          ]
         }
       ],
       "response": null,
@@ -1481,7 +1624,12 @@
             {
               "name": "tid",
               "kind": "string",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "hsmTid"
+                }
+              ]
             }
           ],
           "children": [],
@@ -1696,7 +1844,12 @@
             {
               "name": "biz_source",
               "kind": "string",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "metaBizSource"
+                }
+              ]
             }
           ],
           "children": [],
@@ -1745,7 +1898,13 @@
           "tag": "raw",
           "attrs": [],
           "children": [],
-          "repeats": false
+          "repeats": false,
+          "presence": "presence_flag",
+          "argPath": [
+            {
+              "key": "hasRaw"
+            }
+          ]
         }
       ],
       "response": null,
@@ -1973,12 +2132,22 @@
             {
               "name": "v",
               "kind": "string",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "version"
+                }
+              ]
             }
           ],
           "children": [],
           "content": {
-            "kind": "dynamic"
+            "kind": "dynamic",
+            "argPath": [
+              {
+                "key": "reportingToken"
+              }
+            ]
           },
           "repeats": false
         }
@@ -2079,12 +2248,25 @@
             {
               "name": "count",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "deviceMsgType"
+                },
+                {
+                  "key": "retryCount"
+                }
+              ]
             },
             {
               "name": "mediatype",
               "kind": "dynamic",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "msgProtobuf"
+                }
+              ]
             }
           ],
           "children": [],
@@ -2277,27 +2459,64 @@
             {
               "name": "polltype",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "msgProtobuf"
+                }
+              ]
             },
             {
               "name": "event_type",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "msgProtobuf"
+                }
+              ]
             },
             {
               "name": "thread_msg_id",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "msgRecord"
+                },
+                {
+                  "key": "data"
+                },
+                {
+                  "key": "threadMsgId"
+                }
+              ]
             },
             {
               "name": "thread_msg_sender_jid",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "msgRecord"
+                },
+                {
+                  "key": "data"
+                },
+                {
+                  "key": "threadMsgSenderLid"
+                }
+              ]
             },
             {
               "name": "appdata",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "msgRecord"
+                }
+              ]
             },
             {
               "name": "view_once",
@@ -2307,12 +2526,22 @@
             {
               "name": "conversation_thread_id",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "includeAttributes"
+                }
+              ]
             },
             {
               "name": "tag_reason",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "msgRecord"
+                }
+              ]
             }
           ],
           "children": [],
@@ -2329,7 +2558,12 @@
             {
               "name": "st",
               "kind": "dynamic",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "scheduledTimestampS"
+                }
+              ]
             }
           ],
           "children": [
@@ -2339,12 +2573,22 @@
                 {
                   "name": "rkid",
                   "kind": "string",
-                  "required": true
+                  "required": true,
+                  "argPath": [
+                    {
+                      "key": "revealKeyId"
+                    }
+                  ]
                 }
               ],
               "children": [],
               "content": {
-                "kind": "dynamic"
+                "kind": "dynamic",
+                "argPath": [
+                  {
+                    "key": "revealKey"
+                  }
+                ]
               },
               "repeats": false
             },
@@ -2354,7 +2598,12 @@
                 {
                   "name": "rkid",
                   "kind": "string",
-                  "required": true
+                  "required": true,
+                  "argPath": [
+                    {
+                      "key": "revealKeyId"
+                    }
+                  ]
                 }
               ],
               "children": [],
@@ -2485,7 +2734,12 @@
             {
               "name": "mediatype",
               "kind": "dynamic",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "msgProtobuf"
+                }
+              ]
             }
           ],
           "children": [],
@@ -2518,27 +2772,64 @@
             {
               "name": "polltype",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "msgProtobuf"
+                }
+              ]
             },
             {
               "name": "event_type",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "msgProtobuf"
+                }
+              ]
             },
             {
               "name": "thread_msg_id",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "msgRecord"
+                },
+                {
+                  "key": "data"
+                },
+                {
+                  "key": "threadMsgId"
+                }
+              ]
             },
             {
               "name": "thread_msg_sender_jid",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "msgRecord"
+                },
+                {
+                  "key": "data"
+                },
+                {
+                  "key": "threadMsgSenderLid"
+                }
+              ]
             },
             {
               "name": "appdata",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "msgRecord"
+                }
+              ]
             },
             {
               "name": "view_once",
@@ -2548,12 +2839,22 @@
             {
               "name": "conversation_thread_id",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "includeAttributes"
+                }
+              ]
             },
             {
               "name": "tag_reason",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "msgRecord"
+                }
+              ]
             }
           ],
           "children": [],
@@ -2711,7 +3012,12 @@
             {
               "name": "native_flow_name",
               "kind": "dynamic",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "msgProtobuf"
+                }
+              ]
             }
           ],
           "children": [],
@@ -2738,27 +3044,64 @@
             {
               "name": "polltype",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "msgProtobuf"
+                }
+              ]
             },
             {
               "name": "event_type",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "msgProtobuf"
+                }
+              ]
             },
             {
               "name": "thread_msg_id",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "msgRecord"
+                },
+                {
+                  "key": "data"
+                },
+                {
+                  "key": "threadMsgId"
+                }
+              ]
             },
             {
               "name": "thread_msg_sender_jid",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "msgRecord"
+                },
+                {
+                  "key": "data"
+                },
+                {
+                  "key": "threadMsgSenderLid"
+                }
+              ]
             },
             {
               "name": "appdata",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "msgRecord"
+                }
+              ]
             },
             {
               "name": "view_once",
@@ -2768,12 +3111,22 @@
             {
               "name": "conversation_thread_id",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "includeAttributes"
+                }
+              ]
             },
             {
               "name": "tag_reason",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "msgRecord"
+                }
+              ]
             }
           ],
           "children": [],
@@ -2790,7 +3143,12 @@
             {
               "name": "st",
               "kind": "dynamic",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "scheduledTimestampS"
+                }
+              ]
             }
           ],
           "children": [
@@ -2800,12 +3158,22 @@
                 {
                   "name": "rkid",
                   "kind": "string",
-                  "required": true
+                  "required": true,
+                  "argPath": [
+                    {
+                      "key": "revealKeyId"
+                    }
+                  ]
                 }
               ],
               "children": [],
               "content": {
-                "kind": "dynamic"
+                "kind": "dynamic",
+                "argPath": [
+                  {
+                    "key": "revealKey"
+                  }
+                ]
               },
               "repeats": false
             },
@@ -2815,7 +3183,12 @@
                 {
                   "name": "rkid",
                   "kind": "string",
-                  "required": true
+                  "required": true,
+                  "argPath": [
+                    {
+                      "key": "revealKeyId"
+                    }
+                  ]
                 }
               ],
               "children": [],
@@ -2836,7 +3209,15 @@
             {
               "name": "type",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "msgRecord"
+                },
+                {
+                  "key": "data"
+                }
+              ]
             },
             {
               "name": "local_automated_type",
@@ -2917,11 +3298,28 @@
                 {
                   "name": "server_id",
                   "kind": "integer",
-                  "required": true
+                  "required": true,
+                  "argPath": [
+                    {
+                      "key": "itemArgs",
+                      "list": true
+                    },
+                    {
+                      "key": "itemServerId"
+                    }
+                  ]
                 }
               ],
               "children": [],
-              "repeats": true
+              "repeats": true,
+              "repeatMin": 0,
+              "repeatMax": 255,
+              "argPath": [
+                {
+                  "key": "itemArgs",
+                  "list": true
+                }
+              ]
             }
           ],
           "repeats": false
@@ -3326,22 +3724,42 @@
             {
               "name": "count",
               "kind": "integer",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "retryCount"
+                }
+              ]
             },
             {
               "name": "id",
               "kind": "string",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "externalId"
+                }
+              ]
             },
             {
               "name": "t",
               "kind": "string",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "rawTs"
+                }
+              ]
             },
             {
               "name": "error",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "retryReason"
+                }
+              ]
             }
           ],
           "children": [],
@@ -5614,42 +6032,82 @@
             {
               "name": "duration",
               "kind": "integer",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "callInfoDuration"
+                }
+              ]
             },
             {
               "name": "terminate_reason",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "callInfoTerminateReason"
+                }
+              ]
             },
             {
               "name": "reason",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "callInfoReason"
+                }
+              ]
             },
             {
               "name": "terminator",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "callInfoTerminator"
+                }
+              ]
             },
             {
               "name": "start_time",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "callInfoStartTime"
+                }
+              ]
             },
             {
               "name": "adder",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "callInfoAdder"
+                }
+              ]
             },
             {
               "name": "creator",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "callInfoCreator"
+                }
+              ]
             },
             {
               "name": "mediatype",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "callInfoMediatype"
+                }
+              ]
             }
           ],
           "children": [],
@@ -5690,17 +6148,32 @@
             {
               "name": "media",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "linkCreateMedia"
+                }
+              ]
             },
             {
               "name": "link_creator_username",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "linkCreateLinkCreatorUsername"
+                }
+              ]
             },
             {
               "name": "waiting_room_enabled",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "hasLinkCreateWaitingRoomEnabled1"
+                }
+              ]
             }
           ],
           "children": [
@@ -5710,11 +6183,25 @@
                 {
                   "name": "start_time",
                   "kind": "integer",
-                  "required": true
+                  "required": true,
+                  "argPath": [
+                    {
+                      "key": "eventArgs"
+                    },
+                    {
+                      "key": "eventStartTime"
+                    }
+                  ]
                 }
               ],
               "children": [],
-              "repeats": false
+              "repeats": false,
+              "presence": "optional",
+              "argPath": [
+                {
+                  "key": "eventArgs"
+                }
+              ]
             }
           ],
           "repeats": false
@@ -5752,17 +6239,32 @@
             {
               "name": "token",
               "kind": "string",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "linkQueryToken"
+                }
+              ]
             },
             {
               "name": "media",
               "kind": "string",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "linkQueryMedia"
+                }
+              ]
             },
             {
               "name": "action",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "linkQueryAction"
+                }
+              ]
             }
           ],
           "children": [],
@@ -5801,12 +6303,22 @@
             {
               "name": "enabled",
               "kind": "string",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "waitingRoomToggleEnabled"
+                }
+              ]
             },
             {
               "name": "media",
               "kind": "string",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "waitingRoomToggleMedia"
+                }
+              ]
             }
           ],
           "children": [],
@@ -5904,7 +6416,12 @@
             {
               "name": "media",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "hasComposingMediaAudio"
+                }
+              ]
             }
           ],
           "children": [],
@@ -6092,7 +6609,12 @@
             {
               "name": "mediatype",
               "kind": "string",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "plaintextMediatype"
+                }
+              ]
             }
           ],
           "children": [],
@@ -6393,12 +6915,22 @@
             {
               "name": "parent_server_id",
               "kind": "integer",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "metaParentServerId"
+                }
+              ]
             },
             {
               "name": "response_server_id",
               "kind": "string",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "metaResponseServerId"
+                }
+              ]
             }
           ],
           "children": [],
@@ -6433,7 +6965,12 @@
             {
               "name": "response_server_id",
               "kind": "optional",
-              "required": false
+              "required": false,
+              "argPath": [
+                {
+                  "key": "metaResponseServerId"
+                }
+              ]
             }
           ],
           "children": [],
@@ -6462,7 +6999,12 @@
             {
               "name": "mediatype",
               "kind": "string",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "plaintextMediatype"
+                }
+              ]
             }
           ],
           "children": [],
@@ -6542,7 +7084,12 @@
             {
               "name": "code",
               "kind": "string",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "reactionCode"
+                }
+              ]
             }
           ],
           "children": [],
@@ -6829,17 +7376,32 @@
             {
               "name": "name",
               "kind": "string",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "name"
+                }
+              ]
             },
             {
               "name": "value",
               "kind": "string",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "value"
+                }
+              ]
             },
             {
               "name": "dhash",
               "kind": "string",
-              "required": true
+              "required": true,
+              "argPath": [
+                {
+                  "key": "dhash"
+                }
+              ]
             }
           ],
           "children": [],

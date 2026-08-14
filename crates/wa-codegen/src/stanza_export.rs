@@ -282,6 +282,7 @@ mod tests {
                 module: module.into(),
                 variants: vars,
             }),
+            arg_path: None,
         }
     }
 
@@ -292,6 +293,7 @@ mod tests {
             value: None,
             required: true,
             enum_ref: None,
+            arg_path: None,
         }
     }
 

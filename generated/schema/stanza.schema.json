@@ -690,10 +690,37 @@
         "fields"
       ]
     },
+    "WapArgSegment": {
+      "description": "One step of a [`WapArgPath`] — a key in the builder's argument object, plus\nwhether that key holds the **list** a repeated child iterates.\n\n`list` is set on exactly one kind of segment: the array argument of a\n`WASmaxChildren.REPEATED_CHILD(template, list, min, max)` call, which invokes the\ntemplate once per element. It is *not* set for `OPTIONAL_CHILD`/`HAS_OPTIONAL_CHILD`,\nwhere the argument object is handed to the template as-is. The distinction is\nload-bearing rather than cosmetic: writing `participantArgs.participantJid` where the\nbuilder reads `participantArgs[0].participantJid` puts the value somewhere the vendor\nbuilder never looks, and the stanza goes out without it.\n\nIt does not say how long the list may be — that is [`WapChildNode::repeat_min`] /\n[`repeat_max`] on the node the path addresses — and it does not say the key is\npresent at runtime.\n\n[`repeat_max`]: WapChildNode::repeat_max",
+      "type": "object",
+      "properties": {
+        "key": {
+          "description": "The property name read off the argument object (`participantArgs`, `iqTo`, …).",
+          "type": "string"
+        },
+        "list": {
+          "description": "This key holds the array a `REPEATED_CHILD` iterates; the next segment (and\neverything below it) is read off an *element*, not off the array.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "key"
+      ]
+    },
     "WapAttrDef": {
       "description": "A single attribute on a request stanza node.",
       "type": "object",
       "properties": {
+        "argPath": {
+          "description": "Where this attribute's value comes from in the builder's argument object — an\nabsolute [`WapArgPath`]. Absent for a [`WapAttrKind::Const`] (the builder writes\nthe literal itself, there is no argument) and whenever the path is not\nstructurally recoverable; those are counted, not guessed.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/WapArgSegment"
+          }
+        },
         "enumRef": {
           "description": "The wire enum this attribute's value comes from, when the builder writes it via\na structural enum reference — `CUSTOM_STRING(o(\"Mod\").EnumName.VARIANT)` or a\n`cond === o(\"Mod\").EnumName.VARIANT ? … : DROP_ATTR` guard. Carries the enum's\nfull `(name, module, variants)` so a consumer can type the attribute as that\nenum instead of a bare string. Resolved from the enum's definition (whether a\n`$InternalEnum` or a plain object literal); absent when the value is a literal,\na variable, or any non-enum expression (never guessed from value coincidence).",
           "anyOf": [
@@ -782,6 +809,16 @@
       "description": "A node in a request stanza tree.",
       "type": "object",
       "properties": {
+        "argPath": {
+          "description": "Where this node's own argument object lives in the builder's arguments — the\nlist for a [`repeats`] child (its last segment carries [`WapArgSegment::list`]),\nthe argument object for an [`WapChildPresence::Optional`] one, the boolean for a\n[`WapChildPresence::PresenceFlag`] one.\n\nAbsent for a node the builder constructs inline: such a node has no argument\nobject of its own, and its attrs/content carry absolute paths regardless, so a\nconsumer never has to concatenate.\n\n[`repeats`]: WapChildNode::repeats",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/WapArgSegment"
+          }
+        },
         "attrs": {
           "description": "Attributes always present on this node (independent of any variant group).",
           "type": "array",
@@ -806,6 +843,28 @@
             }
           ]
         },
+        "presence": {
+          "description": "Whether the builder emits this child unconditionally, only when its arguments\nare supplied, or only as a presence marker. See [`WapChildPresence`]; defaults\nto [`WapChildPresence::Required`], which is also what a node whose call site was\nnot one of the `WASmaxChildren` combinators gets.",
+          "$ref": "#/$defs/WapChildPresence"
+        },
+        "repeatMax": {
+          "description": "Upper bound on the number of repetitions — the 4th argument of `REPEATED_CHILD`\n(`add/participant` caps at 1024, `query/group` at 10000). Same presence rules as\n[`repeat_min`].\n\n[`repeat_min`]: WapChildNode::repeat_min",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "repeatMin": {
+          "description": "Lower bound on the number of repetitions, from the 3rd argument of\n`REPEATED_CHILD(template, list, min, max)`. Present only when [`repeats`] is set\nand the bound is a literal; a computed or non-finite bound is omitted and\ncounted, never defaulted to 0.\n\nIt is the bound *this builder* enforces before sending. The server enforces its\nown, which may be stricter.\n\n[`repeats`]: WapChildNode::repeats",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
         "repeats": {
           "description": "Whether this child can appear multiple times (maps to `Vec<_>` in codegen).",
           "type": "boolean"
@@ -828,10 +887,40 @@
         "repeats"
       ]
     },
+    "WapChildPresence": {
+      "description": "Whether a request child node must be built, may be omitted, or exists only to\nsignal a flag — the three states `WASmaxChildren` distinguishes and the wire does\nnot.",
+      "oneOf": [
+        {
+          "description": "Built unconditionally — the builder calls the child template directly, or\n`REPEATED_CHILD` iterates a list that is itself a required argument. For a\nrepeated child, \"required\" is about the *list argument*: a `repeat_min` of 0\nstill allows the list to be empty.",
+          "type": "string",
+          "const": "required"
+        },
+        {
+          "description": "`WASmaxChildren.OPTIONAL_CHILD(template, args)` — emitted only when the\nargument object is supplied. The child carries real attrs/content when present.",
+          "type": "string",
+          "const": "optional"
+        },
+        {
+          "description": "`WASmaxChildren.HAS_OPTIONAL_CHILD(template, flag)` — a **presence marker**:\nthe template takes no arguments, so the element is empty and its entire meaning\nis being there (`<locked/>` on a group create). A consumer can model it as a\n`bool` argument, which it cannot do for [`Optional`] and must not do for an\nempty [`Required`] child.\n\nIt does not guarantee the element has no attributes on the wire — only that\nthis builder writes none.\n\n[`Optional`]: WapChildPresence::Optional",
+          "type": "string",
+          "const": "presence_flag"
+        }
+      ]
+    },
     "WapContent": {
       "description": "The element content of a leaf request node — what sits between `<tag>` and\n`</tag>` when the node carries a value rather than child nodes.",
       "type": "object",
       "properties": {
+        "argPath": {
+          "description": "Where the content value comes from in the builder's argument object — an\nabsolute [`WapArgPath`] (`<subject>`'s text is `subjectElementValue`). Absent for\na [`WapContentKind::Const`]/`const_bytes` payload the builder writes itself, and\nwhenever the path is not structurally recoverable.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/WapArgSegment"
+          }
+        },
         "byteLength": {
           "description": "Fixed byte length. Either written directly in the request builder\n(`BIG_ENDIAN_CONTENT(x, 3)` → 3, [`byte_length_source`] absent) or\ncross-referenced from the symmetric parser that reads the same wire field\n(`child(\"signature\").contentBytes(64)` → 64, [`byte_length_source`] set).\n\n[`byte_length_source`]: WapContent::byte_length_source",
           "type": [

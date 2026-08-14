@@ -1096,6 +1096,110 @@ def check_variant_groups(node, path, errors):
             )
 
 
+def check_arg_path(node, path, errors):
+    """An argument path must be an ADDRESS: keyed throughout, and indexed exactly where
+    the builder iterates.
+
+    The `[]` marker is the whole reason the path is structured rather than a string, so
+    the invariants are about where it may sit:
+
+    * a path present but empty, or a segment with no `key` — the IR claims to know where
+      a value goes and then names nowhere;
+    * a CHILD's own path ends in `[]` if and only if the child repeats. That path
+      addresses the argument the combinator was handed, which is a list for
+      `REPEATED_CHILD` and a single object for `OPTIONAL_CHILD` /
+      `HAS_OPTIONAL_CHILD`; getting it backwards is precisely the confusion that writes
+      a value where the vendor builder never reads;
+    * an ATTRIBUTE's or CONTENT's path never ends in `[]`. It inherits its node's prefix,
+      so an earlier segment may well be a list — `participantArgs[] → participantJid` —
+      but the final segment is a key read off one element, not the array.
+
+    Driven from the `argPath` ARRAY wherever it appears, so a node, an attribute and an
+    element content are all covered; a node is told apart by carrying a `tag`.
+    """
+    p = node.get("argPath")
+    if p is None:
+        return
+    if not isinstance(p, list) or not p:
+        errors.append(f"{path}/argPath: present but names no segment")
+        return
+    for i, seg in enumerate(p):
+        if not isinstance(seg, dict) or not seg.get("key"):
+            errors.append(f"{path}/argPath/{i}: segment with no key")
+            return
+    tail_is_list = bool(p[-1].get("list"))
+    if "tag" in node:
+        if tail_is_list and not node.get("repeats"):
+            errors.append(
+                f"{path}/argPath: ends in a list marker on a child that does not repeat"
+            )
+        elif node.get("repeats") and not tail_is_list:
+            errors.append(
+                f"{path}/argPath: repeated child whose path does not address a list"
+            )
+    elif tail_is_list:
+        errors.append(
+            f"{path}/argPath: a value path ends in a list marker — its last segment is "
+            f"read off an element, not off the array"
+        )
+
+
+def check_request_child_cardinality(node, path, errors):
+    """A request child must not claim a cardinality it contradicts.
+
+    `presence` and the repeat bounds describe the same call site, so the combinations
+    below are the document disagreeing with itself rather than an extraction gap:
+
+    * a `presence_flag` child with attributes or content — the marker template takes no
+      arguments, so a consumer told to model it as a `bool` would silently drop them;
+    * `repeatMin`/`repeatMax` on a child that does not repeat;
+    * `repeatMin` greater than `repeatMax`, which admits nothing at all.
+
+    Driven from the `children` ARRAY of a request node, which is the only place these
+    keys live; `presence` is skipped when required, so gating on it would have skipped
+    exactly the children this is about.
+    """
+    children = node.get("children")
+    if not isinstance(children, list):
+        return
+    for i, c in enumerate(children):
+        if not isinstance(c, dict) or "tag" not in c:
+            continue
+        at = f"{path}/children/{i}"
+        if c.get("presence") == "presence_flag" and (c.get("attrs") or c.get("content")):
+            errors.append(
+                f"{at}: presence marker carries attributes or content — it cannot be a bool"
+            )
+        lo, hi = c.get("repeatMin"), c.get("repeatMax")
+        if (lo is not None or hi is not None) and not c.get("repeats"):
+            errors.append(f"{at}: repeat bounds on a child that does not repeat")
+        if lo is not None and hi is not None and lo > hi:
+            errors.append(f"{at}: repeatMin {lo} exceeds repeatMax {hi}")
+
+
+def check_mixin_group_depth(node, path, errors):
+    """A response field named `…MixinGroup` must carry the alternatives that make it one.
+
+    WA composes most of a response out of mixins, and a `…MixinGroup` is the disjunction
+    over them — the group listing of `GetParticipatingGroups`, the key bundle of
+    `PreKeysFetchKeyBundles`. A field with that name and neither `unionVariants` nor
+    `children` is a leaf that looks like a scalar and is an entire union: a consumer
+    reads it as a string, gets nothing, and has no way to know what it missed.
+
+    Named-based on purpose, and only here: this checks a NAME against the SHAPE the IR
+    already gave the field, rather than deriving anything from the name.
+    """
+    name = node.get("name")
+    if not isinstance(name, str) or not name.endswith("MixinGroup"):
+        return
+    if node.get("unionVariants") or node.get("children"):
+        return
+    errors.append(
+        f"{path}: `{name}` is a union mixin group with no alternatives and no children — "
+        f"the extraction stopped at the mixin boundary"
+    )
+
+
 def check_assertion(a, path, errors):
     if a.get("kind") == "reference":
         if not a.get("referencePath"):
@@ -1195,6 +1299,9 @@ def main() -> int:
             check_action_keys(node, f"{domain}{path}", errors, flattened)
             check_variant_groups(node, f"{domain}{path}", errors)
             check_child_requiredness(node, f"{domain}{path}", errors)
+            check_arg_path(node, f"{domain}{path}", errors)
+            check_request_child_cardinality(node, f"{domain}{path}", errors)
+            check_mixin_group_depth(node, f"{domain}{path}", errors)
 
         walk(data, visit)
         # Needs the whole document, not one node: the reference and its definition sit in

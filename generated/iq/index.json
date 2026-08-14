@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "2.0.0",
+  "schemaVersion": "2.1.0",
   "waVersion": "2.3000.1044659339",
   "stanzas": [
     {
@@ -29,12 +29,22 @@
               {
                 "name": "hash",
                 "kind": "optional",
-                "required": false
+                "required": false,
+                "argPath": [
+                  {
+                    "key": "propsHash"
+                  }
+                ]
               },
               {
                 "name": "refresh_id",
                 "kind": "optional",
-                "required": false
+                "required": false,
+                "argPath": [
+                  {
+                    "key": "propsRefreshId"
+                  }
+                ]
               }
             ],
             "children": [],
@@ -675,12 +685,22 @@
               {
                 "name": "group",
                 "kind": "group_jid",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "propsGroup"
+                  }
+                ]
               },
               {
                 "name": "hash",
                 "kind": "optional",
-                "required": false
+                "required": false,
+                "argPath": [
+                  {
+                    "key": "propsHash"
+                  }
+                ]
               }
             ],
             "children": [],
@@ -1216,11 +1236,25 @@
               {
                 "name": "dhash",
                 "kind": "string",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "itemArgs"
+                  },
+                  {
+                    "key": "itemDhash"
+                  }
+                ]
               }
             ],
             "children": [],
-            "repeats": false
+            "repeats": false,
+            "presence": "optional",
+            "argPath": [
+              {
+                "key": "itemArgs"
+              }
+            ]
           }
         ]
       },
@@ -2329,7 +2363,12 @@
               {
                 "name": "dhash",
                 "kind": "optional",
-                "required": false
+                "required": false,
+                "argPath": [
+                  {
+                    "key": "itemDhash"
+                  }
+                ]
               }
             ],
             "children": [
@@ -2339,41 +2378,103 @@
                   {
                     "name": "reason",
                     "kind": "optional",
-                    "required": false
+                    "required": false,
+                    "argPath": [
+                      {
+                        "key": "bizOptOutArgs"
+                      },
+                      {
+                        "key": "bizOptOutReason"
+                      }
+                    ]
                   },
                   {
                     "name": "reason_description",
                     "kind": "optional",
-                    "required": false
+                    "required": false,
+                    "argPath": [
+                      {
+                        "key": "bizOptOutArgs"
+                      },
+                      {
+                        "key": "bizOptOutReasonDescription"
+                      }
+                    ]
                   },
                   {
                     "name": "entry_point",
                     "kind": "optional",
-                    "required": false
+                    "required": false,
+                    "argPath": [
+                      {
+                        "key": "bizOptOutArgs"
+                      },
+                      {
+                        "key": "bizOptOutEntryPoint"
+                      }
+                    ]
                   },
                   {
                     "name": "first_message",
                     "kind": "optional",
-                    "required": false
+                    "required": false,
+                    "argPath": [
+                      {
+                        "key": "bizOptOutArgs"
+                      },
+                      {
+                        "key": "bizOptOutFirstMessage"
+                      }
+                    ]
                   },
                   {
                     "name": "business_discovery_entry_point",
                     "kind": "optional",
-                    "required": false
+                    "required": false,
+                    "argPath": [
+                      {
+                        "key": "bizOptOutArgs"
+                      },
+                      {
+                        "key": "bizOptOutBusinessDiscoveryEntryPoint"
+                      }
+                    ]
                   },
                   {
                     "name": "business_discovery_timestamp",
                     "kind": "optional",
-                    "required": false
+                    "required": false,
+                    "argPath": [
+                      {
+                        "key": "bizOptOutArgs"
+                      },
+                      {
+                        "key": "bizOptOutBusinessDiscoveryTimestamp"
+                      }
+                    ]
                   },
                   {
                     "name": "business_discovery_id",
                     "kind": "optional",
-                    "required": false
+                    "required": false,
+                    "argPath": [
+                      {
+                        "key": "bizOptOutArgs"
+                      },
+                      {
+                        "key": "bizOptOutBusinessDiscoveryId"
+                      }
+                    ]
                   }
                 ],
                 "children": [],
-                "repeats": false
+                "repeats": false,
+                "presence": "optional",
+                "argPath": [
+                  {
+                    "key": "bizOptOutArgs"
+                  }
+                ]
               }
             ],
             "repeats": false
@@ -3503,12 +3604,22 @@
               {
                 "name": "v",
                 "kind": "optional",
-                "required": false
+                "required": false,
+                "argPath": [
+                  {
+                    "key": "botV"
+                  }
+                ]
               },
               {
                 "name": "bhash",
                 "kind": "optional",
-                "required": false
+                "required": false,
+                "argPath": [
+                  {
+                    "key": "botBhash"
+                  }
+                ]
               }
             ],
             "children": [
@@ -3518,11 +3629,27 @@
                   {
                     "name": "jid",
                     "kind": "user_jid",
-                    "required": true
+                    "required": true,
+                    "argPath": [
+                      {
+                        "key": "botArgs",
+                        "list": true
+                      },
+                      {
+                        "key": "botJid"
+                      }
+                    ]
                   }
                 ],
                 "children": [],
-                "repeats": true
+                "repeats": true,
+                "repeatMin": 0,
+                "argPath": [
+                  {
+                    "key": "botArgs",
+                    "list": true
+                  }
+                ]
               }
             ],
             "repeats": false
@@ -4765,12 +4892,22 @@
               {
                 "name": "pqsupport",
                 "kind": "optional",
-                "required": false
+                "required": false,
+                "argPath": [
+                  {
+                    "key": "hasKeyPqsupportTrue"
+                  }
+                ]
               },
               {
                 "name": "context_jid",
                 "kind": "optional",
-                "required": false
+                "required": false,
+                "argPath": [
+                  {
+                    "key": "keyContextJid"
+                  }
+                ]
               }
             ],
             "children": [
@@ -4780,16 +4917,42 @@
                   {
                     "name": "jid",
                     "kind": "user_jid",
-                    "required": true
+                    "required": true,
+                    "argPath": [
+                      {
+                        "key": "userArgs",
+                        "list": true
+                      },
+                      {
+                        "key": "userJid"
+                      }
+                    ]
                   },
                   {
                     "name": "reason",
                     "kind": "optional",
-                    "required": false
+                    "required": false,
+                    "argPath": [
+                      {
+                        "key": "userArgs",
+                        "list": true
+                      },
+                      {
+                        "key": "hasUserReasonIdentity"
+                      }
+                    ]
                   }
                 ],
                 "children": [],
-                "repeats": true
+                "repeats": true,
+                "repeatMin": 1,
+                "repeatMax": 100000,
+                "argPath": [
+                  {
+                    "key": "userArgs",
+                    "list": true
+                  }
+                ]
               }
             ],
             "repeats": false
@@ -5990,12 +6153,22 @@
               {
                 "name": "pqsupport",
                 "kind": "optional",
-                "required": false
+                "required": false,
+                "argPath": [
+                  {
+                    "key": "hasKeyFetchPqsupportTrue"
+                  }
+                ]
               },
               {
                 "name": "context_jid",
                 "kind": "optional",
-                "required": false
+                "required": false,
+                "argPath": [
+                  {
+                    "key": "keyFetchContextJid"
+                  }
+                ]
               }
             ],
             "children": [
@@ -6005,12 +6178,30 @@
                   {
                     "name": "jid",
                     "kind": "user_jid",
-                    "required": true
+                    "required": true,
+                    "argPath": [
+                      {
+                        "key": "userArgs",
+                        "list": true
+                      },
+                      {
+                        "key": "userJid"
+                      }
+                    ]
                   },
                   {
                     "name": "reason",
                     "kind": "optional",
-                    "required": false
+                    "required": false,
+                    "argPath": [
+                      {
+                        "key": "userArgs",
+                        "list": true
+                      },
+                      {
+                        "key": "hasUserReasonIdentity"
+                      }
+                    ]
                   }
                 ],
                 "children": [
@@ -6020,14 +6211,47 @@
                       {
                         "name": "id",
                         "kind": "integer",
-                        "required": true
+                        "required": true,
+                        "argPath": [
+                          {
+                            "key": "userArgs",
+                            "list": true
+                          },
+                          {
+                            "key": "deviceArgs",
+                            "list": true
+                          },
+                          {
+                            "key": "deviceId"
+                          }
+                        ]
                       }
                     ],
                     "children": [],
-                    "repeats": true
+                    "repeats": true,
+                    "repeatMin": 0,
+                    "repeatMax": 100,
+                    "argPath": [
+                      {
+                        "key": "userArgs",
+                        "list": true
+                      },
+                      {
+                        "key": "deviceArgs",
+                        "list": true
+                      }
+                    ]
                   }
                 ],
-                "repeats": true
+                "repeats": true,
+                "repeatMin": 1,
+                "repeatMax": 100000,
+                "argPath": [
+                  {
+                    "key": "userArgs",
+                    "list": true
+                  }
+                ]
               }
             ],
             "repeats": false
@@ -7221,7 +7445,12 @@
                     "children": [],
                     "content": {
                       "kind": "bytes",
-                      "byteLength": 3
+                      "byteLength": 3,
+                      "argPath": [
+                        {
+                          "key": "keyId"
+                        }
+                      ]
                     },
                     "repeats": false
                   },
@@ -7232,7 +7461,15 @@
                     "content": {
                       "kind": "bytes",
                       "byteLength": 32,
-                      "byteLengthSource": "parse:WAWebRetryRequestParser"
+                      "byteLengthSource": "parse:WAWebRetryRequestParser",
+                      "argPath": [
+                        {
+                          "key": "keyPair"
+                        },
+                        {
+                          "key": "pubKey"
+                        }
+                      ]
                     },
                     "repeats": false
                   }
@@ -7252,7 +7489,12 @@
                 "children": [],
                 "content": {
                   "kind": "bytes",
-                  "byteLength": 3
+                  "byteLength": 3,
+                  "argPath": [
+                    {
+                      "key": "keyId"
+                    }
+                  ]
                 },
                 "repeats": false
               },
@@ -7263,7 +7505,15 @@
                 "content": {
                   "kind": "bytes",
                   "byteLength": 32,
-                  "byteLengthSource": "parse:WAWebDigestKeyJob"
+                  "byteLengthSource": "parse:WAWebDigestKeyJob",
+                  "argPath": [
+                    {
+                      "key": "keyPair"
+                    },
+                    {
+                      "key": "pubKey"
+                    }
+                  ]
                 },
                 "repeats": false
               },
@@ -7274,7 +7524,12 @@
                 "content": {
                   "kind": "bytes",
                   "byteLength": 64,
-                  "byteLengthSource": "parse:WAWebDigestKeyJob"
+                  "byteLengthSource": "parse:WAWebDigestKeyJob",
+                  "argPath": [
+                    {
+                      "key": "signature"
+                    }
+                  ]
                 },
                 "repeats": false
               }
@@ -7755,13 +8010,25 @@
             "tag": "list",
             "attrs": [],
             "children": [],
-            "repeats": false
+            "repeats": false,
+            "presence": "presence_flag",
+            "argPath": [
+              {
+                "key": "hasList"
+              }
+            ]
           },
           {
             "tag": "pq_list",
             "attrs": [],
             "children": [],
-            "repeats": false
+            "repeats": false,
+            "presence": "presence_flag",
+            "argPath": [
+              {
+                "key": "hasPqList"
+              }
+            ]
           },
           {
             "tag": "op",
@@ -8807,7 +9074,12 @@
                     "children": [],
                     "content": {
                       "kind": "bytes",
-                      "byteLength": 3
+                      "byteLength": 3,
+                      "argPath": [
+                        {
+                          "key": "keyId"
+                        }
+                      ]
                     },
                     "repeats": false
                   },
@@ -8818,7 +9090,15 @@
                     "content": {
                       "kind": "bytes",
                       "byteLength": 32,
-                      "byteLengthSource": "parse:WAWebDigestKeyJob"
+                      "byteLengthSource": "parse:WAWebDigestKeyJob",
+                      "argPath": [
+                        {
+                          "key": "keyPair"
+                        },
+                        {
+                          "key": "pubKey"
+                        }
+                      ]
                     },
                     "repeats": false
                   },
@@ -8829,7 +9109,12 @@
                     "content": {
                       "kind": "bytes",
                       "byteLength": 64,
-                      "byteLengthSource": "parse:WAWebDigestKeyJob"
+                      "byteLengthSource": "parse:WAWebDigestKeyJob",
+                      "argPath": [
+                        {
+                          "key": "signature"
+                        }
+                      ]
                     },
                     "repeats": false
                   }
@@ -8915,7 +9200,12 @@
                     "children": [],
                     "content": {
                       "kind": "bytes",
-                      "byteLength": 3
+                      "byteLength": 3,
+                      "argPath": [
+                        {
+                          "key": "keyId"
+                        }
+                      ]
                     },
                     "repeats": false
                   },
@@ -8926,7 +9216,15 @@
                     "content": {
                       "kind": "bytes",
                       "byteLength": 32,
-                      "byteLengthSource": "parse:WAWebRetryRequestParser"
+                      "byteLengthSource": "parse:WAWebRetryRequestParser",
+                      "argPath": [
+                        {
+                          "key": "keyPair"
+                        },
+                        {
+                          "key": "pubKey"
+                        }
+                      ]
                     },
                     "repeats": false
                   }
@@ -8946,7 +9244,12 @@
                 "children": [],
                 "content": {
                   "kind": "bytes",
-                  "byteLength": 3
+                  "byteLength": 3,
+                  "argPath": [
+                    {
+                      "key": "keyId"
+                    }
+                  ]
                 },
                 "repeats": false
               },
@@ -8957,7 +9260,15 @@
                 "content": {
                   "kind": "bytes",
                   "byteLength": 32,
-                  "byteLengthSource": "parse:WAWebDigestKeyJob"
+                  "byteLengthSource": "parse:WAWebDigestKeyJob",
+                  "argPath": [
+                    {
+                      "key": "keyPair"
+                    },
+                    {
+                      "key": "pubKey"
+                    }
+                  ]
                 },
                 "repeats": false
               },
@@ -8968,7 +9279,12 @@
                 "content": {
                   "kind": "bytes",
                   "byteLength": 64,
-                  "byteLengthSource": "parse:WAWebDigestKeyJob"
+                  "byteLengthSource": "parse:WAWebDigestKeyJob",
+                  "argPath": [
+                    {
+                      "key": "signature"
+                    }
+                  ]
                 },
                 "repeats": false
               }
@@ -9046,6 +9362,14 @@
                 "tag": "code",
                 "attrs": [],
                 "children": [],
+                "content": {
+                  "kind": "dynamic",
+                  "argPath": [
+                    {
+                      "key": "codeElementValue"
+                    }
+                  ]
+                },
                 "repeats": false
               }
             ],
@@ -9640,11 +9964,25 @@
               {
                 "name": "scope",
                 "kind": "string",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "identifierArgs"
+                  },
+                  {
+                    "key": "identifierScope"
+                  }
+                ]
               }
             ],
             "children": [],
-            "repeats": false
+            "repeats": false,
+            "presence": "optional",
+            "argPath": [
+              {
+                "key": "identifierArgs"
+              }
+            ]
           }
         ]
       },
@@ -12248,16 +12586,38 @@
               {
                 "name": "id",
                 "kind": "string",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "mediaArgs"
+                  },
+                  {
+                    "key": "mediaId"
+                  }
+                ]
               },
               {
                 "name": "type",
                 "kind": "string",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "mediaArgs"
+                  },
+                  {
+                    "key": "mediaType"
+                  }
+                ]
               }
             ],
             "children": [],
-            "repeats": false
+            "repeats": false,
+            "presence": "optional",
+            "argPath": [
+              {
+                "key": "mediaArgs"
+              }
+            ]
           },
           {
             "tag": "media_list",
@@ -12265,16 +12625,42 @@
               {
                 "name": "id",
                 "kind": "string",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "mediaListArgs",
+                    "list": true
+                  },
+                  {
+                    "key": "mediaListId"
+                  }
+                ]
               },
               {
                 "name": "type",
                 "kind": "string",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "mediaListArgs",
+                    "list": true
+                  },
+                  {
+                    "key": "mediaListType"
+                  }
+                ]
               }
             ],
             "children": [],
-            "repeats": true
+            "repeats": true,
+            "repeatMin": 0,
+            "repeatMax": 10,
+            "argPath": [
+              {
+                "key": "mediaListArgs",
+                "list": true
+              }
+            ]
           }
         ]
       },
@@ -13326,7 +13712,12 @@
               {
                 "name": "jid",
                 "kind": "user_jid",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "linkCodeCompanionRegJid"
+                  }
+                ]
               },
               {
                 "name": "stage",
@@ -13340,18 +13731,42 @@
                 "tag": "link_code_pairing_wrapped_key_bundle",
                 "attrs": [],
                 "children": [],
+                "content": {
+                  "kind": "dynamic",
+                  "argPath": [
+                    {
+                      "key": "linkCodePairingWrappedKeyBundleElementValue"
+                    }
+                  ]
+                },
                 "repeats": false
               },
               {
                 "tag": "companion_identity_public",
                 "attrs": [],
                 "children": [],
+                "content": {
+                  "kind": "dynamic",
+                  "argPath": [
+                    {
+                      "key": "companionIdentityPublicElementValue"
+                    }
+                  ]
+                },
                 "repeats": false
               },
               {
                 "tag": "link_code_pairing_ref",
                 "attrs": [],
                 "children": [],
+                "content": {
+                  "kind": "dynamic",
+                  "argPath": [
+                    {
+                      "key": "linkCodePairingRefElementValue"
+                    }
+                  ]
+                },
                 "repeats": false
               }
             ],
@@ -13575,7 +13990,12 @@
               {
                 "name": "jid",
                 "kind": "user_jid",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "linkCodeCompanionRegJid"
+                  }
+                ]
               },
               {
                 "name": "stage",
@@ -13586,7 +14006,12 @@
               {
                 "name": "should_show_push_notification",
                 "kind": "optional",
-                "required": false
+                "required": false,
+                "argPath": [
+                  {
+                    "key": "linkCodeCompanionRegShouldShowPushNotification"
+                  }
+                ]
               }
             ],
             "children": [
@@ -13594,12 +14019,28 @@
                 "tag": "link_code_pairing_wrapped_companion_ephemeral_pub",
                 "attrs": [],
                 "children": [],
+                "content": {
+                  "kind": "dynamic",
+                  "argPath": [
+                    {
+                      "key": "linkCodePairingWrappedCompanionEphemeralPubElementValue"
+                    }
+                  ]
+                },
                 "repeats": false
               },
               {
                 "tag": "companion_server_auth_key_pub",
                 "attrs": [],
                 "children": [],
+                "content": {
+                  "kind": "dynamic",
+                  "argPath": [
+                    {
+                      "key": "companionServerAuthKeyPubElementValue"
+                    }
+                  ]
+                },
                 "repeats": false
               },
               {
@@ -13622,9 +14063,23 @@
                   "kind": "bytes",
                   "byteLength": 1,
                   "constBytes": "00",
-                  "valueSource": "const:linkCodePairingNonceElementValue"
+                  "valueSource": "const:linkCodePairingNonceElementValue",
+                  "argPath": [
+                    {
+                      "key": "linkCodePairingNonceArgs"
+                    },
+                    {
+                      "key": "linkCodePairingNonceElementValue"
+                    }
+                  ]
                 },
-                "repeats": false
+                "repeats": false,
+                "presence": "optional",
+                "argPath": [
+                  {
+                    "key": "linkCodePairingNonceArgs"
+                  }
+                ]
               }
             ],
             "repeats": false
@@ -14012,6 +14467,14 @@
             "tag": "companion_nonce",
             "attrs": [],
             "children": [],
+            "content": {
+              "kind": "dynamic",
+              "argPath": [
+                {
+                  "key": "companionNonceElementValue"
+                }
+              ]
+            },
             "repeats": false
           }
         ]
@@ -14092,6 +14555,14 @@
             "tag": "encrypted_pairing_request",
             "attrs": [],
             "children": [],
+            "content": {
+              "kind": "dynamic",
+              "argPath": [
+                {
+                  "key": "encryptedPairingRequestElementValue"
+                }
+              ]
+            },
             "repeats": false
           }
         ]
@@ -14177,25 +14648,66 @@
                 "tag": "credential_id",
                 "attrs": [],
                 "children": [],
+                "content": {
+                  "kind": "dynamic",
+                  "argPath": [
+                    {
+                      "key": "credentialIdElementValue"
+                    }
+                  ]
+                },
                 "repeats": false
               },
               {
                 "tag": "webauthn_assertion",
                 "attrs": [],
                 "children": [],
+                "content": {
+                  "kind": "dynamic",
+                  "argPath": [
+                    {
+                      "key": "webauthnAssertionElementValue"
+                    }
+                  ]
+                },
                 "repeats": false
               },
               {
                 "tag": "prologue_payload",
                 "attrs": [],
                 "children": [],
+                "content": {
+                  "kind": "dynamic",
+                  "argPath": [
+                    {
+                      "key": "prologuePayloadElementValue"
+                    }
+                  ]
+                },
                 "repeats": false
               },
               {
                 "tag": "pairing_handoff_proof",
                 "attrs": [],
                 "children": [],
-                "repeats": false
+                "content": {
+                  "kind": "dynamic",
+                  "argPath": [
+                    {
+                      "key": "pairingHandoffProofArgs"
+                    },
+                    {
+                      "key": "pairingHandoffProofElementValue"
+                    }
+                  ]
+                },
+                "repeats": false,
+                "presence": "optional",
+                "argPath": [
+                  {
+                    "key": "pairingHandoffProofArgs"
+                  }
+                ]
               }
             ],
             "repeats": false
@@ -14350,12 +14862,22 @@
               {
                 "name": "count",
                 "kind": "integer",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "messageUpdatesCount"
+                  }
+                ]
               },
               {
                 "name": "since",
                 "kind": "optional",
-                "required": false
+                "required": false,
+                "argPath": [
+                  {
+                    "key": "messageUpdatesSince"
+                  }
+                ]
               }
             ],
             "children": [],
@@ -20325,7 +20847,15 @@
               {
                 "name": "count",
                 "kind": "integer",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "newsletterMessageRequestPayloadMixinArgs"
+                  },
+                  {
+                    "key": "messagesCount"
+                  }
+                ]
               }
             ],
             "children": [],
@@ -20344,12 +20874,34 @@
                       {
                         "name": "jid",
                         "kind": "user_jid",
-                        "required": true
+                        "required": true,
+                        "argPath": [
+                          {
+                            "key": "queryNewsletterParamsMixinArgs"
+                          },
+                          {
+                            "key": "queryNewsletterParamsArgs"
+                          },
+                          {
+                            "key": "anyJid"
+                          }
+                        ]
                       },
                       {
                         "name": "view_role",
                         "kind": "optional",
-                        "required": false
+                        "required": false,
+                        "argPath": [
+                          {
+                            "key": "queryNewsletterParamsMixinArgs"
+                          },
+                          {
+                            "key": "queryNewsletterParamsArgs"
+                          },
+                          {
+                            "key": "anyViewRole"
+                          }
+                        ]
                       }
                     ]
                   },
@@ -20364,12 +20916,34 @@
                       {
                         "name": "key",
                         "kind": "string",
-                        "required": true
+                        "required": true,
+                        "argPath": [
+                          {
+                            "key": "queryNewsletterParamsMixinArgs"
+                          },
+                          {
+                            "key": "queryNewsletterParamsArgs"
+                          },
+                          {
+                            "key": "anyKey"
+                          }
+                        ]
                       },
                       {
                         "name": "view_role",
                         "kind": "optional",
-                        "required": false
+                        "required": false,
+                        "argPath": [
+                          {
+                            "key": "queryNewsletterParamsMixinArgs"
+                          },
+                          {
+                            "key": "queryNewsletterParamsArgs"
+                          },
+                          {
+                            "key": "anyViewRole"
+                          }
+                        ]
                       }
                     ]
                   }
@@ -20383,7 +20957,18 @@
                       {
                         "name": "before",
                         "kind": "integer",
-                        "required": true
+                        "required": true,
+                        "argPath": [
+                          {
+                            "key": "newsletterMessageRequestPayloadMixinArgs"
+                          },
+                          {
+                            "key": "messageDirectionsArgs"
+                          },
+                          {
+                            "key": "messagesBefore"
+                          }
+                        ]
                       }
                     ]
                   },
@@ -20392,7 +20977,18 @@
                       {
                         "name": "after",
                         "kind": "integer",
-                        "required": true
+                        "required": true,
+                        "argPath": [
+                          {
+                            "key": "newsletterMessageRequestPayloadMixinArgs"
+                          },
+                          {
+                            "key": "messageDirectionsArgs"
+                          },
+                          {
+                            "key": "messagesAfter"
+                          }
+                        ]
                       }
                     ]
                   }
@@ -26434,12 +27030,22 @@
               {
                 "name": "server_id",
                 "kind": "integer",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "questionResponsesServerId"
+                  }
+                ]
               },
               {
                 "name": "count",
                 "kind": "integer",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "questionResponsesCount"
+                  }
+                ]
               }
             ],
             "children": [],
@@ -27371,12 +27977,22 @@
               {
                 "name": "count",
                 "kind": "integer",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "statusUpdatesCount"
+                  }
+                ]
               },
               {
                 "name": "since",
                 "kind": "optional",
-                "required": false
+                "required": false,
+                "argPath": [
+                  {
+                    "key": "statusUpdatesSince"
+                  }
+                ]
               }
             ],
             "children": [],
@@ -28954,7 +29570,15 @@
               {
                 "name": "count",
                 "kind": "integer",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "newsletterStatusRequestPayloadMixinArgs"
+                  },
+                  {
+                    "key": "statusesCount"
+                  }
+                ]
               }
             ],
             "children": [],
@@ -28973,12 +29597,34 @@
                       {
                         "name": "jid",
                         "kind": "user_jid",
-                        "required": true
+                        "required": true,
+                        "argPath": [
+                          {
+                            "key": "queryNewsletterParamsMixinArgs"
+                          },
+                          {
+                            "key": "queryNewsletterParamsArgs"
+                          },
+                          {
+                            "key": "anyJid"
+                          }
+                        ]
                       },
                       {
                         "name": "view_role",
                         "kind": "optional",
-                        "required": false
+                        "required": false,
+                        "argPath": [
+                          {
+                            "key": "queryNewsletterParamsMixinArgs"
+                          },
+                          {
+                            "key": "queryNewsletterParamsArgs"
+                          },
+                          {
+                            "key": "anyViewRole"
+                          }
+                        ]
                       }
                     ]
                   },
@@ -28993,12 +29639,34 @@
                       {
                         "name": "key",
                         "kind": "string",
-                        "required": true
+                        "required": true,
+                        "argPath": [
+                          {
+                            "key": "queryNewsletterParamsMixinArgs"
+                          },
+                          {
+                            "key": "queryNewsletterParamsArgs"
+                          },
+                          {
+                            "key": "anyKey"
+                          }
+                        ]
                       },
                       {
                         "name": "view_role",
                         "kind": "optional",
-                        "required": false
+                        "required": false,
+                        "argPath": [
+                          {
+                            "key": "queryNewsletterParamsMixinArgs"
+                          },
+                          {
+                            "key": "queryNewsletterParamsArgs"
+                          },
+                          {
+                            "key": "anyViewRole"
+                          }
+                        ]
                       }
                     ]
                   }
@@ -29012,7 +29680,18 @@
                       {
                         "name": "before",
                         "kind": "integer",
-                        "required": true
+                        "required": true,
+                        "argPath": [
+                          {
+                            "key": "newsletterStatusRequestPayloadMixinArgs"
+                          },
+                          {
+                            "key": "statusDirectionsArgs"
+                          },
+                          {
+                            "key": "statusesBefore"
+                          }
+                        ]
                       }
                     ]
                   },
@@ -29021,7 +29700,18 @@
                       {
                         "name": "after",
                         "kind": "integer",
-                        "required": true
+                        "required": true,
+                        "argPath": [
+                          {
+                            "key": "newsletterStatusRequestPayloadMixinArgs"
+                          },
+                          {
+                            "key": "statusDirectionsArgs"
+                          },
+                          {
+                            "key": "statusesAfter"
+                          }
+                        ]
                       }
                     ]
                   }
@@ -30671,12 +31361,22 @@
               {
                 "name": "limit",
                 "kind": "integer",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "myAddonsLimit"
+                  }
+                ]
               },
               {
                 "name": "jid",
                 "kind": "optional",
-                "required": false
+                "required": false,
+                "argPath": [
+                  {
+                    "key": "myAddonsJid"
+                  }
+                ]
               }
             ],
             "children": [],
@@ -31353,12 +32053,22 @@
               {
                 "name": "limit",
                 "kind": "integer",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "myAddonsLimit"
+                  }
+                ]
               },
               {
                 "name": "jid",
                 "kind": "optional",
-                "required": false
+                "required": false,
+                "argPath": [
+                  {
+                    "key": "myAddonsJid"
+                  }
+                ]
               }
             ],
             "children": [],
@@ -32518,11 +33228,25 @@
               {
                 "name": "dhash",
                 "kind": "string",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "itemArgs"
+                  },
+                  {
+                    "key": "itemDhash"
+                  }
+                ]
               }
             ],
             "children": [],
-            "repeats": false
+            "repeats": false,
+            "presence": "optional",
+            "argPath": [
+              {
+                "key": "itemArgs"
+              }
+            ]
           }
         ]
       },
@@ -33094,42 +33818,82 @@
               {
                 "name": "jid",
                 "kind": "user_jid",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "itemJid"
+                  }
+                ]
               },
               {
                 "name": "category",
                 "kind": "string",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "itemCategory"
+                  }
+                ]
               },
               {
                 "name": "action",
                 "kind": "string",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "itemAction"
+                  }
+                ]
               },
               {
                 "name": "dhash",
                 "kind": "optional",
-                "required": false
+                "required": false,
+                "argPath": [
+                  {
+                    "key": "itemDhash"
+                  }
+                ]
               },
               {
                 "name": "reason",
                 "kind": "optional",
-                "required": false
+                "required": false,
+                "argPath": [
+                  {
+                    "key": "itemReason"
+                  }
+                ]
               },
               {
                 "name": "entry_point",
                 "kind": "optional",
-                "required": false
+                "required": false,
+                "argPath": [
+                  {
+                    "key": "itemEntryPoint"
+                  }
+                ]
               },
               {
                 "name": "signup_id",
                 "kind": "optional",
-                "required": false
+                "required": false,
+                "argPath": [
+                  {
+                    "key": "itemSignupId"
+                  }
+                ]
               },
               {
                 "name": "duration",
                 "kind": "optional",
-                "required": false
+                "required": false,
+                "argPath": [
+                  {
+                    "key": "itemDuration"
+                  }
+                ]
               }
             ],
             "children": [],
@@ -35682,12 +36446,28 @@
                 "tag": "blinded_credential",
                 "attrs": [],
                 "children": [],
+                "content": {
+                  "kind": "dynamic",
+                  "argPath": [
+                    {
+                      "key": "blindedCredentialElementValue"
+                    }
+                  ]
+                },
                 "repeats": false
               },
               {
                 "tag": "project_name",
                 "attrs": [],
                 "children": [],
+                "content": {
+                  "kind": "dynamic",
+                  "argPath": [
+                    {
+                      "key": "projectNameElementValue"
+                    }
+                  ]
+                },
                 "repeats": false
               }
             ],
@@ -36244,22 +37024,42 @@
               {
                 "name": "jid",
                 "kind": "group_jid",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "spamListJid"
+                  }
+                ]
               },
               {
                 "name": "source",
                 "kind": "optional",
-                "required": false
+                "required": false,
+                "argPath": [
+                  {
+                    "key": "spamListSource"
+                  }
+                ]
               },
               {
                 "name": "subject",
                 "kind": "string",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "spamListSubject"
+                  }
+                ]
               },
               {
                 "name": "spam_flow",
                 "kind": "string",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "spamListSpamFlow"
+                  }
+                ]
               }
             ],
             "children": [
@@ -36269,22 +37069,56 @@
                   {
                     "name": "from",
                     "kind": "group_jid",
-                    "required": true
+                    "required": true,
+                    "argPath": [
+                      {
+                        "key": "messageArgs",
+                        "list": true
+                      },
+                      {
+                        "key": "messageFrom"
+                      }
+                    ]
                   },
                   {
                     "name": "phash",
                     "kind": "optional",
-                    "required": false
+                    "required": false,
+                    "argPath": [
+                      {
+                        "key": "messageArgs",
+                        "list": true
+                      },
+                      {
+                        "key": "messagePhash"
+                      }
+                    ]
                   }
                 ],
                 "children": [],
-                "repeats": true
+                "repeats": true,
+                "repeatMin": 0,
+                "repeatMax": 210,
+                "argPath": [
+                  {
+                    "key": "messageArgs",
+                    "list": true
+                  }
+                ]
               },
               {
                 "tag": "call",
                 "attrs": [],
                 "children": [],
-                "repeats": true
+                "repeats": true,
+                "repeatMin": 0,
+                "repeatMax": 5,
+                "argPath": [
+                  {
+                    "key": "callArgs",
+                    "list": true
+                  }
+                ]
               }
             ],
             "repeats": false
@@ -36715,12 +37549,22 @@
               {
                 "name": "jid",
                 "kind": "optional",
-                "required": false
+                "required": false,
+                "argPath": [
+                  {
+                    "key": "spamListJid"
+                  }
+                ]
               },
               {
                 "name": "spam_flow",
                 "kind": "string",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "spamListSpamFlow"
+                  }
+                ]
               }
             ],
             "children": [
@@ -36728,25 +37572,57 @@
                 "tag": "message",
                 "attrs": [],
                 "children": [],
-                "repeats": true
+                "repeats": true,
+                "repeatMin": 0,
+                "repeatMax": 210,
+                "argPath": [
+                  {
+                    "key": "messageArgs",
+                    "list": true
+                  }
+                ]
               },
               {
                 "tag": "call",
                 "attrs": [],
                 "children": [],
-                "repeats": true
+                "repeats": true,
+                "repeatMin": 0,
+                "repeatMax": 210,
+                "argPath": [
+                  {
+                    "key": "messageArgs",
+                    "list": true
+                  }
+                ]
               },
               {
                 "tag": "call",
                 "attrs": [],
                 "children": [],
-                "repeats": true
+                "repeats": true,
+                "repeatMin": 0,
+                "repeatMax": 5,
+                "argPath": [
+                  {
+                    "key": "callArgs",
+                    "list": true
+                  }
+                ]
               },
               {
                 "tag": "user_initiated_extension",
                 "attrs": [],
                 "children": [],
-                "repeats": true
+                "repeats": true,
+                "repeatMin": 0,
+                "repeatMax": 5,
+                "argPath": [
+                  {
+                    "key": "userInitiatedExtensionArgs",
+                    "list": true
+                  }
+                ]
               }
             ],
             "repeats": false
@@ -37175,17 +38051,32 @@
               {
                 "name": "jid",
                 "kind": "user_jid",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "spamListJid"
+                  }
+                ]
               },
               {
                 "name": "subject",
                 "kind": "string",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "spamListSubject"
+                  }
+                ]
               },
               {
                 "name": "spam_flow",
                 "kind": "string",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "spamListSpamFlow"
+                  }
+                ]
               }
             ],
             "children": [
@@ -37195,11 +38086,28 @@
                   {
                     "name": "from",
                     "kind": "user_jid",
-                    "required": true
+                    "required": true,
+                    "argPath": [
+                      {
+                        "key": "messageArgs",
+                        "list": true
+                      },
+                      {
+                        "key": "messageFrom"
+                      }
+                    ]
                   }
                 ],
                 "children": [],
-                "repeats": true
+                "repeats": true,
+                "repeatMin": 0,
+                "repeatMax": 65,
+                "argPath": [
+                  {
+                    "key": "messageArgs",
+                    "list": true
+                  }
+                ]
               }
             ],
             "repeats": false
@@ -37627,12 +38535,22 @@
               {
                 "name": "jid",
                 "kind": "user_jid",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "spamListJid"
+                  }
+                ]
               },
               {
                 "name": "spam_flow",
                 "kind": "string",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "spamListSpamFlow"
+                  }
+                ]
               }
             ],
             "children": [
@@ -37642,7 +38560,12 @@
                   {
                     "name": "from",
                     "kind": "user_jid",
-                    "required": true
+                    "required": true,
+                    "argPath": [
+                      {
+                        "key": "messageFrom"
+                      }
+                    ]
                   }
                 ],
                 "children": [],
@@ -38074,12 +38997,22 @@
               {
                 "name": "jid",
                 "kind": "user_jid",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "spamListJid"
+                  }
+                ]
               },
               {
                 "name": "spam_flow",
                 "kind": "string",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "spamListSpamFlow"
+                  }
+                ]
               }
             ],
             "children": [
@@ -38089,7 +39022,12 @@
                   {
                     "name": "from",
                     "kind": "optional",
-                    "required": false
+                    "required": false,
+                    "argPath": [
+                      {
+                        "key": "statusFrom"
+                      }
+                    ]
                   }
                 ],
                 "children": [],
@@ -38442,6 +39380,14 @@
             "tag": "status",
             "attrs": [],
             "children": [],
+            "content": {
+              "kind": "dynamic",
+              "argPath": [
+                {
+                  "key": "content"
+                }
+              ]
+            },
             "repeats": false
           }
         ]
@@ -38487,16 +39433,41 @@
               {
                 "name": "id",
                 "kind": "integer",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "getDisclosureStageByIdArgs",
+                    "list": true
+                  },
+                  {
+                    "key": "getDisclosureStageByIdId"
+                  }
+                ]
               },
               {
                 "name": "t",
                 "kind": "integer",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "getDisclosureStageByIdArgs",
+                    "list": true
+                  },
+                  {
+                    "key": "getDisclosureStageByIdT"
+                  }
+                ]
               }
             ],
             "children": [],
-            "repeats": true
+            "repeats": true,
+            "repeatMin": 0,
+            "argPath": [
+              {
+                "key": "getDisclosureStageByIdArgs",
+                "list": true
+              }
+            ]
           }
         ]
       },
@@ -38881,7 +39852,12 @@
               {
                 "name": "t",
                 "kind": "integer",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "getUserDisclosuresT"
+                  }
+                ]
               }
             ],
             "children": [],
@@ -39461,12 +40437,22 @@
               {
                 "name": "id",
                 "kind": "integer",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "trackableId"
+                  }
+                ]
               },
               {
                 "name": "result",
                 "kind": "integer",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "trackableResult"
+                  }
+                ]
               }
             ],
             "children": [],
@@ -39806,7 +40792,12 @@
               {
                 "name": "tos_version",
                 "kind": "integer",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "acceptPayTosVersion"
+                  }
+                ]
               }
             ],
             "children": [],
@@ -40624,17 +41615,41 @@
                       {
                         "name": "appid",
                         "kind": "string",
-                        "required": true
+                        "required": true,
+                        "argPath": [
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "configAppid"
+                          }
+                        ]
                       },
                       {
                         "name": "deviceid",
                         "kind": "string",
-                        "required": true
+                        "required": true,
+                        "argPath": [
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "configDeviceid"
+                          }
+                        ]
                       },
                       {
                         "name": "fbid",
                         "kind": "optional",
-                        "required": false
+                        "required": false,
+                        "argPath": [
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "configFbid"
+                          }
+                        ]
                       }
                     ]
                   },
@@ -40643,37 +41658,93 @@
                       {
                         "name": "platform",
                         "kind": "string",
-                        "required": true
+                        "required": true,
+                        "argPath": [
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "configPlatform"
+                          }
+                        ]
                       },
                       {
                         "name": "id",
                         "kind": "string",
-                        "required": true
+                        "required": true,
+                        "argPath": [
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "configId"
+                          }
+                        ]
                       },
                       {
                         "name": "appid",
                         "kind": "optional",
-                        "required": false
+                        "required": false,
+                        "argPath": [
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "configAppid"
+                          }
+                        ]
                       },
                       {
                         "name": "app_mute",
                         "kind": "optional",
-                        "required": false
+                        "required": false,
+                        "argPath": [
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "configAppMute"
+                          }
+                        ]
                       },
                       {
                         "name": "pkey",
                         "kind": "optional",
-                        "required": false
+                        "required": false,
+                        "argPath": [
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "configPkey"
+                          }
+                        ]
                       },
                       {
                         "name": "voip_payload_type",
                         "kind": "optional",
-                        "required": false
+                        "required": false,
+                        "argPath": [
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "configVoipPayloadType"
+                          }
+                        ]
                       },
                       {
                         "name": "num_acc",
                         "kind": "optional",
-                        "required": false
+                        "required": false,
+                        "argPath": [
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "configNumAcc"
+                          }
+                        ]
                       }
                     ],
                     "children": [
@@ -40683,16 +41754,50 @@
                           {
                             "name": "jid",
                             "kind": "group_jid",
-                            "required": true
+                            "required": true,
+                            "argPath": [
+                              {
+                                "key": "configMixinsArgs"
+                              },
+                              {
+                                "key": "itemArgs",
+                                "list": true
+                              },
+                              {
+                                "key": "itemJid"
+                              }
+                            ]
                           },
                           {
                             "name": "mute",
                             "kind": "integer",
-                            "required": true
+                            "required": true,
+                            "argPath": [
+                              {
+                                "key": "configMixinsArgs"
+                              },
+                              {
+                                "key": "itemArgs",
+                                "list": true
+                              },
+                              {
+                                "key": "itemMute"
+                              }
+                            ]
                           }
                         ],
                         "children": [],
-                        "repeats": true
+                        "repeats": true,
+                        "repeatMin": 0,
+                        "argPath": [
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "itemArgs",
+                            "list": true
+                          }
+                        ]
                       }
                     ]
                   },
@@ -40701,117 +41806,301 @@
                       {
                         "name": "platform",
                         "kind": "string",
-                        "required": true
+                        "required": true,
+                        "argPath": [
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "configPlatform"
+                          }
+                        ]
                       },
                       {
                         "name": "version",
                         "kind": "optional",
-                        "required": false
+                        "required": false,
+                        "argPath": [
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "hasConfigVersion2"
+                          }
+                        ]
                       },
                       {
                         "name": "id",
                         "kind": "optional",
-                        "required": false
+                        "required": false,
+                        "argPath": [
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "configId"
+                          }
+                        ]
                       },
                       {
                         "name": "voip",
                         "kind": "optional",
-                        "required": false
+                        "required": false,
+                        "argPath": [
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "configVoip"
+                          }
+                        ]
                       },
                       {
                         "name": "preview",
                         "kind": "string",
-                        "required": true
+                        "required": true,
+                        "argPath": [
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "configPreview"
+                          }
+                        ]
                       },
                       {
                         "name": "default",
                         "kind": "string",
-                        "required": true
+                        "required": true,
+                        "argPath": [
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "configDefault"
+                          }
+                        ]
                       },
                       {
                         "name": "groups",
                         "kind": "string",
-                        "required": true
+                        "required": true,
+                        "argPath": [
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "configGroups"
+                          }
+                        ]
                       },
                       {
                         "name": "call",
                         "kind": "string",
-                        "required": true
+                        "required": true,
+                        "argPath": [
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "configCall"
+                          }
+                        ]
                       },
                       {
                         "name": "status_sound",
                         "kind": "optional",
-                        "required": false
+                        "required": false,
+                        "argPath": [
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "configStatusSound"
+                          }
+                        ]
                       },
                       {
                         "name": "lg",
                         "kind": "string",
-                        "required": true
+                        "required": true,
+                        "argPath": [
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "configLg"
+                          }
+                        ]
                       },
                       {
                         "name": "lc",
                         "kind": "string",
-                        "required": true
+                        "required": true,
+                        "argPath": [
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "configLc"
+                          }
+                        ]
                       },
                       {
                         "name": "background_location",
                         "kind": "optional",
-                        "required": false
+                        "required": false,
+                        "argPath": [
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "configBackgroundLocation"
+                          }
+                        ]
                       },
                       {
                         "name": "nse_ver",
                         "kind": "optional",
-                        "required": false
+                        "required": false,
+                        "argPath": [
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "configNseVer"
+                          }
+                        ]
                       },
                       {
                         "name": "nse_call",
                         "kind": "optional",
-                        "required": false
+                        "required": false,
+                        "argPath": [
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "configNseCall"
+                          }
+                        ]
                       },
                       {
                         "name": "nse_read",
                         "kind": "optional",
-                        "required": false
+                        "required": false,
+                        "argPath": [
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "configNseRead"
+                          }
+                        ]
                       },
                       {
                         "name": "nse_retry",
                         "kind": "optional",
-                        "required": false
+                        "required": false,
+                        "argPath": [
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "configNseRetry"
+                          }
+                        ]
                       },
                       {
                         "name": "reg_push",
                         "kind": "optional",
-                        "required": false
+                        "required": false,
+                        "argPath": [
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "configRegPush"
+                          }
+                        ]
                       },
                       {
                         "name": "pkey",
                         "kind": "optional",
-                        "required": false
+                        "required": false,
+                        "argPath": [
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "configPkey"
+                          }
+                        ]
                       },
                       {
                         "name": "voip_payload_type",
                         "kind": "string",
-                        "required": true
+                        "required": true,
+                        "argPath": [
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "configVoipPayloadType"
+                          }
+                        ]
                       },
                       {
                         "name": "settings",
                         "kind": "optional",
-                        "required": false
+                        "required": false,
+                        "argPath": [
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "configSettings"
+                          }
+                        ]
                       },
                       {
                         "name": "app_mute",
                         "kind": "optional",
-                        "required": false
+                        "required": false,
+                        "argPath": [
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "configAppMute"
+                          }
+                        ]
                       },
                       {
                         "name": "apple_watch_id",
                         "kind": "optional",
-                        "required": false
+                        "required": false,
+                        "argPath": [
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "configAppleWatchId"
+                          }
+                        ]
                       },
                       {
                         "name": "apple_watch_pkey",
                         "kind": "optional",
-                        "required": false
+                        "required": false,
+                        "argPath": [
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "configAppleWatchPkey"
+                          }
+                        ]
                       }
                     ],
                     "children": [
@@ -40821,26 +42110,84 @@
                           {
                             "name": "jid",
                             "kind": "user_jid",
-                            "required": true
+                            "required": true,
+                            "argPath": [
+                              {
+                                "key": "configMixinsArgs"
+                              },
+                              {
+                                "key": "itemArgs",
+                                "list": true
+                              },
+                              {
+                                "key": "itemJid"
+                              }
+                            ]
                           },
                           {
                             "name": "mute",
                             "kind": "optional",
-                            "required": false
+                            "required": false,
+                            "argPath": [
+                              {
+                                "key": "configMixinsArgs"
+                              },
+                              {
+                                "key": "itemArgs",
+                                "list": true
+                              },
+                              {
+                                "key": "itemMute"
+                              }
+                            ]
                           },
                           {
                             "name": "notify",
                             "kind": "optional",
-                            "required": false
+                            "required": false,
+                            "argPath": [
+                              {
+                                "key": "configMixinsArgs"
+                              },
+                              {
+                                "key": "itemArgs",
+                                "list": true
+                              },
+                              {
+                                "key": "itemNotify"
+                              }
+                            ]
                           },
                           {
                             "name": "call",
                             "kind": "optional",
-                            "required": false
+                            "required": false,
+                            "argPath": [
+                              {
+                                "key": "configMixinsArgs"
+                              },
+                              {
+                                "key": "itemArgs",
+                                "list": true
+                              },
+                              {
+                                "key": "itemCall"
+                              }
+                            ]
                           }
                         ],
                         "children": [],
-                        "repeats": true
+                        "repeats": true,
+                        "repeatMin": 0,
+                        "argPath": [
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "itemArgs",
+                            "list": true
+                          }
+                        ]
                       }
                     ]
                   },
@@ -40855,12 +42202,28 @@
                       {
                         "name": "version",
                         "kind": "optional",
-                        "required": false
+                        "required": false,
+                        "argPath": [
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "configVersion"
+                          }
+                        ]
                       },
                       {
                         "name": "id",
                         "kind": "string",
-                        "required": true
+                        "required": true,
+                        "argPath": [
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "configId"
+                          }
+                        ]
                       }
                     ]
                   },
@@ -40875,7 +42238,15 @@
                       {
                         "name": "id",
                         "kind": "string",
-                        "required": true
+                        "required": true,
+                        "argPath": [
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "configId"
+                          }
+                        ]
                       }
                     ]
                   },
@@ -40890,27 +42261,67 @@
                       {
                         "name": "endpoint",
                         "kind": "string",
-                        "required": true
+                        "required": true,
+                        "argPath": [
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "configEndpoint"
+                          }
+                        ]
                       },
                       {
                         "name": "auth",
                         "kind": "string",
-                        "required": true
+                        "required": true,
+                        "argPath": [
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "configAuth"
+                          }
+                        ]
                       },
                       {
                         "name": "p256dh",
                         "kind": "string",
-                        "required": true
+                        "required": true,
+                        "argPath": [
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "configP256dh"
+                          }
+                        ]
                       },
                       {
                         "name": "lg",
                         "kind": "optional",
-                        "required": false
+                        "required": false,
+                        "argPath": [
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "configLg"
+                          }
+                        ]
                       },
                       {
                         "name": "lc",
                         "kind": "optional",
-                        "required": false
+                        "required": false,
+                        "argPath": [
+                          {
+                            "key": "configMixinsArgs"
+                          },
+                          {
+                            "key": "configLc"
+                          }
+                        ]
                       }
                     ]
                   }
@@ -40924,7 +42335,12 @@
               {
                 "name": "platform",
                 "kind": "optional",
-                "required": false
+                "required": false,
+                "argPath": [
+                  {
+                    "key": "clearPlatform"
+                  }
+                ]
               }
             ],
             "children": [],
@@ -41535,32 +42951,62 @@
               {
                 "name": "meta_verified",
                 "kind": "optional",
-                "required": false
+                "required": false,
+                "argPath": [
+                  {
+                    "key": "featuresMetaVerified"
+                  }
+                ]
               },
               {
                 "name": "marketing_messages",
                 "kind": "optional",
-                "required": false
+                "required": false,
+                "argPath": [
+                  {
+                    "key": "featuresMarketingMessages"
+                  }
+                ]
               },
               {
                 "name": "genai",
                 "kind": "optional",
-                "required": false
+                "required": false,
+                "argPath": [
+                  {
+                    "key": "featuresGenai"
+                  }
+                ]
               },
               {
                 "name": "genai_image",
                 "kind": "optional",
-                "required": false
+                "required": false,
+                "argPath": [
+                  {
+                    "key": "featuresGenaiImage"
+                  }
+                ]
               },
               {
                 "name": "meta_one",
                 "kind": "optional",
-                "required": false
+                "required": false,
+                "argPath": [
+                  {
+                    "key": "featuresMetaOne"
+                  }
+                ]
               },
               {
                 "name": "bb_pro",
                 "kind": "optional",
-                "required": false
+                "required": false,
+                "argPath": [
+                  {
+                    "key": "featuresBbPro"
+                  }
+                ]
               }
             ],
             "children": [],
@@ -42801,13 +44247,29 @@
                 "tag": "to",
                 "attrs": [],
                 "children": [],
-                "repeats": true
+                "repeats": true,
+                "repeatMin": 1,
+                "repeatMax": 2000,
+                "argPath": [
+                  {
+                    "key": "toArgs",
+                    "list": true
+                  }
+                ]
               },
               {
                 "tag": "use_ad_account",
                 "attrs": [],
                 "children": [],
-                "repeats": true
+                "repeats": true,
+                "repeatMin": 1,
+                "repeatMax": 2000,
+                "argPath": [
+                  {
+                    "key": "toArgs",
+                    "list": true
+                  }
+                ]
               }
             ],
             "repeats": false
@@ -42816,13 +44278,25 @@
             "tag": "use_ad_account",
             "attrs": [],
             "children": [],
-            "repeats": false
+            "repeats": false,
+            "presence": "presence_flag",
+            "argPath": [
+              {
+                "key": "hasUseAdAccount"
+              }
+            ]
           },
           {
             "tag": "skip_dedupe",
             "attrs": [],
             "children": [],
-            "repeats": false
+            "repeats": false,
+            "presence": "presence_flag",
+            "argPath": [
+              {
+                "key": "hasSkipDedupe"
+              }
+            ]
           },
           {
             "tag": "offer",
@@ -42830,11 +44304,25 @@
               {
                 "name": "id",
                 "kind": "string",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "offerArgs"
+                  },
+                  {
+                    "key": "offerId"
+                  }
+                ]
               }
             ],
             "children": [],
-            "repeats": false
+            "repeats": false,
+            "presence": "optional",
+            "argPath": [
+              {
+                "key": "offerArgs"
+              }
+            ]
           },
           {
             "tag": "pending_campaigns",
@@ -42846,19 +44334,60 @@
                   {
                     "name": "free_reserved_msgs",
                     "kind": "integer",
-                    "required": true
+                    "required": true,
+                    "argPath": [
+                      {
+                        "key": "pendingCampaignsArgs"
+                      },
+                      {
+                        "key": "campaignArgs",
+                        "list": true
+                      },
+                      {
+                        "key": "campaignFreeReservedMsgs"
+                      }
+                    ]
                   },
                   {
                     "name": "send_timestamp",
                     "kind": "optional",
-                    "required": false
+                    "required": false,
+                    "argPath": [
+                      {
+                        "key": "pendingCampaignsArgs"
+                      },
+                      {
+                        "key": "campaignArgs",
+                        "list": true
+                      },
+                      {
+                        "key": "campaignSendTimestamp"
+                      }
+                    ]
                   }
                 ],
                 "children": [],
-                "repeats": true
+                "repeats": true,
+                "repeatMin": 0,
+                "repeatMax": 200,
+                "argPath": [
+                  {
+                    "key": "pendingCampaignsArgs"
+                  },
+                  {
+                    "key": "campaignArgs",
+                    "list": true
+                  }
+                ]
               }
             ],
-            "repeats": false
+            "repeats": false,
+            "presence": "optional",
+            "argPath": [
+              {
+                "key": "pendingCampaignsArgs"
+              }
+            ]
           }
         ]
       },
@@ -44386,24 +45915,56 @@
                 "tag": "latitude",
                 "attrs": [],
                 "children": [],
+                "content": {
+                  "kind": "dynamic",
+                  "argPath": [
+                    {
+                      "key": "latitude"
+                    }
+                  ]
+                },
                 "repeats": false
               },
               {
                 "tag": "longitude",
                 "attrs": [],
                 "children": [],
+                "content": {
+                  "kind": "dynamic",
+                  "argPath": [
+                    {
+                      "key": "longitude"
+                    }
+                  ]
+                },
                 "repeats": false
               },
               {
                 "tag": "description",
                 "attrs": [],
                 "children": [],
+                "content": {
+                  "kind": "dynamic",
+                  "argPath": [
+                    {
+                      "key": "description"
+                    }
+                  ]
+                },
                 "repeats": false
               },
               {
                 "tag": "email",
                 "attrs": [],
                 "children": [],
+                "content": {
+                  "kind": "dynamic",
+                  "argPath": [
+                    {
+                      "key": "email"
+                    }
+                  ]
+                },
                 "repeats": false
               },
               {
@@ -44734,7 +46295,12 @@
               {
                 "name": "biz_jid",
                 "kind": "user_jid",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "businessJid"
+                  }
+                ]
               }
             ],
             "children": [],
@@ -44786,7 +46352,12 @@
               {
                 "name": "jid",
                 "kind": "user_jid",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "catalogWid"
+                  }
+                ]
               }
             ],
             "children": [
@@ -44894,17 +46465,32 @@
               {
                 "name": "action",
                 "kind": "string",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "userFeedbackAction"
+                  }
+                ]
               },
               {
                 "name": "jid",
                 "kind": "user_jid",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "userFeedbackJid"
+                  }
+                ]
               },
               {
                 "name": "feedback",
                 "kind": "optional",
-                "required": false
+                "required": false,
+                "argPath": [
+                  {
+                    "key": "userFeedbackFeedback"
+                  }
+                ]
               }
             ],
             "children": [],
@@ -45372,22 +46958,42 @@
               {
                 "name": "promotion_id",
                 "kind": "string",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "eventPromotionId"
+                  }
+                ]
               },
               {
                 "name": "type",
                 "kind": "string",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "eventType"
+                  }
+                ]
               },
               {
                 "name": "timestamp_sec",
                 "kind": "integer",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "eventTimestampSec"
+                  }
+                ]
               },
               {
                 "name": "logdata",
                 "kind": "string",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "eventLogdata"
+                  }
+                ]
               }
             ],
             "children": [],
@@ -46008,7 +47614,12 @@
               {
                 "name": "action",
                 "kind": "string",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "blockingAction"
+                  }
+                ]
               }
             ],
             "children": [],
@@ -46364,7 +47975,12 @@
               {
                 "name": "context",
                 "kind": "optional",
-                "required": false
+                "required": false,
+                "argPath": [
+                  {
+                    "key": "queryContext"
+                  }
+                ]
               }
             ],
             "children": [
@@ -46374,11 +47990,28 @@
                   {
                     "name": "jid",
                     "kind": "group_jid",
-                    "required": true
+                    "required": true,
+                    "argPath": [
+                      {
+                        "key": "groupArgs",
+                        "list": true
+                      },
+                      {
+                        "key": "groupJid"
+                      }
+                    ]
                   }
                 ],
                 "children": [],
-                "repeats": true
+                "repeats": true,
+                "repeatMin": 1,
+                "repeatMax": 10000,
+                "argPath": [
+                  {
+                    "key": "groupArgs",
+                    "list": true
+                  }
+                ]
               }
             ],
             "repeats": false
@@ -50204,7 +51837,12 @@
               {
                 "name": "phash",
                 "kind": "optional",
-                "required": false
+                "required": false,
+                "argPath": [
+                  {
+                    "key": "queryPhash"
+                  }
+                ]
               }
             ],
             "children": [
@@ -50214,11 +51852,25 @@
                   {
                     "name": "expiration",
                     "kind": "integer",
-                    "required": true
+                    "required": true,
+                    "argPath": [
+                      {
+                        "key": "addRequestArgs"
+                      },
+                      {
+                        "key": "addRequestExpiration"
+                      }
+                    ]
                   }
                 ],
                 "children": [],
-                "repeats": false
+                "repeats": false,
+                "presence": "optional",
+                "argPath": [
+                  {
+                    "key": "addRequestArgs"
+                  }
+                ]
               }
             ],
             "repeats": false
@@ -55046,7 +56698,12 @@
               {
                 "name": "code",
                 "kind": "string",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "inviteCode"
+                  }
+                ]
               }
             ],
             "children": [],
@@ -62738,13 +64395,25 @@
                 "tag": "participants",
                 "attrs": [],
                 "children": [],
-                "repeats": false
+                "repeats": false,
+                "presence": "presence_flag",
+                "argPath": [
+                  {
+                    "key": "hasParticipants"
+                  }
+                ]
               },
               {
                 "tag": "description",
                 "attrs": [],
                 "children": [],
-                "repeats": false
+                "repeats": false,
+                "presence": "presence_flag",
+                "argPath": [
+                  {
+                    "key": "hasDescription"
+                  }
+                ]
               }
             ],
             "repeats": false
@@ -67300,7 +68969,15 @@
               {
                 "name": "id",
                 "kind": "optional",
-                "required": false
+                "required": false,
+                "argPath": [
+                  {
+                    "key": "option"
+                  },
+                  {
+                    "key": "id"
+                  }
+                ]
               },
               {
                 "name": "type",
@@ -67315,7 +68992,12 @@
               {
                 "name": "invite",
                 "kind": "string",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "code"
+                  }
+                ]
               }
             ],
             "children": [],
@@ -67465,17 +69147,32 @@
               {
                 "name": "code",
                 "kind": "string",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "acceptCode"
+                  }
+                ]
               },
               {
                 "name": "expiration",
                 "kind": "integer",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "acceptExpiration"
+                  }
+                ]
               },
               {
                 "name": "admin",
                 "kind": "user_jid",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "acceptAdmin"
+                  }
+                ]
               }
             ],
             "children": [],
@@ -68908,21 +70605,56 @@
                   {
                     "name": "jid",
                     "kind": "user_jid",
-                    "required": true
+                    "required": true,
+                    "argPath": [
+                      {
+                        "key": "participantArgs",
+                        "list": true
+                      },
+                      {
+                        "key": "participantJid"
+                      }
+                    ]
                   },
                   {
                     "name": "phone_number",
                     "kind": "optional",
-                    "required": false
+                    "required": false,
+                    "argPath": [
+                      {
+                        "key": "participantArgs",
+                        "list": true
+                      },
+                      {
+                        "key": "participantPhoneNumber"
+                      }
+                    ]
                   },
                   {
                     "name": "username",
                     "kind": "optional",
-                    "required": false
+                    "required": false,
+                    "argPath": [
+                      {
+                        "key": "participantArgs",
+                        "list": true
+                      },
+                      {
+                        "key": "participantUsername"
+                      }
+                    ]
                   }
                 ],
                 "children": [],
-                "repeats": true
+                "repeats": true,
+                "repeatMin": 1,
+                "repeatMax": 1024,
+                "argPath": [
+                  {
+                    "key": "participantArgs",
+                    "list": true
+                  }
+                ]
               }
             ],
             "repeats": false
@@ -71105,11 +72837,28 @@
                   {
                     "name": "jid",
                     "kind": "user_jid",
-                    "required": true
+                    "required": true,
+                    "argPath": [
+                      {
+                        "key": "participantArgs",
+                        "list": true
+                      },
+                      {
+                        "key": "participantJid"
+                      }
+                    ]
                   }
                 ],
                 "children": [],
-                "repeats": true
+                "repeats": true,
+                "repeatMin": 1,
+                "repeatMax": 19999,
+                "argPath": [
+                  {
+                    "key": "participantArgs",
+                    "list": true
+                  }
+                ]
               }
             ],
             "repeats": false
@@ -71922,21 +73671,56 @@
                   {
                     "name": "jid",
                     "kind": "user_jid",
-                    "required": true
+                    "required": true,
+                    "argPath": [
+                      {
+                        "key": "participantArgs",
+                        "list": true
+                      },
+                      {
+                        "key": "participantJid"
+                      }
+                    ]
                   },
                   {
                     "name": "phone_number",
                     "kind": "optional",
-                    "required": false
+                    "required": false,
+                    "argPath": [
+                      {
+                        "key": "participantArgs",
+                        "list": true
+                      },
+                      {
+                        "key": "participantPhoneNumber"
+                      }
+                    ]
                   },
                   {
                     "name": "username",
                     "kind": "optional",
-                    "required": false
+                    "required": false,
+                    "argPath": [
+                      {
+                        "key": "participantArgs",
+                        "list": true
+                      },
+                      {
+                        "key": "participantUsername"
+                      }
+                    ]
                   }
                 ],
                 "children": [],
-                "repeats": true
+                "repeats": true,
+                "repeatMin": 0,
+                "repeatMax": 19999,
+                "argPath": [
+                  {
+                    "key": "participantArgs",
+                    "list": true
+                  }
+                ]
               },
               {
                 "tag": "description",
@@ -71944,7 +73728,15 @@
                   {
                     "name": "id",
                     "kind": "string",
-                    "required": true
+                    "required": true,
+                    "argPath": [
+                      {
+                        "key": "descriptionArgs"
+                      },
+                      {
+                        "key": "descriptionId"
+                      }
+                    ]
                   }
                 ],
                 "children": [
@@ -71974,43 +73766,85 @@
                     "repeats": false
                   }
                 ],
-                "repeats": false
+                "repeats": false,
+                "presence": "optional",
+                "argPath": [
+                  {
+                    "key": "descriptionArgs"
+                  }
+                ]
               },
               {
                 "tag": "locked",
                 "attrs": [],
                 "children": [],
-                "repeats": false
+                "repeats": false,
+                "presence": "presence_flag",
+                "argPath": [
+                  {
+                    "key": "hasLocked"
+                  }
+                ]
               },
               {
                 "tag": "announcement",
                 "attrs": [],
                 "children": [],
-                "repeats": false
+                "repeats": false,
+                "presence": "presence_flag",
+                "argPath": [
+                  {
+                    "key": "hasAnnouncement"
+                  }
+                ]
               },
               {
                 "tag": "parent",
                 "attrs": [],
                 "children": [],
-                "repeats": false
+                "repeats": false,
+                "presence": "optional",
+                "argPath": [
+                  {
+                    "key": "parentArgs"
+                  }
+                ]
               },
               {
                 "tag": "membership_approval_mode",
                 "attrs": [],
                 "children": [],
-                "repeats": false
+                "repeats": false,
+                "presence": "optional",
+                "argPath": [
+                  {
+                    "key": "parentArgs"
+                  }
+                ]
               },
               {
                 "tag": "locked",
                 "attrs": [],
                 "children": [],
-                "repeats": false
+                "repeats": false,
+                "presence": "optional",
+                "argPath": [
+                  {
+                    "key": "parentArgs"
+                  }
+                ]
               },
               {
                 "tag": "no_frequently_forwarded",
                 "attrs": [],
                 "children": [],
-                "repeats": false
+                "repeats": false,
+                "presence": "presence_flag",
+                "argPath": [
+                  {
+                    "key": "hasNoFrequentlyForwarded"
+                  }
+                ]
               },
               {
                 "tag": "ephemeral",
@@ -72018,40 +73852,86 @@
                   {
                     "name": "expiration",
                     "kind": "integer",
-                    "required": true
+                    "required": true,
+                    "argPath": [
+                      {
+                        "key": "ephemeralArgs"
+                      },
+                      {
+                        "key": "ephemeralExpiration"
+                      }
+                    ]
                   },
                   {
                     "name": "trigger",
                     "kind": "optional",
-                    "required": false
+                    "required": false,
+                    "argPath": [
+                      {
+                        "key": "ephemeralArgs"
+                      },
+                      {
+                        "key": "ephemeralTrigger"
+                      }
+                    ]
                   }
                 ],
                 "children": [],
-                "repeats": false
+                "repeats": false,
+                "presence": "optional",
+                "argPath": [
+                  {
+                    "key": "ephemeralArgs"
+                  }
+                ]
               },
               {
                 "tag": "membership_approval_mode",
                 "attrs": [],
                 "children": [],
-                "repeats": false
+                "repeats": false,
+                "presence": "optional",
+                "argPath": [
+                  {
+                    "key": "membershipApprovalModeArgs"
+                  }
+                ]
               },
               {
                 "tag": "locked",
                 "attrs": [],
                 "children": [],
-                "repeats": false
+                "repeats": false,
+                "presence": "optional",
+                "argPath": [
+                  {
+                    "key": "membershipApprovalModeArgs"
+                  }
+                ]
               },
               {
                 "tag": "breakout",
                 "attrs": [],
                 "children": [],
-                "repeats": false
+                "repeats": false,
+                "presence": "presence_flag",
+                "argPath": [
+                  {
+                    "key": "hasBreakout"
+                  }
+                ]
               },
               {
                 "tag": "created_as_lid",
                 "attrs": [],
                 "children": [],
-                "repeats": false
+                "repeats": false,
+                "presence": "presence_flag",
+                "argPath": [
+                  {
+                    "key": "hasCreatedAsLid"
+                  }
+                ]
               },
               {
                 "tag": "addressing_mode_override",
@@ -72059,11 +73939,25 @@
                   {
                     "name": "mode",
                     "kind": "string",
-                    "required": true
+                    "required": true,
+                    "argPath": [
+                      {
+                        "key": "addressingModeOverrideArgs"
+                      },
+                      {
+                        "key": "addressingModeOverrideMode"
+                      }
+                    ]
                   }
                 ],
                 "children": [],
-                "repeats": false
+                "repeats": false,
+                "presence": "optional",
+                "argPath": [
+                  {
+                    "key": "addressingModeOverrideArgs"
+                  }
+                ]
               },
               {
                 "tag": "linked_parent",
@@ -72071,35 +73965,73 @@
                   {
                     "name": "jid",
                     "kind": "group_jid",
-                    "required": true
+                    "required": true,
+                    "argPath": [
+                      {
+                        "key": "linkedParentArgs"
+                      },
+                      {
+                        "key": "linkedParentJid"
+                      }
+                    ]
                   }
                 ],
                 "children": [],
-                "repeats": false
+                "repeats": false,
+                "presence": "optional",
+                "argPath": [
+                  {
+                    "key": "linkedParentArgs"
+                  }
+                ]
               },
               {
                 "tag": "hidden_group",
                 "attrs": [],
                 "children": [],
-                "repeats": false
+                "repeats": false,
+                "presence": "presence_flag",
+                "argPath": [
+                  {
+                    "key": "hasHiddenGroup"
+                  }
+                ]
               },
               {
                 "tag": "allow_non_admin_sub_group_creation",
                 "attrs": [],
                 "children": [],
-                "repeats": false
+                "repeats": false,
+                "presence": "presence_flag",
+                "argPath": [
+                  {
+                    "key": "hasAllowNonAdminSubGroupCreation"
+                  }
+                ]
               },
               {
                 "tag": "create_general_chat",
                 "attrs": [],
                 "children": [],
-                "repeats": false
+                "repeats": false,
+                "presence": "presence_flag",
+                "argPath": [
+                  {
+                    "key": "hasCreateGeneralChat"
+                  }
+                ]
               },
               {
                 "tag": "capi",
                 "attrs": [],
                 "children": [],
-                "repeats": false
+                "repeats": false,
+                "presence": "presence_flag",
+                "argPath": [
+                  {
+                    "key": "hasCapi"
+                  }
+                ]
               }
             ],
             "repeats": false
@@ -77142,12 +79074,22 @@
               {
                 "name": "type",
                 "kind": "optional",
-                "required": false
+                "required": false,
+                "argPath": [
+                  {
+                    "key": "joinLinkedGroupType"
+                  }
+                ]
               },
               {
                 "name": "jid",
                 "kind": "group_jid",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "joinLinkedGroupJid"
+                  }
+                ]
               }
             ],
             "children": [],
@@ -78030,7 +79972,16 @@
                       {
                         "name": "jid",
                         "kind": "group_jid",
-                        "required": true
+                        "required": true,
+                        "argPath": [
+                          {
+                            "key": "groupArgs",
+                            "list": true
+                          },
+                          {
+                            "key": "groupJid"
+                          }
+                        ]
                       }
                     ],
                     "children": [
@@ -78038,10 +79989,28 @@
                         "tag": "hidden_group",
                         "attrs": [],
                         "children": [],
-                        "repeats": false
+                        "repeats": false,
+                        "presence": "presence_flag",
+                        "argPath": [
+                          {
+                            "key": "groupArgs",
+                            "list": true
+                          },
+                          {
+                            "key": "hasHiddenGroup"
+                          }
+                        ]
                       }
                     ],
-                    "repeats": true
+                    "repeats": true,
+                    "repeatMin": 1,
+                    "repeatMax": 1000,
+                    "argPath": [
+                      {
+                        "key": "groupArgs",
+                        "list": true
+                      }
+                    ]
                   }
                 ],
                 "repeats": false
@@ -79413,24 +81382,77 @@
                       {
                         "name": "jid",
                         "kind": "user_jid",
-                        "required": true
+                        "required": true,
+                        "argPath": [
+                          {
+                            "key": "approveArgs"
+                          },
+                          {
+                            "key": "participantArgs",
+                            "list": true
+                          },
+                          {
+                            "key": "participantJid"
+                          }
+                        ]
                       },
                       {
                         "name": "phone_number",
                         "kind": "optional",
-                        "required": false
+                        "required": false,
+                        "argPath": [
+                          {
+                            "key": "approveArgs"
+                          },
+                          {
+                            "key": "participantArgs",
+                            "list": true
+                          },
+                          {
+                            "key": "participantPhoneNumber"
+                          }
+                        ]
                       },
                       {
                         "name": "username",
                         "kind": "optional",
-                        "required": false
+                        "required": false,
+                        "argPath": [
+                          {
+                            "key": "approveArgs"
+                          },
+                          {
+                            "key": "participantArgs",
+                            "list": true
+                          },
+                          {
+                            "key": "participantUsername"
+                          }
+                        ]
                       }
                     ],
                     "children": [],
-                    "repeats": true
+                    "repeats": true,
+                    "repeatMin": 1,
+                    "repeatMax": 19999,
+                    "argPath": [
+                      {
+                        "key": "approveArgs"
+                      },
+                      {
+                        "key": "participantArgs",
+                        "list": true
+                      }
+                    ]
                   }
                 ],
-                "repeats": false
+                "repeats": false,
+                "presence": "optional",
+                "argPath": [
+                  {
+                    "key": "approveArgs"
+                  }
+                ]
               },
               {
                 "tag": "reject",
@@ -79442,24 +81464,77 @@
                       {
                         "name": "jid",
                         "kind": "user_jid",
-                        "required": true
+                        "required": true,
+                        "argPath": [
+                          {
+                            "key": "rejectArgs"
+                          },
+                          {
+                            "key": "participantArgs",
+                            "list": true
+                          },
+                          {
+                            "key": "participantJid"
+                          }
+                        ]
                       },
                       {
                         "name": "phone_number",
                         "kind": "optional",
-                        "required": false
+                        "required": false,
+                        "argPath": [
+                          {
+                            "key": "rejectArgs"
+                          },
+                          {
+                            "key": "participantArgs",
+                            "list": true
+                          },
+                          {
+                            "key": "participantPhoneNumber"
+                          }
+                        ]
                       },
                       {
                         "name": "username",
                         "kind": "optional",
-                        "required": false
+                        "required": false,
+                        "argPath": [
+                          {
+                            "key": "rejectArgs"
+                          },
+                          {
+                            "key": "participantArgs",
+                            "list": true
+                          },
+                          {
+                            "key": "participantUsername"
+                          }
+                        ]
                       }
                     ],
                     "children": [],
-                    "repeats": true
+                    "repeats": true,
+                    "repeatMin": 1,
+                    "repeatMax": 19999,
+                    "argPath": [
+                      {
+                        "key": "rejectArgs"
+                      },
+                      {
+                        "key": "participantArgs",
+                        "list": true
+                      }
+                    ]
                   }
                 ],
-                "repeats": false
+                "repeats": false,
+                "presence": "optional",
+                "argPath": [
+                  {
+                    "key": "rejectArgs"
+                  }
+                ]
               }
             ],
             "repeats": false
@@ -80994,14 +83069,43 @@
                       {
                         "name": "jid",
                         "kind": "user_jid",
-                        "required": true
+                        "required": true,
+                        "argPath": [
+                          {
+                            "key": "promoteArgs"
+                          },
+                          {
+                            "key": "participantArgs",
+                            "list": true
+                          },
+                          {
+                            "key": "participantJid"
+                          }
+                        ]
                       }
                     ],
                     "children": [],
-                    "repeats": true
+                    "repeats": true,
+                    "repeatMin": 0,
+                    "repeatMax": 1024,
+                    "argPath": [
+                      {
+                        "key": "promoteArgs"
+                      },
+                      {
+                        "key": "participantArgs",
+                        "list": true
+                      }
+                    ]
                   }
                 ],
-                "repeats": false
+                "repeats": false,
+                "presence": "optional",
+                "argPath": [
+                  {
+                    "key": "promoteArgs"
+                  }
+                ]
               },
               {
                 "tag": "demote",
@@ -81013,14 +83117,43 @@
                       {
                         "name": "jid",
                         "kind": "user_jid",
-                        "required": true
+                        "required": true,
+                        "argPath": [
+                          {
+                            "key": "demoteArgs"
+                          },
+                          {
+                            "key": "participantArgs",
+                            "list": true
+                          },
+                          {
+                            "key": "participantJid"
+                          }
+                        ]
                       }
                     ],
                     "children": [],
-                    "repeats": true
+                    "repeats": true,
+                    "repeatMin": 0,
+                    "repeatMax": 1024,
+                    "argPath": [
+                      {
+                        "key": "demoteArgs"
+                      },
+                      {
+                        "key": "participantArgs",
+                        "list": true
+                      }
+                    ]
                   }
                 ],
-                "repeats": false
+                "repeats": false,
+                "presence": "optional",
+                "argPath": [
+                  {
+                    "key": "demoteArgs"
+                  }
+                ]
               }
             ],
             "repeats": false
@@ -81941,14 +84074,43 @@
                   {
                     "name": "jid",
                     "kind": "user_jid",
-                    "required": true
+                    "required": true,
+                    "argPath": [
+                      {
+                        "key": "promoteArgs"
+                      },
+                      {
+                        "key": "participantArgs",
+                        "list": true
+                      },
+                      {
+                        "key": "participantJid"
+                      }
+                    ]
                   }
                 ],
                 "children": [],
-                "repeats": true
+                "repeats": true,
+                "repeatMin": 0,
+                "repeatMax": 1024,
+                "argPath": [
+                  {
+                    "key": "promoteArgs"
+                  },
+                  {
+                    "key": "participantArgs",
+                    "list": true
+                  }
+                ]
               }
             ],
-            "repeats": false
+            "repeats": false,
+            "presence": "optional",
+            "argPath": [
+              {
+                "key": "promoteArgs"
+              }
+            ]
           },
           {
             "tag": "demote",
@@ -81960,14 +84122,43 @@
                   {
                     "name": "jid",
                     "kind": "user_jid",
-                    "required": true
+                    "required": true,
+                    "argPath": [
+                      {
+                        "key": "demoteArgs"
+                      },
+                      {
+                        "key": "participantArgs",
+                        "list": true
+                      },
+                      {
+                        "key": "participantJid"
+                      }
+                    ]
                   }
                 ],
                 "children": [],
-                "repeats": true
+                "repeats": true,
+                "repeatMin": 0,
+                "repeatMax": 1024,
+                "argPath": [
+                  {
+                    "key": "demoteArgs"
+                  },
+                  {
+                    "key": "participantArgs",
+                    "list": true
+                  }
+                ]
               }
             ],
-            "repeats": false
+            "repeats": false,
+            "presence": "optional",
+            "argPath": [
+              {
+                "key": "demoteArgs"
+              }
+            ]
           }
         ]
       },
@@ -83005,7 +85196,12 @@
               {
                 "name": "linked_groups",
                 "kind": "optional",
-                "required": false
+                "required": false,
+                "argPath": [
+                  {
+                    "key": "hasRemoveLinkedGroupsTrue"
+                  }
+                ]
               }
             ],
             "children": [
@@ -83015,11 +85211,28 @@
                   {
                     "name": "jid",
                     "kind": "user_jid",
-                    "required": true
+                    "required": true,
+                    "argPath": [
+                      {
+                        "key": "participantArgs",
+                        "list": true
+                      },
+                      {
+                        "key": "participantJid"
+                      }
+                    ]
                   }
                 ],
                 "children": [],
-                "repeats": true
+                "repeats": true,
+                "repeatMin": 1,
+                "repeatMax": 1024,
+                "argPath": [
+                  {
+                    "key": "participantArgs",
+                    "list": true
+                  }
+                ]
               }
             ],
             "repeats": false
@@ -84092,7 +86305,12 @@
                   {
                     "name": "message_id",
                     "kind": "string",
-                    "required": true
+                    "required": true,
+                    "argPath": [
+                      {
+                        "key": "reportMessageId"
+                      }
+                    ]
                   }
                 ],
                 "children": [],
@@ -84660,11 +86878,28 @@
                   {
                     "name": "jid",
                     "kind": "user_jid",
-                    "required": true
+                    "required": true,
+                    "argPath": [
+                      {
+                        "key": "participantArgs",
+                        "list": true
+                      },
+                      {
+                        "key": "participantJid"
+                      }
+                    ]
                   }
                 ],
                 "children": [],
-                "repeats": true
+                "repeats": true,
+                "repeatMin": 1,
+                "repeatMax": 1000,
+                "argPath": [
+                  {
+                    "key": "participantArgs",
+                    "list": true
+                  }
+                ]
               }
             ],
             "repeats": false
@@ -85436,17 +87671,32 @@
               {
                 "name": "id",
                 "kind": "optional",
-                "required": false
+                "required": false,
+                "argPath": [
+                  {
+                    "key": "descriptionId"
+                  }
+                ]
               },
               {
                 "name": "prev",
                 "kind": "optional",
-                "required": false
+                "required": false,
+                "argPath": [
+                  {
+                    "key": "descriptionPrev"
+                  }
+                ]
               },
               {
                 "name": "delete",
                 "kind": "optional",
-                "required": false
+                "required": false,
+                "argPath": [
+                  {
+                    "key": "hasDescriptionDeleteTrue"
+                  }
+                ]
               }
             ],
             "children": [
@@ -85454,7 +87704,24 @@
                 "tag": "body",
                 "attrs": [],
                 "children": [],
-                "repeats": false
+                "content": {
+                  "kind": "dynamic",
+                  "argPath": [
+                    {
+                      "key": "bodyArgs"
+                    },
+                    {
+                      "key": "bodyElementValue"
+                    }
+                  ]
+                },
+                "repeats": false,
+                "presence": "optional",
+                "argPath": [
+                  {
+                    "key": "bodyArgs"
+                  }
+                ]
               }
             ],
             "repeats": false
@@ -86180,19 +88447,37 @@
             "tag": "locked",
             "attrs": [],
             "children": [],
-            "repeats": false
+            "repeats": false,
+            "presence": "presence_flag",
+            "argPath": [
+              {
+                "key": "hasLocked"
+              }
+            ]
           },
           {
             "tag": "announcement",
             "attrs": [],
             "children": [],
-            "repeats": false
+            "repeats": false,
+            "presence": "presence_flag",
+            "argPath": [
+              {
+                "key": "hasAnnouncement"
+              }
+            ]
           },
           {
             "tag": "no_frequently_forwarded",
             "attrs": [],
             "children": [],
-            "repeats": false
+            "repeats": false,
+            "presence": "presence_flag",
+            "argPath": [
+              {
+                "key": "hasNoFrequentlyForwarded"
+              }
+            ]
           },
           {
             "tag": "ephemeral",
@@ -86200,88 +88485,182 @@
               {
                 "name": "expiration",
                 "kind": "integer",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "ephemeralArgs"
+                  },
+                  {
+                    "key": "ephemeralExpiration"
+                  }
+                ]
               },
               {
                 "name": "trigger",
                 "kind": "optional",
-                "required": false
+                "required": false,
+                "argPath": [
+                  {
+                    "key": "ephemeralArgs"
+                  },
+                  {
+                    "key": "ephemeralTrigger"
+                  }
+                ]
               }
             ],
             "children": [],
-            "repeats": false
+            "repeats": false,
+            "presence": "optional",
+            "argPath": [
+              {
+                "key": "ephemeralArgs"
+              }
+            ]
           },
           {
             "tag": "unlocked",
             "attrs": [],
             "children": [],
-            "repeats": false
+            "repeats": false,
+            "presence": "presence_flag",
+            "argPath": [
+              {
+                "key": "hasUnlocked"
+              }
+            ]
           },
           {
             "tag": "not_announcement",
             "attrs": [],
             "children": [],
-            "repeats": false
+            "repeats": false,
+            "presence": "presence_flag",
+            "argPath": [
+              {
+                "key": "hasNotAnnouncement"
+              }
+            ]
           },
           {
             "tag": "frequently_forwarded_ok",
             "attrs": [],
             "children": [],
-            "repeats": false
+            "repeats": false,
+            "presence": "presence_flag",
+            "argPath": [
+              {
+                "key": "hasFrequentlyForwardedOk"
+              }
+            ]
           },
           {
             "tag": "not_ephemeral",
             "attrs": [],
             "children": [],
-            "repeats": false
+            "repeats": false,
+            "presence": "presence_flag",
+            "argPath": [
+              {
+                "key": "hasNotEphemeral"
+              }
+            ]
           },
           {
             "tag": "membership_approval_mode",
             "attrs": [],
             "children": [],
-            "repeats": false
+            "repeats": false,
+            "presence": "optional",
+            "argPath": [
+              {
+                "key": "membershipApprovalModeArgs"
+              }
+            ]
           },
           {
             "tag": "locked",
             "attrs": [],
             "children": [],
-            "repeats": false
+            "repeats": false,
+            "presence": "optional",
+            "argPath": [
+              {
+                "key": "membershipApprovalModeArgs"
+              }
+            ]
           },
           {
             "tag": "allow_admin_reports",
             "attrs": [],
             "children": [],
-            "repeats": false
+            "repeats": false,
+            "presence": "presence_flag",
+            "argPath": [
+              {
+                "key": "hasAllowAdminReports"
+              }
+            ]
           },
           {
             "tag": "not_allow_admin_reports",
             "attrs": [],
             "children": [],
-            "repeats": false
+            "repeats": false,
+            "presence": "presence_flag",
+            "argPath": [
+              {
+                "key": "hasNotAllowAdminReports"
+              }
+            ]
           },
           {
             "tag": "allow_non_admin_sub_group_creation",
             "attrs": [],
             "children": [],
-            "repeats": false
+            "repeats": false,
+            "presence": "presence_flag",
+            "argPath": [
+              {
+                "key": "hasAllowNonAdminSubGroupCreation"
+              }
+            ]
           },
           {
             "tag": "not_allow_non_admin_sub_group_creation",
             "attrs": [],
             "children": [],
-            "repeats": false
+            "repeats": false,
+            "presence": "presence_flag",
+            "argPath": [
+              {
+                "key": "hasNotAllowNonAdminSubGroupCreation"
+              }
+            ]
           },
           {
             "tag": "group_history",
             "attrs": [],
             "children": [],
-            "repeats": false
+            "repeats": false,
+            "presence": "presence_flag",
+            "argPath": [
+              {
+                "key": "hasGroupHistory"
+              }
+            ]
           },
           {
             "tag": "no_group_history",
             "attrs": [],
             "children": [],
-            "repeats": false
+            "repeats": false,
+            "presence": "presence_flag",
+            "argPath": [
+              {
+                "key": "hasNoGroupHistory"
+              }
+            ]
           }
         ]
       },
@@ -87403,6 +89782,14 @@
             "tag": "subject",
             "attrs": [],
             "children": [],
+            "content": {
+              "kind": "dynamic",
+              "argPath": [
+                {
+                  "key": "subjectElementValue"
+                }
+              ]
+            },
             "repeats": false
           }
         ]
@@ -88111,10 +90498,27 @@
                     "tag": "sub_group_suggestion",
                     "attrs": [],
                     "children": [],
-                    "repeats": true
+                    "repeats": true,
+                    "repeatMin": 1,
+                    "repeatMax": 1000,
+                    "argPath": [
+                      {
+                        "key": "approveArgs"
+                      },
+                      {
+                        "key": "subGroupSuggestionArgs",
+                        "list": true
+                      }
+                    ]
                   }
                 ],
-                "repeats": false
+                "repeats": false,
+                "presence": "optional",
+                "argPath": [
+                  {
+                    "key": "approveArgs"
+                  }
+                ]
               },
               {
                 "tag": "reject",
@@ -88124,10 +90528,27 @@
                     "tag": "sub_group_suggestion",
                     "attrs": [],
                     "children": [],
-                    "repeats": true
+                    "repeats": true,
+                    "repeatMin": 1,
+                    "repeatMax": 1000,
+                    "argPath": [
+                      {
+                        "key": "rejectArgs"
+                      },
+                      {
+                        "key": "subGroupSuggestionArgs",
+                        "list": true
+                      }
+                    ]
                   }
                 ],
-                "repeats": false
+                "repeats": false,
+                "presence": "optional",
+                "argPath": [
+                  {
+                    "key": "rejectArgs"
+                  }
+                ]
               },
               {
                 "tag": "cancel",
@@ -88137,10 +90558,27 @@
                     "tag": "sub_group_suggestion",
                     "attrs": [],
                     "children": [],
-                    "repeats": true
+                    "repeats": true,
+                    "repeatMin": 1,
+                    "repeatMax": 1000,
+                    "argPath": [
+                      {
+                        "key": "cancelArgs"
+                      },
+                      {
+                        "key": "subGroupSuggestionArgs",
+                        "list": true
+                      }
+                    ]
                   }
                 ],
-                "repeats": false
+                "repeats": false,
+                "presence": "optional",
+                "argPath": [
+                  {
+                    "key": "cancelArgs"
+                  }
+                ]
               }
             ],
             "repeats": false
@@ -89597,16 +92035,42 @@
                   {
                     "name": "jid",
                     "kind": "group_jid",
-                    "required": true
+                    "required": true,
+                    "argPath": [
+                      {
+                        "key": "groupArgs",
+                        "list": true
+                      },
+                      {
+                        "key": "groupJid"
+                      }
+                    ]
                   },
                   {
                     "name": "remove_orphaned_members",
                     "kind": "optional",
-                    "required": false
+                    "required": false,
+                    "argPath": [
+                      {
+                        "key": "groupArgs",
+                        "list": true
+                      },
+                      {
+                        "key": "hasGroupRemoveOrphanedMembersTrue"
+                      }
+                    ]
                   }
                 ],
                 "children": [],
-                "repeats": true
+                "repeats": true,
+                "repeatMin": 1,
+                "repeatMax": 1000,
+                "argPath": [
+                  {
+                    "key": "groupArgs",
+                    "list": true
+                  }
+                ]
               }
             ],
             "repeats": false
@@ -90822,7 +93286,12 @@
               {
                 "name": "device_id",
                 "kind": "string",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "accountDeviceId"
+                  }
+                ]
               },
               {
                 "name": "country",
@@ -90838,17 +93307,32 @@
                   {
                     "name": "type",
                     "kind": "string",
-                    "required": true
+                    "required": true,
+                    "argPath": [
+                      {
+                        "key": "customPaymentMethodType"
+                      }
+                    ]
                   },
                   {
                     "name": "update",
                     "kind": "optional",
-                    "required": false
+                    "required": false,
+                    "argPath": [
+                      {
+                        "key": "customPaymentMethodUpdate"
+                      }
+                    ]
                   },
                   {
                     "name": "flow",
                     "kind": "optional",
-                    "required": false
+                    "required": false,
+                    "argPath": [
+                      {
+                        "key": "customPaymentMethodFlow"
+                      }
+                    ]
                   }
                 ],
                 "children": [],
@@ -91316,7 +93800,12 @@
               {
                 "name": "credential_id",
                 "kind": "string",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "accountCredentialId"
+                  }
+                ]
               },
               {
                 "name": "country",
@@ -97395,32 +99884,62 @@
               {
                 "name": "type",
                 "kind": "optional",
-                "required": false
+                "required": false,
+                "argPath": [
+                  {
+                    "key": "pictureType"
+                  }
+                ]
               },
               {
                 "name": "id",
                 "kind": "optional",
-                "required": false
+                "required": false,
+                "argPath": [
+                  {
+                    "key": "pictureId"
+                  }
+                ]
               },
               {
                 "name": "query",
                 "kind": "optional",
-                "required": false
+                "required": false,
+                "argPath": [
+                  {
+                    "key": "pictureQuery"
+                  }
+                ]
               },
               {
                 "name": "invite",
                 "kind": "optional",
-                "required": false
+                "required": false,
+                "argPath": [
+                  {
+                    "key": "pictureInvite"
+                  }
+                ]
               },
               {
                 "name": "persona_id",
                 "kind": "optional",
-                "required": false
+                "required": false,
+                "argPath": [
+                  {
+                    "key": "picturePersonaId"
+                  }
+                ]
               },
               {
                 "name": "common_gid",
                 "kind": "optional",
-                "required": false
+                "required": false,
+                "argPath": [
+                  {
+                    "key": "pictureCommonGid"
+                  }
+                ]
               }
             ],
             "children": [],
@@ -98248,7 +100767,15 @@
               {
                 "name": "id",
                 "kind": "optional",
-                "required": false
+                "required": false,
+                "argPath": [
+                  {
+                    "key": "option"
+                  },
+                  {
+                    "key": "id"
+                  }
+                ]
               },
               {
                 "name": "type",
@@ -98268,17 +100795,32 @@
                   {
                     "name": "code",
                     "kind": "string",
-                    "required": true
+                    "required": true,
+                    "argPath": [
+                      {
+                        "key": "code"
+                      }
+                    ]
                   },
                   {
                     "name": "expiration",
                     "kind": "string",
-                    "required": true
+                    "required": true,
+                    "argPath": [
+                      {
+                        "key": "expiration"
+                      }
+                    ]
                   },
                   {
                     "name": "admin",
                     "kind": "user_jid",
-                    "required": true
+                    "required": true,
+                    "argPath": [
+                      {
+                        "key": "adminWid"
+                      }
+                    ]
                   }
                 ],
                 "children": [],
@@ -98408,10 +100950,23 @@
               {
                 "name": "t",
                 "kind": "integer",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "addT"
+                  }
+                ]
               }
             ],
             "children": [],
+            "content": {
+              "kind": "dynamic",
+              "argPath": [
+                {
+                  "key": "addElementValue"
+                }
+              ]
+            },
             "repeats": false
           }
         ]
@@ -98773,7 +101328,12 @@
                   {
                     "name": "name",
                     "kind": "string",
-                    "required": true
+                    "required": true,
+                    "argPath": [
+                      {
+                        "key": "collection"
+                      }
+                    ]
                   },
                   {
                     "name": "return_snapshot",
@@ -98783,7 +101343,12 @@
                   {
                     "name": "version",
                     "kind": "integer",
-                    "required": true
+                    "required": true,
+                    "argPath": [
+                      {
+                        "key": "version"
+                      }
+                    ]
                   }
                 ],
                 "children": [
@@ -98856,18 +101421,42 @@
             "tag": "timestamp",
             "attrs": [],
             "children": [],
+            "content": {
+              "kind": "dynamic",
+              "argPath": [
+                {
+                  "key": "timestampElementValue"
+                }
+              ]
+            },
             "repeats": false
           },
           {
             "tag": "fbid",
             "attrs": [],
             "children": [],
+            "content": {
+              "kind": "dynamic",
+              "argPath": [
+                {
+                  "key": "fbidElementValue"
+                }
+              ]
+            },
             "repeats": false
           },
           {
             "tag": "action",
             "attrs": [],
             "children": [],
+            "content": {
+              "kind": "dynamic",
+              "argPath": [
+                {
+                  "key": "actionElementValue"
+                }
+              ]
+            },
             "repeats": false
           }
         ]
@@ -99748,13 +102337,38 @@
             "tag": "timestamp",
             "attrs": [],
             "children": [],
+            "content": {
+              "kind": "dynamic",
+              "argPath": [
+                {
+                  "key": "timestampElementValue"
+                }
+              ]
+            },
             "repeats": false
           },
           {
             "tag": "only_if_suspended",
             "attrs": [],
             "children": [],
-            "repeats": false
+            "content": {
+              "kind": "dynamic",
+              "argPath": [
+                {
+                  "key": "onlyIfSuspendedArgs"
+                },
+                {
+                  "key": "onlyIfSuspendedElementValue"
+                }
+              ]
+            },
+            "repeats": false,
+            "presence": "optional",
+            "argPath": [
+              {
+                "key": "onlyIfSuspendedArgs"
+              }
+            ]
           }
         ]
       },
@@ -100139,6 +102753,14 @@
             "tag": "timestamp",
             "attrs": [],
             "children": [],
+            "content": {
+              "kind": "dynamic",
+              "argPath": [
+                {
+                  "key": "timestampElementValue"
+                }
+              ]
+            },
             "repeats": false
           }
         ]
@@ -100702,18 +103324,42 @@
             "tag": "timestamp",
             "attrs": [],
             "children": [],
+            "content": {
+              "kind": "dynamic",
+              "argPath": [
+                {
+                  "key": "timestampElementValue"
+                }
+              ]
+            },
             "repeats": false
           },
           {
             "tag": "fbid",
             "attrs": [],
             "children": [],
+            "content": {
+              "kind": "dynamic",
+              "argPath": [
+                {
+                  "key": "fbidElementValue"
+                }
+              ]
+            },
             "repeats": false
           },
           {
             "tag": "id_sign",
             "attrs": [],
             "children": [],
+            "content": {
+              "kind": "dynamic",
+              "argPath": [
+                {
+                  "key": "idSignElementValue"
+                }
+              ]
+            },
             "repeats": false
           }
         ]
@@ -101557,6 +104203,14 @@
             "tag": "timestamp",
             "attrs": [],
             "children": [],
+            "content": {
+              "kind": "dynamic",
+              "argPath": [
+                {
+                  "key": "timestampElementValue"
+                }
+              ]
+            },
             "repeats": false
           },
           {
@@ -101565,22 +104219,42 @@
               {
                 "name": "id",
                 "kind": "integer",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "disclosureId"
+                  }
+                ]
               },
               {
                 "name": "version",
                 "kind": "string",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "disclosureVersion"
+                  }
+                ]
               },
               {
                 "name": "lg",
                 "kind": "string",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "disclosureLg"
+                  }
+                ]
               },
               {
                 "name": "lc",
                 "kind": "string",
-                "required": true
+                "required": true,
+                "argPath": [
+                  {
+                    "key": "disclosureLc"
+                  }
+                ]
               }
             ],
             "children": [],
@@ -102321,19 +104995,39 @@
             "tag": "timestamp",
             "attrs": [],
             "children": [],
+            "content": {
+              "kind": "dynamic",
+              "argPath": [
+                {
+                  "key": "timestampElementValue"
+                }
+              ]
+            },
             "repeats": false
           },
           {
             "tag": "payload_enc_certificates",
             "attrs": [],
             "children": [],
-            "repeats": false
+            "repeats": false,
+            "presence": "presence_flag",
+            "argPath": [
+              {
+                "key": "hasPayloadEncCertificates"
+              }
+            ]
           },
           {
             "tag": "password_pem",
             "attrs": [],
             "children": [],
-            "repeats": false
+            "repeats": false,
+            "presence": "presence_flag",
+            "argPath": [
+              {
+                "key": "hasPasswordPem"
+              }
+            ]
           }
         ]
       },
@@ -102964,12 +105658,28 @@
             "tag": "timestamp",
             "attrs": [],
             "children": [],
+            "content": {
+              "kind": "dynamic",
+              "argPath": [
+                {
+                  "key": "timestampElementValue"
+                }
+              ]
+            },
             "repeats": false
           },
           {
             "tag": "fbid",
             "attrs": [],
             "children": [],
+            "content": {
+              "kind": "dynamic",
+              "argPath": [
+                {
+                  "key": "fbidElementValue"
+                }
+              ]
+            },
             "repeats": false
           }
         ]
@@ -103831,6 +106541,14 @@
             "tag": "timestamp",
             "attrs": [],
             "children": [],
+            "content": {
+              "kind": "dynamic",
+              "argPath": [
+                {
+                  "key": "timestampElementValue"
+                }
+              ]
+            },
             "repeats": false
           }
         ]
@@ -104302,12 +107020,28 @@
             "tag": "timestamp",
             "attrs": [],
             "children": [],
+            "content": {
+              "kind": "dynamic",
+              "argPath": [
+                {
+                  "key": "timestampElementValue"
+                }
+              ]
+            },
             "repeats": false
           },
           {
             "tag": "fbid",
             "attrs": [],
             "children": [],
+            "content": {
+              "kind": "dynamic",
+              "argPath": [
+                {
+                  "key": "fbidElementValue"
+                }
+              ]
+            },
             "repeats": false
           }
         ]

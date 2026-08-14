@@ -252,6 +252,7 @@ mod tests {
             value: None,
             required: true,
             enum_ref: None,
+            arg_path: None,
         }
     }
 
@@ -736,6 +737,7 @@ mod tests {
                         content: None,
                         repeats: false,
                         variant_groups: vec![],
+                        ..Default::default()
                     }],
                 },
                 response: ParsedResponse {

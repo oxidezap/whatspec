@@ -180,6 +180,7 @@ fn classify_attr_node<'a>(
         value: val,
         required,
         enum_ref: None,
+        arg_path: None,
     };
     // A pending enum link — only its (name, module) are known here; the variants are
     // resolved cross-module after the scan (see `crate::enum_link`), which then clears
@@ -200,6 +201,7 @@ fn classify_attr_node<'a>(
                 module,
                 variants: Vec::new(),
             }),
+            arg_path: None,
         }
     };
 
