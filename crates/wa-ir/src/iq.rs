@@ -475,9 +475,9 @@ impl ParsedFieldType {
 pub enum UnknownValuePolicy {
     /// The parse fails: an unrecognised value makes the whole node unparseable, so the
     /// variant does not match and the stanza falls through to the next one (or is
-    /// rejected outright). `attrEnum`, `attrStringEnum`, `contentEnum`, `attrJidEnum`.
-    /// A consumer may generate a closed enum — the client cannot see a value outside it
-    /// either.
+    /// rejected outright). `attrEnum`, `attrEnumValues`, `attrStringEnum`, `contentEnum`,
+    /// `contentStringEnum`. A consumer may generate a closed enum — the client cannot see
+    /// a value outside it either.
     Reject,
     /// The field becomes null and the parse continues — `attrEnumOrNullIfUnknown`. The
     /// wire may legitimately carry a value this bundle's enum does not list (a newer
@@ -582,10 +582,14 @@ pub struct ParsedField {
     #[serde(rename = "parserRequired")]
     pub parser_required: bool,
     /// What the parser does with a wire value **outside** this field's legal set — the
-    /// dimension the accessor's name carried and the IR did not. Present only for an
-    /// accessor that has a closed set to fall outside of (the enum accessors, plus
-    /// `attrJidEnum`'s server-kind set); absent means there is no set, not that anything
-    /// goes.
+    /// dimension the accessor's name carried and the IR did not. Present exactly on the
+    /// fields whose type is `enum`, which are the ones this document publishes a value
+    /// set for; absent means there is no set *here*, not that anything goes.
+    ///
+    /// The JID accessors are outside it, `attrJidEnum` included. They do reject an
+    /// unrecognised server, but they decode to [`ParsedFieldType::JidTyped`] and the enum
+    /// linker never resolves their argument, so a policy on them would name a set this
+    /// document does not carry.
     ///
     /// Without it `attrEnum` and `attrEnumOrNullIfUnknown` are the same field — same
     /// `type`, same `parserRequired` — while one rejects the whole stanza on an

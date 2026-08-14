@@ -529,7 +529,7 @@
           }
         },
         "unknownValue": {
-          "description": "What the parser does with a wire value **outside** this field's legal set — the\ndimension the accessor's name carried and the IR did not. Present only for an\naccessor that has a closed set to fall outside of (the enum accessors, plus\n`attrJidEnum`'s server-kind set); absent means there is no set, not that anything\ngoes.\n\nWithout it `attrEnum` and `attrEnumOrNullIfUnknown` are the same field — same\n`type`, same `parserRequired` — while one rejects the whole stanza on an\nunrecognised value and the other yields null. Which one a wire enum is decides\nwhether a consumer may close its generated enum or must give it a fallback\nvariant, so reading it off the WhatsApp method name in English was the last step\na consumer had to do by hand.",
+          "description": "What the parser does with a wire value **outside** this field's legal set — the\ndimension the accessor's name carried and the IR did not. Present exactly on the\nfields whose type is `enum`, which are the ones this document publishes a value\nset for; absent means there is no set *here*, not that anything goes.\n\nThe JID accessors are outside it, `attrJidEnum` included. They do reject an\nunrecognised server, but they decode to [`ParsedFieldType::JidTyped`] and the enum\nlinker never resolves their argument, so a policy on them would name a set this\ndocument does not carry.\n\nWithout it `attrEnum` and `attrEnumOrNullIfUnknown` are the same field — same\n`type`, same `parserRequired` — while one rejects the whole stanza on an\nunrecognised value and the other yields null. Which one a wire enum is decides\nwhether a consumer may close its generated enum or must give it a fallback\nvariant, so reading it off the WhatsApp method name in English was the last step\na consumer had to do by hand.",
           "anyOf": [
             {
               "$ref": "#/$defs/UnknownValuePolicy"
@@ -915,7 +915,7 @@
       "description": "What a response parser does when the wire carries a value **outside** the legal set\na field's accessor checks against.\n\nThe second dimension of an accessor, next to the type it decodes to\n([`crate::wap::method_field_type`]): WA spells both into one method name, and only\nthe first was ever published. See [`ParsedField::unknown_value`] for why the\ndifference is not cosmetic.",
       "oneOf": [
         {
-          "description": "The parse fails: an unrecognised value makes the whole node unparseable, so the\nvariant does not match and the stanza falls through to the next one (or is\nrejected outright). `attrEnum`, `attrStringEnum`, `contentEnum`, `attrJidEnum`.\nA consumer may generate a closed enum — the client cannot see a value outside it\neither.",
+          "description": "The parse fails: an unrecognised value makes the whole node unparseable, so the\nvariant does not match and the stanza falls through to the next one (or is\nrejected outright). `attrEnum`, `attrEnumValues`, `attrStringEnum`, `contentEnum`,\n`contentStringEnum`. A consumer may generate a closed enum — the client cannot see\na value outside it either.",
           "type": "string",
           "const": "reject"
         },
