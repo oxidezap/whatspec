@@ -15,7 +15,7 @@ use crate::alias::{AliasMap, build_alias_map};
 use crate::attrs::{extract_attrs_from_obj, parse_wap_call};
 use crate::helper_index::HelperIndex;
 use crate::mixin_index::MixinIndex;
-use crate::request::{VarScope, build_var_scope, resolve_child_node};
+use crate::request::{VarScope, build_var_scope, enforce_argument_boundary, resolve_child_node};
 use crate::response_index::ResponseIndex;
 use wa_oxc::{arg_expr, as_call, callee_method, callee_object};
 
@@ -525,6 +525,9 @@ impl ModuleScanner<'_> {
                     // position anchors the function context for scoped-initializer checks.
                     Some(ce.span().start as usize),
                 ));
+                // A builder with no single options object publishes no paths at all —
+                // including any that arrived inlined from a helper or a mapper.
+                enforce_argument_boundary(&mut children, self.scope, ce.span().start as usize);
             }
         }
 

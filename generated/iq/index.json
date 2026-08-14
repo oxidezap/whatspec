@@ -7445,12 +7445,7 @@
                     "children": [],
                     "content": {
                       "kind": "bytes",
-                      "byteLength": 3,
-                      "argPath": [
-                        {
-                          "key": "keyId"
-                        }
-                      ]
+                      "byteLength": 3
                     },
                     "repeats": false
                   },
@@ -7461,15 +7456,7 @@
                     "content": {
                       "kind": "bytes",
                       "byteLength": 32,
-                      "byteLengthSource": "parse:WAWebRetryRequestParser",
-                      "argPath": [
-                        {
-                          "key": "keyPair"
-                        },
-                        {
-                          "key": "pubKey"
-                        }
-                      ]
+                      "byteLengthSource": "parse:WAWebRetryRequestParser"
                     },
                     "repeats": false
                   }
@@ -9164,12 +9151,7 @@
                     "children": [],
                     "content": {
                       "kind": "bytes",
-                      "byteLength": 3,
-                      "argPath": [
-                        {
-                          "key": "keyId"
-                        }
-                      ]
+                      "byteLength": 3
                     },
                     "repeats": false
                   },
@@ -9180,15 +9162,7 @@
                     "content": {
                       "kind": "bytes",
                       "byteLength": 32,
-                      "byteLengthSource": "parse:WAWebRetryRequestParser",
-                      "argPath": [
-                        {
-                          "key": "keyPair"
-                        },
-                        {
-                          "key": "pubKey"
-                        }
-                      ]
+                      "byteLengthSource": "parse:WAWebRetryRequestParser"
                     },
                     "repeats": false
                   }
@@ -45951,7 +45925,13 @@
                       }
                     ],
                     "children": [],
-                    "repeats": true
+                    "repeats": true,
+                    "argPath": [
+                      {
+                        "key": "categories",
+                        "list": true
+                      }
+                    ]
                   }
                 ],
                 "repeats": false
@@ -46009,7 +45989,13 @@
                     "tag": "service_area",
                     "attrs": [],
                     "children": [],
-                    "repeats": true
+                    "repeats": true,
+                    "argPath": [
+                      {
+                        "key": "serviceAreas",
+                        "list": true
+                      }
+                    ]
                   },
                   {
                     "tag": "area_description",
@@ -46018,31 +46004,61 @@
                     "content": {
                       "kind": "dynamic"
                     },
-                    "repeats": true
+                    "repeats": true,
+                    "argPath": [
+                      {
+                        "key": "serviceAreas",
+                        "list": true
+                      }
+                    ]
                   },
                   {
                     "tag": "area_radius_meters",
                     "attrs": [],
                     "children": [],
-                    "repeats": true
+                    "repeats": true,
+                    "argPath": [
+                      {
+                        "key": "serviceAreas",
+                        "list": true
+                      }
+                    ]
                   },
                   {
                     "tag": "area_center",
                     "attrs": [],
                     "children": [],
-                    "repeats": true
+                    "repeats": true,
+                    "argPath": [
+                      {
+                        "key": "serviceAreas",
+                        "list": true
+                      }
+                    ]
                   },
                   {
                     "tag": "latitude",
                     "attrs": [],
                     "children": [],
-                    "repeats": true
+                    "repeats": true,
+                    "argPath": [
+                      {
+                        "key": "serviceAreas",
+                        "list": true
+                      }
+                    ]
                   },
                   {
                     "tag": "longitude",
                     "attrs": [],
                     "children": [],
-                    "repeats": true
+                    "repeats": true,
+                    "argPath": [
+                      {
+                        "key": "serviceAreas",
+                        "list": true
+                      }
+                    ]
                   }
                 ],
                 "repeats": false
@@ -46311,13 +46327,25 @@
                 "tag": "product",
                 "attrs": [],
                 "children": [],
-                "repeats": true
+                "repeats": true,
+                "argPath": [
+                  {
+                    "key": "productIds",
+                    "list": true
+                  }
+                ]
               },
               {
                 "tag": "id",
                 "attrs": [],
                 "children": [],
-                "repeats": true
+                "repeats": true,
+                "argPath": [
+                  {
+                    "key": "productIds",
+                    "list": true
+                  }
+                ]
               }
             ],
             "repeats": false
@@ -101274,12 +101302,7 @@
                   {
                     "name": "name",
                     "kind": "string",
-                    "required": true,
-                    "argPath": [
-                      {
-                        "key": "collection"
-                      }
-                    ]
+                    "required": true
                   },
                   {
                     "name": "return_snapshot",
@@ -101289,12 +101312,7 @@
                   {
                     "name": "version",
                     "kind": "integer",
-                    "required": true,
-                    "argPath": [
-                      {
-                        "key": "version"
-                      }
-                    ]
+                    "required": true
                   }
                 ],
                 "children": [

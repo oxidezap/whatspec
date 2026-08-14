@@ -755,6 +755,23 @@ mod tests {
     }
 
     #[test]
+    fn merge_children_keeps_an_explicitly_unbounded_maximum_open() {
+        // A minimum with no maximum is the contract's *stated* unbounded range (WA's
+        // `1/0`), not a half-filled pair. Taking a fragment's finite ceiling would cap a
+        // list the destination's own call site left open, so bounds move together or not
+        // at all.
+        let mut into = vec![node("participant", &[], vec![])];
+        into[0].repeats = true;
+        into[0].repeat_min = Some(1);
+        let mut frag = node("participant", &[], vec![]);
+        frag.repeats = true;
+        frag.repeat_min = Some(0);
+        frag.repeat_max = Some(10);
+        merge_children(&mut into, &[frag]);
+        assert_eq!((into[0].repeat_min, into[0].repeat_max), (Some(1), None));
+    }
+
+    #[test]
     fn merge_children_never_weakens_a_required_destination() {
         // `Required` is a real state AND the serde default, so a fill-if-empty test on
         // `presence` cannot tell "unconditional" from "unclassified". A child that some

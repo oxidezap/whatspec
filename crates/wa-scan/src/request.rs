@@ -354,11 +354,18 @@ fn param_names(params: &oxc_ast::ast::FormalParameters) -> Vec<String> {
     if params.rest.is_some() {
         return Vec::new();
     }
-    params
-        .items
-        .iter()
-        .filter_map(|p| p.pattern.get_identifier_name().map(|n| n.to_string()))
-        .collect()
+    // Every formal must be a plain binding, or the list is abandoned entirely. Silently
+    // skipping a destructured one changes the apparent ARITY — `function f(e, {x})`
+    // would read as a single-argument builder and publish `e`'s keys as though they
+    // addressed the only options object.
+    let mut names = Vec::with_capacity(params.items.len());
+    for p in &params.items {
+        match p.pattern.get_identifier_name() {
+            Some(n) => names.push(n.to_string()),
+            None => return Vec::new(),
+        }
+    }
+    names
 }
 
 fn fn_body_span(f: &Function) -> Option<(usize, usize)> {
@@ -431,6 +438,30 @@ fn helper_prefix(
 ) -> Option<WapArgPath> {
     let e = call.arguments.first().and_then(arg_expr)?;
     relative_arg_path(e, scope, module_source, ref_off, 0)
+}
+
+/// Enforce the argument-object boundary at a request root: a builder that does not take
+/// exactly one options object publishes NO argument paths.
+///
+/// Paths resolved directly in such a frame are already absent — there is no root to
+/// resolve against. What this catches is the ones that arrive from elsewhere: a subtree
+/// inlined from a cross-module helper or a `.map()` mapper carries paths relative to
+/// ITS OWN parameter, and a two-parameter builder like
+/// `function f(e, t){ … wap("sync", null, e.map(g)) }` cannot name what it passed, so
+/// those paths would surface as though they addressed the request's arguments. The
+/// legacy `WAWeb*Job` family is exactly this shape.
+///
+/// Applied at the root rather than inside the resolver because only the root knows it is
+/// a request: the same "cannot name it" state inside a mixin's `merge(dst, args)` is not
+/// a failure at all — [`apply_contribution`] prefixes that contribution at the merge site.
+pub(crate) fn enforce_argument_boundary(
+    children: &mut [WapChildNode],
+    scope: &VarScope,
+    builder_off: usize,
+) {
+    if scope.arg_root_at(builder_off).is_none() {
+        clear_arg_paths(children);
+    }
 }
 
 /// Drop every argument path in a subtree. Used where a subtree's paths are relative to a
@@ -577,21 +608,93 @@ fn relative_arg_path(
         return found;
     }
 
-    // `cond ? a : b` — recoverable only when both branches read the SAME argument
-    // (the common `x != null ? x : default` shape). Divergent branches are ambiguous:
-    // one path cannot describe two sources, so report nothing rather than pick.
+    // `cond ? a : b`. Both arms reading the SAME argument is one address. Divergent arms
+    // are two, and one path cannot describe two sources.
+    //
+    // A one-sided result is only safe when the other arm is not a source at all — the
+    // `cond ? CUSTOM_STRING(e.value) : DROP_ATTR` shape, where the alternate is a module
+    // constant. An arm that MENTIONS the argument root but failed to resolve
+    // (`flag ? e.primary : e.values[i]`, where computed access has no static key) is a
+    // real alternative the resolver merely could not read, and publishing the arm that
+    // did read points a consumer at a source the builder may not use.
     if let Expression::ConditionalExpression(c) = e {
-        let a = relative_arg_path(&c.consequent, scope, module_source, ref_off, depth + 1);
-        let b = relative_arg_path(&c.alternate, scope, module_source, ref_off, depth + 1);
+        let arm = |x| relative_arg_path(x, scope, module_source, ref_off, depth + 1);
+        let (a, b) = (arm(&c.consequent), arm(&c.alternate));
         return match (a, b) {
             (Some(x), Some(y)) if x == y => Some(x),
-            (Some(x), None) => Some(x),
-            (None, Some(y)) => Some(y),
+            (Some(x), None) if !mentions(&c.alternate, root) => Some(x),
+            (None, Some(y)) if !mentions(&c.consequent, root) => Some(y),
             _ => None,
         };
     }
 
     None
+}
+
+/// Rebase a template's or mapper's subtree onto the caller's frame, and return the path
+/// the caller handed it.
+///
+/// `arg` is the expression the combinator passed (a `REPEATED_CHILD` list, an
+/// `OPTIONAL_CHILD` argument object, a `.map()` receiver); `list` marks that path's last
+/// segment as the one a consumer indexes.
+///
+/// The three outcomes match the cross-module helper's, for the same reason — the callee
+/// resolved its paths against its own parameter and only the call site knows what that
+/// was:
+///
+/// - the argument names a path → prefix, and that path is the node's own;
+/// - it does not, and the caller HAS an argument object → the subtree's paths are
+///   relative to something this frame cannot name, so they are cleared. Left alone they
+///   read as top-level addresses into the request's arguments, which is what published
+///   `collection`/`version` on a mapped `<collection>` as though a consumer should write
+///   them at the root;
+/// - it does not, and the caller has no argument object → a mixin's `merge(dst, args)`
+///   frame, where nothing can be said. [`apply_contribution`] prefixes the whole
+///   contribution at the merge site that knows.
+fn rebase_template(
+    nodes: &mut [WapChildNode],
+    arg: Option<&Expression>,
+    list: bool,
+    scope: &VarScope,
+    module_source: &str,
+    ref_off: Option<usize>,
+) -> Option<WapArgPath> {
+    let path = arg
+        .and_then(|e| relative_arg_path(e, scope, module_source, ref_off, 0))
+        .filter(|p| !p.is_empty())
+        .map(|mut p| {
+            if list && let Some(last) = p.last_mut() {
+                last.list = true;
+            }
+            p
+        });
+    match path.as_deref() {
+        Some(prefix) => prefix_arg_paths(nodes, prefix),
+        None if ref_off.and_then(|o| scope.arg_root_at(o)).is_some() => clear_arg_paths(nodes),
+        None => {}
+    }
+    path
+}
+
+/// Whether an expression references `root` anywhere — the identifier that names the
+/// enclosing frame's argument object.
+///
+/// Used to tell "this arm reads no argument" from "this arm reads one the resolver could
+/// not spell out". Textual over the expression's own source rather than an AST walk,
+/// because the callers hold a re-parsed slice whose spans do not index the module.
+fn mentions(e: &Expression, root: &str) -> bool {
+    struct Finder<'a> {
+        root: &'a str,
+        found: bool,
+    }
+    impl<'a> Visit<'a> for Finder<'_> {
+        fn visit_identifier_reference(&mut self, id: &oxc_ast::ast::IdentifierReference<'a>) {
+            self.found = self.found || id.name == self.root;
+        }
+    }
+    let mut f = Finder { root, found: false };
+    f.visit_expression(e);
+    f.found
 }
 
 /// Fill in `arg_path` on each attribute of a node whose attrs came from `attrs_node`.
@@ -794,6 +897,7 @@ pub(crate) fn resolve_child_node(
                         contributions,
                         helpers,
                         depth,
+                        ref_off,
                     ) {
                         return m;
                     }
@@ -827,6 +931,7 @@ pub(crate) fn resolve_child_node(
         contributions,
         helpers,
         depth,
+        ref_off,
     ) {
         return m;
     }
@@ -868,40 +973,29 @@ pub(crate) fn resolve_child_node(
             // HAS_OPTIONAL_CHILD. It is therefore both this node's own argument path
             // and the prefix that turns the template's self-relative paths absolute —
             // the template resolved above knows nothing about where it was called from.
-            let node_path = call
-                .arguments
-                .get(1)
-                .and_then(arg_expr)
-                .and_then(|e| relative_arg_path(e, scope, module_source, ref_off, 0))
-                .filter(|p| !p.is_empty());
+            //
+            // `[]` marks the ONE segment a consumer must index: REPEATED_CHILD calls the
+            // template once per element, so everything the template reads lives on an
+            // element. OPTIONAL_CHILD hands the object over whole and gets no marker —
+            // the same suffix in the wrong place writes the value where the vendor
+            // builder never reads it.
+            let node_path = rebase_template(
+                &mut r,
+                call.arguments.get(1).and_then(arg_expr),
+                repeated,
+                scope,
+                module_source,
+                ref_off,
+            );
             if repeated {
-                // `[]` marks the ONE segment a consumer must index: REPEATED_CHILD calls
-                // the template once per element, so everything the template reads lives
-                // on an element. OPTIONAL_CHILD hands the object over whole and gets no
-                // marker — the same suffix in the wrong place writes the value where the
-                // vendor builder never reads it.
                 let (min, max) = repeat_bounds(call);
-                let listed = node_path.map(|mut p| {
-                    if let Some(last) = p.last_mut() {
-                        last.list = true;
-                    }
-                    p
-                });
-                if let Some(prefix) = listed.as_deref() {
-                    prefix_arg_paths(&mut r, prefix);
-                }
                 for c in &mut r {
                     c.repeats = true;
                     c.repeat_min = min;
                     c.repeat_max = max;
-                    c.arg_path = listed.clone();
+                    c.arg_path = node_path.clone();
                 }
             } else {
-                if let Some(prefix) = node_path.as_deref()
-                    && optional
-                {
-                    prefix_arg_paths(&mut r, prefix);
-                }
                 for c in &mut r {
                     c.presence = if optional {
                         WapChildPresence::Optional
@@ -1216,8 +1310,14 @@ pub(crate) fn adopt_builder_facts(d: &mut WapChildNode, src: &WapChildNode) {
     if d.content.is_none() {
         d.content = src.content.clone();
     }
-    d.repeat_min = d.repeat_min.or(src.repeat_min);
-    d.repeat_max = d.repeat_max.or(src.repeat_max);
+    // Bounds move together or not at all. A destination with a minimum and no maximum is
+    // the contract's *explicit* unbounded range (WA's `1/0`), not a half-filled one, so
+    // taking a fragment's finite ceiling would quietly cap a list its own call site left
+    // open. Only a destination that states no bound at all can adopt one.
+    if d.repeat_min.is_none() && d.repeat_max.is_none() {
+        d.repeat_min = src.repeat_min;
+        d.repeat_max = src.repeat_max;
+    }
     if d.arg_path.is_none() {
         d.arg_path = src.arg_path.clone();
     }
@@ -1300,6 +1400,7 @@ fn resolve_map_call(
     contributions: Option<&MixinContributions>,
     helpers: &HelperIndex,
     depth: u32,
+    ref_off: Option<usize>,
 ) -> Option<Vec<WapChildNode>> {
     let call = as_call(node)?;
     if callee_method(call)? != "map" {
@@ -1327,8 +1428,22 @@ fn resolve_map_call(
     if children.is_empty() {
         return None;
     }
+    // The mapper reads one ELEMENT of the receiver, so its paths are relative to that
+    // element and the receiver is their prefix — the same rebasing a `REPEATED_CHILD`
+    // template needs, and for the same reason. Without it a mapped `<collection>`
+    // published `collection`/`version` as though a consumer wrote them at the root of the
+    // request's arguments.
+    let list_path = rebase_template(
+        &mut children,
+        callee_object(call),
+        true,
+        scope,
+        module_source,
+        ref_off,
+    );
     for c in &mut children {
         c.repeats = true;
+        c.arg_path = list_path.clone();
     }
     Some(children)
 }
@@ -2293,6 +2408,92 @@ mod tests {
         let out = resolve_builder_with(code, "b", &indexed_user_helper());
         let u = out.iter().find(|c| c.tag == "user").expect("user");
         assert!(u.attrs[0].arg_path.is_none(), "{:?}", u.attrs[0]);
+    }
+
+    #[test]
+    fn a_conditional_arm_that_reads_an_argument_makes_it_ambiguous() {
+        // `cond ? e.primary : e.values[i]` — the second arm has no static key, so the
+        // resolver cannot spell it out, but it plainly READS an argument and may be the
+        // one the builder uses. Publishing the arm that resolved points a consumer at a
+        // source that is only sometimes right.
+        let code = r#"
+            function b(e){ return o("WASmaxJsx").smax("iq", null,
+              o("WASmaxJsx").smax("x", {v: e.flag ? e.primary : e.values[i]})); }
+        "#;
+        let out = resolve_builder(code, "b");
+        let n = out.iter().find(|c| c.tag == "x").expect("x");
+        assert!(n.attrs[0].arg_path.is_none(), "{:?}", n.attrs[0]);
+    }
+
+    #[test]
+    fn a_conditional_against_a_constant_keeps_the_resolved_arm() {
+        // The shape WA actually writes: a value or `DROP_ATTR`. The alternate names no
+        // argument at all, so it is not a second source and the one path stands.
+        let code = r#"
+            function b(e){ return o("WASmaxJsx").smax("iq", null,
+              o("WASmaxJsx").smax("x", {v: e.kind === "s" ? o("WAWap").CUSTOM_STRING(e.stamp) : o("WAWap").DROP_ATTR})); }
+        "#;
+        let out = resolve_builder(code, "b");
+        let n = out.iter().find(|c| c.tag == "x").expect("x");
+        assert_eq!(
+            path_of(&n.attrs[0].arg_path),
+            vec![("stamp".to_string(), false)]
+        );
+    }
+
+    #[test]
+    fn a_destructured_parameter_does_not_shrink_the_arity() {
+        // `function f(e, {x})` has two formals. Skipping the pattern would leave one name
+        // behind and make `e` look like the sole options object, publishing its keys as
+        // addresses into an argument list that has two positions.
+        let code = r#"
+            function b(e, {x}){ return o("WAWap").wap("iq", null,
+              o("WAWap").wap("u", {jid: e.jid})); }
+        "#;
+        let out = resolve_builder(code, "b");
+        let u = out.iter().find(|c| c.tag == "u").expect("u");
+        assert!(u.attrs[0].arg_path.is_none(), "{:?}", u.attrs[0]);
+    }
+
+    #[test]
+    fn an_optional_child_handed_something_unnameable_keeps_nothing() {
+        // The template's paths are relative to the object literal, which this frame
+        // cannot name. Left alone they read as addresses into the request's own
+        // arguments — `jid` rather than `userArgs → jid`.
+        let code = r#"
+            function t(e){ return o("WASmaxJsx").smax("u", {jid: o("WAWap").JID(e.jid)}); }
+            function b(e){ return o("WASmaxJsx").smax("iq", null,
+              o("WASmaxChildren").OPTIONAL_CHILD(t, {jid: e.userJid})); }
+        "#;
+        let out = resolve_builder(code, "b");
+        let u = out.iter().find(|c| c.tag == "u").expect("u");
+        assert!(
+            u.arg_path.is_none() && u.attrs[0].arg_path.is_none(),
+            "{u:?}"
+        );
+    }
+
+    #[test]
+    fn a_map_mapper_is_rebased_onto_its_receiver() {
+        // `.map()` reads one element of the receiver, so the receiver is the list and the
+        // mapper's keys hang off an element — the same shape as `REPEATED_CHILD`.
+        let code = r#"
+            function b(e){ var l = e.productIds;
+              return o("WAWap").wap("iq", null, o("WAWap").wap("list", null,
+                l.map(function(e){ return o("WAWap").wap("product", {id: e.productId}); }))); }
+        "#;
+        let out = resolve_builder(code, "b");
+        let p = out
+            .iter()
+            .flat_map(|c| std::iter::once(c).chain(c.children.iter()))
+            .find(|c| c.tag == "product")
+            .expect("product");
+        assert!(p.repeats);
+        assert_eq!(
+            path_of(&p.arg_path),
+            vec![("productIds".to_string(), true)],
+            "the node addresses the list it is mapped over"
+        );
     }
 
     #[test]

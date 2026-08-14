@@ -22,7 +22,7 @@ use crate::alias::{AliasMap, build_alias_map};
 use crate::attrs::{extract_attrs_from_obj, parse_wap_call};
 use crate::enum_link::EnumResolver;
 use crate::helper_index::HelperIndex;
-use crate::request::{VarScope, build_var_scope, resolve_child_node};
+use crate::request::{VarScope, build_var_scope, enforce_argument_boundary, resolve_child_node};
 
 /// The outgoing stanzas this scanner recognizes, by top-level tag. IQ has its own
 /// path; the incoming dispatch side comes later.
@@ -244,6 +244,9 @@ impl<'a> Visit<'a> for StanzaCollector<'_> {
                         // for scoped-initializer (`owner_fn`) checks.
                         Some(ce.span().start as usize),
                     ));
+                    // See `try_iq_call`: a builder with no single options object
+                    // publishes no paths, inlined subtrees included.
+                    enforce_argument_boundary(&mut children, self.scope, ce.span().start as usize);
                 }
             }
             self.out.push(StanzaDef {
