@@ -18,7 +18,7 @@
 
 use std::collections::HashMap;
 
-use oxc_ast::ast::{AssignmentExpression, Expression};
+use oxc_ast::ast::{AssignmentExpression, Expression, VariableDeclarator};
 use oxc_ast_visit::{Visit, walk};
 
 use wa_oxc::{arg_expr, as_call, as_identifier, as_string_lit, assignment_target_name};
@@ -108,6 +108,21 @@ impl<'a> Visit<'a> for AliasBuilder {
         }
         walk::walk_assignment_expression(self, assign);
     }
+
+    fn visit_variable_declarator(&mut self, decl: &VariableDeclarator<'a>) {
+        // `var w = o("Owner")` — the same binding written as a declarator instead of an
+        // assignment. Minified modules use both spellings for the same thing, and the
+        // bundle really does contain the declarator form, so recognizing only
+        // `X = o(...)` leaves the identical code unresolved depending on how it was
+        // written.
+        if let Some(id) = decl.id.get_binding_identifier()
+            && let Some(init) = &decl.init
+            && let Some(owner) = require_owner(init)
+        {
+            self.map.map.insert(id.name.to_string(), owner);
+        }
+        walk::walk_variable_declarator(self, decl);
+    }
 }
 
 #[cfg(test)]
@@ -130,9 +145,22 @@ mod tests {
         );
         assert_eq!(m.owner_of("n"), Some("WASmaxJsx"));
         assert_eq!(m.owner_of("t"), Some("WASmaxAttrs"));
-        // `var w = o("WAWap")` is a declarator init, not an AssignmentExpression,
-        // so it is NOT captured here — resolve_owner handles `o("WAWap")` directly.
-        assert_eq!(m.owner_of("w"), None);
+        assert_eq!(m.owner_of("w"), Some("WAWap"));
+    }
+
+    #[test]
+    fn a_declarator_binding_is_the_same_alias_as_an_assignment() {
+        // The two spellings are the same code to a reader, so they must be the same
+        // code to the scanner: whether the server constant is reached through
+        // `(n = o("WAWap")).S_WHATSAPP_NET` or through a `var` bound earlier decides
+        // nothing about what the attribute means.
+        let m = aliases(r#"var w = o("WAWap"), q = o("WASmaxJsx");"#);
+        assert_eq!(m.owner_of("w"), Some("WAWap"));
+        assert_eq!(m.owner_of("q"), Some("WASmaxJsx"));
+
+        // Still only the tracked owners, and still nothing for a non-require init.
+        let m = aliases(r#"var w = o("WAWebSomethingElse"), v = someObject;"#);
+        assert!(m.is_empty());
     }
 
     #[test]

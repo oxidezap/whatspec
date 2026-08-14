@@ -787,6 +787,32 @@ mod tests {
     }
 
     #[test]
+    fn the_alias_spelling_does_not_decide_whether_the_server_is_recognised() {
+        // The same constant reached three ways: through the require call, through an
+        // inline `(n = o("WAWap"))`, and through a `var` bound earlier. All three are one
+        // address in the source, so all three must be `Server` here — otherwise the IR's
+        // answer depends on how the minifier happened to spell the binding, and the
+        // `to`-is-honest rule turns into a coin flip.
+        let m = r#"__d("WAWebAliased",["WADeprecatedSendIq","WAWap"],function(g,r,d,o,e,i){
+            var w = o("WAWap"), n;
+            e.a = function(){ return i.wap("iq", { to: r("WAWap").S_WHATSAPP_NET, xmlns: "w:a", type: "get" }); };
+            e.b = function(){ return (n = o("WAWap")).wap("iq", { to: n.S_WHATSAPP_NET, xmlns: "w:b", type: "get" }); };
+            e.c = function(){ return i.wap("iq", { to: w.S_WHATSAPP_NET, xmlns: "w:c", type: "get" }); };
+        });"#;
+        let mut s = scan_module_source(m, &mi(), &ri(), &hi());
+        s.sort_by(|a, b| a.namespace.cmp(&b.namespace));
+        assert_eq!(s.len(), 3);
+        for st in &s {
+            assert_eq!(
+                st.target,
+                IqTarget::Server,
+                "{} reads the same constant as the others",
+                st.namespace
+            );
+        }
+    }
+
+    #[test]
     fn a_server_constant_from_an_unrelated_module_is_not_an_address() {
         // The gate on the owner: `X.S_WHATSAPP_NET` only names the server when `X` is
         // `WAWap`. A same-named property of anything else stays unresolved rather than
