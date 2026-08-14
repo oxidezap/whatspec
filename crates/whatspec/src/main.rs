@@ -1884,11 +1884,16 @@ fn build_artifacts(wa_version: &str, source: &str) -> Result<(Vec<Artifact>, Cou
             &srvreq_arts,
         ],
     )?;
+    // After the merge, never before: a shifted enum that exists only as an inline
+    // reference is not in the catalog until `merge_referenced_enums` puts it there, and
+    // marking first would publish it as an ordinary code table.
+    wa_enums::mark_bit_position_enums(&mut enums_ir, source);
     let enums_count = enums_ir.enums.len();
+    let bit_position = enums_ir.enums.iter().filter(|e| e.bit_position).count();
     eprintln!(
         "enums: {enums_count} definitions ({} promoted from inline references, \
-         {} referenced pair(s) disagreed with the catalog)",
-        enum_merge.promoted, enum_merge.divergent,
+         {bit_position} bit-position)",
+        enum_merge.promoted,
     );
     let enums_arts = vec![
         Artifact {
@@ -2683,10 +2688,6 @@ fn push_abprops(
 struct EnumMergeStat {
     /// Enums referenced inline that the catalog did not have, now in it.
     promoted: usize,
-    /// Referenced `(module, name)` pairs whose inline variants disagree with the
-    /// catalog's. The definition wins; the count exists so a disagreement cannot be
-    /// silent — it means one of the two extraction paths is reading the enum wrong.
-    divergent: usize,
 }
 
 /// Fold every enum referenced inline by a domain document into the catalog, so
@@ -2716,21 +2717,6 @@ fn merge_referenced_enums<'a>(
             collect_enum_refs(&doc, &mut refs, &mut conflicts);
         }
     }
-    // Two live references to one `(module, name)` that disagree mean the key is not the
-    // identity it is documented to be, so the catalog cannot be built from it at all.
-    // Fatal rather than counted: every downstream guarantee — one index, one key, every
-    // reference resolving — rests on this holding, and there is no correct entry to
-    // publish when it does not.
-    if !conflicts.is_empty() {
-        conflicts.sort();
-        conflicts.dedup();
-        anyhow::bail!(
-            "{} enum reference(s) disagree on their variants under one (module, name): {}. \
-             The catalog key is not an identity for these, so no entry is correct.",
-            conflicts.len(),
-            conflicts.join(", "),
-        );
-    }
     let mut stat = EnumMergeStat::default();
     let known: std::collections::HashMap<(&str, &str), &wa_ir::InternalEnumDef> = ir
         .enums
@@ -2740,9 +2726,14 @@ fn merge_referenced_enums<'a>(
     let mut promoted = Vec::new();
     for ((module, name), variants) in &refs {
         match known.get(&(module.as_str(), name.as_str())) {
+            // A definition and a live reference to it that name different value sets.
+            // Fatal for the same reason two disagreeing references are: publishing the
+            // definition would leave a consumer resolving through the catalog with a
+            // different closed set from one reading the reference in place, and the
+            // resolution check cannot see it because the key is present either way.
             Some(def) => {
                 if def.variants != *variants {
-                    stat.divergent += 1;
+                    conflicts.push(format!("{module}.{name}"));
                 }
             }
             None => promoted.push(wa_ir::InternalEnumDef::new(
@@ -2755,6 +2746,23 @@ fn merge_referenced_enums<'a>(
                 variants.clone(),
             )),
         }
+    }
+    // Two live sites naming one `(module, name)` with different value sets — whether two
+    // references or a reference and the definition — mean the key is not the identity it
+    // is documented to be, so the catalog cannot be built from it at all. Fatal rather
+    // than counted: every downstream guarantee (one index, one key, every reference
+    // resolving) rests on this holding, and there is no correct entry to publish when it
+    // does not. The resolution lint cannot catch it either — the key is present whichever
+    // set is published.
+    if !conflicts.is_empty() {
+        conflicts.sort();
+        conflicts.dedup();
+        anyhow::bail!(
+            "{} enum(s) named under one (module, name) with different variants: {}. \
+             The catalog key is not an identity for these, so no entry is correct.",
+            conflicts.len(),
+            conflicts.join(", "),
+        );
     }
     stat.promoted = promoted.len();
     ir.enums.extend(promoted);
@@ -2822,9 +2830,11 @@ fn scan_enums(
     source: &str,
     module_defs: &[wa_transform::ModuleDefinition],
 ) -> Result<wa_ir::EnumsIr> {
-    let mut ir = wa_enums::extract_enums_from_modules(source, module_defs, wa_version);
-    wa_enums::mark_bit_position_enums(&mut ir, source);
-    Ok(ir)
+    Ok(wa_enums::extract_enums_from_modules(
+        source,
+        module_defs,
+        wa_version,
+    ))
 }
 
 /// `(notification types, types with a recovered typed content shape)`.

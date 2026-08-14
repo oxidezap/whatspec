@@ -632,8 +632,8 @@ pub struct ParsedField {
     ///
     /// [`byte_length`]: ParsedField::byte_length
     ///
-    /// [`required`] tells the two pinning forms apart, and the difference matters to an
-    /// emitter: a **required** literal (`literal`) is a hard discriminator — the
+    /// [`parser_required`] tells the two pinning forms apart, and the difference matters
+    /// to an emitter: a **required** literal (`literal`) is a hard discriminator — the
     /// attribute MUST be present and equal to this value or the variant does not match;
     /// an **optional** one (`optionalLiteral`) is pinned only when present — the emitter
     /// may omit the attribute, but must never send a contradicting value.
@@ -645,7 +645,7 @@ pub struct ParsedField {
     /// pin constrains that attribute when present, and never the boolean itself.
     ///
     /// [`field_type`]: ParsedField::field_type
-    /// [`required`]: ParsedField::required
+    /// [`parser_required`]: ParsedField::parser_required
     /// [`wire_name`]: ParsedField::wire_name
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub literal_value: Option<String>,

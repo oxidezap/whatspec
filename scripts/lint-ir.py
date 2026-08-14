@@ -701,7 +701,7 @@ def check_enum_catalog_refs(data, domain, errors):
     walk(data, visit)
 
 
-def collect_catalog_keys(path):
+def collect_catalog_keys(path, errors):
     """`(module, name)` for every entry in the enum catalog, and the collisions in it.
 
     Returns `(keys, duplicates)`. The key is the PAIR: four names in the catalog are
@@ -711,13 +711,31 @@ def collect_catalog_keys(path):
     """
     try:
         data = json.loads(path.read_text())
-    except (OSError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError) as e:
+        # Not "nothing to check" — the worst case. Every `enumRef` in every other domain
+        # resolves against this file, so an unreadable one means the reference check
+        # cannot run at all; returning quietly would print "internally consistent" over a
+        # document whose every enum reference is unverified.
+        errors.append(
+            f"enums: the catalog at {path} cannot be read ({e}) — every enumRef in "
+            f"every domain resolves against it, so the reference check cannot run"
+        )
         return None, []
     keys, dupes = set(), []
     for e in data.get("enums") or []:
         if not isinstance(e, dict):
             continue
-        k = (e.get("module"), e.get("name"))
+        # A non-string identity is not a key. Guarded before it reaches a tuple, both
+        # because an unhashable `dict`/`list` would abort the linter with a TypeError
+        # instead of reporting the document, and because the report is the point.
+        module, name = e.get("module"), e.get("name")
+        if not isinstance(module, str) or not isinstance(name, str):
+            errors.append(
+                f"enums: an entry identifies itself as ({module!r}, {name!r}), which is "
+                f"not a (module, name) pair — nothing can reference it"
+            )
+            continue
+        k = (module, name)
         if k in keys:
             dupes.append(k)
         keys.add(k)
@@ -740,10 +758,17 @@ def check_catalog_resolution(data, domain, catalog_keys, errors):
         ref = node.get("enumRef")
         if not isinstance(ref, dict):
             return
-        key = (ref.get("module"), ref.get("name"))
+        module, name = ref.get("module"), ref.get("name")
+        if not isinstance(module, str) or not isinstance(name, str):
+            errors.append(
+                f"{domain}{path}/enumRef: names ({module!r}, {name!r}), which is not a "
+                f"(module, name) pair"
+            )
+            return
+        key = (module, name)
         if key not in catalog_keys:
             errors.append(
-                f"{domain}{path}/enumRef: {key[0]}.{key[1]} resolves against no catalog "
+                f"{domain}{path}/enumRef: {module}.{name} resolves against no catalog "
                 f"entry — a consumer indexing enums/index.json cannot generate this type"
             )
 
@@ -760,7 +785,8 @@ def count_unresolved_targets(data, domain, counts):
     if domain != "iq":
         return
     for st in data.get("stanzas") or []:
-        if isinstance(st, dict) and st.get("target") in UNRESOLVED_TARGETS:
+        if isinstance(st, dict) and isinstance(st.get("target"), str) \
+                and st["target"] in UNRESOLVED_TARGETS:
             counts["iq request with no resolved addressee"] += 1
 
 
@@ -1277,7 +1303,7 @@ def main() -> int:
     # nothing is not a constraint — it only looks like one because the string is present,
     # and the schema accepts any string.
     # The one index every `enumRef` in every domain has to resolve against.
-    catalog_keys, catalog_dupes = collect_catalog_keys(root / "enums" / "index.json")
+    catalog_keys, catalog_dupes = collect_catalog_keys(root / "enums" / "index.json", errors)
     for m, n in catalog_dupes:
         errors.append(
             f"enums: ({m}, {n}) is defined more than once — (module, name) is the "

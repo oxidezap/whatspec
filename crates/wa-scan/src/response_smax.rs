@@ -1687,7 +1687,12 @@ fn collect_object_fields(
                     ..Default::default()
                 });
             }
-            Some(Binding::Fields(fields)) => {
+            // A container of nothing is not a container. A sub-parser whose result is
+            // `makeResult({})` resolves to an empty field list, and emitting it would
+            // publish a `node` with `children: []` — a field that declares it IS its
+            // children and then has none, which `scripts/lint-ir.py` rejects. Dropping it
+            // loses nothing: there is no shape under it to lose.
+            Some(Binding::Fields(fields)) if !fields.is_empty() => {
                 // A payload mixin / sub-parser referenced as `{ key: M.value }`: the
                 // JS object shape nests M's fields under `key`, so model it as a
                 // nested field. `same_node` marks that the children read off the

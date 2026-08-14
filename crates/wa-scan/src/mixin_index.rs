@@ -45,7 +45,10 @@ pub(crate) struct MixinIqFragment {
     /// `type`: inline `type:"get"/"set"`, else inferred from the Get/Set token in
     /// the merge-fn name. `None` if neither.
     pub iq_type: Option<IqType>,
-    /// `to:"g.us"` → Group; otherwise (S_WHATSAPP_NET / absent) → Server.
+    /// Who the fragment's `to` addresses, read by the same rule as a request's own root
+    /// ([`crate::module::iq_target_from_to`]). `None` when the fragment writes no `to` at
+    /// all — distinct from [`IqTarget::Unknown`], which is a `to` that resolved to no
+    /// server.
     pub target: Option<IqTarget>,
     /// Other `WASmaxOut…` mixins this mixin folds in (by module name), in source
     /// order with duplicates removed — for transitive resolution (e.g. a Hack
@@ -540,6 +543,29 @@ mod tests {
             by_module.insert(k.to_string(), v.clone());
         }
         MixinIndex { by_module }
+    }
+
+    #[test]
+    fn target_union_prefers_group_then_any_resolved_addressee() {
+        // The union has three rules and every existing fixture leaves `target: None`, so
+        // none of them was exercised: `Group` wins outright, a resolved target replaces
+        // an unresolved one, and an unresolved one never displaces a resolved one. The
+        // last is the rule that matters — a fragment that writes a runtime JID must not
+        // erase a sibling fragment's `s.whatsapp.net`.
+        let with_target = |t: IqTarget| {
+            let mut f = frag(Some("x"), Some(IqType::Get), &[]);
+            f.target = Some(t);
+            f
+        };
+        for (first, second, want) in [
+            (IqTarget::Server, IqTarget::Group, IqTarget::Group),
+            (IqTarget::Unknown, IqTarget::Server, IqTarget::Server),
+            (IqTarget::Server, IqTarget::Unknown, IqTarget::Server),
+        ] {
+            let idx = index(&[("A", with_target(first)), ("B", with_target(second))]);
+            let (_, _, got) = resolve(&idx, &["A".into(), "B".into()]);
+            assert_eq!(got, Some(want), "{first:?} then {second:?}");
+        }
     }
 
     #[test]

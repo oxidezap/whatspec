@@ -178,20 +178,21 @@ pub fn scan_module_outcome(
             if iq.iq_type.is_none() {
                 iq.iq_type = mixin_resolved.1;
             }
-            // A `to` the local builder did not write may come from a fragment it folds
-            // in, and a fragment that addresses the group overrides a local server (the
-            // rule the previous Group-only upgrade encoded).
+            // The local builder's own `to` is the request's; a fragment only answers for
+            // one the request did not write. That ordering is what keeps
+            // `IqTarget::Unknown` meaning what its doc says — the addressee is a parameter
+            // of the call — instead of being quietly upgraded to whatever server some
+            // mixin happened to name.
             //
-            // The last arm before the default is the one that matters: an addressee
-            // NEITHER side wrote is `Unset`, but one that either side wrote and neither
-            // could resolve is `Unknown`, and collapsing the two would tell an emitter to
-            // send no `to` for a request that has one. The four newsletter requests are
-            // exactly that shape — `smax("iq", null, …)` locally, with
-            // `mergeNewsletterIQGetRequestMixin` supplying `to: WAWap.JID(x)`.
+            // The `Unknown` arm is the other half: an addressee NEITHER side wrote is
+            // `Unset`, but one that either side wrote and neither could resolve is
+            // `Unknown`. Collapsing them would tell an emitter to send no `to` for a
+            // request that has one — which is the shape of all four newsletter requests,
+            // `smax("iq", null, …)` locally with `mergeNewsletterIQGetRequestMixin`
+            // supplying `to: WAWap.JID(x)`.
             iq.target = Some(match (iq.target, mixin_resolved.2) {
-                (_, Some(IqTarget::Group)) => IqTarget::Group,
                 (Some(local), _) if local.is_resolved() => local,
-                (_, Some(from_mixin)) if from_mixin.is_resolved() => from_mixin,
+                (None, Some(from_mixin)) if from_mixin.is_resolved() => from_mixin,
                 (Some(IqTarget::Unknown), _) | (_, Some(IqTarget::Unknown)) => IqTarget::Unknown,
                 // Nothing wrote a `to` on either side. `iq_target_from_to` yields `None`
                 // for that, never `Unset`, so this is the only arm that can produce it.
