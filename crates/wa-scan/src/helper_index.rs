@@ -34,6 +34,19 @@ impl HelperIndex {
     }
 }
 
+#[cfg(test)]
+impl HelperIndex {
+    /// Seed one entry, so a test can exercise the cross-module branch of
+    /// [`crate::request::resolve_child_node`] without building a whole bundle.
+    pub(crate) fn with(module: &str, func: &str, tree: Vec<WapChildNode>) -> Self {
+        let mut index = HelperIndex::default();
+        index
+            .by_qualified_name
+            .insert(qualified(module, func), tree);
+        index
+    }
+}
+
 fn qualified(module: &str, func: &str) -> String {
     format!("{module}.{func}")
 }

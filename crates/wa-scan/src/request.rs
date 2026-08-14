@@ -157,14 +157,21 @@ struct VarInit {
 #[derive(Default)]
 pub(crate) struct VarScope {
     vars: HashMap<String, Vec<VarInit>>,
-    /// Every tracked function as `(body_start, body_end, first_parameter_name)`.
+    /// Every function as `(body_start, body_end, parameter_names)` — all of them, not
+    /// only the ones shaped like a builder.
     ///
-    /// A smax builder/template takes exactly one argument object, so the first
-    /// parameter *is* the argument root: every `var x = <param>.<key>` inside the body
-    /// names a path into it. Recorded here rather than derived from the body, because
-    /// the parameter list lives in the function header — outside the body span the
-    /// resolver re-parses.
-    fn_params: Vec<(usize, usize, String)>,
+    /// A smax builder/template takes exactly one argument object, so a lone parameter
+    /// *is* the argument root: every `var x = <param>.<key>` inside the body names a
+    /// path into it. Recorded here rather than derived from the body, because the
+    /// parameter list lives in the function header — outside the body span the resolver
+    /// re-parses.
+    ///
+    /// The zero- and many-parameter functions are recorded too, even though they have no
+    /// argument root, because their spans decide which declarations are lexically in
+    /// scope: a nested helper's locals sit inside its parent's byte range without being
+    /// in its scope, and a span list that skipped those functions could not tell the two
+    /// apart.
+    fn_params: Vec<(usize, usize, Vec<String>)>,
 }
 
 impl VarScope {
@@ -172,22 +179,40 @@ impl VarScope {
         self.vars.entry(name.to_string()).or_default().push(init);
     }
 
-    /// The argument-object parameter of the innermost tracked function containing
-    /// `off` — the root identifier a member chain must start at for it to be an
-    /// argument path. `None` when the offset is outside every tracked function, when
-    /// the context is unknown, or when the enclosing function takes no parameter (a
-    /// marker template like `function u(){ return smax("locked", null) }`, which reads
-    /// no arguments at all).
+    /// The innermost function whose body contains `off`, with its parameter names.
     ///
-    /// The innermost wins: a template function nested inside a builder shadows the
-    /// builder's own parameter, exactly as JS scoping does with the minifier's reused
-    /// single-letter names.
-    fn arg_root_at(&self, off: usize) -> Option<(usize, usize, &str)> {
+    /// The innermost wins: a template nested inside a builder shadows the builder's own
+    /// parameter, exactly as JS scoping does with the minifier's reused single letters.
+    fn innermost_fn(&self, off: usize) -> Option<(usize, usize, &Vec<String>)> {
         self.fn_params
             .iter()
             .filter(|(s, e, _)| *s <= off && off <= *e)
             .min_by_key(|(s, e, _)| e.saturating_sub(*s))
-            .map(|(s, e, name)| (*s, *e, name.as_str()))
+            .map(|(s, e, params)| (*s, *e, params))
+    }
+
+    /// The argument-object parameter of the innermost function containing `off` — the
+    /// root identifier a member chain must start at for it to be an argument path.
+    /// `None` outside every tracked function, when the context is unknown, or when the
+    /// enclosing function does not take exactly one parameter: a marker template
+    /// (`function u(){ return smax("locked", null) }`) reads no arguments at all, and a
+    /// multi-parameter function has no single argument object to address.
+    fn arg_root_at(&self, off: usize) -> Option<(usize, usize, &str)> {
+        let (s, e, params) = self.innermost_fn(off)?;
+        match params.as_slice() {
+            [only] => Some((s, e, only.as_str())),
+            _ => None,
+        }
+    }
+
+    /// Whether an initializer at `init_off` is written in the SAME function as `off`,
+    /// rather than merely inside its byte range. A nested helper's body lies within its
+    /// parent's span, so a range test alone lets `function h(e){ var x = e.inner }` count
+    /// as an initializer of the parent's own `x` — which, under the ambiguity rule,
+    /// silently drops the parent's valid path instead of merely picking the wrong one.
+    fn same_fn(&self, off: usize, init_off: usize) -> bool {
+        let span = |o| self.innermost_fn(o).map(|(s, e, _)| (s, e));
+        span(off) == span(init_off)
     }
 }
 
@@ -258,12 +283,11 @@ impl<'a> Visit<'a> for ScopeBuilder {
         let pushed = fn_body_span(func);
         if let Some(span) = pushed {
             self.fn_stack.push(span);
-            // The single argument object every smax builder/template takes. Recorded
-            // here because the parameter list is in the header, outside the body span
-            // the resolver later re-parses in isolation.
-            if let Some(param) = first_param_name(func) {
-                self.scope.fn_params.push((span.0, span.1, param));
-            }
+            // The parameter list lives in the header, outside the body span the
+            // resolver later re-parses in isolation, so it must be captured here.
+            self.scope
+                .fn_params
+                .push((span.0, span.1, param_names(&func.params)));
         }
         walk::walk_function(self, func, flags);
         if pushed.is_some() {
@@ -274,15 +298,15 @@ impl<'a> Visit<'a> for ScopeBuilder {
     fn visit_arrow_function_expression(&mut self, arrow: &ArrowFunctionExpression<'a>) {
         let span = (arrow.body.span.start as usize, arrow.body.span.end as usize);
         self.fn_stack.push(span);
-        // An arrow with one parameter is the same argument-object shape as the `function`
-        // form above and gets the same root, so the two spellings cannot diverge. Today's
-        // bundle is down-levelled to ES5 and contains no arrow inside any `WASmax*`
-        // module, so this recovers nothing yet; recording it here is what stops a build
-        // that stops down-levelling from dropping paths silently, with the loss visible
-        // only as a fall in the floor-guarded counts after the fact.
-        if let Some(param) = single_param_name(&arrow.params) {
-            self.scope.fn_params.push((span.0, span.1, param));
-        }
+        // An arrow is the same argument-object shape as the `function` form above and
+        // gets the same treatment, so the two spellings cannot diverge. Today's bundle is
+        // down-levelled to ES5 and contains no arrow inside any `WASmax*` module, so this
+        // recovers nothing yet; recording it is what stops a build that stops
+        // down-levelling from dropping paths silently, with the loss visible only as a
+        // fall in the floor-guarded counts after the fact.
+        self.scope
+            .fn_params
+            .push((span.0, span.1, param_names(&arrow.params)));
         walk::walk_arrow_function_expression(self, arrow);
         self.fn_stack.pop();
     }
@@ -313,34 +337,28 @@ impl<'a> Visit<'a> for ScopeBuilder {
     }
 }
 
-/// The argument-object parameter of a function that takes EXACTLY one — the smax
-/// builder/template shape (`function e(e){ var t = e.participantJid; … }`).
+/// A function's parameter names, in order — the frame's received values.
 ///
-/// The arity test is the structural definition of "has an argument object", and it is
-/// what keeps this honest across the two builder families in the IQ domain. Every
-/// `WASmaxOut*Request` builder takes one options object, so a path into it is a
-/// complete address. The legacy `WAWeb*Job` builders take positional parameters
-/// (`function(e, t)`); a path there would name a key without naming which parameter it
-/// hangs off, which reads like an address and is not one. Those requests get no path
-/// and are counted instead.
+/// Exactly one of them is the structural definition of "has an argument object"
+/// ([`VarScope::arg_root_at`]), and it is what keeps this honest across the two builder
+/// families in the IQ domain. Every `WASmaxOut*Request` builder takes one options
+/// object, so a path into it is a complete address. The legacy `WAWeb*Job` builders take
+/// positional parameters (`function(e, t)`); a path there would name a key without
+/// naming which parameter it hangs off, which reads like an address and is not one.
+/// Those requests get no path and are counted instead.
 ///
-/// `None` also for a zero-arg function — a presence-marker template reads no arguments
-/// at all — and for a destructuring pattern.
-fn single_param_name(params: &oxc_ast::ast::FormalParameters) -> Option<String> {
-    if params.items.len() != 1 || params.rest.is_some() {
-        return None;
+/// A rest parameter yields nothing at all: the arity is open, so no position is a fixed
+/// argument object. A destructuring pattern is skipped for the same reason — it names no
+/// single binding the resolver can root a chain at.
+fn param_names(params: &oxc_ast::ast::FormalParameters) -> Vec<String> {
+    if params.rest.is_some() {
+        return Vec::new();
     }
     params
         .items
-        .first()?
-        .pattern
-        .get_identifier_name()
-        .map(|n| n.to_string())
-}
-
-/// [`single_param_name`] for a `function` declaration/expression.
-fn first_param_name(f: &Function) -> Option<String> {
-    single_param_name(&f.params)
+        .iter()
+        .filter_map(|p| p.pattern.get_identifier_name().map(|n| n.to_string()))
+        .collect()
 }
 
 fn fn_body_span(f: &Function) -> Option<(usize, usize)> {
@@ -396,18 +414,23 @@ fn prefix_arg_paths(nodes: &mut [WapChildNode], prefix: &[WapArgSegment]) {
     }
 }
 
-/// The argument path of a call's `i`-th argument, when it names one — the prefix that
-/// turns the callee's self-relative paths absolute. `None` when the argument is absent
-/// or not addressable.
-fn call_arg_path(
+/// The prefix a helper call supplies for the subtree it returns: the argument path of
+/// its first argument.
+///
+/// The empty path is a RESULT, not a failure. `helper(e)` hands over the caller's whole
+/// argument object, so the callee's frame IS the caller's and the right prefix is
+/// nothing — prefixing with it is a no-op and the paths are already absolute. `None` is
+/// the different answer: the argument is absent or cannot be addressed at all
+/// (`helper({jid: e.userJid})`), so the subtree's paths cannot be made absolute. What a
+/// caller does with `None` differs by kind; see the two call sites.
+fn helper_prefix(
     call: &oxc_ast::ast::CallExpression,
-    i: usize,
     scope: &VarScope,
     module_source: &str,
     ref_off: Option<usize>,
 ) -> Option<WapArgPath> {
-    let e = call.arguments.get(i).and_then(arg_expr)?;
-    relative_arg_path(e, scope, module_source, ref_off, 0).filter(|p| !p.is_empty())
+    let e = call.arguments.first().and_then(arg_expr)?;
+    relative_arg_path(e, scope, module_source, ref_off, 0)
 }
 
 /// Drop every argument path in a subtree. Used where a subtree's paths are relative to a
@@ -456,7 +479,7 @@ fn relative_arg_path(
     if depth > MAX_ALIAS_DEPTH {
         return None;
     }
-    let (fn_start, fn_end, root) = scope.arg_root_at(ref_off?)?;
+    let (fn_start, _, root) = scope.arg_root_at(ref_off?)?;
 
     if let Expression::ParenthesizedExpression(p) = e {
         return relative_arg_path(&p.expression, scope, module_source, ref_off, depth);
@@ -476,7 +499,7 @@ fn relative_arg_path(
         let inits = scope.vars.get(name)?;
         let mut found: Option<WapArgPath> = None;
         for init in inits {
-            if init.init_start < fn_start || init.init_end > fn_end {
+            if !scope.same_fn(fn_start, init.init_start) {
                 continue;
             }
             if let Some((s, en)) = init.owner_fn
@@ -991,6 +1014,13 @@ pub(crate) fn resolve_child_node(
     // `REPEATED_CHILD` list or a mixin's argument object: without it `helper(e.userArgs)`
     // over a helper reading `arg.jid` publishes a bare `jid`, which reads as an absolute
     // address into the request's own arguments and is not one.
+    //
+    // Unaddressable argument: leave the paths, do NOT clear. A local helper is resolved
+    // in the same scope as its caller, and the case that matters is a mixin's
+    // `merge(dst, args)` calling `build(args)` — a two-parameter frame has no argument
+    // root, so nothing can be named here, and `apply_contribution` prefixes the whole
+    // contribution at the merge site that does know. Clearing instead destroys 63 correct
+    // paths. The cross-module branch below is the opposite case and does clear.
     if let Some(call) = as_call(node)
         && let Some(callee_name) = as_identifier(&call.callee)
         && let Some(inits) = scope.vars.get(callee_name)
@@ -1008,7 +1038,7 @@ pub(crate) fn resolve_child_node(
                     depth + 1,
                 );
                 if !r.is_empty() {
-                    if let Some(prefix) = call_arg_path(call, 0, scope, module_source, ref_off) {
+                    if let Some(prefix) = helper_prefix(call, scope, module_source, ref_off) {
                         prefix_arg_paths(&mut r, &prefix);
                     }
                     return r;
@@ -1023,14 +1053,17 @@ pub(crate) fn resolve_child_node(
     //
     // The index is built once per (module, fn) with no call site in view, so any path in
     // it is relative to that helper's own parameter and needs the same prefixing. When
-    // this call site's argument is not itself addressable, the subtree's paths are not
-    // absolute and are dropped rather than published as though they were.
+    // this call site's argument is not itself addressable, the paths are dropped rather
+    // than published as though they were absolute — and here that is right where it is
+    // wrong above, because nothing downstream will ever rebase a subtree that came from
+    // the index: `xmppSignedPreKey(t)` in a job generator reads a key pair the job
+    // fetched, not an argument anybody passes.
     if let Some(call) = as_call(node)
         && let Some((module, func)) = require_member_call(&call.callee)
         && let Some(tree) = helpers.get(&module, &func)
     {
         let mut tree = tree.clone();
-        match call_arg_path(call, 0, scope, module_source, ref_off) {
+        match helper_prefix(call, scope, module_source, ref_off) {
             Some(prefix) => prefix_arg_paths(&mut tree, &prefix),
             None => clear_arg_paths(&mut tree),
         }
@@ -1849,6 +1882,12 @@ mod tests {
     /// machinery has a reference context and an argument root to work from. [`resolve`]
     /// deliberately has neither.
     fn resolve_builder(code: &str, fn_name: &str) -> Vec<WapChildNode> {
+        resolve_builder_with(code, fn_name, &HelperIndex::default())
+    }
+
+    /// [`resolve_builder`] with a seeded cross-module helper index, so the branch that
+    /// inlines an indexed subtree can be exercised.
+    fn resolve_builder_with(code: &str, fn_name: &str, helpers: &HelperIndex) -> Vec<WapChildNode> {
         let alloc = Allocator::default();
         let ret = wa_oxc::parse_cjs(&alloc, code);
         let scope = build_var_scope(&ret.program);
@@ -1858,16 +1897,7 @@ mod tests {
             .get(fn_name)
             .and_then(|inits| inits.iter().find_map(|vi| vi.fn_body))
             .unwrap_or_else(|| panic!("no function body for `{fn_name}`"));
-        let out = resolve_function_return(
-            bs,
-            be,
-            &scope,
-            code,
-            &aliases,
-            None,
-            &HelperIndex::default(),
-            0,
-        );
+        let out = resolve_function_return(bs, be, &scope, code, &aliases, None, helpers, 0);
         // A builder returns the `<iq>`; the tests are about its children, which is also
         // what the IQ scanner keeps.
         match out.as_slice() {
@@ -2175,6 +2205,94 @@ mod tests {
             path_of(&u.attrs[0].arg_path),
             vec![("jid".to_string(), false)]
         );
+    }
+
+    #[test]
+    fn a_nested_helpers_local_does_not_shadow_its_parents() {
+        // A nested function's body lies inside its parent's byte range, so a range test
+        // alone counts `h`'s `var x` as an initializer of the parent's `x`. Under the
+        // ambiguity rule that does not merely pick wrong — it sees two disagreeing
+        // sources and drops the parent's perfectly good path.
+        let code = r#"
+            function b(e){ var x = e.outer;
+              function h(e){ var x = e.inner; return o("WASmaxJsx").smax("inner", {v: x}); }
+              return o("WASmaxJsx").smax("iq", null, o("WASmaxJsx").smax("outer", {v: x})); }
+        "#;
+        let out = resolve_builder(code, "b");
+        let n = out.iter().find(|c| c.tag == "outer").expect("outer");
+        assert_eq!(
+            path_of(&n.attrs[0].arg_path),
+            vec![("outer".to_string(), false)]
+        );
+    }
+
+    /// A one-attribute `<user>` whose `jid` sits at `userJid` relative to the helper that
+    /// built it — the shape the cross-module index stores.
+    fn indexed_user_helper() -> HelperIndex {
+        let user = WapChildNode {
+            tag: "user".to_string(),
+            attrs: vec![WapAttrDef {
+                name: "jid".to_string(),
+                kind: WapAttrKind::UserJid,
+                value: None,
+                required: true,
+                enum_ref: None,
+                arg_path: Some(vec![WapArgSegment {
+                    key: "userJid".to_string(),
+                    list: false,
+                }]),
+            }],
+            ..Default::default()
+        };
+        HelperIndex::with("WAWebUserApi", "userNode", vec![user])
+    }
+
+    #[test]
+    fn a_cross_module_helper_handed_the_whole_argument_object_keeps_its_paths() {
+        // `helper(e)` passes the caller's own argument object, so the helper's frame IS
+        // the caller's and the right prefix is nothing. An empty prefix is a RESULT, and
+        // reading it as a failure cleared paths that were already absolute and correct.
+        let code = r#"
+            function b(e){ return o("WASmaxJsx").smax("iq", null, o("WAWebUserApi").userNode(e)); }
+        "#;
+        let out = resolve_builder_with(code, "b", &indexed_user_helper());
+        let u = out.iter().find(|c| c.tag == "user").expect("user");
+        assert_eq!(
+            path_of(&u.attrs[0].arg_path),
+            vec![("userJid".to_string(), false)],
+            "no prefix needed, and none applied"
+        );
+    }
+
+    #[test]
+    fn a_cross_module_helper_handed_a_keyed_argument_is_prefixed() {
+        let code = r#"
+            function b(e){ var a = e.userArgs;
+              return o("WASmaxJsx").smax("iq", null, o("WAWebUserApi").userNode(a)); }
+        "#;
+        let out = resolve_builder_with(code, "b", &indexed_user_helper());
+        let u = out.iter().find(|c| c.tag == "user").expect("user");
+        assert_eq!(
+            path_of(&u.attrs[0].arg_path),
+            vec![
+                ("userArgs".to_string(), false),
+                ("userJid".to_string(), false)
+            ]
+        );
+    }
+
+    #[test]
+    fn a_cross_module_helper_handed_something_unnameable_keeps_nothing() {
+        // The index is built with no call site in view, so nothing downstream will ever
+        // rebase this subtree. A path relative to a frame nobody can name is a wrong
+        // address, and a wrong address is worse than an absent one.
+        let code = r#"
+            function b(e){ return o("WASmaxJsx").smax("iq", null,
+              o("WAWebUserApi").userNode({jid: e.userJid})); }
+        "#;
+        let out = resolve_builder_with(code, "b", &indexed_user_helper());
+        let u = out.iter().find(|c| c.tag == "user").expect("user");
+        assert!(u.attrs[0].arg_path.is_none(), "{:?}", u.attrs[0]);
     }
 
     #[test]
